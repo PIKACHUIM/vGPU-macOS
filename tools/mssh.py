@@ -16,6 +16,7 @@ Examples:
 import argparse
 import os
 import pathlib
+import shlex
 import sys
 
 try:
@@ -62,8 +63,21 @@ def connect():
     return client
 
 
-def run(client, command: str, timeout: float | None) -> int:
-    _, stdout, stderr = client.exec_command(command, timeout=timeout, get_pty=False)
+def run(client, command: str, timeout: float | None,
+        use_sudo: bool = False, password: str | None = None) -> int:
+    if use_sudo:
+        # -S reads the password from stdin, -p '' suppresses the prompt text.
+        # The password stays off the remote command line.
+        remote = f"sudo -S -p '' bash -c {shlex.quote(command)}"
+    else:
+        remote = command
+
+    stdin, stdout, stderr = client.exec_command(remote, timeout=timeout, get_pty=False)
+    if use_sudo:
+        stdin.write((password or "") + "\n")
+        stdin.flush()
+        stdin.channel.shutdown_write()
+
     out = stdout.read().decode("utf-8", "replace")
     err = stderr.read().decode("utf-8", "replace")
     status = stdout.channel.recv_exit_status()
@@ -89,6 +103,8 @@ def main() -> int:
     ap.add_argument("-e", "--env-file", default=str(DEFAULT_ENV_FILE))
     ap.add_argument("-t", "--timeout", type=float, default=120.0)
     ap.add_argument("--put", nargs=2, metavar=("LOCAL", "REMOTE"))
+    ap.add_argument("-s", "--sudo", action="store_true",
+                    help="run the remote command under sudo -S (password fed on stdin)")
     ap.add_argument("command", nargs="*", help="remote command (joined by spaces)")
     args = ap.parse_args()
 
@@ -104,7 +120,8 @@ def main() -> int:
     try:
         if args.put:
             return put(client, args.put[0], args.put[1])
-        return run(client, command, args.timeout)
+        return run(client, command, args.timeout,
+                   use_sudo=args.sudo, password=os.environ.get("VG_PASS"))
     finally:
         client.close()
 
