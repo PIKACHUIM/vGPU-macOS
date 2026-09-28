@@ -17,6 +17,7 @@ import argparse
 import os
 import pathlib
 import shlex
+import stat
 import sys
 import time
 
@@ -122,6 +123,40 @@ def put(client, local: str, remote: str) -> int:
     return 0
 
 
+def get(client, remote: str, local: str) -> int:
+    """Pull a file, or a whole directory tree when `remote` is a directory."""
+    sftp = client.open_sftp()
+
+    def walk(remote_dir: str, local_dir: str) -> int:
+        pathlib.Path(local_dir).mkdir(parents=True, exist_ok=True)
+        count = 0
+        for entry in sftp.listdir_attr(remote_dir):
+            remote_path = f"{remote_dir.rstrip('/')}/{entry.filename}"
+            local_path = str(pathlib.Path(local_dir) / entry.filename)
+            if stat.S_ISDIR(entry.st_mode):
+                count += walk(remote_path, local_path)
+            else:
+                sftp.get(remote_path, local_path)
+                count += 1
+        return count
+
+    try:
+        try:
+            mode = sftp.stat(remote).st_mode
+        except FileNotFoundError:
+            sys.exit(f"no such remote path: {remote}")
+        if stat.S_ISDIR(mode):
+            count = walk(remote, local)
+            print(f"downloaded {count} file(s) {remote} -> {local}")
+        else:
+            pathlib.Path(local).parent.mkdir(parents=True, exist_ok=True)
+            sftp.get(remote, local)
+            print(f"downloaded {remote} -> {local}")
+    finally:
+        sftp.close()
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(add_help=True, description=__doc__)
     ap.add_argument("-e", "--env-file", default=str(DEFAULT_ENV_FILE))
@@ -131,6 +166,8 @@ def main() -> int:
     ap.add_argument("-r", "--retries", type=int, default=1,
                     help="connect attempts, useful for polling a booting guest")
     ap.add_argument("--put", nargs=2, metavar=("LOCAL", "REMOTE"))
+    ap.add_argument("--get", nargs=2, metavar=("REMOTE", "LOCAL"),
+                    help="download a file, or a directory tree, from the guest")
     ap.add_argument("-s", "--sudo", action="store_true",
                     help="run the remote command under sudo -S (password fed on stdin)")
     ap.add_argument("command", nargs="*", help="remote command (joined by spaces)")
@@ -139,15 +176,17 @@ def main() -> int:
     load_env_file(pathlib.Path(args.env_file))
 
     command = " ".join(args.command).strip()
-    if not command and not args.put:
+    if not command and not args.put and not args.get:
         command = sys.stdin.read().strip()
-    if not command and not args.put:
+    if not command and not args.put and not args.get:
         sys.exit("no command given")
 
     client = connect(args.connect_timeout, args.retries)
     try:
         if args.put:
             return put(client, args.put[0], args.put[1])
+        if args.get:
+            return get(client, args.get[0], args.get[1])
         return run(client, command, args.timeout,
                    use_sudo=args.sudo, password=os.environ.get("VG_PASS"))
     finally:
