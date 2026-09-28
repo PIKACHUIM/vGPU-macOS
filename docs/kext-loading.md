@@ -218,15 +218,77 @@ Two side notes that cost time to learn:
   the request disappears. So a bundle path that does not survive a reboot (`/tmp`) poisons the
   one chance the request had.
 
-### Two unblocks
+### Route A (KDK) was executed, and it does not solve this
+
+Measured 2026-09-29. The KDK was obtained and installed, so every "Missing Developer Kit"
+error is gone — and it changed nothing, because the KDK is not on the path that matters.
+
+**What was done.** `Kernel_Debug_Kit_15.7.3_build_24G419.dmg` (924 MB) from the
+`dortania/KdkSupportPkg` GitHub releases, which mirrors KDKs without an Apple ID.
+**SHA-256 verified** against the release's own `SHA256SUM` before use:
+
+```
+39653d7ea22c24a5eaeccedde1ba5bcd0599be0c415e3e0b732b228f09bf184a
+```
+
+then `hdiutil attach` + `installer -pkg` → `/Library/Developer/KDKs/KDK_15.7.3_24G419.kdk/`.
+
+**What it did not do.** Every route to the auxiliary collection is still closed:
+
+| Attempt | Result |
+|---|---|
+| `kmutil create --update-all` | `Code=30 Read-only file system` — it wants to rebuild the **boot and system** collections, which live on the sealed System volume |
+| `kmutil install --update-all` | same, for each variant; debug/development/research/kasan additionally fail with `Could not find: kernel mach-o at //System/Library/Kernels/kernel.<variant>` (the KDK ships release only) |
+| `kmutil create -z -n aux` | `Code=31 Cannot build pageableKC/auxKC without baseKC` |
+| `kmutil create -z -n boot -n aux` | same `without baseKC` |
+| `kmutil create -z -n boot aux` | `aux` is parsed as the kernel path → `Invalid argument: kernel path` |
+| `kmutil configure-boot --help` | recovery-mode only, and it installs a *custom boot object* (a kernel). Not a policy bypass |
+| after the KDK, `kmutil load -z` + reboot | `com.vgpu.framebuffer` **still** never reaches the auxiliary collection, and kernelmanagerd never mentions it, while `com.vgpu.probe` remains in the loaded auxiliary collection |
+
+**The reason is in `kmutil(8)` itself:**
+
+> **create**: This command should only be used by developers investigating custom kernels or
+> replacing the contents of the boot kext collection or system kext collection. **As of
+> macOS 13.0, a KDK is required to create a new boot or system kext collection.**
+>
+> **INSTALLING**: a kext is only loadable once it has been built into the auxiliary kext
+> collection by `kernelmanagerd(8)` … If `kmutil load`, `kextload(8)`, or any invocation of a
+> KextManager function attempts to load a kext that is not yet loadable, `kernelmanagerd(8)`
+> will stage the kext into a protected location, validate it, and **prompt the user to
+> approve a rebuild** of the auxiliary kext collection.
+
+So the KDK unlocks only `create -n boot/sys`. Third-party kexts go through kernelmanagerd, and
+the documented step is **a user approval**:
+
+```
+$ sudo kmutil rebuild
+Checking the auxiliary kernel collection...
+Attempting to add the following extensions (1):
+[+] com.vgpu.probe	1.0.0	/Library/Extensions/vgpuProbe.kext
+Attempting to remove the following extensions (1):
+[-] com.vgpu.probe	1.0.0	/private/tmp/vgpu-probe/build/vgpuProbe.kext
+Requesting user approval (times out in 60 seconds)...
+Error Domain=com.apple.LocalAuthentication Code=-6 "Biometry is not available on this device."  (rc 250)
+```
+
+`kmutil rebuild` takes **no options at all** — not even `-z` — so there is no way to skip it.
+Its plan is correct (add the `/Library/Extensions` bundle, drop the stale `/tmp` one) and it
+then dies waiting for an approval a headless guest cannot give.
+
+**Conclusion.** The only remaining blocker is a single interactive approval that needs a
+logged-in GUI session. Everything else is now ruled out with evidence: not SIP, not consent
+(`spctl kext-consent status` is `DISABLED`), not the consent database (rows exist for both
+kexts), not `_kmod_info`, not a missing library declaration, and not the KDK.
+
+### The two routes still standing
 
 | Route | Cost | Notes |
 |---|---|---|
-| **A. Install the KDK for 24G419** | ~1.5 GB download from Apple's developer downloads, needs an Apple ID | then `kmutil create --update-all` can build the auxiliary collection containing our kexts; keeps the current `/Library/Extensions` flow |
-| **B. OpenCore `Kernel -> Add`** | no download; change the boot path (ESP) | injects at prelink into the Boot KC — no KDK, no collection, no approval prompt. This is what `MacHyperVSupport` documents for `MacHyperVFramebuffer`, and it requires `IOGraphicsFamily` to be injected with `Force`. It also gives us `NVRAM -> Add` for `csr-active-config`, so the offline-NVRAM trick becomes unnecessary |
+| **A′. Log in at the console once and approve** | one console login | `kmutil rebuild` already prints the correct plan; with a GUI session the approval prompt can be shown and answered. `tools/vncsnap.py` can already *see* the guest, so it needs keyboard support added to drive the login |
+| **B. OpenCore `Kernel -> Add`** | change the boot path (ESP); no KDK needed | injects at prelink into the Boot KC — no collection, no prompt. This is what `MacHyperVSupport` documents for `MacHyperVFramebuffer`, and it also gives `NVRAM -> Add` for `csr-active-config`. Its open question is that `IOGraphicsFamily` has no on-disk binary to inject |
 
-B is the one the evidence points at: it is the route the reference implementation actually
-ships, and it removes the collection dependency entirely.
+An OpenCore tree is already staged on the guest's ESP by `tools/oc-build.py`; it has no boot
+entry yet, and that is the one step left on that route.
 
 ## What this unblocks
 
@@ -243,8 +305,9 @@ running**:
   `setDisplayMode`, `enableController`, `isConsoleDevice`, `getAttribute` and the cursor trio,
   and offers a wired contiguous physical block (4 modes up to 1920x1080x32) as the system
   aperture.
-- It has not executed on the machine yet: `isConsoleDevice()` returns false, and it is
-  waiting on unblock A or B above before its `start()` can ever run.
+- It has not executed on the machine yet: `isConsoleDevice()` returns false, and its `start()`
+  has never run. It is waiting on A′ (one console login to approve the auxiliary collection
+  rebuild) or B (OpenCore prelink injection) from the table above.
 
 So the binding assumption of risk R1 is "yes, the interface is understood"; what remains is an
 environment problem, not a code problem.
