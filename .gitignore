@@ -52,3 +52,7 @@ build/
 __pycache__/
 *.pyc
 .nvram-backups/
+
+# --- local scratch: downloaded toolchains, generated trees, screenshots ---
+.oc/
+.shots/
