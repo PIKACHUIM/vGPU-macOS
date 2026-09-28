@@ -42,3 +42,12 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# --- vGPU-macOS local ---
+.env.local
+refs/
+build/
+*.log
+.pylibs/
+__pycache__/
+*.pyc
