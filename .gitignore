@@ -51,3 +51,4 @@ build/
 .pylibs/
 __pycache__/
 *.pyc
+.nvram-backups/

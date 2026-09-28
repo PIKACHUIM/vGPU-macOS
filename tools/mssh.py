@@ -18,6 +18,7 @@ import os
 import pathlib
 import shlex
 import sys
+import time
 
 try:
     import paramiko
@@ -40,7 +41,14 @@ def load_env_file(path: pathlib.Path) -> None:
         os.environ.setdefault(key.strip(), value.strip().strip("'\""))
 
 
-def connect():
+def connect(connect_timeout: float = 30.0, retries: int = 1, retry_delay: float = 10.0):
+    """Open an SSH session, optionally retrying while the guest is still booting.
+
+    A VMware macOS guest can have sshd's listening socket open long before it
+    answers, which surfaces as "Error reading SSH protocol banner". paramiko's
+    banner timeout defaults to 15 s, far too short for a guest under load, so
+    every timeout here is derived from connect_timeout.
+    """
     host = os.environ.get("VG_HOST")
     user = os.environ.get("VG_USER")
     password = os.environ.get("VG_PASS")
@@ -49,18 +57,34 @@ def connect():
     if missing:
         sys.exit(f"missing credentials: {', '.join(missing)} (set them or create {DEFAULT_ENV_FILE})")
 
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(
-        hostname=host,
-        port=port,
-        username=user,
-        password=password,
-        look_for_keys=False,
-        allow_agent=False,
-        timeout=20,
-    )
-    return client
+    last: Exception | None = None
+    for attempt in range(1, max(1, retries) + 1):
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            client.connect(
+                hostname=host,
+                port=port,
+                username=user,
+                password=password,
+                look_for_keys=False,
+                allow_agent=False,
+                timeout=connect_timeout,
+                banner_timeout=connect_timeout,
+                auth_timeout=connect_timeout,
+            )
+            return client
+        except Exception as exc:  # noqa: BLE001 - retry any transport-level failure
+            last = exc
+            client.close()
+            if attempt < retries:
+                print(
+                    f"[mssh] connect attempt {attempt}/{retries} failed "
+                    f"({type(exc).__name__}: {exc}); retrying in {retry_delay:.0f}s",
+                    file=sys.stderr,
+                )
+                time.sleep(retry_delay)
+    raise SystemExit(f"ssh connect failed after {retries} attempt(s): {last}")
 
 
 def run(client, command: str, timeout: float | None,
@@ -102,6 +126,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(add_help=True, description=__doc__)
     ap.add_argument("-e", "--env-file", default=str(DEFAULT_ENV_FILE))
     ap.add_argument("-t", "--timeout", type=float, default=120.0)
+    ap.add_argument("-c", "--connect-timeout", type=float, default=30.0,
+                    help="TCP/banner/auth timeout for the SSH handshake (default 30s)")
+    ap.add_argument("-r", "--retries", type=int, default=1,
+                    help="connect attempts, useful for polling a booting guest")
     ap.add_argument("--put", nargs=2, metavar=("LOCAL", "REMOTE"))
     ap.add_argument("-s", "--sudo", action="store_true",
                     help="run the remote command under sudo -S (password fed on stdin)")
@@ -116,7 +144,7 @@ def main() -> int:
     if not command and not args.put:
         sys.exit("no command given")
 
-    client = connect()
+    client = connect(args.connect_timeout, args.retries)
     try:
         if args.put:
             return put(client, args.put[0], args.put[1])
