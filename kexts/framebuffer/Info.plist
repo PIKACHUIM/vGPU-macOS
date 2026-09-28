@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>vgpuFramebuffer</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.vgpu.framebuffer</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>vgpuFramebuffer</string>
+	<key>CFBundlePackageType</key>
+	<string>KEXT</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+	<key>CFBundleVersion</key>
+	<string>1.0.0</string>
+	<key>IOKitPersonalities</key>
+	<dict>
+		<key>vgpuFramebuffer</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>com.vgpu.framebuffer</string>
+			<key>IOClass</key>
+			<string>vgpuFramebuffer</string>
+			<!-- Claiming the IOFramebuffer match category is what makes the graphics
+			     family adopt this service rather than treat it as a plain IOService. -->
+			<key>IOMatchCategory</key>
+			<string>IOFramebuffer</string>
+			<key>IOProbeScore</key>
+			<integer>0</integer>
+			<key>IOProviderClass</key>
+			<string>IOResources</string>
+		</dict>
+	</dict>
+	<key>OSBundleLibraries</key>
+	<dict>
+		<!-- IOGraphicsFamily must be listed. OSDefineMetaClassAndStructors makes our
+		     metaclass point at IOFramebuffer's, and the collection builder only searches
+		     libraries we have named. Omitting it fails with:
+		       Cannot find symbol for metaclass pointed to by
+		       '__ZN15vgpuFramebuffer10superClassE'. Expected symbol
+		       '__ZN13IOFramebuffer10gMetaClassE' to be defined in another kext
+
+		     Note the asymmetry in how that surfaces:
+		       kextutil -v <kext>   -> Code=31 with the message above (useful)
+		       kmutil load -z -p    -> Code=28 "requires a reboot" (message swallowed)
+		     kextutil is a thin wrapper over `kmutil load --bundle-path`, so when a load
+		     seems to "just need a reboot", re-run it through kextutil for the real error. -->
+		<key>com.apple.iokit.IOGraphicsFamily</key>
+		<string>1.0.0b1</string>
+		<key>com.apple.kpi.iokit</key>
+		<string>12.0.0</string>
+		<key>com.apple.kpi.libkern</key>
+		<string>12.0.0</string>
+		<key>com.apple.kpi.mach</key>
+		<string>12.0.0</string>
+	</dict>
+</dict>
+</plist>

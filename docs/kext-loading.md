@@ -164,10 +164,87 @@ log show --last 5m --predicate 'eventMessage CONTAINS "unsigned kext loaded"'
   non-root `sh build.sh` fails with `rm: ... Permission denied`; chown back first.
 - `/Library/Extensions` is writable **without** touching SIP — it lives on the Data volume.
 
+## Leaf kexts load; anything that subclasses a family class does not
+
+Measured 2026-09-28 evening, after the B0 stage-1 kext (`kexts/framebuffer/`) was built.
+
+| Kext | Class | `kmutil load -z -p` | After a reboot |
+|---|---|---|---|
+| `com.vgpu.probe` | `IOService`, kpi deps only | **loads immediately** — silently, no output | direct-loaded again (`directLoadAuxiliaryExtensions`) |
+| `com.vgpu.framebuffer` | `IOFramebuffer` + IOGraphicsFamily | `Code=28 "requires a reboot"` | **never loads**; kernelmanagerd never even mentions it |
+
+The probe loads and runs, repeatedly, with `signed @none`. So unsigned kexts are fine. The
+difference is what the kext's class derives from.
+
+### The mechanism
+
+`kmutil load` will hot-load a kext whose dependencies are already resident **and** which does
+not introduce a class into a prelinked family's hierarchy. The probe qualifies. A kext that
+subclasses `IOFramebuffer` — a class from `IOGraphicsFamily`, which lives in the System Kernel
+Collection — has to be linked **into a kernel collection**, so `kmutil load` returns
+`kKernelRequiresReboot` instead.
+
+The reboot does not deliver it. kernelmanagerd direct-loads only kexts already in the
+auxiliary collection or in a pending request list, and a never-committed kext never enters
+either. Committing it means rebuilding the auxiliary collection, and every route to that is
+closed here:
+
+```
+kmutil create --update-all
+  -> Code=71 "Missing Developer Kit: As of macOS 13.0, you will need to install a KDK
+     matching your build 24G419 to rebuild kernel collections."
+kmutil install --update-all
+  -> same Code=71 (and it warns that --update-all is deprecated in favour of create)
+kmutil rebuild
+  -> takes NO options at all (not even -z), and blocks on
+     com.apple.LocalAuthentication Code=-6 "Biometry is not available on this device" (rc 250)
+--kdk <path>
+  -> pointed at the Command Line Tools SDK, still Code=71
+```
+
+And there is no KDK to point at: `/Library/Developer/KDKs/` does not exist. `/System/Library/
+Kernels/kernel` (18 MB) is present but does not satisfy the check.
+
+Two side notes that cost time to learn:
+
+- **`kmutil load -z` hides the real error.** After wrongly removing the IOGraphicsFamily
+  declaration it reported `Code=28 "requires a reboot"` — the same message as for a kext that
+  legitimately needs a collection. `kextutil -v <kext>` is a thin wrapper over
+  `kmutil load --bundle-path` and prints the actual failure (there: `Cannot find symbol for
+  metaclass pointed to by '__ZN15vgpuFramebuffer10superClassE'`). **When a load "just needs a
+  reboot", re-run it through `kextutil`.**
+- **A pending request is not durable across a rebuild.** After a boot in which
+  kernelmanagerd tried and failed to install a kext (`Installation check: missing bundle ...`),
+  the request disappears. So a bundle path that does not survive a reboot (`/tmp`) poisons the
+  one chance the request had.
+
+### Two unblocks
+
+| Route | Cost | Notes |
+|---|---|---|
+| **A. Install the KDK for 24G419** | ~1.5 GB download from Apple's developer downloads, needs an Apple ID | then `kmutil create --update-all` can build the auxiliary collection containing our kexts; keeps the current `/Library/Extensions` flow |
+| **B. OpenCore `Kernel -> Add`** | no download; change the boot path (ESP) | injects at prelink into the Boot KC — no KDK, no collection, no approval prompt. This is what `MacHyperVSupport` documents for `MacHyperVFramebuffer`, and it requires `IOGraphicsFamily` to be injected with `Force`. It also gives us `NVRAM -> Add` for `csr-active-config`, so the offline-NVRAM trick becomes unnecessary |
+
+B is the one the evidence points at: it is the route the reference implementation actually
+ships, and it removes the collection dependency entirely.
+
 ## What this unblocks
 
-Stage **B0/B1** of `docs/plan.md`. The binding assumption was "can a third-party graphics
-kext be registered on modern macOS at all" (risk R1, and the B0 gate). The mechanism now
-works end to end, and `refs/MacHyperVSupport`'s `MacHyperVFramebuffer` shows the next step
-is `IOFramebuffer`, not `IOAccelerator` — a kext that ships a linear framebuffer and lets
-WindowServer drive it.
+To be precise about where B0 stands. Stage 1 of the gate asked "can a framebuffer we wrote
+be published through `IOFramebuffer`?" — that is now **built and validated but not yet
+running**:
+
+- `kexts/framebuffer/` compiles with Command Line Tools alone, carries `_kmod_info`, embeds
+  `__TEXT,__info_plist`, declares IOGraphicsFamily, and passes the collection builder's
+  link check (364 undefined symbols resolve against the resident families).
+- It implements the 8 pure virtuals — `getApertureRange`, `getPixelFormats`,
+  `getDisplayModeCount`, `getDisplayModes`, `getInformationForDisplayMode`,
+  `getPixelFormatsForDisplayMode`, `getPixelInformation`, `getCurrentDisplayMode` — plus
+  `setDisplayMode`, `enableController`, `isConsoleDevice`, `getAttribute` and the cursor trio,
+  and offers a wired contiguous physical block (4 modes up to 1920x1080x32) as the system
+  aperture.
+- It has not executed on the machine yet: `isConsoleDevice()` returns false, and it is
+  waiting on unblock A or B above before its `start()` can ever run.
+
+So the binding assumption of risk R1 is "yes, the interface is understood"; what remains is an
+environment problem, not a code problem.
