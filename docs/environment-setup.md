@@ -82,13 +82,42 @@ Consequences:
 - **`/Library/Extensions` is writable without touching SIP** (it is a firmlink onto the Data
   volume). So installing a kext there needs no SIP change; only *loading* it might.
 - **`kmutil load` has `-z / --no-authorization`** ("Skip approval checks for this action").
-  This is a documented developer escape hatch. **Untested** — if it loads an unsigned kext on a
-  SIP-enabled system, §3 can be skipped entirely. Test it as soon as CLT is installed.
-- `boot-args` being writable matters independently: `amfi_get_out_of_my_way=0x1` remains
-  available as a second lever if `kmutil -z` is not enough.
+  It looks like a developer escape hatch, but it is **not** one for signatures — measured, it only
+  skips ownership/approval checks. See §2.1.
+- `boot-args` being writable matters independently: it is the only NVRAM lever we have, and
+  `amfi_get_out_of_my_way=0x1` remains available — though §2.1 explains why it is not expected to
+  be enough on its own.
 
 **Ordering constraint:** the §3 reboot would interrupt a running CLT download. Do §1 to
 completion first.
+
+### 2.1 Authorization probes — measured, all negative
+
+Run against `kexts/probe` (a trivial unsigned `IOService` subclass that logs on start).
+Build: `sh kexts/probe/build.sh` on the guest — CLT alone is sufficient, no Xcode project.
+
+| # | Attempt | Result |
+|---|---|---|
+| A | `kmutil load -p vgpuProbe.kext` | `Error Domain=KMErrorDomain Code=30` … `Invalid ownership (501:0) should be (0:0)` and `Authenticating extension failed: Bad code signature` |
+| A′ | after `chown -R 0:0` | ownership errors gone; **`Authenticating extension failed: Bad code signature`** |
+| B | `kmutil load -z -p …` (`--no-authorization`) | **still fails**, `Code=29`, `Bad code signature`. `-z` skips the *ownership/approval* checks, **not** the signature authentication |
+| C | `codesign --force --sign -` (ad-hoc), then load | **still fails**, `Code=29`, `Bad code signature` — kmutil wants an Apple-trusted kext signature, not merely *a* signature |
+
+So on this guest, with SIP enabled, there is **no cheap way in**:
+
+- `kmutil` performs the signature gate in **userspace, before the kernel is involved**, which is
+  also why `boot-args`/`amfi_get_out_of_my_way=0x1` is not expected to help (untested — it acts on
+  kernel-side AMFI, downstream of where we are being rejected).
+- `-z` is worth remembering for *ownership* problems only.
+- The gate is exactly `csr_check(CSR_ALLOW_UNTRUSTED_KEXTS)` — i.e. **the SIP bit**, and only the
+  SIP bit.
+
+Two ways to set that bit, and only two:
+
+| Path | How | Trade-off |
+|---|---|---|
+| **Recovery** (§3) | `csrutil disable` at the console | Console-bound, two reboots. Does **not** give us a kext-injection mechanism |
+| **OpenCore** | Put OpenCore on the EFI partition and set `csr-active-config` in its `NVRAM → Add` section | **Fully remote**, no console. Sets SIP at boot *and* provides the boot-time kext injection that the H1-b plan already calls for. Risk: a bad `config.plist` can stop the guest booting (snapshot first) |
 
 ---
 
