@@ -1,0 +1,11 @@
+{
+  "_comment": "Disable SIP by appending csr-active-config. Apply with: python tools/nvramdump.py <vm>.nvram --rebuild out.nvram tools/nvram-edits/csr-disable.json  (the VM must be powered off). Value ff000000 is read little-endian => CSR_ALLOW_UNTRUSTED_KEXTS plus every other allow bit. If csrutil still reports enabled after a boot, retry with 7f000000 (what `csrutil disable` writes) to tell 'record ignored' apart from 'wrong bit'.",
+  "sets": [
+    {
+      "name": "csr-active-config",
+      "guid": "7c436110-ab2a-4bbb-a880-fe41995c9f82",
+      "attributes": 7,
+      "value_hex": "ff000000"
+    }
+  ]
+}

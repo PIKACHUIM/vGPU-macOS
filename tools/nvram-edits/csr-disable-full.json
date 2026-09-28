@@ -1,0 +1,11 @@
+{
+  "_comment": "Fully disable SIP, including authenticated root and base-system verification. Apply with: python tools/nvramdump.py <vm>.nvram --rebuild out.nvram tools/nvram-edits/csr-disable-full.json  (the VM must be powered off). Value 0x00000fff sets every CSR_ALLOW_* bit: UNTRUSTED_KEXTS|UNRESTRICTED_FS|TASK_FOR_PID|KERNEL_DEBUGGER|APPLE_INTERNAL|UNRESTRICTED_DTRACE|UNRESTRICTED_NVRAM|DEVICE_CONFIGURATION|ANY_RECOVERY_OS|UNAPPROVED_KEXTS|EXECUTABLE_POLICY_OVERRIDE|UNAUTHENTICATED_ROOT. It is written as ff0f0000 because the kernel reads the 4 bytes little-endian. csr-disable.json (ff000000) is the smaller 'csrutil disable' equivalent that leaves authenticated root alone.",
+  "sets": [
+    {
+      "name": "csr-active-config",
+      "guid": "7c436110-ab2a-4bbb-a880-fe41995c9f82",
+      "attributes": 7,
+      "value_hex": "ff0f0000"
+    }
+  ]
+}

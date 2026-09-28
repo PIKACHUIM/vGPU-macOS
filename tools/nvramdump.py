@@ -179,6 +179,20 @@ def cmd_find(buf: bytes, name: str, as_hex: bool) -> int:
     return 0 if hits else 1
 
 
+def find_region_header(buf: bytes, store_start: int) -> tuple[int, int] | None:
+    """Locate the ``VMWNVRAM`` header that precedes the store.
+
+    Returns ``(signature_offset, length)``. The length is counted **from the
+    signature itself** and covers the 16-byte header plus every record, so it is
+    the field that has to grow whenever a record is appended.
+    """
+    sig = buf.rfind(b"VMWNVRAM", 0, store_start)
+    if sig < 0:
+        return None
+    _, length = struct.unpack_from("<II", buf, sig + 8)
+    return sig, length
+
+
 def encode_record(guid: str, attributes: int, name: str, value: bytes) -> bytes:
     name_raw = name.encode("utf-16-le") + b"\x00\x00"
     total = len(name_raw) + len(value)
@@ -196,8 +210,11 @@ def cmd_rebuild(buf: bytes, out_path: str, script_path: str) -> int:
     Script format:
         {"sets": [{"name": "csr-active-config", "guid": "7c436110-...",
                    "attributes": 7, "value_hex": "ff000000"}]}
-    A variable already present is replaced in place; a new one is appended at
-    the end of the record run.
+
+    A variable already present with the same encoded size is replaced in place.
+    A new variable is written over the erased (``0xFF``) tail and the region
+    length in the ``VMWNVRAM`` header is grown to match -- the image keeps its
+    size, which is how the firmware itself behaves.
     """
     script = json.loads(pathlib.Path(script_path).read_text(encoding="utf-8"))
     starts = find_store_start(buf)
@@ -211,8 +228,26 @@ def cmd_rebuild(buf: bytes, out_path: str, script_path: str) -> int:
         return 2
     end = recs[-1]["offset"] + recs[-1]["size"]
 
+    region_len_off = None
+    header = find_region_header(buf, start)
+    if header is None:
+        print("WARNING: no VMWNVRAM header found before the store", file=sys.stderr)
+    else:
+        sig_off, region_len = header
+        if sig_off + region_len == end:
+            region_len_off = sig_off + 12
+            print(f"region header @{sig_off}, length {region_len}, covers records up to {end} (consistent)")
+        else:
+            print(
+                f"WARNING: region length {region_len} at @{sig_off} does not reach the end of "
+                f"the records ({end}); refusing to touch the store",
+                file=sys.stderr,
+            )
+            return 4
+
     data = bytearray(buf)
     by_name = {r["name"]: r for r in recs}
+    added = 0
 
     for spec in script.get("sets", []):
         name = spec["name"]
@@ -229,19 +264,36 @@ def cmd_rebuild(buf: bytes, out_path: str, script_path: str) -> int:
             )
         elif existing:
             print(
-                f"WARNING: {name!r} exists at {existing['offset']} with size "
-                f"{existing['size']} but the new record is {len(new_rec)}; "
-                "in-place replace would shift every later offset",
+                f"ERROR: {name!r} exists at {existing['offset']} with size "
+                f"{existing['size']} but the new record is {len(new_rec)}; an in-place "
+                "replace would shift every later offset",
                 file=sys.stderr,
             )
             return 3
         else:
-            data[end:end] = new_rec
+            # Write over the erased tail; never resize the image.
+            if data[end : end + len(new_rec)] != b"\xff" * len(new_rec):
+                print(
+                    f"ERROR: {end} is not erased free space; refusing to overwrite live data",
+                    file=sys.stderr,
+                )
+                return 5
+            data[end : end + len(new_rec)] = new_rec
             print(f"appended {name!r} at {end} ({len(new_rec)} B); store end -> {end + len(new_rec)}")
             end += len(new_rec)
+            added += len(new_rec)
+
+    if added:
+        old = struct.unpack_from("<I", data, region_len_off)[0]
+        struct.pack_into("<I", data, region_len_off, old + added)
+        print(f"region length @0x{region_len_off:x}: {old} -> {old + added}")
+
+    if len(data) != len(buf):
+        print(f"ERROR: image changed size ({len(buf)} -> {len(data)})", file=sys.stderr)
+        return 6
 
     pathlib.Path(out_path).write_bytes(bytes(data))
-    print(f"wrote {out_path} ({len(data)} bytes, was {len(buf)})")
+    print(f"wrote {out_path} ({len(data)} bytes, image size unchanged)")
     return 0
 
 

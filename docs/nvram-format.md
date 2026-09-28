@@ -105,23 +105,36 @@ Only two GUIDs appear in the variable region on this guest:
 - **The file is live while the VM runs.** It changed (same size, different SHA-256) with no
   writes from the host. **Any offline edit requires the VM to be fully powered off.**
 
-## 6. What is still unverified
+## 6. Confirmed working (2026-09-28)
 
-**No checksum over the variable region was found** — the header carries none that is obvious,
-and the 16 bytes right after the region signature are `"VMWNVRAM"` + version + length. But
-this was **not confirmed by experiment**: the plan was to write `boot-args` from inside the
-guest, power off, and diff the file to see whether any header field moved as well.
+The open question in the first draft of this document was whether the firmware validates
+anything else — a checksum, a generation counter, a copy in the CMOS area. **It does not.**
+Two offline writes were made and both were accepted on the first boot:
 
-That experiment failed to run — the guest wedged before the write landed (see
-`docs/incident-2026-09-28-guest-hang.md`). The current file was restored byte-exact from
-`.nvram-backups/A-powered-off.bin`, and no `boot-args` was ever written.
+| # | Operation | Before | After | Result |
+|---|---|---|---|---|
+| 1 | append `csr-active-config` (variable absent) | region len 31337, records end 0x9C61 | 31405 / 0x9CA5, record written over erased `0xFF` | accepted |
+| 2 | replace it in place, same 68-byte record | value `ff000000` | value `ff0f0000` | accepted |
 
-So the first offline write is still a **two-outcome experiment**: either the firmware honours
-the appended record, or it rejects/ignores the store. Mitigations already in place:
+Evidence that the firmware took them, in increasing order of strength:
 
-- byte-exact backups of two states in `D:\Codes\vGPU-macOS\.nvram-backups\`
-- a VM snapshot, `pre-kext-dev-20260928`
-- the guest boots from a snapshot-backed APFS volume, so a bad NVRAM does not touch the disk
+- `nvram csr-active-config` **inside the guest** returned `%ff%00%00%00`, then `%ff%0f%00%00`.
+  The running system reads the value back out, so the record round-trips through firmware.
+- `csrutil status` flipped from `enabled` to a full custom configuration with every
+  protection off, and `csrutil authenticated-root status` flipped to `disabled` once bit 11
+  was included — so the kernel read and interpreted the value.
+- On the next boot the firmware **re-compacted the store**: our record moved from offset
+  40033 to 39222, then to 38848, keeping the value and attributes. Offsets are therefore
+  *not* stable across boots; a writer must always re-walk the store rather than remember a
+  position.
+
+The image size stayed 270840 bytes throughout, and only 68 bytes differed from the source
+file in the append case.
+
+**A caution this confirmed:** because the firmware rewrites the whole store on every boot,
+`--rebuild` must always be run against a **fresh dump of a powered-off VM**, never against a
+stale backup. Writing an old image back would silently revert whatever the guest had since
+persisted.
 
 ## 7. Procedure for the first offline write
 
@@ -141,17 +154,28 @@ vmrun -T ws start "E:/Vboxs/MacOSX/MacOS-R15/MacOS-R15.vmx" nogui
 # ... ssh in, run: csrutil status
 ```
 
-`edit.json`:
+Ready-made edit scripts live in `tools/nvram-edits/`:
 
-```json
-{"sets": [{"name": "csr-active-config",
-           "guid": "7c436110-ab2a-4bbb-a880-fe41995c9f82",
-           "attributes": 7,
-           "value_hex": "ff000000"}]}
-```
+| File | Value | Effect |
+|---|---|---|
+| `csr-disable.json` | `ff000000` (0xff) | the `csrutil disable` set — bits 0–7, kext signing off, authenticated root untouched |
+| `csr-disable-full.json` | `ff0f0000` (0xfff) | every `CSR_ALLOW_*` bit, including `UNAUTHENTICATED_ROOT` (0x800) and `ANY_RECOVERY_OS` (0x100) |
 
-The value byte order is the one thing to get right. `%ff%00%00%00` is the canonical
-`nvram csr-active-config=...` spelling and is read little-endian, giving `CSR_ALLOW_UNTRUSTED_KEXTS`
-(bit 0) plus every other allow bit. If `csrutil status` still reports enabled after the first
-attempt, try `7f000000` (what `csrutil disable` writes) before assuming the store was rejected —
-that distinguishes "record not honoured" from "wrong bit".
+The byte order is the one thing to get right: the kernel reads the four bytes **little-endian**.
+`%ff%0f%00%00` is 0x00000fff, i.e. bits 0 through 11. Measured breakdown of the two values:
+
+| | 0xff | 0xfff |
+|---|---|---|
+| Kext Signing | disabled | disabled |
+| Filesystem Protections / Debugging / DTrace / NVRAM | disabled | disabled |
+| BaseSystem Verification | enabled | disabled |
+| Authenticated Root | **enabled** | disabled |
+| `csrutil status` headline | unknown (Custom Configuration) | unknown (Custom Configuration) |
+
+Both values report as "unknown (Custom Configuration)" rather than plain "disabled", because
+they set `CSR_ALLOW_DEVICE_CONFIGURATION` (0x80), which `csrutil disable` does not. That label
+is cosmetic; the individual lines are what matter.
+
+If a write ever appears to be ignored, try `7f000000` (exactly what `csrutil disable` writes)
+before concluding the store was rejected — that distinguishes "record not honoured" from
+"wrong bit set".
