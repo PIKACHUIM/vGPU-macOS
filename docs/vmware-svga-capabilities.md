@@ -33,6 +33,46 @@ is VRAM offset 0, pitched at 4096, which interests the same 3 MB of VRAM that ou
 already covers. And the device is willing to go far beyond 1024x768: `SVGA_REG_MAX_WIDTH` and
 `SVGA_REG_MAX_HEIGHT` are 6688x5016.
 
+## The decisive limitation: 3D cannot be turned on for a macOS guest
+
+Everything above is secondary to this, which was measured on 2026-09-29 and closes the
+question of whether SVGA3D is usable here.
+
+The 3D path was found to be dormant on this guest: the command FIFO had never been
+initialised (`fifo min 0 max 0 next_cmd 0 stop 0 busy 0`), `SVGA_FIFO_3D_HWVERSION` was `0`,
+and the host had published no SVGA3D capabilities. The reason was in the host's own log:
+
+```
+SVGA3dCaps: host, at power on (3d disabled)
+```
+
+because the VM's configuration had no 3D setting. So `mks.enable3d = "TRUE"` was written to
+the configuration file with the VM powered off, and the result was:
+
+| Configuration | Power on |
+|---|---|
+| without `mks.enable3d` | starts normally |
+| with `mks.enable3d = "TRUE"` | **refused** — `vmrun start` returns "Unknown error", no VMX process starts, nothing is written to the log |
+
+Removing the key again lets the guest start. VMware validates the configuration at power-on
+and refuses 3D acceleration for a darwin guest, which is the same statement as its own
+documentation that 3D acceleration targets Windows and Linux guests. It is not a setting our
+driver can influence, and there is no second key that works.
+
+The consequence is sharper than "3D would be nice":
+
+- **There is no SVGA3D to use on a macOS guest.** The FIFO bring-up, the SVGA3D command set,
+  the DXBC shader path and the whole API layer that would carry Metal are behind a hypervisor
+  switch that refuses to open. A Metal driver on this platform has nothing to drive.
+- **What this kext does is therefore the whole of what is reachable on VMware**: a native
+  IOFramebuffer on the adapter's own VRAM, console owned by our driver, WindowServer
+  compositing into it. That is a real product — a macOS guest with a properly named, properly
+  owned display instead of a 3 MB firmware framebuffer reporting "No Kext Loaded".
+- **Metal, compute and the DXBC shader path belong to the paravirtualisation route** (the
+  QEMU + Apple paravirt device work in `docs/plan.md`), where the device model is ours to
+  write and a Vulkan backend can sit behind it. Video encode and decode are out of reach on
+  both.
+
 ## Acceleration: what you get
 
 | Capability | Status |

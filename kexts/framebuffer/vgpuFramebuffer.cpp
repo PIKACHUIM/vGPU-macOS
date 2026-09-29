@@ -81,6 +81,23 @@ enum {
     kSvgaRegVramSize     = 0x0F,
     kSvgaRegFbSize       = 0x10,
     kSvgaRegCapabilities = 0x11,
+    kSvgaRegMemStart     = 0x12,
+    kSvgaRegMemSize      = 0x13,
+};
+
+// FIFO registers are dwords inside the device memory region that SVGA_REG_MEM_START points
+// at. Indices, not byte offsets. The 3D capability block is what a driver reads to decide
+// which SVGA3D features the host will accept, so it is the definitive answer to "what can
+// this virtual GPU accelerate" -- measured rather than taken from a datasheet.
+enum {
+    kSvgaFifoMin         = 0,
+    kSvgaFifoMax         = 1,
+    kSvgaFifoNextCmd     = 2,
+    kSvgaFifoStop        = 3,
+    kSvgaFifoBusy        = 5,
+    kSvgaFifo3dHwVersion = 28,
+    kSvgaFifo3dCaps      = 34,
+    kSvgaFifo3dCapsCount = 64,
 };
 
 static const UInt16 kSvgaIndexPort = 0x00;   // offset within BAR0
@@ -125,8 +142,10 @@ private:
     IODeviceMemory           *_aperture       = nullptr;
 
     IODisplayModeID           _currentMode = 1;
+    UInt16                    _svgaPortBase = 0;
 
     bool readDeviceMode(IOPCIDevice *pci, UInt16 *portOut);
+    void probeFifo(IOPCIDevice *pci);
 
 public:
     //
@@ -182,6 +201,7 @@ bool vgpuFramebuffer::readDeviceMode(IOPCIDevice *pci, UInt16 *portOut) {
     }
     UInt16 portBase = (UInt16)io->getPhysicalAddress();
     *portOut = portBase;
+    _svgaPortBase = portBase;
 
     UInt32 id     = svgaReadRegister(portBase, kSvgaRegId);
     UInt32 enable = svgaReadRegister(portBase, kSvgaRegEnable);
@@ -222,6 +242,79 @@ bool vgpuFramebuffer::readDeviceMode(IOPCIDevice *pci, UInt16 *portOut) {
     _deviceFbOffset = offset;
     _deviceModeValid = true;
     return true;
+}
+
+//
+// Read the command FIFO's state and the host's SVGA3D capability block.
+//
+// The FIFO lives in the device memory region SVGA_REG_MEM_START points at. On this guest it
+// is BAR2, 8 MB, and the boot-time driver has already initialised it -- the device is enabled
+// and the cursor works, so the FIFO must be running. Everything here is a read: writing
+// SVGA_FIFO_MIN/MAX or SVGA_REG_CONFIG_DONE would re-initialise a FIFO that is already in
+// service, and that is a separate step to be taken only when a driver wants to own the
+// command stream.
+//
+// The 3D capability block (SVGA_FIFO_3D_CAPS) is the same table Mesa's svga driver reads to
+// decide which SVGA3D features exist. Dumping it here is what turns "VMware says the guest
+// gets OpenGL 4.3" into a measured list of what this particular device will accept.
+//
+void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
+    UInt32 memStart = svgaReadRegister(_svgaPortBase, kSvgaRegMemStart);
+    UInt32 memSize  = svgaReadRegister(_svgaPortBase, kSvgaRegMemSize);
+    IOLog(VGPU_FB_TAG ": svga mem start 0x%x size 0x%x\n", memStart, memSize);
+    if (memStart == 0 || memSize == 0) {
+        IOLog(VGPU_FB_TAG ": no device memory region, FIFO not reachable\n");
+        return;
+    }
+
+    IODeviceMemory *region = nullptr;
+    for (UInt32 index = 0; index < 6 && region == nullptr; index++) {
+        IODeviceMemory *bar = pci->getDeviceMemoryWithIndex(index);
+        if (bar != nullptr && bar->getPhysicalAddress() == memStart) {
+            region = bar;
+        }
+    }
+    if (region == nullptr) {
+        IOLog(VGPU_FB_TAG ": mem region 0x%x is not one of the BARs\n", memStart);
+        return;
+    }
+
+    IOMemoryMap *map = region->map();
+    if (map == nullptr) {
+        IOLog(VGPU_FB_TAG ": could not map the FIFO region\n");
+        return;
+    }
+    volatile UInt32 *fifo = (volatile UInt32 *)map->getVirtualAddress();
+
+    IOLog(VGPU_FB_TAG ": fifo min %u max %u next_cmd %u stop %u busy %u\n",
+          fifo[kSvgaFifoMin], fifo[kSvgaFifoMax],
+          fifo[kSvgaFifoNextCmd], fifo[kSvgaFifoStop], fifo[kSvgaFifoBusy]);
+    IOLog(VGPU_FB_TAG ": fifo 3d hw version 0x%x\n", fifo[kSvgaFifo3dHwVersion]);
+
+    // Count the capabilities the host advertises, and log the whole block. A capability
+    // value of zero terminates the list in some revisions; here it is a fixed-size block,
+    // so print all of it and let the reader match it against the SVGA3D device capability
+    // enum in Mesa's svga driver.
+    UInt32 nonZero = 0;
+    for (UInt32 i = 0; i < kSvgaFifo3dCapsCount; i++) {
+        UInt32 value = fifo[kSvgaFifo3dCaps + i];
+        if (value != 0) {
+            nonZero++;
+        }
+        // One line per capability is 64 log lines; compress to a run of eight per line.
+        if (i % 8 == 0) {
+            IOLog(VGPU_FB_TAG ": 3dcaps[%2u..%2u] %08x %08x %08x %08x %08x %08x %08x %08x\n",
+                  i, i + 7,
+                  fifo[kSvgaFifo3dCaps + i],     fifo[kSvgaFifo3dCaps + i + 1],
+                  fifo[kSvgaFifo3dCaps + i + 2], fifo[kSvgaFifo3dCaps + i + 3],
+                  fifo[kSvgaFifo3dCaps + i + 4], fifo[kSvgaFifo3dCaps + i + 5],
+                  fifo[kSvgaFifo3dCaps + i + 6], fifo[kSvgaFifo3dCaps + i + 7]);
+        }
+    }
+    IOLog(VGPU_FB_TAG ": 3d capabilities advertised: %u of %u non-zero\n",
+          nonZero, kSvgaFifo3dCapsCount);
+
+    map->release();
 }
 
 bool vgpuFramebuffer::start(IOService *provider) {
@@ -276,6 +369,17 @@ bool vgpuFramebuffer::start(IOService *provider) {
           _deviceWidth, _deviceHeight, _devicePitch, _deviceFbOffset);
     IOLog(VGPU_FB_TAG ": aperture phys 0x%llx length %llu\n",
           (unsigned long long)_apertureBase, (unsigned long long)_apertureLength);
+
+    // The name the system reports for this adapter. Without it system_profiler falls back to
+    // whatever the firmware left in the PCI "model" property, which is nothing useful on a
+    // virtual device.
+    setProperty("model", "VMware SVGA 3D GPU");
+
+    // Read the command FIFO's state and the host's SVGA3D capability block. Read-only: the
+    // FIFO is already in service, and owning the command stream is the next stage, not this
+    // one. The capability block is the measured answer to what this device can accelerate,
+    // which is what a Metal driver on top of it has to be written against.
+    probeFifo(pci);
 
     setProperty("IOFramebufferBacking", "vgpu");
     IOLog(VGPU_FB_TAG ": started\n");
