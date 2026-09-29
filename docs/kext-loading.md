@@ -1,7 +1,12 @@
 # Loading an unsigned kext on this guest
 
-Status: **verified end to end** on 2026-09-28. An unsigned third-party kext built with
-Command Line Tools alone now loads, runs, and survives a reboot.
+> **2026-09-29 — a graphics kext now loads.** For the current, verified result and the
+> recipe behind it, read *The working recipe* below first. The sections after it are the
+> account of how each gate was found, including two conclusions that later turned out to
+> be wrong.
+
+Status: **verified end to end** on 2026-09-28 for a leaf kext. An unsigned third-party kext
+built with Command Line Tools alone loads, runs, and survives a reboot.
 
 ```
 kmutil showloaded
@@ -22,8 +27,163 @@ kernelmanagerd
 `signed @none` in kernelmanagerd's own listing, next to `com.highpoint-tech... signed
 @team(DX6G69M9N2)`, is the point: unsigned extensions are accepted.
 
-Three independent gates had to be opened. Each one produced a *different* error, which is
-why the sequence below is worth following in order.
+Three independent gates had to be opened for that kext. Each one produced a *different*
+error, which is why the sequence below is worth following in order. **A kext that
+subclasses a family class needs a fourth thing**, and it is a different problem entirely
+— see the next section.
+
+---
+
+## The working recipe (2026-09-29): a kext inside the auxiliary collection
+
+Status: **verified, and it survives reboots.** `vgpuFramebuffer` now loads at every boot,
+attaches to the real VMware SVGA PCI device, and builds its aperture on the adapter's own
+VRAM:
+
+```
+kmutil showloaded
+  134  0  0xffffff7f96a8c000  0x1ff5  0x1ff5  com.vgpu.framebuffer (1.0.0) 5CA4A9D4-...
+
+kernel log
+  (vgpuFramebuffer) vgpu-fb: start, provider=IOPCIDevice
+  (vgpuFramebuffer) vgpu-fb: BAR0 phys 0x2040      length 16
+  (vgpuFramebuffer) vgpu-fb: BAR1 phys 0xf0000000  length 134217728
+  (vgpuFramebuffer) vgpu-fb: BAR2 phys 0xfb800000  length 8388608
+  (vgpuFramebuffer) vgpu-fb: BAR3 phys 0xe8000     length 32768
+  (vgpuFramebuffer) vgpu-fb: aperture is the adapter's own VRAM, 9216000 bytes @ 0xf0000000
+  (vgpuFramebuffer) vgpu-fb: started
+```
+
+### Why gates 1 to 3 are not enough
+
+`IOGraphicsFamily` lives in the **pageable** System KC. A pageable dependency cannot be
+resolved for a kext that is not itself in a pageable collection, so this kext can never be
+hot-loaded — `kmutil load -z` answers `Code=28 "requires a reboot"` no matter what else is
+fixed. It has to be built into the **auxiliary kernel collection** by `kernelmanagerd`.
+
+Only `kernelmanagerd` may build that collection, and building it requires approval. The
+approval machinery keys on the **team identifier from the code signature** (Apple TN2459:
+*"Approved KEXTs are tracked in a system-wide policy database through the team identifier
+in the KEXT's code signature and the bundle identifier from the KEXT's Info.plist"*).
+An unsigned kext has no team identifier, so there is nothing to record the approval
+against. That is what `syspolicyd` means by:
+
+```
+Kernel Extension BLOCKED: Kext ((null), com.vgpu.framebuffer)
+syspolicyd: Unsigned kext not present in the legacy kext list
+```
+
+Pressing **Allow** in System Settings does not help, and neither does hand-inserting a
+`kext_policy` row with an empty `team_id`. Both were tried.
+
+### The three things that have to be true at once
+
+**1. The certificate must carry an OU, so the signature has a team identifier.**
+`tools/guest-make-signing-identity.sh` creates a self-signed code-signing identity with
+`OU=VGPU000001`, imports it, and — this part matters — marks it trusted for the `codeSign`
+policy. An imported but untrusted identity is not a *valid* identity, and `codesign` then
+fails with `The specified item could not be found in the keychain` even though the import
+reported success. Note that `codesign -dvvv` still prints `TeamIdentifier=not set`, because
+codesign only fills that field for certificates that chain to Apple. `syspolicyd` reads the
+OU from the certificate anyway:
+
+```
+canLoadKernelExtension - direct, evaluate, Kext (VGPU000001, com.vgpu.framebuffer)
+```
+
+**2. The approval has to be recorded against that team identifier.**
+
+```sh
+sqlite3 /var/db/SystemPolicyConfiguration/KextPolicy \
+  "insert or replace into kext_policy (team_id,bundle_id,allowed,developer_name,flags)
+   values ('VGPU000001','com.vgpu.framebuffer',1,'vgpu-macos',0);"
+```
+
+With that row in place `syspolicyd` reports `Kernel Extension ALLOWED` and `kernelmanagerd`
+reports `Validate approval for /Library/Extensions/vgpuFramebuffer.kext in auxKC: approved`.
+`spctl kext-consent` is irrelevant here: it is `DISABLED` on this guest and cannot be
+changed outside Recovery OS.
+
+**3. The `Info.plist` must be well-formed XML.**
+
+This is the one that cost the most time, and it has nothing to do with signing.
+`syspolicyd` logs this on *every* load attempt, including when the kext was unsigned:
+
+```
+Kext Classification: cannot create OSKext: <private>
+Unsupported kext due to unsupported architectures: <private>, <private>
+```
+
+which reads like an architecture or entitlements problem and surfaces as `Code=71
+"unsupported to load"`. It was a malformed plist. Two XML comments in the personality
+dictionary contained `--`, which is not legal inside an XML comment:
+
+```
+... using the same category would evict it -- and a system with no console ...
+... kextutil is a thin wrapper over `kmutil load --bundle-path`, so ...
+```
+
+`plutil -lint` reports `OK` because CFPropertyList is lenient, so this survived every
+check made against it. Python's `plistlib` uses expat and rejects it outright:
+
+```
+$ python3 -c "import plistlib; plistlib.load(open('.../Info.plist','rb'))"
+ExpatError: not well-formed (invalid token): line 31, column 49
+```
+
+With a clean plist the same kext went from `Code=71 unsupported` to `Code=27 not approved`,
+and then, once the approval row was in place, to loading. **Validate every Info.plist with
+a strict XML parser, not just `plutil`.** The explanations that used to live in those
+comments are in `kexts/framebuffer/NOTES.md`.
+
+### The sequence, in order
+
+```sh
+# 1. build (note -DKERNEL)
+cd /var/tmp/vgpu-fb && sh build.sh
+
+# 2. install and sign
+rm -rf /Library/Extensions/vgpuFramebuffer.kext
+cp -R build/vgpuFramebuffer.kext /Library/Extensions/
+chown -R 0:0 /Library/Extensions/vgpuFramebuffer.kext
+codesign --force --keychain /var/tmp/vgpu.keychain \
+         --sign <identity-sha1> /Library/Extensions/vgpuFramebuffer.kext
+
+# 3. record approval against the team identifier from the signature
+sqlite3 /var/db/SystemPolicyConfiguration/KextPolicy \
+  "insert or replace into kext_policy (team_id,bundle_id,allowed,developer_name,flags)
+   values ('VGPU000001','com.vgpu.framebuffer',1,'vgpu-macos',0);"
+
+# 4. ask for it to be built in; then reboot when it says so
+kmutil load -p /Library/Extensions/vgpuFramebuffer.kext    # Code=28 requires a reboot
+shutdown -r now
+```
+
+`kernelmanagerd` builds the collection at the next boot and logs what went in:
+
+```
+CollectionBuild: trying to build:
+        /Library/Extensions/vgpuFramebuffer.kext
+        /Library/Extensions/vgpuProbe.kext
+Already have Kext com.apple.iokit.IOGraphicsFamily v599 in system kext collection, skipping...
+```
+
+That last line is worth keeping: it shows the auxiliary collection links against the
+**system** KC for `IOGraphicsFamily`, which is why the family never needed to be supplied
+by hand.
+
+### What this makes unnecessary
+
+Everything else that was tried for this kext, all of it measured:
+
+| Approach | Why it is not needed |
+|---|---|
+| Injecting `IOGraphicsFamily` (extracted from the System KC with `tools/kcextract.py`) | The auxiliary collection resolves it from the System KC. The extracted copy was removed from `/Library/Extensions` |
+| OpenCore `Kernel -> Add` | The auxiliary collection route works, so the boot path was never changed |
+| The KDK | Only `kmutil create -n boot` or `-n sys` need it, and neither is on this path |
+| Editing `com.apple.kcgen.instructions.plist` by hand (`tools/guest-patch-kcinstructions.py`) | `kernelmanagerd` computes its own build list, and once approval is valid it includes the kext by itself. The tool is kept only as a record of the mechanism, and because it proved the file is not the trigger |
+| Editing `com.apple.kcgen.uakl.plist` | Same |
+| `kmutil create -z -n aux -B <boot> -S <system> -r ...` | This does produce an auxiliary collection containing the kext, but `kernelmanagerd` overwrites it on the next boot because its own build list disagrees. Useful as a diagnostic, not as a delivery mechanism |
 
 ---
 
