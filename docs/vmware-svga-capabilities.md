@@ -33,45 +33,71 @@ is VRAM offset 0, pitched at 4096, which interests the same 3 MB of VRAM that ou
 already covers. And the device is willing to go far beyond 1024x768: `SVGA_REG_MAX_WIDTH` and
 `SVGA_REG_MAX_HEIGHT` are 6688x5016.
 
-## The decisive limitation: 3D cannot be turned on for a macOS guest
+## 3D CAN be turned on for a macOS guest — the earlier conclusion was wrong
 
-Everything above is secondary to this, which was measured on 2026-09-29 and closes the
-question of whether SVGA3D is usable here.
+Everything above about the device is unchanged. This section was rewritten on 2026-09-29 after
+the earlier "decisive limitation" turned out to be a misdiagnosis.
 
-The 3D path was found to be dormant on this guest: the command FIFO had never been
-initialised (`fifo min 0 max 0 next_cmd 0 stop 0 busy 0`), `SVGA_FIFO_3D_HWVERSION` was `0`,
-and the host had published no SVGA3D capabilities. The reason was in the host's own log:
+**What we first believed.** With no 3D setting in the VM, the host log said
+`SVGA3dCaps: host, at power on (3d disabled)`, the FIFO was dormant and no SVGA3D capabilities
+were published. Adding `mks.enable3d = "TRUE"` made power-on fail outright (`vmrun start`
+returned an error, no VMX process, nothing in the log). We concluded VMware validates the
+configuration at power-on and refuses 3D for a darwin guest — a switch "our driver cannot
+influence".
+
+**That was wrong.** The refusal is not a hard-coded darwin check. The 3D decision in the
+host's embedded configuration logic is:
 
 ```
-SVGA3dCaps: host, at power on (3d disabled)
+(mks-is-3d-enabled vga-only) =
+  (and (not vga-only)
+       (hwversion-get-bool "mks.enable3d.available")   ; capability lookup
+       (vmconfig-getbool #f "mks.enable3d"))            ; the .vmx switch
 ```
 
-because the VM's configuration had no 3D setting. So `mks.enable3d = "TRUE"` was written to
-the configuration file with the VM powered off, and the result was:
+`mks.enable3d.available` is a per-hardware-version *capability key*, and capability keys can
+be overridden from the `.vmx` like ordinary settings. The original test set only
+`mks.enable3d` and never the capability, so power-on failed.
 
-| Configuration | Power on |
-|---|---|
-| without `mks.enable3d` | starts normally |
-| with `mks.enable3d = "TRUE"` | **refused** — `vmrun start` returns "Unknown error", no VMX process starts, nothing is written to the log |
+**Measured on 2026-09-29, all three combinations** (VM powered off for each edit):
 
-Removing the key again lets the guest start. VMware validates the configuration at power-on
-and refuses 3D acceleration for a darwin guest, which is the same statement as its own
-documentation that 3D acceleration targets Windows and Linux guests. It is not a setting our
-driver can influence, and there is no second key that works.
+| `.vmx` keys | Power on | 3D state |
+|---|---|---|
+| `mks.enable3d = "TRUE"` alone | refused | — |
+| `mks.enable3d` + `svga.allowSVGA3 = "TRUE"` | refused | — |
+| `mks.enable3d` + `mks.enable3d.available = "TRUE"` | **accepted** | `SVGA3dCaps: host, at power on (3d enabled)` |
 
-The consequence is sharper than "3D would be nice":
+The working recipe is therefore exactly two lines:
 
-- **There is no SVGA3D to use on a macOS guest.** The FIFO bring-up, the SVGA3D command set,
-  the DXBC shader path and the whole API layer that would carry Metal are behind a hypervisor
-  switch that refuses to open. A Metal driver on this platform has nothing to drive.
-- **What this kext does is therefore the whole of what is reachable on VMware**: a native
-  IOFramebuffer on the adapter's own VRAM, console owned by our driver, WindowServer
-  compositing into it. That is a real product — a macOS guest with a properly named, properly
-  owned display instead of a 3 MB firmware framebuffer reporting "No Kext Loaded".
-- **Metal, compute and the DXBC shader path belong to the paravirtualisation route** (the
-  QEMU + Apple paravirt device work in `docs/plan.md`), where the device model is ours to
-  write and a Vulkan backend can sit behind it. Video encode and decode are out of reach on
-  both.
+```
+mks.enable3d = "TRUE"
+mks.enable3d.available = "TRUE"
+```
+
+With them, the host log shows the full 3D bring-up: `MKSRenderMain: PowerOn allowed BasicOps
+ISB DX12 DX11 DX11Basic VK`, `Sandbox Renderer: VKRenderer` (the Windows host renders through
+Vulkan, not through a Metal backend — none is needed), `SVGA: FIFO capabilities 0x0000077f`,
+`SVGA3dCaps: guest, compatibility level: 10` (vGPU10), and `svga.supports3D bool 1` with the
+whole feature list (`svga.gl43`, `svga.sm5`, `svga.sm41`, multisample up to 8x, BC6/7 ...).
+The guest boots normally; our framebuffer kext loads, the display name stays
+"VMware SVGA 3D GPU", WindowServer composites as before, no regression **[measured]**.
+
+Operational notes:
+
+- Edit the `.vmx` only while the VM is off. VMware rewrites the file from its in-memory
+  configuration at power-off and will silently resurrect keys you removed while it ran.
+- `svga.allowSVGA3` is a different, independent gate (the SVGA3 *device model*) and is not
+  needed; with it present but the capability absent, power-on is still refused.
+
+**What this does and does not reopen.** The SVGA3D device, its FIFO command stream and the
+vGPU10 feature set are now switched on for a darwin guest — the hardware door is open. What
+is still missing is the guest-side software: the FIFO only comes alive when a guest driver
+initialises it (at kext start we still read `fifo min 0 max 0 ... 3d hw version 0x0`, because
+VMware's own macOS driver, VMwareGfx.kext, is 2D-only). So the mission shifts from "the
+platform refuses" to "we must write the driver": FIFO bring-up, then the Metal-to-SVGA3D
+path described below. Metal itself has no driver to attach to yet; that work is now
+*possible*, not done. Video encode/decode remain unavailable: SVGA3D has no video commands
+(see the acceleration table below).
 
 ## Acceleration: what you get
 
