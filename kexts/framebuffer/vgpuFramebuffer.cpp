@@ -109,13 +109,30 @@ enum {
     kSvgaFifoStop             = 3,      // byte offset: guest write position
     kSvgaFifoCapabilities     = 4,      // dword index: SVGA_FIFO_CAP_* bits
     kSvgaFifoFlags            = 5,
+    kSvgaFifoFence            = 6,      // dword index: last completed fence value
     kSvgaFifo3dHwVersion      = 7,      // dword index: host's SVGA3D protocol version
+    kSvgaFifoReserved         = 14,     // dword index: bytes past NEXT_CMD being written
     kSvgaFifo3dCaps           = 32,     // dword index: start of the 3D capability block
     kSvgaFifo3dCapsCount      = 256,    // through SVGA_FIFO_3D_CAPS_LAST
     kSvgaFifoGuest3dHwVersion = 288,    // dword index: guest writes its version here
     kSvgaFifoBusy             = 290,
 
     kSvgaFifoExtendedMandatoryRegs = 288,  // registers to reserve for the extended set
+};
+
+// SVGA_FIFO_CAPABILITIES bits, from the SVGA II definitions.
+enum {
+    kSvgaFifoCapFence   = 1 << 0,
+    kSvgaFifoCapReserve = 1 << 6,
+};
+
+// Legacy FIFO commands. Each is a raw dword stream: the command id, then its parameters
+// (no SVGA3dCmdHeader -- that wrapper belongs to the 3D command set). SVGA_CMD_FENCE
+// carries one parameter, and the host writes the value into SVGA_FIFO_FENCE once every
+// command before it has been processed: the simplest end-to-end proof that the command
+// stream is live.
+enum {
+    kSvgaCmdFence = 30,
 };
 
 // SVGA3dHardwareVersion, from svga3d_devcaps.h:
@@ -179,6 +196,7 @@ private:
     void probeFifo(IOPCIDevice *pci);
     void fifoDump(volatile UInt32 *fifo, const char *when);
     UInt32 devcapRead(UInt32 index);
+    void fenceTest(volatile UInt32 *fifo);
 
 public:
     //
@@ -331,21 +349,19 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
     volatile UInt32 *fifo = (volatile UInt32 *)map->getVirtualAddress();
 
     fifoDump(fifo, "before");
-    if (fifo[kSvgaFifoMin] != 0 && fifo[kSvgaFifoMin] != (IOByteCount)kSvgaFifoExtendedMandatoryRegs * 4) {
+    if (fifo[kSvgaFifoMin] != 0 && fifo[kSvgaFifoMin] != kSvgaFifoExtendedMandatoryRegs * 4) {
         IOLog(VGPU_FB_TAG ": FIFO configured by another driver (min %u), leaving it alone\n",
               fifo[kSvgaFifoMin]);
         map->release();
         return;
     }
-    if (fifo[kSvgaFifoMin] != 0) {
-        // Already ours: the SVGA device keeps its FIFO memory across a guest reboot (no
-        // device reset happens unless the VM itself powers off), so a previous boot's
-        // configuration is still in place. The register partition is valid; skip the
-        // writes and go straight to the 3D handshake.
-        IOLog(VGPU_FB_TAG ": FIFO already partitioned by us from a previous boot\n");
-    }
+    // min == 0 is a fresh device; min == 1152 is ours surviving from a previous boot (the
+    // SVGA device is not reset unless the VM powers off). Either way the command stream is
+    // empty (NEXT_CMD == STOP), so the init sequence below is safe to run again -- and it
+    // has to be run: the host republishes its FIFO capabilities on the CONFIG_DONE
+    // transition, and they read zero on a later boot until it does.
 
-    if (fifo[kSvgaFifoMin] == 0) {
+    if (fifo[kSvgaFifoMin] == 0 || fifo[kSvgaFifoMin] == kSvgaFifoExtendedMandatoryRegs * 4) {
         // 288 registers * 4 bytes of register space, plus the spec's minimum 10 KB of data.
         UInt32 regBytes  = kSvgaFifoExtendedMandatoryRegs * sizeof (UInt32);
         UInt32 fifoBytes = (memSize != 0 && memSize <= (UInt32)map->getLength()) ? memSize
@@ -395,6 +411,10 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
     IOLog(VGPU_FB_TAG ": SVGA3D %s (DEVCAP_3D=%u)\n",
           devcap3d != 0 ? "LIVE" : "absent", devcap3d);
 
+    // End-to-end proof of the command stream: submit SVGA_CMD_FENCE and wait for the host
+    // to acknowledge it by writing the value back into SVGA_FIFO_FENCE.
+    fenceTest(fifo);
+
     map->release();
 }
 
@@ -402,6 +422,63 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
 UInt32 vgpuFramebuffer::devcapRead(UInt32 index) {
     svgaWriteRegister(_svgaPortBase, kSvgaRegDevCap, index);
     return svgaReadRegister(_svgaPortBase, kSvgaRegDevCap);
+}
+
+//
+// Submit one SVGA_CMD_FENCE and poll for its acknowledgement.
+//
+// Submission follows the FIFO's reserve protocol (SVGA_FIFO_CAP_RESERVE is set on this
+// host): announce the byte count in SVGA_FIFO_RESERVED, write the command dwords at
+// NEXT_CMD, then advance NEXT_CMD and clear RESERVED. The command stream is empty at this
+// point (NEXT_CMD == STOP), so no wrap handling is needed for the first submission; a
+// command that would straddle FIFO_MAX is refused rather than wrapped.
+//
+void vgpuFramebuffer::fenceTest(volatile UInt32 *fifo) {
+    const UInt32 caps = fifo[kSvgaFifoCapabilities];
+    if ((caps & kSvgaFifoCapFence) == 0) {
+        IOLog(VGPU_FB_TAG ": fence test skipped: host does not advertise SVGA_FIFO_CAP_FENCE\n");
+        return;
+    }
+
+    const UInt32 next = fifo[kSvgaFifoNextCmd];
+    const UInt32 stop = fifo[kSvgaFifoStop];
+    const UInt32 fmax = fifo[kSvgaFifoMax];
+    const UInt32 bytesFree = (next >= stop) ? (fmax - next) : (stop - next);
+    if (bytesFree < 8) {
+        IOLog(VGPU_FB_TAG ": fence test skipped: only %u bytes free before FIFO_MAX (wrap not implemented)\n",
+              bytesFree);
+        return;
+    }
+
+    const UInt32 fenceValue = 0x31415926;
+    const bool  canReserve  = (caps & kSvgaFifoCapReserve) != 0;
+    if (canReserve) {
+        fifo[kSvgaFifoReserved] = 8;
+    }
+    fifo[(next / sizeof (UInt32))]     = kSvgaCmdFence;
+    fifo[(next / sizeof (UInt32)) + 1] = fenceValue;
+    __asm__ volatile ("" ::: "memory");
+    fifo[kSvgaFifoNextCmd] = next + 8;
+    if (canReserve) {
+        fifo[kSvgaFifoReserved] = 0;
+    }
+    IOLog(VGPU_FB_TAG ": fence 0x%x submitted at offset %u (reserve=%d), polling...\n",
+          fenceValue, next, canReserve);
+
+    // The host acks by writing the value into SVGA_FIFO_FENCE once it has processed every
+    // command up to and including ours. Poll with a generous bound; IOLog inside the loop
+    // would slow the success path, so only the outcome is logged.
+    const UInt64 spinBound = 400000000ULL;
+    for (UInt64 spins = 0; spins < spinBound; spins++) {
+        if (fifo[kSvgaFifoFence] == fenceValue) {
+            IOLog(VGPU_FB_TAG ": FIFO command stream VERIFIED: fence 0x%x acked "
+                  "(next_cmd %u stop %u, %llu spins)\n",
+                  fenceValue, fifo[kSvgaFifoNextCmd], fifo[kSvgaFifoStop], spins);
+            return;
+        }
+    }
+    IOLog(VGPU_FB_TAG ": fence NOT acked within %llu spins (next_cmd %u stop %u fence 0x%x)\n",
+          spinBound, fifo[kSvgaFifoNextCmd], fifo[kSvgaFifoStop], fifo[kSvgaFifoFence]);
 }
 
 void vgpuFramebuffer::fifoDump(volatile UInt32 *fifo, const char *when) {

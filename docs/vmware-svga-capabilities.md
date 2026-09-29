@@ -119,6 +119,28 @@ fifo[after ] min 1152 max 262144 next_cmd 1152 stop 1152 caps 0x77f busy 0
 SVGA3D LIVE (DEVCAP_3D=1)
 ```
 
+And the command stream itself is verified end-to-end: the kext submits one `SVGA_CMD_FENCE`
+(id 30, one parameter dword) with the reserve protocol — `SVGA_FIFO_RESERVED = 8`, write two
+dwords at `NEXT_CMD`, advance `NEXT_CMD`, clear `RESERVED` — and polls `SVGA_FIFO_FENCE`:
+
+```
+fence 0x31415926 submitted at offset 1152 (reserve=1), polling...
+FIFO command stream VERIFIED: fence 0x31415926 acked (next_cmd 1160 stop 1160, 194245 spins)
+```
+
+The host consumed the command and acknowledged it in well under a millisecond, with
+`NEXT_CMD` and `STOP` fully caught up afterwards. Submission, host processing and the fence
+acknowledgement path are all measured working.
+
+Two operational notes measured along the way:
+
+- The host republishes its FIFO capabilities on the `CONFIG_DONE` 0→1 transition only. On a
+  later guest boot (the FIFO memory survives; see below) the capabilities read zero until
+  the sequence is run again, so the kext always runs it — it is idempotent for an empty
+  stream, and foreign partitions (any other `FIFO_MIN`) are left untouched.
+- `SVGA_CMD_FENCE` is a raw legacy command: command id dword, then parameters, without the
+  `SVGA3dCmdHeader` wrapper that the 3D command set uses.
+
 The host accepted the configuration immediately and published its FIFO capability register
 (0x77f, matching what the host log recorded at power-on). The authoritative 3D verdict comes
 through the `SVGA_REG_DEV_CAP` backdoor (write a `SVGA3D_DEVCAP_*` index, read the value from
