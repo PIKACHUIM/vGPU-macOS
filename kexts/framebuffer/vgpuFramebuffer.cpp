@@ -23,9 +23,15 @@
 #include <IOKit/graphics/IOFramebuffer.h>
 #include <IOKit/IODeviceMemory.h>
 #include <IOKit/IOLib.h>
+#include <IOKit/pci/IOPCIDevice.h>
 #include <mach/kmod.h>
 
 #define VGPU_FB_TAG "vgpu-fb"
+
+// VMware SVGA II exposes its VRAM as BAR1 -- 128 MB at 0xf0000000 on this guest. A framebuffer
+// built on that memory is what the hardware scans out, so it is visible on screen; a framebuffer
+// on private memory is not. Prefer the former, fall back to the latter.
+static const UInt32 kVgpuVramBarIndex = 1;
 
 // A kernel collection has no separate Info.plist, so identity travels inside the binary
 // as `_kmod_info`. See docs/kext-loading.md, gate 2.
@@ -125,6 +131,72 @@ static void *allocFramebuffer(IOByteCount length, IOPhysicalAddress *physOut) {
     return virt;
 }
 
+//
+// Log every BAR the provider exposes. Cheap, and the only way to learn the real memory map
+// without a schematic -- this is what showed that BAR1 is the 128 MB VRAM.
+//
+static void logProviderBars(IOPCIDevice *pci) {
+    for (UInt32 index = 0; index < 6; index++) {
+        IODeviceMemory *bar = pci->getDeviceMemoryWithIndex(index);
+        if (bar == nullptr) {
+            continue;
+        }
+        IOLog(VGPU_FB_TAG ": BAR%u phys 0x%llx length %llu\n",
+              index,
+              (unsigned long long)bar->getPhysicalAddress(),
+              (unsigned long long)bar->getLength());
+    }
+}
+
+//
+// Choose what the system aperture is built on.
+//
+// When the provider is the SVGA PCI device, hand back a window onto its own VRAM: that is the
+// memory the adapter scans out, so anything drawn there reaches the screen. The window is a
+// sub-range of BAR1 rather than the whole BAR, because the aperture must be exactly the size
+// of the largest advertised mode -- IOFramebuffer maps the whole thing.
+//
+// Otherwise fall back to a private contiguous allocation. That still exercises the whole
+// interface, it just cannot be seen.
+//
+static IODeviceMemory *makeAperture(IOService *provider, IOByteCount length,
+                                    void **virtOut, IOPhysicalAddress *physOut) {
+    IOPCIDevice *pci = OSDynamicCast(IOPCIDevice, provider);
+
+    if (pci != nullptr) {
+        logProviderBars(pci);
+
+        IODeviceMemory *vram = pci->getDeviceMemoryWithIndex(kVgpuVramBarIndex);
+        if (vram != nullptr && vram->getLength() >= length) {
+            IODeviceMemory *window = IODeviceMemory::withSubRange(vram, 0, length);
+            if (window != nullptr) {
+                *physOut = window->getPhysicalAddress();
+                *virtOut = nullptr;   // not ours to write through; the window server maps it
+                IOLog(VGPU_FB_TAG ": aperture is the adapter's own VRAM, %llu bytes @ 0x%llx\n",
+                      (unsigned long long)length, (unsigned long long)*physOut);
+                return window;
+            }
+            IOLog(VGPU_FB_TAG ": IODeviceMemory::withSubRange over VRAM failed\n");
+        } else if (vram != nullptr) {
+            IOLog(VGPU_FB_TAG ": BAR%u holds %llu bytes, too small for %llu\n",
+                  kVgpuVramBarIndex,
+                  (unsigned long long)vram->getLength(), (unsigned long long)length);
+        } else {
+            IOLog(VGPU_FB_TAG ": provider has no BAR%u\n", kVgpuVramBarIndex);
+        }
+    } else {
+        IOLog(VGPU_FB_TAG ": provider is not an IOPCIDevice\n");
+    }
+
+    IOLog(VGPU_FB_TAG ": falling back to a private allocation\n");
+    void *virt = allocFramebuffer(length, physOut);
+    if (virt == nullptr) {
+        return nullptr;
+    }
+    *virtOut = virt;
+    return IODeviceMemory::withRange(*physOut, length);
+}
+
 bool vgpuFramebuffer::start(IOService *provider) {
     IOLog(VGPU_FB_TAG ": start, provider=%s\n",
           provider != nullptr && provider->getMetaClass() != nullptr
@@ -143,14 +215,9 @@ bool vgpuFramebuffer::start(IOService *provider) {
     }
     _fbLength = (IOByteCount)maxWidth * maxHeight * (kDepth / kBitsPerByte);
 
-    _fbVirt = allocFramebuffer(_fbLength, &_fbPhys);
-    if (_fbVirt == nullptr) {
-        return false;
-    }
-
-    _aperture = IODeviceMemory::withRange(_fbPhys, _fbLength);
+    _aperture = makeAperture(provider, _fbLength, &_fbVirt, &_fbPhys);
     if (_aperture == nullptr) {
-        IOLog(VGPU_FB_TAG ": IODeviceMemory::withRange failed\n");
+        IOLog(VGPU_FB_TAG ": could not build an aperture\n");
         return false;
     }
 

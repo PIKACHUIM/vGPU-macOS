@@ -26,14 +26,47 @@
 			<string>com.vgpu.framebuffer</string>
 			<key>IOClass</key>
 			<string>vgpuFramebuffer</string>
-			<!-- Claiming the IOFramebuffer match category is what makes the graphics
-			     family adopt this service rather than treat it as a plain IOService. -->
+			<!-- IOMatchCategory decides who wins when two drivers match the same device.
+			     IONDRVFramebuffer already sits on display@F and provides the console, so
+			     using the same category would evict it -- and a system with no console
+			     device is not something to try on the first run. A distinct category lets
+			     both attach: the boot-provided framebuffer keeps the screen, and this kext
+			     starts alongside it and reports what it can see.
+
+			     What makes IOGraphicsFamily treat this as a framebuffer is the IOFramebuffer
+			     base class, not this string, so nothing is lost by not claiming the name.
+
+			     Once coexistence is confirmed, the step after this is to claim IOFramebuffer
+			     and return true from isConsoleDevice() so the window server renders here. -->
 			<key>IOMatchCategory</key>
-			<string>IOFramebuffer</string>
+			<string>com.vgpu.framebuffer</string>
 			<key>IOProbeScore</key>
 			<integer>0</integer>
+			<!-- Vendor 0x15AD, device 0x0405 = VMware SVGA II, which on this guest is the
+			     IORegistry node display@F. This is the device that actually drives the
+			     screen, so it is the only sensible place for a framebuffer to attach.
+
+			     What is already there matters. This guest has no graphics kext at all --
+			     system_profiler reports "No Kext Loaded" -- because the display is driven by
+			     IONDRVFramebuffer, which boot.efi installs through the legacy NDRV mechanism
+			     rather than through an IOKit match. So there is no other kext to contend
+			     with; the open question is whether a kext-supplied framebuffer can coexist
+			     with that boot-provided one.
+
+			     Measured on this guest, from ioreg:
+			       display@F   vendor-id 0x15ad   device-id 0x0405
+			       BAR1 = 0xf0000000, length 0x08000000 (128 MB)  <- SVGA VRAM
+			       IONDRVFramebuffer sits below display@F, AppleDisplay below that,
+			       IODisplayPrefsKeyOld = .../display@F/.Display_boot/display0/AppleDisplay-...
+
+			     The previous revision matched IOResources instead. That does start, but it
+			     is a placeholder: IOResources is the root IOKit resource object, so the
+			     framebuffer would probe at the earliest possible moment and could never
+			     reach the real VRAM. -->
 			<key>IOProviderClass</key>
-			<string>IOResources</string>
+			<string>IOPCIDevice</string>
+			<key>IOPCIMatch</key>
+			<string>0x040515AD</string>
 		</dict>
 	</dict>
 	<key>OSBundleLibraries</key>

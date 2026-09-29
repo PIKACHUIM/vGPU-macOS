@@ -136,6 +136,51 @@ cannot give.
 
 `kmutil load -z -p /Library/Extensions/<name>.kext` needs neither.
 
+### Correction (2026-09-29): `-z` does not convince kernelmanagerd
+
+The account above holds for a kext that can be **hot-loaded**, which is what the probe is. It
+does **not** hold for one that requires **rebuilding the auxiliary collection** — and any
+`IOFramebuffer` subclass does, because it introduces a new class into a prelinked family's
+hierarchy. Same commands, same `-z`, different outcome:
+
+```
+$ sudo kmutil load -z -p /Library/Extensions/vgpuFramebuffer.kext
+Code=28 "Loading extension(s): com.vgpu.framebuffer requires a reboot"     # queued, looks fine
+
+# at the next boot, kernelmanagerd -- a separate daemon -- decides again:
+kernelmanagerd: failed to load/rebuild extensions:
+    Extension with identifiers com.vgpu.framebuffer not approved to load.
+    Please approve using System Settings.
+kernelmanagerd: library rebuild request failed: ... not approved to load.
+```
+
+Compare the probe in the *same* boot. It is already in the collection, so it is merely
+re-validated:
+
+```
+kernelmanagerd: Validate approval for /Library/Extensions/vgpuProbe.kext in auxKC: approved
+kernelmanagerd: installation check: bundle for com.vgpu.probe is at /Library/Extensions/...
+kernelmanagerd: Received kext load notification: com.vgpu.probe
+```
+
+So **`-z` skips the front end's check only.** kernelmanagerd re-checks for itself when it is
+asked to rebuild, and it ignores `-z` entirely.
+
+### What that rules out
+
+| Candidate | Result |
+|---|---|
+| `kext_policy` row missing or malformed | Row present and identical in shape to the probe's (`allowed=1`, same empty `team_id`, same `flags`) |
+| `spctl kext-consent` | `DISABLED` — not the gate |
+| Link failure | Fixed by `-DKERNEL`; the same command now reaches `Code=27`, not `Code=31` |
+| `kmutil create -z -n aux` | `Cannot build pageableKC/auxKC without baseKC` — it wants the boot collection as a base, and `-k` pointing at a kernel file does not satisfy that |
+| `kmutil rebuild` | Takes no options at all; says `No changes detected` because a rejected request leaves no pending change behind |
+| `kmutil install --update-all` / `create --update-all` | Insists on rebuilding the boot and system collections on the sealed read-only System volume |
+
+**What remains is a logged-in GUI session**, so kernelmanagerd has somewhere to raise the
+approval prompt. This guest currently has none — `stat -f %Su /dev/console` reports `root`,
+i.e. nobody is logged in at the console.
+
 ---
 
 ## The working sequence
