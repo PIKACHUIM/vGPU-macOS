@@ -27,9 +27,9 @@
 			<key>IOClass</key>
 			<string>vgpuFramebuffer</string>
 			<key>IOMatchCategory</key>
-			<string>com.vgpu.framebuffer</string>
+			<string>IOFramebuffer</string>
 			<key>IOProbeScore</key>
-			<integer>0</integer>
+			<integer>50000</integer>
 			<key>IOProviderClass</key>
 			<string>IOPCIDevice</string>
 			<key>IOPCIMatch</key>

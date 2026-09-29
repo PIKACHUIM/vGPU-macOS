@@ -1,23 +1,31 @@
 //
-//  vgpuFramebuffer.cpp — the smallest possible IOFramebuffer subclass.
+//  vgpuFramebuffer.cpp — an IOFramebuffer over the VMware SVGA II device's own VRAM.
 //
-//  This is stage 1 of the B0 gate (docs/plan.md). The question it answers is narrow:
+//  Stage 2 of the B0 gate. Stage 1 proved a framebuffer we wrote ourselves can be published
+//  through IOFramebuffer at all; this is the step that makes it visible, by putting the
+//  system aperture on the exact memory the adapter is already scanning out.
 //
-//      Can a framebuffer we wrote ourselves be published through IOFramebuffer at all,
-//      on a modern macOS, without a real GPU behind it?
+//  The design decision worth understanding is that this kext does *not* set a video mode.
+//  The device is already enabled and programmed by the time we run -- firmware and the
+//  boot-time NDRV driver got there first -- and SVGA_REG_FB_OFFSET plus SVGA_REG_BYTES_PER_LINE
+//  say precisely which bytes are on screen. So we read those and inherit them. Inheriting is
+//  both less code and far less dangerous than a modeset: nothing we do can change what the
+//  display controller is doing, so the worst case is a picture drawn in the wrong place rather
+//  than a device left in a state nobody can program.
 //
-//  It deliberately stops short of that question's follow-up. No hardware cursor, no
-//  accelerator, no PCI device, no display connection -- just a wired block of physical
-//  memory offered up as the system aperture and a table of modes. If IOKit's graphics
-//  family accepts this, the interface is understood well enough to push further; if it
-//  refuses, the logs say where.
+//  Measured on this guest when this was written:
 //
-//  Modelled on refs/MacHyperVSupport/MacHyperVFramebuffer, minus everything to do with
-//  Hyper-V: no VMBus, no callPlatformFunction into a service, no HyperV.hpp. What is left
-//  is the 8 pure virtuals IOFramebuffer demands plus the handful it calls during start.
+//      svga id 0x90000002 enable 1
+//      svga mode 1024x768 depth 24 bpp 32 pitch 4096
+//      svga max 6688x5016
+//      svga fb offset 0x0 fb size 0x300000
+//      svga vram 0x8000000 fb start 0xf0000000 caps 0xfdff83e2
 //
-//  isConsoleDevice() returns false on purpose. The VMware SVGA framebuffer owns the
-//  console on this guest and taking it away is a separate, deliberate step.
+//  So the visible framebuffer is VRAM[0 .. 0x300000) pitched at 4096. See
+//  docs/vmware-svga-capabilities.md for what this device can and cannot accelerate, and
+//  notes on the Metal translation path that eventually has to sit on top of it.
+//
+//  Modelled on refs/MacHyperVSupport/MacHyperVFramebuffer for the IOFramebuffer surface.
 //
 
 #include <IOKit/graphics/IOFramebuffer.h>
@@ -28,9 +36,7 @@
 
 #define VGPU_FB_TAG "vgpu-fb"
 
-// VMware SVGA II exposes its VRAM as BAR1 -- 128 MB at 0xf0000000 on this guest. A framebuffer
-// built on that memory is what the hardware scans out, so it is visible on screen; a framebuffer
-// on private memory is not. Prefer the former, fall back to the latter.
+// VRAM is BAR1 -- 128 MB at 0xf0000000 on this guest, and the memory the adapter scans out.
 static const UInt32 kVgpuVramBarIndex = 1;
 
 // A kernel collection has no separate Info.plist, so identity travels inside the binary
@@ -47,30 +53,80 @@ extern "C" {
 KMOD_EXPLICIT_DECL(com.vgpu.framebuffer, "1.0.0", vgpuFramebufferKmodStart, vgpuFramebufferKmodStop)
 }
 
+//
+// ---------------------------------------------------------------------------
+// VMware SVGA II register access
+// ---------------------------------------------------------------------------
+//
+// The registers are not memory mapped. BAR0 is a 16 byte I/O port block: write a register
+// index to SVGA_INDEX_PORT, then read or write the value at SVGA_VALUE_PORT. That is what the
+// boot-time NDRV driver does, and it is the only way to find out what the device is doing.
+//
+// Only reads are issued. Writing SVGA_REG_ID renegotiates the device protocol version and
+// drops the device back to legacy mode if the host does not recognise the value, so the
+// version is left alone. Every register read below is meaningful in every revision.
+//
+enum {
+    kSvgaRegId           = 0x00,
+    kSvgaRegEnable       = 0x01,
+    kSvgaRegWidth        = 0x02,
+    kSvgaRegHeight       = 0x03,
+    kSvgaRegMaxWidth     = 0x04,
+    kSvgaRegMaxHeight    = 0x05,
+    kSvgaRegDepth        = 0x06,
+    kSvgaRegBitsPerPixel = 0x07,
+    kSvgaRegBytesPerLine = 0x0C,
+    kSvgaRegFbStart      = 0x0D,
+    kSvgaRegFbOffset     = 0x0E,
+    kSvgaRegVramSize     = 0x0F,
+    kSvgaRegFbSize       = 0x10,
+    kSvgaRegCapabilities = 0x11,
+};
+
+static const UInt16 kSvgaIndexPort = 0x00;   // offset within BAR0
+static const UInt16 kSvgaValuePort = 0x01;
+
+// x86 port I/O. A kext may issue these directly once the provider has enabled the I/O
+// aperture in its command register, which firmware and the NDRV driver already have
+// (measured: pci command 0x7).
+static inline UInt32 vgpuIn32(UInt16 port) {
+    UInt32 value;
+    __asm__ volatile ("inl %1, %0" : "=a" (value) : "Nd" (port));
+    return value;
+}
+
+static inline void vgpuOut32(UInt16 port, UInt32 value) {
+    __asm__ volatile ("outl %0, %1" : : "a" (value), "Nd" (port));
+}
+
+static UInt32 svgaReadRegister(UInt16 portBase, UInt32 index) {
+    vgpuOut32((UInt16)(portBase + kSvgaIndexPort), index);
+    return vgpuIn32((UInt16)(portBase + kSvgaValuePort));
+}
+
 class vgpuFramebuffer : public IOFramebuffer {
     OSDeclareDefaultStructors(vgpuFramebuffer)
     typedef IOFramebuffer super;
 
-public:
-    struct Mode {
-        UInt32 width;
-        UInt32 height;
-    };
-
 private:
-    static const Mode         kModes[];
-    static const IOItemCount  kModeCount;
+    static const UInt32 kDepth = 32;
 
-    void                     *_fbVirt   = nullptr;
-    IOPhysicalAddress         _fbPhys   = 0;
-    IOByteCount               _fbLength = 0;
-    IODeviceMemory           *_aperture = nullptr;
+    // The device's own geometry, read out of the SVGA registers in start(). The aperture and
+    // every mode answer derive from these rather than from a table, because the device has
+    // already been programmed and is scanning out this exact region.
+    bool     _deviceModeValid = false;
+    UInt32   _deviceWidth     = 0;
+    UInt32   _deviceHeight    = 0;
+    UInt32   _devicePitch     = 0;
+    UInt32   _deviceFbOffset  = 0;
+
+    IOPhysicalAddress         _apertureBase   = 0;
+    IOByteCount               _apertureLength = 0;
+    IODeviceMemory           *_aperture       = nullptr;
 
     IODisplayModeID           _currentMode = 1;
-    IOByteCount               modeBytesPerRow(UInt32 width) const { return width * (kDepth / kBitsPerByte); }
 
-    static const UInt32 kDepth       = 32;
-    static const UInt32 kBitsPerByte = 8;
+    bool readDeviceMode(IOPCIDevice *pci, UInt16 *portOut);
 
 public:
     //
@@ -103,98 +159,69 @@ public:
 
 OSDefineMetaClassAndStructors(vgpuFramebuffer, IOFramebuffer)
 
-const vgpuFramebuffer::Mode vgpuFramebuffer::kModes[] = {
-    { 1024,  768 },
-    { 1280, 1024 },
-    { 1600, 1200 },
-    { 1920, 1080 },
-};
-const IOItemCount vgpuFramebuffer::kModeCount =
-    sizeof (vgpuFramebuffer::kModes) / sizeof (vgpuFramebuffer::kModes[0]);
-
 //
-// The aperture has to cover the largest mode we advertise, and it has to be a real
-// physical range: getApertureRange() hands the address to the window server, which maps
-// it directly. IOMallocContiguous gives wired, DMA-capable, physically contiguous pages,
-// which is what a framebuffer needs and what a plain IOMalloc would not.
+// Log every BAR the provider exposes, then read the SVGA registers. The BAR dump is what
+// showed that BAR1 is the 128 MB VRAM; the register dump is what makes inheriting the mode
+// possible at all.
 //
-static void *allocFramebuffer(IOByteCount length, IOPhysicalAddress *physOut) {
-    IOPhysicalAddress phys = 0;
-    void *virt = IOMallocContiguous(length, PAGE_SIZE, &phys);
-    if (virt == nullptr || phys == 0) {
-        IOLog(VGPU_FB_TAG ": IOMallocContiguous(%llu) failed\n", (unsigned long long)length);
-        return nullptr;
-    }
-    *physOut = phys;
-    IOLog(VGPU_FB_TAG ": framebuffer %llu bytes, phys 0x%llx virt %p\n",
-          (unsigned long long)length, (unsigned long long)phys, virt);
-    return virt;
-}
-
-//
-// Log every BAR the provider exposes. Cheap, and the only way to learn the real memory map
-// without a schematic -- this is what showed that BAR1 is the 128 MB VRAM.
-//
-static void logProviderBars(IOPCIDevice *pci) {
+bool vgpuFramebuffer::readDeviceMode(IOPCIDevice *pci, UInt16 *portOut) {
     for (UInt32 index = 0; index < 6; index++) {
         IODeviceMemory *bar = pci->getDeviceMemoryWithIndex(index);
-        if (bar == nullptr) {
-            continue;
+        if (bar != nullptr) {
+            IOLog(VGPU_FB_TAG ": BAR%u phys 0x%llx length %llu\n",
+                  index,
+                  (unsigned long long)bar->getPhysicalAddress(),
+                  (unsigned long long)bar->getLength());
         }
-        IOLog(VGPU_FB_TAG ": BAR%u phys 0x%llx length %llu\n",
-              index,
-              (unsigned long long)bar->getPhysicalAddress(),
-              (unsigned long long)bar->getLength());
-    }
-}
-
-//
-// Choose what the system aperture is built on.
-//
-// When the provider is the SVGA PCI device, hand back a window onto its own VRAM: that is the
-// memory the adapter scans out, so anything drawn there reaches the screen. The window is a
-// sub-range of BAR1 rather than the whole BAR, because the aperture must be exactly the size
-// of the largest advertised mode -- IOFramebuffer maps the whole thing.
-//
-// Otherwise fall back to a private contiguous allocation. That still exercises the whole
-// interface, it just cannot be seen.
-//
-static IODeviceMemory *makeAperture(IOService *provider, IOByteCount length,
-                                    void **virtOut, IOPhysicalAddress *physOut) {
-    IOPCIDevice *pci = OSDynamicCast(IOPCIDevice, provider);
-
-    if (pci != nullptr) {
-        logProviderBars(pci);
-
-        IODeviceMemory *vram = pci->getDeviceMemoryWithIndex(kVgpuVramBarIndex);
-        if (vram != nullptr && vram->getLength() >= length) {
-            IODeviceMemory *window = IODeviceMemory::withSubRange(vram, 0, length);
-            if (window != nullptr) {
-                *physOut = window->getPhysicalAddress();
-                *virtOut = nullptr;   // not ours to write through; the window server maps it
-                IOLog(VGPU_FB_TAG ": aperture is the adapter's own VRAM, %llu bytes @ 0x%llx\n",
-                      (unsigned long long)length, (unsigned long long)*physOut);
-                return window;
-            }
-            IOLog(VGPU_FB_TAG ": IODeviceMemory::withSubRange over VRAM failed\n");
-        } else if (vram != nullptr) {
-            IOLog(VGPU_FB_TAG ": BAR%u holds %llu bytes, too small for %llu\n",
-                  kVgpuVramBarIndex,
-                  (unsigned long long)vram->getLength(), (unsigned long long)length);
-        } else {
-            IOLog(VGPU_FB_TAG ": provider has no BAR%u\n", kVgpuVramBarIndex);
-        }
-    } else {
-        IOLog(VGPU_FB_TAG ": provider is not an IOPCIDevice\n");
     }
 
-    IOLog(VGPU_FB_TAG ": falling back to a private allocation\n");
-    void *virt = allocFramebuffer(length, physOut);
-    if (virt == nullptr) {
-        return nullptr;
+    IODeviceMemory *io = pci->getDeviceMemoryWithIndex(0);
+    if (io == nullptr) {
+        IOLog(VGPU_FB_TAG ": no BAR0, cannot reach the SVGA registers\n");
+        return false;
     }
-    *virtOut = virt;
-    return IODeviceMemory::withRange(*physOut, length);
+    UInt16 portBase = (UInt16)io->getPhysicalAddress();
+    *portOut = portBase;
+
+    UInt32 id     = svgaReadRegister(portBase, kSvgaRegId);
+    UInt32 enable = svgaReadRegister(portBase, kSvgaRegEnable);
+    UInt32 width  = svgaReadRegister(portBase, kSvgaRegWidth);
+    UInt32 height = svgaReadRegister(portBase, kSvgaRegHeight);
+    UInt32 depth  = svgaReadRegister(portBase, kSvgaRegDepth);
+    UInt32 bpp    = svgaReadRegister(portBase, kSvgaRegBitsPerPixel);
+    UInt32 pitch  = svgaReadRegister(portBase, kSvgaRegBytesPerLine);
+    UInt32 offset = svgaReadRegister(portBase, kSvgaRegFbOffset);
+
+    IOLog(VGPU_FB_TAG ": svga ports 0x%x/0x%x, pci command 0x%x\n",
+          (unsigned)(portBase + kSvgaIndexPort), (unsigned)(portBase + kSvgaValuePort),
+          pci->configRead16(kIOPCIConfigCommand));
+    IOLog(VGPU_FB_TAG ": svga id 0x%x enable %u\n", id, enable);
+    IOLog(VGPU_FB_TAG ": svga mode %ux%u depth %u bpp %u pitch %u\n",
+          width, height, depth, bpp, pitch);
+    IOLog(VGPU_FB_TAG ": svga max %ux%u\n",
+          svgaReadRegister(portBase, kSvgaRegMaxWidth),
+          svgaReadRegister(portBase, kSvgaRegMaxHeight));
+    IOLog(VGPU_FB_TAG ": svga fb offset 0x%x fb size 0x%x\n",
+          offset, svgaReadRegister(portBase, kSvgaRegFbSize));
+    IOLog(VGPU_FB_TAG ": svga vram 0x%x fb start 0x%x caps 0x%x\n",
+          svgaReadRegister(portBase, kSvgaRegVramSize),
+          svgaReadRegister(portBase, kSvgaRegFbStart),
+          svgaReadRegister(portBase, kSvgaRegCapabilities));
+
+    // Plausibility gate. A device that is disabled, or that reports geometry we cannot
+    // believe, is worse to inherit than to refuse: the aperture would be a window onto
+    // memory nobody is scanning out.
+    if (enable == 0 || width == 0 || height == 0 || pitch < width * (kDepth / 8)) {
+        IOLog(VGPU_FB_TAG ": refusing to inherit implausible geometry\n");
+        return false;
+    }
+
+    _deviceWidth    = width;
+    _deviceHeight   = height;
+    _devicePitch    = pitch;
+    _deviceFbOffset = offset;
+    _deviceModeValid = true;
+    return true;
 }
 
 bool vgpuFramebuffer::start(IOService *provider) {
@@ -207,19 +234,48 @@ bool vgpuFramebuffer::start(IOService *provider) {
         return false;
     }
 
-    // Cover the biggest mode in the table.
-    UInt32 maxWidth = 0, maxHeight = 0;
-    for (IOItemCount i = 0; i < kModeCount; i++) {
-        if (kModes[i].width > maxWidth)  maxWidth  = kModes[i].width;
-        if (kModes[i].height > maxHeight) maxHeight = kModes[i].height;
-    }
-    _fbLength = (IOByteCount)maxWidth * maxHeight * (kDepth / kBitsPerByte);
-
-    _aperture = makeAperture(provider, _fbLength, &_fbVirt, &_fbPhys);
-    if (_aperture == nullptr) {
-        IOLog(VGPU_FB_TAG ": could not build an aperture\n");
+    IOPCIDevice *pci = OSDynamicCast(IOPCIDevice, provider);
+    if (pci == nullptr) {
+        IOLog(VGPU_FB_TAG ": provider is not an IOPCIDevice\n");
         return false;
     }
+
+    UInt16 portBase = 0;
+    if (!readDeviceMode(pci, &portBase)) {
+        return false;
+    }
+
+    // The aperture is exactly the region the adapter scans out: VRAM, starting at
+    // SVGA_REG_FB_OFFSET, as many bytes as one pitch times one screen. Offering more than
+    // that would be harmless, but offering exactly this makes the mapping honest and keeps
+    // the window server from believing it can address memory that is off screen.
+    _apertureLength = (IOByteCount)_devicePitch * _deviceHeight;
+
+    IODeviceMemory *vram = pci->getDeviceMemoryWithIndex(kVgpuVramBarIndex);
+    if (vram == nullptr) {
+        IOLog(VGPU_FB_TAG ": provider has no BAR%u\n", kVgpuVramBarIndex);
+        return false;
+    }
+    if ((IOByteCount)_deviceFbOffset + _apertureLength > vram->getLength()) {
+        IOLog(VGPU_FB_TAG ": visible region 0x%x+%llu does not fit in BAR%u (%llu bytes)\n",
+              _deviceFbOffset, (unsigned long long)_apertureLength, kVgpuVramBarIndex,
+              (unsigned long long)vram->getLength());
+        return false;
+    }
+
+    _aperture = IODeviceMemory::withSubRange(vram, _deviceFbOffset, _apertureLength);
+    if (_aperture == nullptr) {
+        IOLog(VGPU_FB_TAG ": IODeviceMemory::withSubRange failed\n");
+        return false;
+    }
+
+    _apertureBase = _aperture->getPhysicalAddress();
+    _currentMode  = 1;
+
+    IOLog(VGPU_FB_TAG ": inheriting %ux%u pitch %u at VRAM offset 0x%x\n",
+          _deviceWidth, _deviceHeight, _devicePitch, _deviceFbOffset);
+    IOLog(VGPU_FB_TAG ": aperture phys 0x%llx length %llu\n",
+          (unsigned long long)_apertureBase, (unsigned long long)_apertureLength);
 
     setProperty("IOFramebufferBacking", "vgpu");
     IOLog(VGPU_FB_TAG ": started\n");
@@ -233,35 +289,38 @@ void vgpuFramebuffer::stop(IOService *provider) {
         _aperture->release();
         _aperture = nullptr;
     }
-    if (_fbVirt != nullptr) {
-        IOFreeContiguous(_fbVirt, _fbLength);
-        _fbVirt = nullptr;
-    }
     super::stop(provider);
 }
 
 IOReturn vgpuFramebuffer::enableController() {
     IOLog(VGPU_FB_TAG ": enableController\n");
-
-    IOReturn status = setDisplayMode(_currentMode, 0);
-    if (status != kIOReturnSuccess) {
-        IOLog(VGPU_FB_TAG ": enabling failed to set mode %u (0x%x)\n", _currentMode, status);
-        return status;
-    }
     return kIOReturnSuccess;
 }
 
 bool vgpuFramebuffer::isConsoleDevice() {
-    // Deliberate: the SVGA framebuffer owns the console here.
-    return false;
+    // Deliberate, and the point of this revision: the console is what the window server
+    // renders into, so claiming it is what puts this kext on screen.
+    return true;
 }
 
 IODeviceMemory *vgpuFramebuffer::getApertureRange(IOPixelAperture aperture) {
     if (aperture != kIOFBSystemAperture) {
         return nullptr;
     }
-    IOLog(VGPU_FB_TAG ": getApertureRange -> %llu bytes @ 0x%llx\n",
-          (unsigned long long)_fbLength, (unsigned long long)_fbPhys);
+    if (_aperture == nullptr) {
+        return nullptr;
+    }
+    // Hand the caller a reference of its own. The aperture is created once in start() and
+    // released once in stop(), so the pointer this returns has to carry an extra retain:
+    // IOGraphicsFamily releases what it is given, every time a display comes up or changes
+    // mode, and returning the bare member let that release consume the kext's own reference.
+    // That is an over-release of an IOSubMemoryDescriptor, which panics the kernel with
+    // "A kext releasing a(n) IOSubMemoryDescriptor has corrupted the registry" -- measured,
+    // from WindowServer's own thread, about a minute into the first boot with the takeover
+    // in place.
+    //
+    // (OSObject::retain() returns void, so this is two statements and not a tail call.)
+    _aperture->retain();
     return _aperture;
 }
 
@@ -270,27 +329,27 @@ const char *vgpuFramebuffer::getPixelFormats() {
 }
 
 IOItemCount vgpuFramebuffer::getDisplayModeCount() {
-    return kModeCount;
+    // Exactly one mode: the one the device is already scanning out. Advertising anything else
+    // would be a lie until setDisplayMode can reprogram the device.
+    return _deviceModeValid ? 1 : 0;
 }
 
 IOReturn vgpuFramebuffer::getDisplayModes(IODisplayModeID *allDisplayModes) {
-    // Mode IDs are index + 1; 0 is reserved as "invalid".
-    for (IOItemCount i = 0; i < kModeCount; i++) {
-        allDisplayModes[i] = (IODisplayModeID)(i + 1);
+    if (allDisplayModes == nullptr) {
+        return kIOReturnBadArgument;
     }
+    allDisplayModes[0] = 1;
     return kIOReturnSuccess;
 }
 
 IOReturn vgpuFramebuffer::getInformationForDisplayMode(IODisplayModeID displayMode,
-                                                       IODisplayModeInformation *info) {
-    if (displayMode == 0 || displayMode > kModeCount || info == nullptr) {
+                                                      IODisplayModeInformation *info) {
+    if (displayMode != 1 || info == nullptr || !_deviceModeValid) {
         return kIOReturnBadArgument;
     }
-    const Mode &mode = kModes[displayMode - 1];
-
     bzero(info, sizeof (*info));
-    info->nominalWidth  = mode.width;
-    info->nominalHeight = mode.height;
+    info->nominalWidth  = _deviceWidth;
+    info->nominalHeight = _deviceHeight;
     info->refreshRate   = 60 << 16;
     info->maxDepthIndex = 0;
     return kIOReturnSuccess;
@@ -304,17 +363,18 @@ UInt64 vgpuFramebuffer::getPixelFormatsForDisplayMode(IODisplayModeID displayMod
 }
 
 IOReturn vgpuFramebuffer::getPixelInformation(IODisplayModeID displayMode, IOIndex depth,
-                                              IOPixelAperture aperture, IOPixelInformation *pixelInfo) {
-    if (displayMode == 0 || displayMode > kModeCount || depth != 0 || pixelInfo == nullptr) {
+                                             IOPixelAperture aperture, IOPixelInformation *pixelInfo) {
+    if (displayMode != 1 || depth != 0 || pixelInfo == nullptr || !_deviceModeValid) {
         return kIOReturnBadArgument;
     }
     if (aperture != kIOFBSystemAperture) {
         return kIOReturnUnsupportedMode;
     }
-    const Mode &mode = kModes[displayMode - 1];
 
     bzero(pixelInfo, sizeof (*pixelInfo));
-    pixelInfo->bytesPerRow      = modeBytesPerRow(mode.width);
+    // The device's pitch, not a computed one. They happen to agree at 1024 wide (4096), which
+    // is why a mismatch here would be easy to miss and would show up as a diagonal skew.
+    pixelInfo->bytesPerRow      = _devicePitch;
     pixelInfo->bitsPerPixel     = kDepth;
     pixelInfo->pixelType        = kIORGBDirectPixels;
     pixelInfo->bitsPerComponent = 8;
@@ -322,8 +382,8 @@ IOReturn vgpuFramebuffer::getPixelInformation(IODisplayModeID displayMode, IOInd
     pixelInfo->componentMasks[0] = 0xFF0000;   // R
     pixelInfo->componentMasks[1] = 0x00FF00;   // G
     pixelInfo->componentMasks[2] = 0x0000FF;   // B
-    pixelInfo->activeWidth      = mode.width;
-    pixelInfo->activeHeight     = mode.height;
+    pixelInfo->activeWidth      = _deviceWidth;
+    pixelInfo->activeHeight     = _deviceHeight;
     strncpy(pixelInfo->pixelFormat, IO32BitDirectPixels, sizeof (pixelInfo->pixelFormat));
     return kIOReturnSuccess;
 }
@@ -339,12 +399,12 @@ IOReturn vgpuFramebuffer::getCurrentDisplayMode(IODisplayModeID *displayMode, IO
 }
 
 IOReturn vgpuFramebuffer::setDisplayMode(IODisplayModeID displayMode, IOIndex depth) {
-    if (displayMode == 0 || displayMode > kModeCount || depth != 0) {
-        return kIOReturnBadArgument;
+    if (displayMode != 1 || depth != 0) {
+        // A real modeset means programming SVGA_REG_WIDTH / HEIGHT / BITS_PER_PIXEL and
+        // re-reading SVGA_REG_BYTES_PER_LINE and SVGA_REG_FB_OFFSET. Not yet: the point of
+        // this revision is to inherit the mode, not to own it.
+        return kIOReturnUnsupportedMode;
     }
-    const Mode &mode = kModes[displayMode - 1];
-    IOLog(VGPU_FB_TAG ": setDisplayMode %u -> %ux%u@%u\n",
-          displayMode, mode.width, mode.height, kDepth);
     _currentMode = displayMode;
     return kIOReturnSuccess;
 }
