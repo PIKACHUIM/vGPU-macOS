@@ -164,7 +164,86 @@ log show --last 5m --predicate 'eventMessage CONTAINS "unsigned kext loaded"'
   non-root `sh build.sh` fails with `rm: ... Permission denied`; chown back first.
 - `/Library/Extensions` is writable **without** touching SIP — it lives on the Data volume.
 
-## Leaf kexts load; anything that subclasses a family class does not
+## The real blocker was `-DKERNEL`, not a missing library
+
+**Established 2026-09-29. This supersedes the KDK and OpenCore routes in the two sections
+below** — those were chased under a wrong assumption, and the wrong assumption came from a
+misleading error message. The material in them is all measured and still true; it just turns
+out not to be needed.
+
+The symptom was:
+
+```
+Code=31 ... Failed to bind '__ZN14IODeviceMemory9withRangeEjj' in 'com.vgpu.framebuffer'
+          ... as could not find a kext which exports this symbol
+```
+
+That reads as "a library is missing from the link". It is not. **The symbol we were asking for
+does not exist.** `IOKit/IOTypes.h` chooses the width of the IOKit address typedefs
+conditionally:
+
+    #if !defined(__arm__) && !defined(__i386__) && !(defined(__x86_64__) && !defined(KERNEL))
+    typedef IOPhysicalAddress64      IOPhysicalAddress;
+    #define IOPhysSize      64
+    #else
+    typedef IOPhysicalAddress32      IOPhysicalAddress;
+    #endif
+
+On x86_64 **without** `KERNEL` defined, `IOPhysicalAddress` and `IOByteCount` silently become
+32-bit, so `IODeviceMemory::withRange` mangles as `...withRangeEjj` instead of `...withRangeEyy`.
+And `clang -mkernel -fapple-kext` **does not define `KERNEL`** — a kext has to pass it.
+
+The right symbol was available all along, from a library we were already declaring, and in the
+Boot collection rather than the System one:
+
+```
+$ kmutil libraries -p /Library/Extensions/vgpuFramebuffer.kext | grep IODeviceMemory
+__ZN14IODeviceMemory9withRangeEyy in BootKernelExtensions.kc: com.apple.kpi.iokit (24.6.0)
+```
+
+Note the second line of `kmutil libraries` output for the same kext:
+
+```
+__ZN13IOFramebuffer10gMetaClassE in SystemKernelExtensions.kc: com.apple.iokit.IOGraphicsFamily (599)
+```
+
+So the collection builder **can** resolve a family symbol out of the System KC. The whole
+premise that `IOGraphicsFamily` had to be injected (OpenCore) or supplied as an extracted
+binary was wrong.
+
+With `-DKERNEL` added to `kexts/framebuffer/build.sh`, the very same command goes from a link
+failure to the ordinary consent gate:
+
+```
+Code=27 "Extension with identifiers com.vgpu.framebuffer not approved to load.
+         Please approve using System Settings."
+```
+
+### What this makes unnecessary
+
+- No KDK. The one installed during this investigation is not on the path that matters.
+- No OpenCore, no `Kernel -> Add`, no `Force`-injecting `IOGraphicsFamily`.
+- No extracting `IOGraphicsFamily` from the System KC. A copy was briefly installed into
+  `/Library/Extensions` during the investigation and has been removed.
+- `tools/kcextract.py` is therefore not needed for this gate. It is kept because it works and
+  is independently useful (it is the only way to get a kext image out of a collection), and
+  because the same technique will be needed to inspect anything else that now lives only in a KC.
+
+### Why `kmutil load -z` sent us the wrong way
+
+Three genuinely different failures all surfaced as `Code=28 "requires a reboot"`, or as nothing:
+
+| Real problem | `kmutil load -z -p` | `kmutil load -p` (no `-z`) | `kextutil -v` |
+|---|---|---|---|
+| no `_kmod_info` symbol | not useful | not useful | names the missing symbol |
+| wrong `withRange` mangling | `Code=28` — **hides it** | `Code=31` + the symbol | `Code=31` + the symbol |
+| genuinely needs a collection | `Code=28` (accurate) | `Code=27` / `Code=28` | `Code=28` |
+
+**Rule: never trust `-z`'s output for diagnosis. Run `kmutil load -p` (without `-z`) to get the
+link error, and `kextutil -v` to get it again in a different spelling.** Adopting that habit
+earlier would have avoided this entire detour.
+
+## (Superseded) Leaf kexts load; anything that subclasses a family class does not
 
 Measured 2026-09-28 evening, after the B0 stage-1 kext (`kexts/framebuffer/`) was built.
 
@@ -280,15 +359,15 @@ logged-in GUI session. Everything else is now ruled out with evidence: not SIP, 
 (`spctl kext-consent status` is `DISABLED`), not the consent database (rows exist for both
 kexts), not `_kmod_info`, not a missing library declaration, and not the KDK.
 
-### The two routes still standing
+### (Superseded) The two routes that were recorded here
 
-| Route | Cost | Notes |
-|---|---|---|
-| **A′. Log in at the console once and approve** | one console login | `kmutil rebuild` already prints the correct plan; with a GUI session the approval prompt can be shown and answered. `tools/vncsnap.py` can already *see* the guest, so it needs keyboard support added to drive the login |
-| **B. OpenCore `Kernel -> Add`** | change the boot path (ESP); no KDK needed | injects at prelink into the Boot KC — no collection, no prompt. This is what `MacHyperVSupport` documents for `MacHyperVFramebuffer`, and it also gives `NVRAM -> Add` for `csr-active-config`. Its open question is that `IOGraphicsFamily` has no on-disk binary to inject |
+Both were predicated on `IOGraphicsFamily` not being reachable from the link. It is reachable,
+through the ordinary `OSBundleLibraries` declaration — see "The real blocker" above.
 
-An OpenCore tree is already staged on the guest's ESP by `tools/oc-build.py`; it has no boot
-entry yet, and that is the one step left on that route.
+| Route | Status now |
+|---|---|
+| **A′. Console login once and approve** | Not needed for *linking*. Consent is still a separate gate for `kmutil load -p` (`Code=27`), but `-z` exists precisely to skip it, and that is how the probe got in. |
+| **B. OpenCore `Kernel -> Add`** | Not needed. The tree `tools/oc-build.py` staged on the guest's ESP is harmless where it is and requires no boot entry; leave it for any future need. Its former open question — that `IOGraphicsFamily` has no on-disk binary to inject — is moot. |
 
 ## What this unblocks
 
@@ -305,9 +384,21 @@ running**:
   `setDisplayMode`, `enableController`, `isConsoleDevice`, `getAttribute` and the cursor trio,
   and offers a wired contiguous physical block (4 modes up to 1920x1080x32) as the system
   aperture.
-- It has not executed on the machine yet: `isConsoleDevice()` returns false, and its `start()`
-  has never run. It is waiting on A′ (one console login to approve the auxiliary collection
-  rebuild) or B (OpenCore prelink injection) from the table above.
+- It compiles **and links**, including the collection builder's own link check: with `-DKERNEL`
+  the 364 undefined symbols all resolve against resident libraries (see "The real blocker").
+  `kmutil load -p` now gets as far as `Code=27 not approved to load`, which is the ordinary
+  consent gate and not a link error.
+- **It has still never executed.** No build of it has ever entered a kernel collection —
+  `grep -a -c vgpuFramebuffer /Library/KernelCollections/AuxiliaryKernelExtensions.kc` is `0`
+  after a boot in which kernelmanagerd rebuilt that collection — so `start()` has never run.
+  What remains is one administrative step, not a code problem: `kmutil load -z -p ...` queues
+  the request and returns `Code=28`, and kernelmanagerd is meant to pick it up on the next boot.
+  That is exactly how the probe got in.
+- Note also that its `IOResources` match is unproven and suspicious: `MacHyperVFramebuffer`
+  matches a concrete PCI device (`0x53531414`), while this kext matches `IOResources`, the root
+  IOKit resource object, so it probes at the earliest possible moment. Its 4 MB
+  `IOMallocContiguous` in `start()` would then run during early boot. Treat the match as
+  provisional and revisit it before drawing conclusions from any first `start()`.
 
 So the binding assumption of risk R1 is "yes, the interface is understood"; what remains is an
 environment problem, not a code problem.

@@ -1,0 +1,11 @@
+{
+  "_comment": "Boot into safe mode. -x makes the system skip third-party kexts, which is how we recover when a freshly installed auxiliary-collection kext wedges the boot.",
+  "sets": [
+    {
+      "name": "boot-args",
+      "guid": "7c436110-ab2a-4bbb-a880-fe41995c9f82",
+      "attributes": 7,
+      "value_hex": "2d7800"
+    }
+  ]
+}

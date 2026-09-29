@@ -32,7 +32,24 @@ mkdir -p "$BUNDLE/Contents/MacOS"
 cp "$HERE/Info.plist" "$BUNDLE/Contents/Info.plist"
 
 echo "--- compiling ---"
-clang -arch x86_64 -mkernel -fapple-kext \
+# -DKERNEL is load-bearing, and -mkernel does NOT imply it.
+#
+# Kernel.framework/Headers/IOKit/IOTypes.h picks the width of these typedefs like this:
+#
+#   #if !defined(__arm__) && !defined(__i386__) && !(defined(__x86_64__) && !defined(KERNEL))
+#   typedef IOPhysicalAddress64  IOPhysicalAddress;
+#   #else
+#   typedef IOPhysicalAddress32  IOPhysicalAddress;
+#
+# so on x86_64 without KERNEL, IOPhysicalAddress and IOByteCount silently become 32-bit.
+# That changes the mangled name of every function taking one -- IODeviceMemory::withRange
+# becomes __ZN14IODeviceMemory9withRangeEjj instead of ...Eyy -- and the failure surfaces
+# far away, as a linker error claiming no kext exports the symbol. The real symbol lives in
+# com.apple.kpi.iokit (Boot KC), so all that is needed is to ask for the right width:
+#
+#   kmutil libraries -p <kext> | grep withRange
+#     __ZN14IODeviceMemory9withRangeEyy in BootKernelExtensions.kc: com.apple.kpi.iokit
+clang -arch x86_64 -mkernel -fapple-kext -DKERNEL \
       -fno-builtin -fno-rtti -fno-exceptions -fno-common \
       -fno-asynchronous-unwind-tables -fno-stack-protector \
       -mmacosx-version-min=11.0 \
