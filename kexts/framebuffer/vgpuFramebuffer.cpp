@@ -83,22 +83,48 @@ enum {
     kSvgaRegCapabilities = 0x11,
     kSvgaRegMemStart     = 0x12,
     kSvgaRegMemSize      = 0x13,
+    kSvgaRegConfigDone   = 0x14,   // 20: guest sets 1 when the FIFO is configured
+    kSvgaRegMemRegs      = 0x1E,   // 30: number of FIFO registers the host expects
+    kSvgaRegDevCap       = 0x34,   // 52: write a SVGA3D_DEVCAP index, read its value
 };
 
+//
 // FIFO registers are dwords inside the device memory region that SVGA_REG_MEM_START points
-// at. Indices, not byte offsets. The 3D capability block is what a driver reads to decide
-// which SVGA3D features the host will accept, so it is the definitive answer to "what can
-// this virtual GPU accelerate" -- measured rather than taken from a datasheet.
+// at. The first four (MIN/MAX/NEXT_CMD/STOP) are BYTE offsets into that region; every other
+// index is a dword index. The register block occupies the first SVGA_FIFO_MIN bytes, so the
+// guest chooses how many registers exist by where it starts the command data: leaving room
+// for SVGA_FIFO_EXTENDED_MANDATORY_REGS (288) dwords is what makes the extended set --
+// including the 3D hardware version and the 256-entry 3D capability block -- exist at all.
+//
+// The offsets below are taken from the SVGA II register definitions shared by Linux's
+// vmwgfx (drivers/gpu/drm/vmwgfx/device_include/svga_reg.h) and Xorg's vmware driver, and
+// they differ from an earlier revision of this file, which carried 3D_HWVERSION=28 and
+// 3D_CAPS=34 from a misremembered pre-extended-FIFO layout. With those values everything
+// read as zero regardless of what the host published -- which is exactly what we saw.
+//
 enum {
-    kSvgaFifoMin         = 0,
-    kSvgaFifoMax         = 1,
-    kSvgaFifoNextCmd     = 2,
-    kSvgaFifoStop        = 3,
-    kSvgaFifoBusy        = 5,
-    kSvgaFifo3dHwVersion = 28,
-    kSvgaFifo3dCaps      = 34,
-    kSvgaFifo3dCapsCount = 64,
+    kSvgaFifoMin              = 0,      // byte offset: start of the command data area
+    kSvgaFifoMax              = 1,      // byte offset: end of the FIFO
+    kSvgaFifoNextCmd          = 2,      // byte offset: host read position
+    kSvgaFifoStop             = 3,      // byte offset: guest write position
+    kSvgaFifoCapabilities     = 4,      // dword index: SVGA_FIFO_CAP_* bits
+    kSvgaFifoFlags            = 5,
+    kSvgaFifo3dHwVersion      = 7,      // dword index: host's SVGA3D protocol version
+    kSvgaFifo3dCaps           = 32,     // dword index: start of the 3D capability block
+    kSvgaFifo3dCapsCount      = 256,    // through SVGA_FIFO_3D_CAPS_LAST
+    kSvgaFifoGuest3dHwVersion = 288,    // dword index: guest writes its version here
+    kSvgaFifoBusy             = 290,
+
+    kSvgaFifoExtendedMandatoryRegs = 288,  // registers to reserve for the extended set
 };
+
+// SVGA3dHardwareVersion, from svga3d_devcaps.h:
+//   SVGA3D_MAKE_HWVERSION(major, minor) = (major << 16) | minor
+//   SVGA3D_HWVERSION_CURRENT = SVGA3D_HWVERSION_WS8_B1 = (2, 1)
+// The handshake is guest-first: the guest announces its version in
+// SVGA_FIFO_GUEST_3D_HWVERSION, and only then does the host publish its own (clamped)
+// version in SVGA_FIFO_3D_HWVERSION and the 3D capability block.
+static const UInt32 kSvga3dHwVersionCurrent = 0x00020001;
 
 static const UInt16 kSvgaIndexPort = 0x00;   // offset within BAR0
 static const UInt16 kSvgaValuePort = 0x01;
@@ -119,6 +145,11 @@ static inline void vgpuOut32(UInt16 port, UInt32 value) {
 static UInt32 svgaReadRegister(UInt16 portBase, UInt32 index) {
     vgpuOut32((UInt16)(portBase + kSvgaIndexPort), index);
     return vgpuIn32((UInt16)(portBase + kSvgaValuePort));
+}
+
+static void svgaWriteRegister(UInt16 portBase, UInt32 index, UInt32 value) {
+    vgpuOut32((UInt16)(portBase + kSvgaIndexPort), index);
+    vgpuOut32((UInt16)(portBase + kSvgaValuePort), value);
 }
 
 class vgpuFramebuffer : public IOFramebuffer {
@@ -146,6 +177,8 @@ private:
 
     bool readDeviceMode(IOPCIDevice *pci, UInt16 *portOut);
     void probeFifo(IOPCIDevice *pci);
+    void fifoDump(volatile UInt32 *fifo, const char *when);
+    UInt32 devcapRead(UInt32 index);
 
 public:
     //
@@ -245,23 +278,34 @@ bool vgpuFramebuffer::readDeviceMode(IOPCIDevice *pci, UInt16 *portOut) {
 }
 
 //
-// Read the command FIFO's state and the host's SVGA3D capability block.
+// FIFO bring-up.
 //
 // The FIFO lives in the device memory region SVGA_REG_MEM_START points at. On this guest it
-// is BAR2, 8 MB, and the boot-time driver has already initialised it -- the device is enabled
-// and the cursor works, so the FIFO must be running. Everything here is a read: writing
-// SVGA_FIFO_MIN/MAX or SVGA_REG_CONFIG_DONE would re-initialise a FIFO that is already in
-// service, and that is a separate step to be taken only when a driver wants to own the
-// command stream.
+// is BAR2 (8 MB) and SVGA_REG_MEM_SIZE publishes 256 KB of it to the guest. Nobody on a
+// macOS guest ever configures it: VMware's own driver is 2D-only, so MIN/MAX read zero and
+// the host publishes no SVGA3D state. Since the 3D capability became reachable (see
+// docs/vmware-svga-capabilities.md), the missing step is exactly this one: a guest driver
+// partitioning the FIFO between registers and command data and handing it to the host with
+// SVGA_REG_CONFIG_DONE.
 //
-// The 3D capability block (SVGA_FIFO_3D_CAPS) is the same table Mesa's svga driver reads to
-// decide which SVGA3D features exist. Dumping it here is what turns "VMware says the guest
-// gets OpenGL 4.3" into a measured list of what this particular device will accept.
+// The sequence, from the SVGA II definitions shared by vmwgfx and Xorg's vmware driver:
+//
+//   1. SVGA_FIFO_MIN      = 288 regs * 4 bytes. This is what makes the extended register
+//                         set -- 3D_HWVERSION at index 7, the 3D capability block at 32,
+//                         GUEST_3D_HWVERSION at 288 -- exist at all.
+//   2. SVGA_FIFO_MAX      = usable byte size (MEM_SIZE, clamped to what we mapped).
+//   3. NEXT_CMD and STOP  = MIN, i.e. an empty command stream.
+//   4. SVGA_REG_CONFIG_DONE = 1. The host validates and takes ownership from here.
+//
+// Everything is logged before and after, because the after-state is the measurement this
+// stage exists to take: a non-zero FIFO_3D_HWVERSION is the host's own acknowledgement that
+// SVGA3D is live from inside the guest.
 //
 void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
     UInt32 memStart = svgaReadRegister(_svgaPortBase, kSvgaRegMemStart);
     UInt32 memSize  = svgaReadRegister(_svgaPortBase, kSvgaRegMemSize);
-    IOLog(VGPU_FB_TAG ": svga mem start 0x%x size 0x%x\n", memStart, memSize);
+    UInt32 memRegs  = svgaReadRegister(_svgaPortBase, kSvgaRegMemRegs);
+    IOLog(VGPU_FB_TAG ": svga mem start 0x%x size 0x%x regs %u\n", memStart, memSize, memRegs);
     if (memStart == 0 || memSize == 0) {
         IOLog(VGPU_FB_TAG ": no device memory region, FIFO not reachable\n");
         return;
@@ -286,25 +330,96 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
     }
     volatile UInt32 *fifo = (volatile UInt32 *)map->getVirtualAddress();
 
-    IOLog(VGPU_FB_TAG ": fifo min %u max %u next_cmd %u stop %u busy %u\n",
-          fifo[kSvgaFifoMin], fifo[kSvgaFifoMax],
-          fifo[kSvgaFifoNextCmd], fifo[kSvgaFifoStop], fifo[kSvgaFifoBusy]);
-    IOLog(VGPU_FB_TAG ": fifo 3d hw version 0x%x\n", fifo[kSvgaFifo3dHwVersion]);
+    fifoDump(fifo, "before");
+    if (fifo[kSvgaFifoMin] != 0 && fifo[kSvgaFifoMin] != (IOByteCount)kSvgaFifoExtendedMandatoryRegs * 4) {
+        IOLog(VGPU_FB_TAG ": FIFO configured by another driver (min %u), leaving it alone\n",
+              fifo[kSvgaFifoMin]);
+        map->release();
+        return;
+    }
+    if (fifo[kSvgaFifoMin] != 0) {
+        // Already ours: the SVGA device keeps its FIFO memory across a guest reboot (no
+        // device reset happens unless the VM itself powers off), so a previous boot's
+        // configuration is still in place. The register partition is valid; skip the
+        // writes and go straight to the 3D handshake.
+        IOLog(VGPU_FB_TAG ": FIFO already partitioned by us from a previous boot\n");
+    }
 
-    // Count the capabilities the host advertises, and log the whole block. A capability
-    // value of zero terminates the list in some revisions; here it is a fixed-size block,
-    // so print all of it and let the reader match it against the SVGA3D device capability
-    // enum in Mesa's svga driver.
+    if (fifo[kSvgaFifoMin] == 0) {
+        // 288 registers * 4 bytes of register space, plus the spec's minimum 10 KB of data.
+        UInt32 regBytes  = kSvgaFifoExtendedMandatoryRegs * sizeof (UInt32);
+        UInt32 fifoBytes = (memSize != 0 && memSize <= (UInt32)map->getLength()) ? memSize
+                                                                                 : (UInt32)map->getLength();
+        if (fifoBytes < regBytes + 10 * 1024) {
+            IOLog(VGPU_FB_TAG ": FIFO area %u bytes too small for the extended registers\n", fifoBytes);
+            map->release();
+            return;
+        }
+
+        svgaWriteRegister(_svgaPortBase, kSvgaRegConfigDone, 0);
+        fifo[kSvgaFifoMin]     = regBytes;
+        fifo[kSvgaFifoMax]     = fifoBytes;
+        fifo[kSvgaFifoNextCmd] = regBytes;
+        fifo[kSvgaFifoStop]    = regBytes;
+        __asm__ volatile ("" ::: "memory");
+        svgaWriteRegister(_svgaPortBase, kSvgaRegConfigDone, 1);
+        IOLog(VGPU_FB_TAG ": FIFO configured: regs %u bytes (%u dwords), data %u..%u, CONFIG_DONE=1\n",
+              regBytes, kSvgaFifoExtendedMandatoryRegs, regBytes, fifoBytes);
+        fifoDump(fifo, "after ");
+    }
+
+    // Announce the guest protocol version. On a vGPU10 (GBOBJECTS) device the legacy
+    // SVGA_FIFO_3D_HWVERSION register stays zero -- the authoritative 3D check there is
+    // the DEV_CAP backdoor below, exactly as Linux's vmwgfx does in vmw_fifo_have_3d().
+    fifo[kSvgaFifoGuest3dHwVersion] = kSvga3dHwVersionCurrent;
+    __asm__ volatile ("" ::: "memory");
+    IOLog(VGPU_FB_TAG ": guest 3D version announced as 0x%x; legacy 3D_HWVERSION reads 0x%x "
+          "(expected zero on a vGPU10 device)\n",
+          kSvga3dHwVersionCurrent, fifo[kSvgaFifo3dHwVersion]);
+
+    // The device-capability backdoor: write a SVGA3D_DEVCAP index into SVGA_REG_DEV_CAP,
+    // read the value back from the same register. This is the authoritative per-feature
+    // table (vGPU10-era), independent of the FIFO capability block.
+    fifoDump(fifo, "final ");
+    IOLog(VGPU_FB_TAG ": devcaps\n");
+    for (UInt32 i = 0; i < 32; i += 8) {
+        IOLog(VGPU_FB_TAG ": devcap[%2u..%2u] %08x %08x %08x %08x %08x %08x %08x %08x\n",
+              i, i + 7,
+              devcapRead(i),     devcapRead(i + 1), devcapRead(i + 2), devcapRead(i + 3),
+              devcapRead(i + 4), devcapRead(i + 5), devcapRead(i + 6), devcapRead(i + 7));
+    }
+
+    // The verdict, using the same check as vmwgfx's vmw_fifo_have_3d() for a GBOBJECTS
+    // device: 3D exists if and only if DEV_CAP[SVGA3D_DEVCAP_3D] reads non-zero.
+    UInt32 devcap3d = devcapRead(0);   // SVGA3D_DEVCAP_3D
+    IOLog(VGPU_FB_TAG ": SVGA3D %s (DEVCAP_3D=%u)\n",
+          devcap3d != 0 ? "LIVE" : "absent", devcap3d);
+
+    map->release();
+}
+
+// The backdoor needs the write before each read; a tiny wrapper keeps the dump loop honest.
+UInt32 vgpuFramebuffer::devcapRead(UInt32 index) {
+    svgaWriteRegister(_svgaPortBase, kSvgaRegDevCap, index);
+    return svgaReadRegister(_svgaPortBase, kSvgaRegDevCap);
+}
+
+void vgpuFramebuffer::fifoDump(volatile UInt32 *fifo, const char *when) {
+    IOLog(VGPU_FB_TAG ": fifo[%s] min %u max %u next_cmd %u stop %u caps 0x%x busy %u\n",
+          when,
+          fifo[kSvgaFifoMin], fifo[kSvgaFifoMax],
+          fifo[kSvgaFifoNextCmd], fifo[kSvgaFifoStop],
+          fifo[kSvgaFifoCapabilities], fifo[kSvgaFifoBusy]);
+    IOLog(VGPU_FB_TAG ": fifo[%s] 3d hw version 0x%x\n", when, fifo[kSvgaFifo3dHwVersion]);
+
     UInt32 nonZero = 0;
     for (UInt32 i = 0; i < kSvgaFifo3dCapsCount; i++) {
-        UInt32 value = fifo[kSvgaFifo3dCaps + i];
-        if (value != 0) {
+        if (fifo[kSvgaFifo3dCaps + i] != 0) {
             nonZero++;
         }
-        // One line per capability is 64 log lines; compress to a run of eight per line.
         if (i % 8 == 0) {
-            IOLog(VGPU_FB_TAG ": 3dcaps[%2u..%2u] %08x %08x %08x %08x %08x %08x %08x %08x\n",
-                  i, i + 7,
+            IOLog(VGPU_FB_TAG ": 3dcaps[%s %3u..%3u] %08x %08x %08x %08x %08x %08x %08x %08x\n",
+                  when, i, i + 7,
                   fifo[kSvgaFifo3dCaps + i],     fifo[kSvgaFifo3dCaps + i + 1],
                   fifo[kSvgaFifo3dCaps + i + 2], fifo[kSvgaFifo3dCaps + i + 3],
                   fifo[kSvgaFifo3dCaps + i + 4], fifo[kSvgaFifo3dCaps + i + 5],
@@ -313,8 +428,6 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
     }
     IOLog(VGPU_FB_TAG ": 3d capabilities advertised: %u of %u non-zero\n",
           nonZero, kSvgaFifo3dCapsCount);
-
-    map->release();
 }
 
 bool vgpuFramebuffer::start(IOService *provider) {
@@ -375,10 +488,9 @@ bool vgpuFramebuffer::start(IOService *provider) {
     // virtual device.
     setProperty("model", "VMware SVGA 3D GPU");
 
-    // Read the command FIFO's state and the host's SVGA3D capability block. Read-only: the
-    // FIFO is already in service, and owning the command stream is the next stage, not this
-    // one. The capability block is the measured answer to what this device can accelerate,
-    // which is what a Metal driver on top of it has to be written against.
+    // Bring the command FIFO up and take the measured SVGA3D state. On a macOS guest no
+    // driver has ever configured it; doing so here is the step that turns the 3D capability
+    // (see docs/vmware-svga-capabilities.md) into something a driver can submit commands to.
     probeFifo(pci);
 
     setProperty("IOFramebufferBacking", "vgpu");

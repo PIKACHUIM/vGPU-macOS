@@ -99,6 +99,61 @@ path described below. Metal itself has no driver to attach to yet; that work is 
 *possible*, not done. Video encode/decode remain unavailable: SVGA3D has no video commands
 (see the acceleration table below).
 
+## FIFO bring-up: SVGA3D is live from inside the guest (measured 2026-09-29)
+
+With 3D enabled at the host, the remaining step was the guest-side one: no macOS driver has
+ever configured the SVGA command FIFO, so it sat dormant (`min 0 max 0`) and the host
+published nothing into it. `vgpuFramebuffer` now does the bring-up at kext start, following
+the same sequence Linux's vmwgfx uses:
+
+1. `SVGA_FIFO_MIN = 288 regs * 4 bytes` — reserving room for the extended FIFO registers is
+   what makes the 3D capability block and the devcap set exist at all;
+2. `SVGA_FIFO_MAX = SVGA_REG_MEM_SIZE` (256 KB on this guest, inside the 8 MB BAR2);
+3. `NEXT_CMD = STOP = MIN` (empty command stream);
+4. `SVGA_REG_CONFIG_DONE = 1`.
+
+Measured result, from the guest's own kernel log:
+
+```
+fifo[after ] min 1152 max 262144 next_cmd 1152 stop 1152 caps 0x77f busy 0
+SVGA3D LIVE (DEVCAP_3D=1)
+```
+
+The host accepted the configuration immediately and published its FIFO capability register
+(0x77f, matching what the host log recorded at power-on). The authoritative 3D verdict comes
+through the `SVGA_REG_DEV_CAP` backdoor (write a `SVGA3D_DEVCAP_*` index, read the value from
+the same register): `DEVCAP_3D` (= index 0) reads **1**. This is byte-for-byte the check
+Linux's `vmw_fifo_have_3d()` performs for a GBOBJECTS device, and this device is one — its
+legacy `SVGA_FIFO_3D_HWVERSION` register stays zero by design, which is expected and not a
+failure.
+
+Measured devcaps (first 32; full decode against `svga3d_devcaps.h` is a later stage's job):
+
+```
+devcap[ 0.. 7] 00000001 00000008 00000008 00000008 00000007 00000001 0000000d 00000001
+devcap[ 8..15] 00000008 00000001 00000001 00000004 00000001 00000001 00000001 00000001
+devcap[16..23] 00000001 433d0000 00000014 00008000 00008000 00004000 00008000 00008000
+devcap[24..31] 00000010 001fffff 000fffff 0000ffff 0000ffff 00000020 00000020 03ffffff
+```
+
+Implementation notes that cost time and are worth keeping:
+
+- **Register offsets.** An earlier revision of the kext carried `3D_HWVERSION=28` and
+  `3D_CAPS=34`, from a misremembered pre-extended-FIFO layout. The real layout (vmwgfx's
+  `device_include/svga_reg.h`, Xorg's `vmware` driver) is `CAPABILITIES=4`,
+  `3D_HWVERSION=7`, `3D_CAPS=32..287`, `GUEST_3D_HWVERSION=288`, `BUSY=290`. The first four
+  FIFO registers are byte offsets; every other index is a dword index.
+- **The FIFO survives a guest reboot.** No device reset happens unless the VM powers off
+  completely, so BAR2's configuration persists. The kext recognises its own partition
+  (`min == 1152`) on later boots, skips re-initialisation, and goes straight to the
+  capability readouts. It declines to touch a FIFO partitioned by anyone else.
+- **Version handshake.** `SVGA3D_HWVERSION_CURRENT` is `WS8_B1 = (2<<16)|1 = 0x00020001`
+  (`SVGA3D_MAKE_HWVERSION`), and the guest announces it in `GUEST_3D_HWVERSION`; there is no
+  host response to wait for on this device.
+- **What is still ahead** for a real driver: guest memory objects (MOBs) for the GBOBJECTS
+  path, surface definition, DX context creation and the command stream itself. The FIFO is
+  the transport for all of it, and it is now up.
+
 ## Acceleration: what you get
 
 | Capability | Status |
