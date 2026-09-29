@@ -176,6 +176,44 @@ Implementation notes that cost time and are worth keeping:
   path, surface definition, DX context creation and the command stream itself. The FIFO is
   the transport for all of it, and it is now up.
 
+## GB object model is UP: OTables, a MOB and a surface (measured 2026-09-29)
+
+The kext now also brings up the guest-backed object infrastructure. One contiguous 64 KiB
+working buffer holds three page-table pages, the object tables and a data region; the page
+tables are filled with PPN64s of their target pages, so nothing has to be physically
+contiguous beyond the 4 KiB alignment of the buffer itself.
+
+Measured sequence, every step fence-verified from inside the guest:
+
+```
+gb: working buffer phys 0x1478a000 len 65536
+gb: MOB otable base set (ppn 83850, 16384 bytes)
+gb: SURFACE otable base set (ppn 83851, 4608 bytes)
+gb: data MOB 1 defined (ppn 83852, 16384 bytes, PT64_0)
+gb: GB SURFACE 1 defined (256x256 X8R8G8B8 on MOB 1) -- GB object model is UP
+```
+
+with zero errors in the host's own log. The working recipe, all of it from vmwgfx's
+definitions:
+
+- `SVGA_3D_CMD_SET_OTABLE_BASE64` (1115) registers each object table: {type,
+  baseAddress PPN64, sizeInBytes, validSizeInBytes=0, ptDepth=SVGA3D_MOBFMT_PT64_0}.
+- `SVGA_3D_CMD_DEFINE_GB_MOB64` (1135) defines a MOB: {mobid, ptDepth, base PPN64,
+  sizeInBytes}. With PT64_0 the base PPN points at one page-table page of PPN64 entries.
+  The guest writes the matching `SVGAOTableMobEntry` {ptDepth, sizeInBytes, base} into the
+  MOB table itself, before the command.
+- `SVGA_3D_CMD_DEFINE_GB_SURFACE` (1097) defines a surface: {sid, surfaceFlags as a **64-bit**
+  field, format, numMipLevels, multisampleCount, autogenFilter, size{w,h,d}} — **40 bytes**.
+  The guest fills the `SVGAOTableSurfaceEntry` (72 bytes) afterwards.
+- Every 3D command carries `SVGA3dCmdHeader {id, size}`, and **the size must be exact**: a
+  header size of 36 instead of 40 made the host abort FIFO processing silently, and the
+  next fence never came back. That failure mode is the reason every command here is
+  fence-verified the moment it is submitted.
+
+What this buys: the object substrate a real driver builds on is registered and validated —
+contexts (DX_DEFINE_CONTEXT), shaders and render targets all live in the same tables, and
+guest RAM is now addressable by the host's 3D engine through the data MOB.
+
 ## Acceleration: what you get
 
 | Capability | Status |

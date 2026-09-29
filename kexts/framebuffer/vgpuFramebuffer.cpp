@@ -29,6 +29,7 @@
 //
 
 #include <IOKit/graphics/IOFramebuffer.h>
+#include <IOKit/IOBufferMemoryDescriptor.h>
 #include <IOKit/IODeviceMemory.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/pci/IOPCIDevice.h>
@@ -135,6 +136,70 @@ enum {
     kSvgaCmdFence = 30,
 };
 
+//
+// ---------------------------------------------------------------------------
+// Guest-backed objects (the vGPU10 / GBOBJECTS path)
+// ---------------------------------------------------------------------------
+//
+// 3D commands carry an SVGA3dCmdHeader {id, size} before their bodies. The object model is
+// table-driven: the guest allocates object tables (OTables) in guest memory, points the
+// host at them with SVGA_3D_CMD_SET_OTABLE_BASE64, and then fills entries as it defines
+// objects. Definitions come in pairs -- the guest writes its half of the state (the OTable
+// entry) AND sends the definition command; the host validates both against each other.
+//
+// A MOB (memory object) is described by a page table of PPN64s. With SVGA3D_MOBFMT_PT64_0
+// the MOB's "base" PPN points at one page-table page holding up to 512 PPN64 entries, which
+// is exactly one 4 KiB table page describing up to 2 MiB of guest memory. That form works
+// wherever the guest pages happen to live, contiguous or not.
+//
+// Command ids and layouts are from the SVGA3D definitions used by Linux's vmwgfx
+// (drivers/gpu/drm/vmwgfx/device_include/svga3d_cmd.h, svga3d_types.h) at the protocol
+// generation Workstation 17 implements.
+enum {
+    kSvga3dCmdSetOtableBase64 = 1115,
+    kSvga3dCmdDefineGbMob64   = 1135,
+    kSvga3dCmdDefineGbSurface = 1097,
+};
+
+enum {
+    kSvgaOtableMob     = 0,
+    kSvgaOtableSurface = 1,
+};
+
+enum {
+    kSvga3dMobFmtPt64_0 = 4,    // one page-table level, PPN64 entries
+};
+
+enum {
+    kSvga3dSurfaceFormatX8R8G8B8 = 1,
+};
+
+enum {
+    kSvga3dSurfaceHintDynamic = 1ULL << 2,
+    kSvga3dSurfaceHintTexture = 1ULL << 5,
+};
+
+// One 4 KiB page of PPN64 entries describes up to 512 pages = 2 MiB.
+static const IOByteCount kGbPageBytes        = 4096;
+static const UInt32     kGbPageShift         = 12;
+static const UInt32     kGbDataPages         = 4;    // 16 KiB data MOB
+static const UInt32     kGbMobTableEntries   = 1024; // 16 KiB
+static const UInt32     kGbSurfaceTableEnts  = 64;   // 64 * 72 = 4608 bytes
+
+// Sizes derived from the SVGAOTable*Entry structures (packed, 8-byte trailing alignment on
+// the mob entry; the surface entry is 72 bytes exactly as vmwgfx's headers define it).
+static const UInt32 kGbMobEntryBytes         = 16;
+static const UInt32 kGbSurfaceEntryBytes     = 72;
+
+// Offsets inside the single contiguous working buffer the kext allocates.
+static const IOByteCount kGbOffPtOtable      = 0x0000;
+static const IOByteCount kGbOffPtSurface     = 0x1000;
+static const IOByteCount kGbOffPtData        = 0x2000;
+static const IOByteCount kGbOffMobTable      = 0x3000;
+static const IOByteCount kGbOffSurfaceTable  = 0x7000;
+static const IOByteCount kGbOffData          = 0x8000;
+static const IOByteCount kGbWorkingBytes     = 0x10000;
+
 // SVGA3dHardwareVersion, from svga3d_devcaps.h:
 //   SVGA3D_MAKE_HWVERSION(major, minor) = (major << 16) | minor
 //   SVGA3D_HWVERSION_CURRENT = SVGA3D_HWVERSION_WS8_B1 = (2, 1)
@@ -197,6 +262,18 @@ private:
     void fifoDump(volatile UInt32 *fifo, const char *when);
     UInt32 devcapRead(UInt32 index);
     void fenceTest(volatile UInt32 *fifo);
+
+    bool fifoSubmitWords(volatile UInt32 *fifo, const UInt32 *words, UInt32 wordCount);
+    bool fenceAck(volatile UInt32 *fifo, UInt32 *seq);
+    void gbBringUp(volatile UInt32 *fifo);
+
+    // The GB working buffer stays resident for the life of the kext: the host reads the
+    // object tables out of it whenever it validates later commands.
+    IOBufferMemoryDescriptor *_gbMem  = nullptr;
+    IOByteCount              _gbLen   = 0;
+    void                    *_gbVirt  = nullptr;
+    UInt64                   _gbPhys  = 0;
+    UInt32                   _fenceSeq = 0;
 
 public:
     //
@@ -415,6 +492,9 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
     // to acknowledge it by writing the value back into SVGA_FIFO_FENCE.
     fenceTest(fifo);
 
+    // Guest-backed object infrastructure: object tables, a data MOB, and a GB surface.
+    gbBringUp(fifo);
+
     map->release();
 }
 
@@ -479,6 +559,225 @@ void vgpuFramebuffer::fenceTest(volatile UInt32 *fifo) {
     }
     IOLog(VGPU_FB_TAG ": fence NOT acked within %llu spins (next_cmd %u stop %u fence 0x%x)\n",
           spinBound, fifo[kSvgaFifoNextCmd], fifo[kSvgaFifoStop], fifo[kSvgaFifoFence]);
+}
+
+//
+// FIFO submission helpers.
+//
+// fifoSubmitWords writes a dword stream through the reserve protocol and refuses to wrap
+// past FIFO_MAX (our streams are tens of bytes; the data area is 256 KiB). fenceAck submits
+// SVGA_CMD_FENCE with a fresh sequence number and polls; because the FIFO is processed in
+// order, an acknowledged fence implies every earlier command was consumed.
+//
+bool vgpuFramebuffer::fifoSubmitWords(volatile UInt32 *fifo, const UInt32 *words, UInt32 wordCount) {
+    const UInt32 next = fifo[kSvgaFifoNextCmd];
+    const UInt32 stop = fifo[kSvgaFifoStop];
+    const UInt32 fmax = fifo[kSvgaFifoMax];
+    const UInt32 bytesFree = (next >= stop) ? (fmax - next) : (stop - next);
+    const IOByteCount byteCount = (IOByteCount)wordCount * sizeof (UInt32);
+    if (byteCount > bytesFree) {
+        IOLog(VGPU_FB_TAG ": fifo submit refused: %u bytes needed, %u free (no wrap handling)\n",
+              (unsigned)byteCount, bytesFree);
+        return false;
+    }
+    const UInt32 caps = fifo[kSvgaFifoCapabilities];
+    if ((caps & kSvgaFifoCapReserve) != 0) {
+        fifo[kSvgaFifoReserved] = byteCount;
+    }
+    for (UInt32 i = 0; i < wordCount; i++) {
+        fifo[(next / sizeof (UInt32)) + i] = words[i];
+    }
+    __asm__ volatile ("" ::: "memory");
+    fifo[kSvgaFifoNextCmd] = next + byteCount;
+    if ((caps & kSvgaFifoCapReserve) != 0) {
+        fifo[kSvgaFifoReserved] = 0;
+    }
+    return true;
+}
+
+bool vgpuFramebuffer::fenceAck(volatile UInt32 *fifo, UInt32 *seq) {
+    *seq = *seq + 1;
+    UInt32 words[2] = { kSvgaCmdFence, *seq };
+    if (!fifoSubmitWords(fifo, words, 2)) {
+        return false;
+    }
+    const UInt64 spinBound = 400000000ULL;
+    for (UInt64 spins = 0; spins < spinBound; spins++) {
+        if (fifo[kSvgaFifoFence] == *seq) {
+            return true;
+        }
+    }
+    IOLog(VGPU_FB_TAG ": fence %u NOT acked (next_cmd %u stop %u)\n",
+          *seq, fifo[kSvgaFifoNextCmd], fifo[kSvgaFifoStop]);
+    return false;
+}
+
+//
+// Guest-backed object bring-up.
+//
+// Lays out one contiguous working buffer as [page tables | object tables | data], points
+// the host's MOB and surface object tables at it, then defines a MOB and a GB surface.
+// Every command is fence-verified. This is the state a real driver's object model grows
+// out of: contexts, shaders and render targets all live in the same tables.
+//
+// The SVGA3D bodies are assembled into dword streams with memcpy because they are packed
+// structures; x86 tolerates the unaligned stores, but memcpy keeps the layout explicit.
+//
+void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
+    if (_gbMem != nullptr) {
+        return;   // already up (kext start runs once, but stay idempotent)
+    }
+
+    _gbMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+        kernel_task,
+        kIODirectionInOut | kIOMemoryPhysicallyContiguous,
+        kGbWorkingBytes, 0xFFFULL);
+    if (_gbMem == nullptr) {
+        IOLog(VGPU_FB_TAG ": gb: could not allocate the %llu-byte working buffer\n",
+              (unsigned long long)kGbWorkingBytes);
+        return;
+    }
+    _gbLen = _gbMem->getLength();
+    _gbVirt = (void *)_gbMem->map()->getVirtualAddress();
+    IOVirtualAddress phys = 0;
+    IOByteCount segLen = 0;
+    phys = _gbMem->getPhysicalSegment(0, &segLen);
+    if (phys == 0 || segLen < _gbLen) {
+        IOLog(VGPU_FB_TAG ": gb: working buffer is not contiguous (%llu of %llu)\n",
+              (unsigned long long)segLen, (unsigned long long)_gbLen);
+        _gbMem->release();
+        _gbMem = nullptr;
+        return;
+    }
+    _gbPhys = (UInt64)phys;
+    bzero(_gbVirt, _gbLen);
+    IOLog(VGPU_FB_TAG ": gb: working buffer phys 0x%llx len %llu\n",
+          (unsigned long long)_gbPhys, (unsigned long long)_gbLen);
+
+    const UInt64 pagePpn = _gbPhys >> kGbPageShift;
+    volatile UInt64 *ptOtable  = (volatile UInt64 *)((char *)_gbVirt + kGbOffPtOtable);
+    volatile UInt64 *ptSurface = (volatile UInt64 *)((char *)_gbVirt + kGbOffPtSurface);
+    volatile UInt64 *ptData    = (volatile UInt64 *)((char *)_gbVirt + kGbOffPtData);
+
+    // Page tables: PPN64 of each 4 KiB page in the region each table describes.
+    const IOByteCount mobTableBytes    = (IOByteCount)kGbMobTableEntries * kGbMobEntryBytes;
+    const IOByteCount surfaceTableBytes = (IOByteCount)kGbSurfaceTableEnts * kGbSurfaceEntryBytes;
+    const IOByteCount dataBytes         = (IOByteCount)kGbDataPages * kGbPageBytes;
+    const UInt32 mobTablePages    = (UInt32)(mobTableBytes / kGbPageBytes);
+    const UInt32 surfaceTablePages = 1;
+    for (UInt32 i = 0; i < mobTablePages; i++) {
+        ptOtable[i] = pagePpn + ((kGbOffMobTable / kGbPageBytes) + i);
+    }
+    for (UInt32 i = 0; i < surfaceTablePages; i++) {
+        ptSurface[i] = pagePpn + ((kGbOffSurfaceTable / kGbPageBytes) + i);
+    }
+    for (UInt32 i = 0; i < kGbDataPages; i++) {
+        ptData[i] = pagePpn + ((kGbOffData / kGbPageBytes) + i);
+    }
+    __asm__ volatile ("" ::: "memory");
+
+    const UInt64 ppnOtablePt  = pagePpn + (kGbOffPtOtable  >> kGbPageShift);
+    const UInt64 ppnSurfacePt = pagePpn + (kGbOffPtSurface >> kGbPageShift);
+    const UInt64 ppnDataPt    = pagePpn + (kGbOffPtData    >> kGbPageShift);
+    const UInt32 dataMobId    = 1;
+    const UInt32 surfaceId    = 1;
+
+    // SET_OTABLE_BASE64: {type, baseAddress PPN64, sizeInBytes, validSizeInBytes, ptDepth}
+    UInt32 words[10];
+    words[0] = kSvga3dCmdSetOtableBase64;
+    words[1] = 24;   // body size in bytes
+    words[2] = kSvgaOtableMob;
+    memcpy(&words[3], &ppnOtablePt, 8);
+    words[5] = mobTableBytes;
+    words[6] = 0;
+    words[7] = kSvga3dMobFmtPt64_0;
+    if (!fifoSubmitWords(fifo, words, 8) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": gb: MOB object table base refused\n");
+        return;
+    }
+    IOLog(VGPU_FB_TAG ": gb: MOB otable base set (ppn %llu, %u bytes)\n",
+          (unsigned long long)ppnOtablePt, mobTableBytes);
+
+    words[2] = kSvgaOtableSurface;
+    memcpy(&words[3], &ppnSurfacePt, 8);
+    words[5] = surfaceTableBytes;
+    words[6] = 0;
+    words[7] = kSvga3dMobFmtPt64_0;
+    if (!fifoSubmitWords(fifo, words, 8) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": gb: SURFACE object table base refused\n");
+        return;
+    }
+    IOLog(VGPU_FB_TAG ": gb: SURFACE otable base set (ppn %llu, %u bytes)\n",
+          (unsigned long long)ppnSurfacePt, surfaceTableBytes);
+
+    // The guest writes its half of the MOB entry before defining it.
+    volatile UInt8 *mobTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffMobTable);
+    UInt32 mobEntryOff = dataMobId * kGbMobEntryBytes;
+    UInt32 mobDepth = kSvga3dMobFmtPt64_0;
+    memcpy((void *)(mobTable + mobEntryOff), &mobDepth, 4);
+    memcpy((void *)(mobTable + mobEntryOff + 4), &dataBytes, 4);
+    memcpy((void *)(mobTable + mobEntryOff + 8), &ppnDataPt, 8);
+    __asm__ volatile ("" ::: "memory");
+
+    // DEFINE_GB_MOB64: {mobid, ptDepth, base PPN64, sizeInBytes}
+    words[0] = kSvga3dCmdDefineGbMob64;
+    words[1] = 20;
+    words[2] = dataMobId;
+    words[3] = kSvga3dMobFmtPt64_0;
+    memcpy(&words[4], &ppnDataPt, 8);
+    words[6] = dataBytes;
+    if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": gb: DEFINE_GB_MOB64 refused\n");
+        return;
+    }
+    IOLog(VGPU_FB_TAG ": gb: data MOB %u defined (ppn %llu, %u bytes, PT64_0)\n",
+          dataMobId, (unsigned long long)ppnDataPt, dataBytes);
+
+    // DEFINE_GB_SURFACE: {sid, surfaceFlags(64), format, numMipLevels, multisampleCount,
+    //                     autogenFilter, size{w,h,d}} -- 40 bytes, and the header size
+    // must say so exactly: the host aborts FIFO processing on a size mismatch.
+    const UInt64 surfaceFlags = kSvga3dSurfaceHintDynamic | kSvga3dSurfaceHintTexture;
+    const UInt32 width = 256, height = 256, depth = 1;
+    words[0] = kSvga3dCmdDefineGbSurface;
+    words[1] = 40;
+    words[2] = surfaceId;
+    memcpy(&words[3], &surfaceFlags, 8);
+    words[5] = kSvga3dSurfaceFormatX8R8G8B8;
+    words[6] = 1;    // numMipLevels
+    words[7] = 1;    // multisampleCount
+    words[8] = 0;    // autogenFilter = SVGA3D_TEX_FILTER_NONE
+    words[9] = width;
+    words[10] = height;
+    words[11] = depth;
+    if (!fifoSubmitWords(fifo, words, 12) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": gb: DEFINE_GB_SURFACE refused\n");
+        return;
+    }
+
+    // The guest fills the surface's OTable entry too.
+    volatile UInt8 *surfTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffSurfaceTable);
+    volatile UInt8 *entry = surfTable + (IOByteCount)surfaceId * kGbSurfaceEntryBytes;
+    UInt32 fmt = kSvga3dSurfaceFormatX8R8G8B8;
+    UInt32 mips = 1, ms = 1, filter = 0;
+    memcpy((void *)(entry + 0), &fmt, 4);
+    memcpy((void *)(entry + 4), &surfaceFlags, 8);
+    memcpy((void *)(entry + 12), &mips, 4);
+    memcpy((void *)(entry + 16), &ms, 4);
+    memcpy((void *)(entry + 20), &filter, 4);
+    memcpy((void *)(entry + 24), &width, 4);
+    memcpy((void *)(entry + 28), &height, 4);
+    memcpy((void *)(entry + 32), &depth, 4);
+    memcpy((void *)(entry + 36), &dataMobId, 4);
+    memcpy((void *)(entry + 40), &mips, 4);           // arraySize
+    UInt32 pitch = width * 4;
+    memcpy((void *)(entry + 44), &pitch, 4);          // mobPitch
+    UInt64 zero64 = 0;
+    memcpy((void *)(entry + 48), &zero64, 8);         // surface2Flags
+    bzero((void *)(entry + 56), 16);                  // multisamplePattern, quality, pads
+    __asm__ volatile ("" ::: "memory");
+
+    IOLog(VGPU_FB_TAG ": gb: GB SURFACE %u defined (%ux%u X8R8G8B8 on MOB %u) -- "
+          "GB object model is UP\n", surfaceId, width, height, dataMobId);
 }
 
 void vgpuFramebuffer::fifoDump(volatile UInt32 *fifo, const char *when) {
@@ -581,6 +880,11 @@ void vgpuFramebuffer::stop(IOService *provider) {
     if (_aperture != nullptr) {
         _aperture->release();
         _aperture = nullptr;
+    }
+    if (_gbMem != nullptr) {
+        _gbMem->release();
+        _gbMem = nullptr;
+        _gbVirt = nullptr;
     }
     super::stop(provider);
 }
