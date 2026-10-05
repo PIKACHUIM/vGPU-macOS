@@ -214,6 +214,33 @@ What this buys: the object substrate a real driver builds on is registered and v
 contexts (DX_DEFINE_CONTEXT), shaders and render targets all live in the same tables, and
 guest RAM is now addressable by the host's 3D engine through the data MOB.
 
+## DX command set is OPEN: DX context created (measured 2026-10-05)
+
+The DX (vGPU10) path is confirmed available and entered. Measured devcaps through the
+backdoor:
+
+```
+gb: devcaps DXCONTEXT=1 SM41=1 GL43=1
+gb: DXCONTEXT otable base set (ppn 126903, 2048 bytes)
+gb: DX CONTEXT 1 created -- DX command set is OPEN
+```
+
+with zero errors in the host's log. The DX additions to the bring-up sequence:
+
+- `SVGA3D_DEVCAP_DXCONTEXT` (devcap index 95) gates the whole DX command family; it reads 1,
+  as do `SM41` (244) and `GL43` (261) — the device claims the full shader-model and GL 4.3
+  feature set.
+- The DX context object table (`SVGA_OTABLE_DXCONTEXT` = 5) holds
+  `SVGAOTableDXContextEntry {uint32 cid; SVGAMobId mobid;}` — 8 bytes per context. It gets
+  its own `SET_OTABLE_BASE64` like the others.
+- `SVGA_3D_CMD_DX_DEFINE_CONTEXT` (1143) is just `{uint32 cid}` — 4 bytes — with the cid
+  chosen by the guest. The context's working memory (the COTable storage) is bound later,
+  not at definition time.
+
+From here, rendering work is a matter of context state: binding the surface as a render
+target view, clearing, and reading the result back through the MOB — the round trip that
+would prove the host's 3D engine actually computed into guest memory.
+
 ## Acceleration: what you get
 
 | Capability | Status |

@@ -159,15 +159,25 @@ enum {
     kSvga3dCmdSetOtableBase64 = 1115,
     kSvga3dCmdDefineGbMob64   = 1135,
     kSvga3dCmdDefineGbSurface = 1097,
+    kSvga3dCmdDxDefineContext = 1143,
 };
 
 enum {
-    kSvgaOtableMob     = 0,
-    kSvgaOtableSurface = 1,
+    kSvgaOtableMob       = 0,
+    kSvgaOtableSurface   = 1,
+    kSvgaOtableDxContext = 5,
 };
 
 enum {
     kSvga3dMobFmtPt64_0 = 4,    // one page-table level, PPN64 entries
+};
+
+// SVGA3D_DEVCAP indices, from svga3d_devcaps.h.
+enum {
+    kSvgaDevcap3d        = 0,
+    kSvgaDevcapDxContext = 95,
+    kSvgaDevcapSm41      = 244,
+    kSvgaDevcapGl43      = 261,
 };
 
 enum {
@@ -198,7 +208,13 @@ static const IOByteCount kGbOffPtData        = 0x2000;
 static const IOByteCount kGbOffMobTable      = 0x3000;
 static const IOByteCount kGbOffSurfaceTable  = 0x7000;
 static const IOByteCount kGbOffData          = 0x8000;
+static const IOByteCount kGbOffPtDxCtx       = 0xC000;
+static const IOByteCount kGbOffDxCtxTable    = 0xD000;
 static const IOByteCount kGbWorkingBytes     = 0x10000;
+
+// DX context object table: SVGAOTableDXContextEntry {uint32 cid; SVGAMobId mobid;} = 8 bytes.
+static const UInt32     kGbDxCtxTableEnts    = 256;  // 2 KiB
+static const UInt32     kGbDxCtxEntryBytes   = 8;
 
 // SVGA3dHardwareVersion, from svga3d_devcaps.h:
 //   SVGA3D_MAKE_HWVERSION(major, minor) = (major << 16) | minor
@@ -658,10 +674,12 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
     volatile UInt64 *ptOtable  = (volatile UInt64 *)((char *)_gbVirt + kGbOffPtOtable);
     volatile UInt64 *ptSurface = (volatile UInt64 *)((char *)_gbVirt + kGbOffPtSurface);
     volatile UInt64 *ptData    = (volatile UInt64 *)((char *)_gbVirt + kGbOffPtData);
+    volatile UInt64 *ptDxCtx   = (volatile UInt64 *)((char *)_gbVirt + kGbOffPtDxCtx);
 
     // Page tables: PPN64 of each 4 KiB page in the region each table describes.
     const IOByteCount mobTableBytes    = (IOByteCount)kGbMobTableEntries * kGbMobEntryBytes;
     const IOByteCount surfaceTableBytes = (IOByteCount)kGbSurfaceTableEnts * kGbSurfaceEntryBytes;
+    const IOByteCount dxCtxTableBytes   = (IOByteCount)kGbDxCtxTableEnts * kGbDxCtxEntryBytes;
     const IOByteCount dataBytes         = (IOByteCount)kGbDataPages * kGbPageBytes;
     const UInt32 mobTablePages    = (UInt32)(mobTableBytes / kGbPageBytes);
     const UInt32 surfaceTablePages = 1;
@@ -674,13 +692,17 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
     for (UInt32 i = 0; i < kGbDataPages; i++) {
         ptData[i] = pagePpn + ((kGbOffData / kGbPageBytes) + i);
     }
+    // One page holds the DX context table (256 * 8 = 2 KiB).
+    ptDxCtx[0] = pagePpn + (kGbOffDxCtxTable / kGbPageBytes);
     __asm__ volatile ("" ::: "memory");
 
     const UInt64 ppnOtablePt  = pagePpn + (kGbOffPtOtable  >> kGbPageShift);
     const UInt64 ppnSurfacePt = pagePpn + (kGbOffPtSurface >> kGbPageShift);
     const UInt64 ppnDataPt    = pagePpn + (kGbOffPtData    >> kGbPageShift);
+    const UInt64 ppnDxCtxPt   = pagePpn + (kGbOffPtDxCtx   >> kGbPageShift);
     const UInt32 dataMobId    = 1;
     const UInt32 surfaceId    = 1;
+    const UInt32 dxCtxId      = 1;
 
     // SET_OTABLE_BASE64: {type, baseAddress PPN64, sizeInBytes, validSizeInBytes, ptDepth}
     UInt32 words[10];
@@ -778,6 +800,45 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
 
     IOLog(VGPU_FB_TAG ": gb: GB SURFACE %u defined (%ux%u X8R8G8B8 on MOB %u) -- "
           "GB object model is UP\n", surfaceId, width, height, dataMobId);
+
+    // ------------------------------------------------------------------
+    // DX (vGPU10) context. Gated on the DXCONTEXT device capability: the
+    // DX command set is only legal when the host advertises it.
+    // ------------------------------------------------------------------
+    const UInt32 devcapDx  = devcapRead(kSvgaDevcapDxContext);
+    const UInt32 devcapSm41 = devcapRead(kSvgaDevcapSm41);
+    const UInt32 devcapGl43 = devcapRead(kSvgaDevcapGl43);
+    IOLog(VGPU_FB_TAG ": gb: devcaps DXCONTEXT=%u SM41=%u GL43=%u\n",
+          devcapDx, devcapSm41, devcapGl43);
+    if (devcapDx == 0) {
+        IOLog(VGPU_FB_TAG ": gb: host does not advertise DXCONTEXT; skipping DX context\n");
+        return;
+    }
+
+    // SVGA_3D_CMD_SET_OTABLE_BASE64 for SVGA_OTABLE_DXCONTEXT.
+    words[0] = kSvga3dCmdSetOtableBase64;
+    words[1] = 24;
+    words[2] = kSvgaOtableDxContext;
+    memcpy(&words[3], &ppnDxCtxPt, 8);
+    words[5] = dxCtxTableBytes;
+    words[6] = 0;
+    words[7] = kSvga3dMobFmtPt64_0;
+    if (!fifoSubmitWords(fifo, words, 8) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": gb: DXCONTEXT object table base refused\n");
+        return;
+    }
+    IOLog(VGPU_FB_TAG ": gb: DXCONTEXT otable base set (ppn %llu, %u bytes)\n",
+          (unsigned long long)ppnDxCtxPt, dxCtxTableBytes);
+
+    // SVGA_3D_CMD_DX_DEFINE_CONTEXT: {uint32 cid} -- 4 bytes.
+    words[0] = kSvga3dCmdDxDefineContext;
+    words[1] = 4;
+    words[2] = dxCtxId;
+    if (!fifoSubmitWords(fifo, words, 3) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": gb: DX_DEFINE_CONTEXT refused\n");
+        return;
+    }
+    IOLog(VGPU_FB_TAG ": gb: DX CONTEXT %u created -- DX command set is OPEN\n", dxCtxId);
 }
 
 void vgpuFramebuffer::fifoDump(volatile UInt32 *fifo, const char *when) {
