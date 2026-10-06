@@ -190,8 +190,9 @@ enum {
 };
 
 enum {
-    kSvga3dMobFmtPt64_0 = 4,    // one page-table level, PPN64 entries
-    kSvga3dMobFmtPt64_1 = 5,    // two levels: root page -> PT pages -> memory
+    kSvga3dMobFmtPt64_0 = 4,    // no PT level: the base page IS the (single) data page
+    kSvga3dMobFmtPt64_1 = 5,    // one PT level: base page holds PPN64s of the data pages
+    kSvga3dMobFmtPt64_2 = 6,    // two PT levels: base -> L1 PT pages -> data pages
 };
 
 // SVGA_STFLAG_PRIMARY.
@@ -212,6 +213,7 @@ enum {
 enum {
     kSvga3dSurfaceHintDynamic = 1ULL << 2,
     kSvga3dSurfaceHintTexture = 1ULL << 5,
+    kSvga3dSurfaceScreentarget = 1ULL << 16,   // required for STDU-bound surfaces
 };
 
 // kFbStage gates the FIFO bring-up itself (bisecting the boot-freeze):
@@ -242,10 +244,10 @@ enum {
 //   4 = init + fence + full-screen UPDATE probe
 //   5 = init + fence + legacy screen-object present path (DEFINE_SCREEN, DEFINE_GMRFB over
 //       the framebuffer, BLIT_GMRFB_TO_SCREEN) + the periodic present timer
-static const UInt32 kFbStage = 0;
+static const UInt32 kFbStage = 2;
 
 // kGbStage gates the GB object stack (see gbBringUp); 5 adds the STDU present path.
-static const UInt32 kGbStage = 0;
+static const UInt32 kGbStage = 5;
 
 // Periodic full-screen re-present interval, in milliseconds. The GMRFB points straight at
 // the framebuffer in BAR1, so each present is a host-side DMA with no guest copy; the cost
@@ -790,19 +792,10 @@ void vgpuFramebuffer::presentTick(void) {
             memcpy(_stduVirt, _vramVirt, kStduBytes);
         }
 
-        // Content probe for the first ~20 seconds: a solid red bar (alpha 0xFF) across the
-        // top -- an unmistakable pattern if the pipeline works.
-        if (_presentTicks < 600 && _stduVirt != nullptr) {
-            volatile UInt32 *px = (volatile UInt32 *)_stduVirt;
-            for (UInt32 y = 0; y < 64; y++) {
-                for (UInt32 x = 0; x < kStduWidth; x++) {
-                    px[y * kStduWidth + x] = 0xFFFF0000;
-                }
-            }
-        }
-
-        // SURFACE_DMA: {guest image, host image, transfer} + one full-screen CopyBox +
-        // suffix. Header(2) + body(7) + box(9) + suffix(3) = 21 dwords.
+        // Belt and braces: SURFACE_DMA (guest mobid 2 -> host surface sid 2) now that the
+        // MOB page tables are PT64_2, followed by UPDATE_GB_IMAGE (re-read the MOB), and
+        // then the screen-target update below. Any one of these being the effective
+        // content path should light the display up.
         UInt32 dma[21];
         dma[0] = 1044;                  // SVGA_3D_CMD_SURFACE_DMA
         dma[1] = 28 + 36 + 12;          // body + one CopyBox + suffix
@@ -826,6 +819,20 @@ void vgpuFramebuffer::presentTick(void) {
         dma[19] = (UInt32)kStduBytes;   // suffix.maximumOffset
         dma[20] = 0;                    // suffix.flags
         fifoSubmitWords(_presentFifo, dma, 21);
+
+        UInt32 img[11];
+        img[0] = 1101;                  // SVGA_3D_CMD_UPDATE_GB_IMAGE
+        img[1] = 36;
+        img[2] = _surfaceId;            // image.sid
+        img[3] = 0;                     // image.face
+        img[4] = 0;                     // image.mipmap
+        img[5] = 0;                     // box.x
+        img[6] = 0;                     // box.y
+        img[7] = 0;                     // box.z
+        img[8] = kStduWidth;            // box.w
+        img[9] = kStduHeight;           // box.h
+        img[10] = 1;                    // box.d
+        fifoSubmitWords(_presentFifo, img, 11);
 
         UInt32 upd[7];
         upd[0] = kSvga3dCmdUpdateGbScreenTarget;
@@ -1313,7 +1320,7 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     }
     __asm__ volatile ("" ::: "memory");
 
-    IOLog(VGPU_FB_TAG ": stdu: backing store %llu bytes at pt ppn %llu (PT64_1)\n",
+    IOLog(VGPU_FB_TAG ": stdu: backing store %llu bytes at pt ppn %llu (PT64_2)\n",
           (unsigned long long)kStduBytes, (unsigned long long)rootPpn);
 
     UInt32 words[16];
@@ -1322,7 +1329,7 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     // DEFINE, so a zero entry (write-after-define) gives it an empty object.
     volatile UInt8 *mobTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffMobTable);
     UInt32 mobEntryOff = _stduMobId * kGbMobEntryBytes;
-    UInt32 mobDepth = kSvga3dMobFmtPt64_1;
+    UInt32 mobDepth = kSvga3dMobFmtPt64_2;
     memcpy((void *)(mobTable + mobEntryOff), &mobDepth, 4);
     memcpy((void *)(mobTable + mobEntryOff + 4), &kStduBytes, 4);
     memcpy((void *)(mobTable + mobEntryOff + 8), &rootPpn, 8);
@@ -1332,7 +1339,7 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     words[0] = kSvga3dCmdDefineGbMob64;
     words[1] = 20;
     words[2] = _stduMobId;
-    words[3] = kSvga3dMobFmtPt64_1;
+    words[3] = kSvga3dMobFmtPt64_2;
     memcpy(&words[4], &rootPpn, 8);
     words[6] = (UInt32)kStduBytes;
     if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
@@ -1364,7 +1371,8 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     volatile UInt8 *surfTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffSurfaceTable);
     volatile UInt8 *entry = surfTable + (IOByteCount)_surfaceId * kGbSurfaceEntryBytes;
     UInt32 fmt = kSvga3dSurfaceFormatX8R8G8B8;
-    const UInt64 surfaceFlags = kSvga3dSurfaceHintDynamic | kSvga3dSurfaceHintTexture;
+    const UInt64 surfaceFlags = kSvga3dSurfaceHintDynamic | kSvga3dSurfaceHintTexture |
+                                kSvga3dSurfaceScreentarget;
     UInt32 mips = 1, ms = 1, filter = 0;
     UInt32 depth = 1;
     UInt32 pitch = kStduWidth * 4;
@@ -1416,6 +1424,16 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     memcpy((void *)(stEntry + 32), &zero32, 4);       // dpi
     bzero((void *)(stEntry + 36), 28);                // pad[7]
     __asm__ volatile ("" ::: "memory");
+
+    // Display topology: in screen-target mode the MKS needs the guest to declare its
+    // displays through the SVGA_REG_DISPLAY_* registers (vmwgfx does this from its
+    // display-unit layout code).
+    svgaWriteRegister(_svgaPortBase, 35, _stduStid);              // SVGA_REG_DISPLAY_ID
+    svgaWriteRegister(_svgaPortBase, 36, 1);                      // SVGA_REG_DISPLAY_IS_PRIMARY
+    svgaWriteRegister(_svgaPortBase, 37, 0);                      // SVGA_REG_DISPLAY_POSITION_X
+    svgaWriteRegister(_svgaPortBase, 38, 0);                      // SVGA_REG_DISPLAY_POSITION_Y
+    svgaWriteRegister(_svgaPortBase, 39, kStduWidth);             // SVGA_REG_DISPLAY_WIDTH
+    svgaWriteRegister(_svgaPortBase, 40, kStduHeight);            // SVGA_REG_DISPLAY_HEIGHT
 
     words[0] = kSvga3dCmdDefineGbScreenTarget;
     words[1] = 28;
