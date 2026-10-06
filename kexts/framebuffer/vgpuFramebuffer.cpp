@@ -181,6 +181,8 @@ enum {
     kSvga3dCmdDestroyGbScreenTarget = 1125,
     kSvga3dCmdBindGbScreenTarget   = 1126,
     kSvga3dCmdUpdateGbScreenTarget = 1127,
+    kSvga3dCmdSurfaceDestroy       = 1041,
+    kSvga3dCmdDestroyGbMob         = 1094,
     kSvga3dCmdDxSetCotable         = 1207,
     kSvga3dCmdDxDefineRenderTargetView = 1187,
     kSvga3dCmdDxSetRenderTargets   = 1161,
@@ -1440,15 +1442,30 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     bzero((void *)(stEntry + 36), 28);                // pad[7]
     __asm__ volatile ("" ::: "memory");
 
-    // Screen targets cannot be redefined while they exist (the host aborts FIFO
-    // processing), and they survive guest reboots -- so destroy stid 0 first and ignore
-    // the outcome (on the first boot after a power cycle it does not exist yet).
+    // STDU objects survive guest reboots, and redefining an existing object poisons the
+    // host's FIFO processing (the abort surfaces on the NEXT command). Destroy them all
+    // first and ignore the outcome -- on the first boot after a power cycle they simply
+    // do not exist yet.
     words[0] = kSvga3dCmdDestroyGbScreenTarget;
     words[1] = 4;
     words[2] = _stduStid;
     fifoSubmitWords(fifo, words, 3);
     if (!fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": stdu: DESTROY_GB_SCREENTARGET not acked (first boot?)\n");
+    }
+    words[0] = kSvga3dCmdSurfaceDestroy;
+    words[1] = 4;
+    words[2] = _surfaceId;
+    fifoSubmitWords(fifo, words, 3);
+    if (!fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": stdu: SURFACE_DESTROY not acked\n");
+    }
+    words[0] = kSvga3dCmdDestroyGbMob;
+    words[1] = 4;
+    words[2] = _stduMobId;
+    fifoSubmitWords(fifo, words, 3);
+    if (!fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": stdu: DESTROY_GB_MOB not acked\n");
     }
 
     // Display topology: in screen-target mode the MKS needs the guest to declare its
@@ -1472,6 +1489,11 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     words[8] = 0;                   // dpi
     if (!fifoSubmitWords(fifo, words, 9) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": stdu: DEFINE_GB_SCREENTARGET refused\n");
+        // Dump the whole command stream for offline diffing: 4 dwords per line.
+        for (UInt32 o = kSvgaFifoExtendedMandatoryRegs * 4; o < fifo[kSvgaFifoNextCmd]; o += 16) {
+            IOLog(VGPU_FB_TAG ": fifo[%4u] %08x %08x %08x %08x\n", o,
+                  fifo[o / 4], fifo[o / 4 + 1], fifo[o / 4 + 2], fifo[o / 4 + 3]);
+        }
         return;
     }
 
