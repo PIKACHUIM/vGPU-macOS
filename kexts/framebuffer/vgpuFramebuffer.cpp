@@ -177,17 +177,25 @@ enum {
     kSvga3dCmdDefineGbMob64   = 1135,
     kSvga3dCmdDefineGbSurface = 1097,
     kSvga3dCmdDxDefineContext = 1143,
+    kSvga3dCmdDefineGbScreenTarget = 1124,
+    kSvga3dCmdBindGbScreenTarget   = 1126,
+    kSvga3dCmdUpdateGbScreenTarget = 1127,
 };
 
 enum {
-    kSvgaOtableMob       = 0,
-    kSvgaOtableSurface   = 1,
-    kSvgaOtableDxContext = 5,
+    kSvgaOtableMob          = 0,
+    kSvgaOtableSurface      = 1,
+    kSvgaOtableScreenTarget = 4,
+    kSvgaOtableDxContext    = 5,
 };
 
 enum {
     kSvga3dMobFmtPt64_0 = 4,    // one page-table level, PPN64 entries
+    kSvga3dMobFmtPt64_1 = 5,    // two levels: root page -> PT pages -> memory
 };
+
+// SVGA_STFLAG_PRIMARY.
+static const UInt32 kSvgaStflagPrimary = 1 << 0;
 
 // SVGA3D_DEVCAP indices, from svga3d_devcaps.h.
 enum {
@@ -227,7 +235,17 @@ enum {
 // path does not feed the display pipeline; presentation must go through GB screen targets
 // (STDU) -- see docs/vmware-svga-capabilities.md. Ship kFbStage=0 (working display) until
 // that path exists.
+// kFbStage gates the FIFO bring-up itself (bisecting the boot-freeze):
+//   0 = read-only probe: register reads and dumps only, no FIFO writes, no fence
+//   2 = FIFO init only (MIN/MAX/CONFIG_DONE), no guest commands at all
+//   3 = init + one fence command
+//   4 = init + fence + full-screen UPDATE probe
+//   5 = init + fence + legacy screen-object present path (DEFINE_SCREEN, DEFINE_GMRFB over
+//       the framebuffer, BLIT_GMRFB_TO_SCREEN) + the periodic present timer
 static const UInt32 kFbStage = 0;
+
+// kGbStage gates the GB object stack (see gbBringUp); 5 adds the STDU present path.
+static const UInt32 kGbStage = 0;
 
 // Periodic full-screen re-present interval, in milliseconds. The GMRFB points straight at
 // the framebuffer in BAR1, so each present is a host-side DMA with no guest copy; the cost
@@ -255,11 +273,28 @@ static const IOByteCount kGbOffSurfaceTable  = 0x7000;
 static const IOByteCount kGbOffData          = 0x8000;
 static const IOByteCount kGbOffPtDxCtx       = 0xC000;
 static const IOByteCount kGbOffDxCtxTable    = 0xD000;
+static const IOByteCount kGbOffPtSt          = 0xE000;
+static const IOByteCount kGbOffStTable       = 0xF000;
 static const IOByteCount kGbWorkingBytes     = 0x10000;
 
 // DX context object table: SVGAOTableDXContextEntry {uint32 cid; SVGAMobId mobid;} = 8 bytes.
 static const UInt32     kGbDxCtxTableEnts    = 256;  // 2 KiB
 static const UInt32     kGbDxCtxEntryBytes   = 8;
+
+//
+// Screen target (STDU) present path. The screen target's content is a GB surface of the
+// full display size; its data lives in a dedicated 3 MB MOB (PT64_1: one root PT page
+// pointing at two second-level PT pages covering 768 pages). The present loop copies the
+// framebuffer (VRAM) into that memory and issues UPDATE_GB_SCREENTARGET -- the host reads
+// the surface data straight out of guest RAM.
+//
+static const UInt32     kStduWidth           = 1024;
+static const UInt32     kStduHeight          = 768;
+static const IOByteCount kStduBytes          = (IOByteCount)kStduWidth * kStduHeight * 4;
+static const UInt32     kStduPages           = (UInt32)(kStduBytes / kGbPageBytes); // 768
+static const UInt32     kStduL1Pages         = (kStduPages + 511) / 512;            // 2
+static const UInt32     kGbStEntryBytes      = 64;   // SVGAOTableScreenTargetEntry
+static const UInt32     kGbStTableEnts       = 64;   // 64 * 64 = 4096 bytes
 
 // SVGA3dHardwareVersion, from svga3d_devcaps.h:
 //   SVGA3D_MAKE_HWVERSION(major, minor) = (major << 16) | minor
@@ -327,6 +362,7 @@ private:
     bool fifoSubmitWords(volatile UInt32 *fifo, const UInt32 *words, UInt32 wordCount);
     bool fenceAck(volatile UInt32 *fifo, UInt32 *seq);
     void gbBringUp(volatile UInt32 *fifo);
+    void stduBringUp(volatile UInt32 *fifo);
 
     void presentSetup(volatile UInt32 *fifo);
     void presentTick(void);
@@ -336,6 +372,20 @@ private:
     UInt32 _presentTicks = 0;
     volatile UInt32 *_presentFifo = nullptr;
     IOMemoryMap *_fifoMap = nullptr;
+
+    // STDU present state.
+    bool _stduActive = false;
+    IOBufferMemoryDescriptor *_stduMem = nullptr;   // 3 MB surface backing store
+    void                    *_stduVirt = nullptr;
+    UInt64                   _stduPhys = 0;
+    IOBufferMemoryDescriptor *_stduPtMem = nullptr; // 16 KiB contiguous: root + 2 L1 PT pages
+    void                    *_stduPtVirt = nullptr;
+    UInt64                   _stduPtPhys = 0;
+    IOMemoryMap             *_vramMap = nullptr;     // kernel mapping of the framebuffer
+    void                    *_vramVirt = nullptr;
+    UInt32                   _surfaceId = 1;
+    UInt32                   _stduMobId = 2;
+    UInt32                   _stduStid = 0;
 
     // The GB working buffer stays resident for the life of the kext: the host reads the
     // object tables out of it whenever it validates later commands.
@@ -583,18 +633,20 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
         }
     }
 
-    // The screen-object present path: own the display after CONFIG_DONE.
-    if (kFbStage >= 5) {
-        // presentSetup arms a periodic timer that keeps submitting blits through the FIFO
-        // mapping after this function returns -- keep the mapping alive for the kext's
-        // lifetime (the extra retain is dropped in stop()).
+    // Guest-backed object infrastructure: object tables, a data MOB, and a GB surface.
+    gbBringUp(fifo);
+
+    // The present path: STDU (GB screen targets) when the GB stack is up, else the legacy
+    // screen-object blits. Both arm the periodic re-present timer.
+    if (kGbStage >= 5 && kFbStage >= 2) {
+        map->retain();
+        _fifoMap = map;
+        presentSetup(fifo);
+    } else if (kFbStage >= 5) {
         map->retain();
         _fifoMap = map;
         presentSetup(fifo);
     }
-
-    // Guest-backed object infrastructure: object tables, a data MOB, and a GB surface.
-    gbBringUp(fifo);
 
     map->release();
 }
@@ -622,6 +674,18 @@ void vgpuFramebuffer::presentSetup(volatile UInt32 *fifo) {
     }
     _presentFifo = fifo;
     UInt32 words[16];
+
+    if (kGbStage >= 5) {
+        // STDU mode: stduBringUp() has already run (inside gbBringUp) and set
+        // _stduActive; it defines the screen target and binds the surface. Arm the
+        // periodic copy+update loop.
+        if (_stduActive) {
+            schedulePresent();
+            IOLog(VGPU_FB_TAG ": present: STDU re-present started (%u ms)\n",
+                  kPresentIntervalMs);
+        }
+        return;
+    }
 
     // DEFINE_SCREEN: SVGAScreenObject v1 -- structSize=28 (no backingStore field; it is
     // optional with SVGA_FIFO_CAP_SCREEN_OBJECT, which this host advertises).
@@ -710,8 +774,73 @@ void vgpuFramebuffer::presentTick(void) {
         IOLog(VGPU_FB_TAG ": present tick %u (next %u stop %u)\n", _presentTicks,
               _presentFifo[kSvgaFifoNextCmd], _presentFifo[kSvgaFifoStop]);
     }
-    // One full-screen blit; no fence -- the FIFO order guarantees a later blit wins, and
-    // skipping the wait keeps the timer cadence stable.
+    if (_stduActive) {
+        // STDU present, two steps per tick:
+        //
+        //   1. copy the framebuffer (VRAM, uncached) into the surface's source region
+        //      (guest RAM), then SVGA_3D_CMD_SURFACE_DMA guest->host into surface sid 2 --
+        //      the host does NOT read the MOB directly; surface content must arrive
+        //      through the DMA engine (this is what vmwgfx_stdu.c does);
+        //   2. UPDATE_GB_SCREENTARGET with the full rect so the host presents the
+        //      refreshed surface.
+        //
+        // No fences -- FIFO order guarantees the UPDATE sees the completed DMA, and the
+        // next tick's DMA supersedes anything stale.
+        if (_vramVirt != nullptr && _stduVirt != nullptr) {
+            memcpy(_stduVirt, _vramVirt, kStduBytes);
+        }
+
+        // Content probe for the first ~20 seconds: a solid red bar (alpha 0xFF) across the
+        // top -- an unmistakable pattern if the pipeline works.
+        if (_presentTicks < 600 && _stduVirt != nullptr) {
+            volatile UInt32 *px = (volatile UInt32 *)_stduVirt;
+            for (UInt32 y = 0; y < 64; y++) {
+                for (UInt32 x = 0; x < kStduWidth; x++) {
+                    px[y * kStduWidth + x] = 0xFFFF0000;
+                }
+            }
+        }
+
+        // SURFACE_DMA: {guest image, host image, transfer} + one full-screen CopyBox +
+        // suffix. Header(2) + body(7) + box(9) + suffix(3) = 21 dwords.
+        UInt32 dma[21];
+        dma[0] = 1044;                  // SVGA_3D_CMD_SURFACE_DMA
+        dma[1] = 28 + 36 + 12;          // body + one CopyBox + suffix
+        dma[2] = _stduMobId;            // guest.ptr.gmrId (mobid on a GB device)
+        dma[3] = 0;                     // guest.ptr.offset
+        dma[4] = kStduWidth * 4;        // guest.pitch
+        dma[5] = _surfaceId;            // host.sid
+        dma[6] = 0;                     // host.face
+        dma[7] = 0;                     // host.mipmap
+        dma[8] = 1;                     // transfer = SVGA3D_WRITE_HOST_VRAM
+        dma[9] = 0;                     // box.x
+        dma[10] = 0;                    // box.y
+        dma[11] = 0;                    // box.z
+        dma[12] = kStduWidth;           // box.w
+        dma[13] = kStduHeight;          // box.h
+        dma[14] = 1;                    // box.d
+        dma[15] = 0;                    // box.srcx
+        dma[16] = 0;                    // box.srcy
+        dma[17] = 0;                    // box.srcz
+        dma[18] = 12;                   // suffix.suffixSize
+        dma[19] = (UInt32)kStduBytes;   // suffix.maximumOffset
+        dma[20] = 0;                    // suffix.flags
+        fifoSubmitWords(_presentFifo, dma, 21);
+
+        UInt32 upd[7];
+        upd[0] = kSvga3dCmdUpdateGbScreenTarget;
+        upd[1] = 20;
+        upd[2] = _stduStid;
+        upd[3] = 0;
+        upd[4] = 0;
+        upd[5] = kStduWidth;
+        upd[6] = kStduHeight;
+        fifoSubmitWords(_presentFifo, upd, 7);
+        return;
+    }
+
+    // Legacy screen-object present: one full-screen blit; no fence -- the FIFO order
+    // guarantees a later blit wins, and skipping the wait keeps the timer cadence stable.
     UInt32 words[9];
     words[0] = kSvgaCmdBlitGmrfbToScreen;
     words[1] = 28;
@@ -882,12 +1011,9 @@ bool vgpuFramebuffer::fenceAck(volatile UInt32 *fifo, UInt32 *seq) {
 //   2 = also define the data MOB
 //   3 = also define the GB surface
 //   4 = also the DX context table and DX_DEFINE_CONTEXT
-// Measured: with the full sequence the guest boots and SSH works but the display stays on
-// the frozen boot progress screen -- WindowServer runs, nothing new is presented. Bisect
-// with this switch until the offending step is known.
+//   5 = also the STDU present path (stduBringUp)
+// (The value itself now lives next to kFbStage near the top of the file.)
 //
-static const UInt32 kGbStage = 0;
-
 void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
     if (_gbMem != nullptr) {
         return;   // already up (kext start runs once, but stay idempotent)
@@ -1101,6 +1227,246 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
     }
     IOLog(VGPU_FB_TAG ": gb: DX CONTEXT %u created -- DX command set is OPEN\n", dxCtxId);
     }  // kGbStage >= 4
+
+    // ------------------------------------------------------------------
+    // STDU present path (kGbStage >= 5): a full-display surface living in a
+    // 3 MB PT64_1 MOB, bound to a GB screen target. The present loop copies
+    // the framebuffer (VRAM) into the surface memory and issues
+    // UPDATE_GB_SCREENTARGET; the host reads the surface data straight out
+    // of guest RAM.
+    // ------------------------------------------------------------------
+    if (kGbStage >= 5) {
+        stduBringUp(fifo);
+    }
+}
+
+//
+// STDU bring-up. Sequence (each step fence-verified):
+//
+//   1. allocate the 3 MB backing store (pages may be scattered) and 16 KiB
+//      of contiguous PT pages (root + 2 second-level);
+//   2. DEFINE_GB_MOB64 mobid 2, PT64_1, covering the backing store;
+//   3. register the SCREENTARGET object table (type 4) and write entry 0
+//      {image sid 2, size, root, PRIMARY};
+//   4. DEFINE_GB_SURFACE sid 2 (1024x768 X8R8G8B8) on mobid 2;
+//   5. DEFINE_GB_SCREENTARGET stid 0 (primary);
+//   6. copy the current framebuffer into the surface memory (first frame);
+//   7. BIND_GB_SCREENTARGET {stid 0, sid 2}, then UPDATE_GB_SCREENTARGET.
+//
+// After this the present loop re-copies and re-updates every interval.
+//
+void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
+    // The 256x256 experiment surface (kGbStage>=3) owns sid 1; the STDU surface takes a
+    // fresh id so no redefinition is involved.
+    _surfaceId = 2;
+
+    // 1. Backing store (pages may be scattered; the MOB page tables handle that) and page
+    //    tables (three independent pages: root + two second-level).
+    _stduMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+        kernel_task, kIODirectionInOut, kStduBytes, 0xFFFULL);
+    if (_stduMem == nullptr) {
+        IOLog(VGPU_FB_TAG ": stdu: could not allocate the %llu-byte backing store\n",
+              (unsigned long long)kStduBytes);
+        return;
+    }
+    _stduVirt = (void *)_stduMem->map()->getVirtualAddress();
+    bzero(_stduVirt, kStduBytes);
+
+    _stduPtMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+        kernel_task, kIODirectionInOut, 3 * kGbPageBytes, 0xFFFULL);
+    if (_stduPtMem == nullptr) {
+        IOLog(VGPU_FB_TAG ": stdu: could not allocate the page-table pages\n");
+        return;
+    }
+    _stduPtVirt = (void *)_stduPtMem->map()->getVirtualAddress();
+
+    // Root page: PPNs of the two second-level pages (pages 1 and 2 of the PT allocation).
+    volatile UInt64 *root = (volatile UInt64 *)_stduPtVirt;
+    for (UInt32 p = 0; p < 3; p++) {
+        IOVirtualAddress addr = 0;
+        IOByteCount len = 0;
+        addr = _stduPtMem->getPhysicalSegment((IOByteCount)p * kGbPageBytes, &len);
+        if (addr == 0 || len < kGbPageBytes) {
+            IOLog(VGPU_FB_TAG ": stdu: PT page %u not resolvable\n", p);
+            return;
+        }
+        if (p == 0) {
+            _stduPtPhys = (UInt64)addr;
+        } else {
+            root[p - 1] = (UInt64)addr >> kGbPageShift;
+        }
+    }
+    __asm__ volatile ("" ::: "memory");
+    const UInt64 rootPpn = _stduPtPhys >> kGbPageShift;
+
+    // Second-level pages: PPN of each backing-store page.
+    volatile UInt64 *l1 = (volatile UInt64 *)((char *)_stduPtVirt + kGbPageBytes);
+    for (UInt32 i = 0; i < kStduPages; i++) {
+        IOVirtualAddress addr = 0;
+        IOByteCount len = 0;
+        addr = _stduMem->getPhysicalSegment((IOByteCount)i * kGbPageBytes, &len);
+        if (addr == 0 || len < kGbPageBytes) {
+            IOLog(VGPU_FB_TAG ": stdu: backing-store page %u not resolvable\n", i);
+            return;
+        }
+        l1[i] = (UInt64)addr >> kGbPageShift;
+    }
+    __asm__ volatile ("" ::: "memory");
+
+    IOLog(VGPU_FB_TAG ": stdu: backing store %llu bytes at pt ppn %llu (PT64_1)\n",
+          (unsigned long long)kStduBytes, (unsigned long long)rootPpn);
+
+    UInt32 words[16];
+
+    // The MOB's OTable entry FIRST -- the host snapshots the entry when it processes the
+    // DEFINE, so a zero entry (write-after-define) gives it an empty object.
+    volatile UInt8 *mobTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffMobTable);
+    UInt32 mobEntryOff = _stduMobId * kGbMobEntryBytes;
+    UInt32 mobDepth = kSvga3dMobFmtPt64_1;
+    memcpy((void *)(mobTable + mobEntryOff), &mobDepth, 4);
+    memcpy((void *)(mobTable + mobEntryOff + 4), &kStduBytes, 4);
+    memcpy((void *)(mobTable + mobEntryOff + 8), &rootPpn, 8);
+    __asm__ volatile ("" ::: "memory");
+
+    // 2. DEFINE_GB_MOB64 for the backing store.
+    words[0] = kSvga3dCmdDefineGbMob64;
+    words[1] = 20;
+    words[2] = _stduMobId;
+    words[3] = kSvga3dMobFmtPt64_1;
+    memcpy(&words[4], &rootPpn, 8);
+    words[6] = (UInt32)kStduBytes;
+    if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": stdu: DEFINE_GB_MOB64 refused\n");
+        return;
+    }
+
+    // 3. SCREENTARGET object table: PT page at kGbOffPtSt, table at kGbOffStTable.
+    const UInt64 pagePpn = _gbPhys >> kGbPageShift;
+    volatile UInt64 *ptSt = (volatile UInt64 *)((char *)_gbVirt + kGbOffPtSt);
+    ptSt[0] = pagePpn + (kGbOffStTable / kGbPageBytes);
+    __asm__ volatile ("" ::: "memory");
+
+    words[0] = kSvga3dCmdSetOtableBase64;
+    words[1] = 24;
+    words[2] = kSvgaOtableScreenTarget;
+    const UInt64 ppnStPt = pagePpn + (kGbOffPtSt >> kGbPageShift);
+    memcpy(&words[3], &ppnStPt, 8);
+    words[5] = kGbStTableEnts * kGbStEntryBytes;   // 4096
+    words[6] = 0;
+    words[7] = kSvga3dMobFmtPt64_0;
+    if (!fifoSubmitWords(fifo, words, 8) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": stdu: SCREENTARGET otable base refused\n");
+        return;
+    }
+
+    // 4. The surface's OTable entry FIRST (same snapshot rule as the MOB entry), then
+    //    DEFINE_GB_SURFACE sid 2 at full display size on mobid 2.
+    volatile UInt8 *surfTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffSurfaceTable);
+    volatile UInt8 *entry = surfTable + (IOByteCount)_surfaceId * kGbSurfaceEntryBytes;
+    UInt32 fmt = kSvga3dSurfaceFormatX8R8G8B8;
+    const UInt64 surfaceFlags = kSvga3dSurfaceHintDynamic | kSvga3dSurfaceHintTexture;
+    UInt32 mips = 1, ms = 1, filter = 0;
+    UInt32 depth = 1;
+    UInt32 pitch = kStduWidth * 4;
+    memcpy((void *)(entry + 0), &fmt, 4);
+    memcpy((void *)(entry + 4), &surfaceFlags, 8);
+    memcpy((void *)(entry + 12), &mips, 4);
+    memcpy((void *)(entry + 16), &ms, 4);
+    memcpy((void *)(entry + 20), &filter, 4);
+    memcpy((void *)(entry + 24), &kStduWidth, 4);
+    memcpy((void *)(entry + 28), &kStduHeight, 4);
+    memcpy((void *)(entry + 32), &depth, 4);
+    memcpy((void *)(entry + 36), &_stduMobId, 4);
+    memcpy((void *)(entry + 40), &mips, 4);           // arraySize
+    memcpy((void *)(entry + 44), &pitch, 4);          // mobPitch
+    UInt64 zero64 = 0;
+    memcpy((void *)(entry + 48), &zero64, 8);         // surface2Flags
+    bzero((void *)(entry + 56), 16);
+    __asm__ volatile ("" ::: "memory");
+
+    words[0] = kSvga3dCmdDefineGbSurface;
+    words[1] = 40;
+    words[2] = _surfaceId;
+    memcpy(&words[3], &surfaceFlags, 8);
+    words[5] = kSvga3dSurfaceFormatX8R8G8B8;
+    words[6] = 1;                   // numMipLevels
+    words[7] = 1;                   // multisampleCount
+    words[8] = 0;                   // autogenFilter
+    words[9] = kStduWidth;
+    words[10] = kStduHeight;
+    words[11] = 1;                  // depth
+    if (!fifoSubmitWords(fifo, words, 12) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": stdu: DEFINE_GB_SURFACE refused\n");
+        return;
+    }
+
+    // 5. The screen target's OTable entry (its `image` field names the content surface --
+    //    this is what was missing when the screen stayed black), then
+    //    DEFINE_GB_SCREENTARGET stid 0.
+    volatile UInt8 *stTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffStTable);
+    volatile UInt8 *stEntry = stTable + (IOByteCount)_stduStid * kGbStEntryBytes;
+    memcpy((void *)(stEntry + 0), &_surfaceId, 4);    // image.sid
+    memcpy((void *)(stEntry + 4), &zero64, 8);        // image.face, image.mipmap
+    memcpy((void *)(stEntry + 12), &kStduWidth, 4);
+    memcpy((void *)(stEntry + 16), &kStduHeight, 4);
+    UInt32 zero32 = 0;
+    memcpy((void *)(stEntry + 20), &zero32, 4);       // xRoot
+    memcpy((void *)(stEntry + 24), &zero32, 4);       // yRoot
+    memcpy((void *)(stEntry + 28), &kSvgaStflagPrimary, 4);
+    memcpy((void *)(stEntry + 32), &zero32, 4);       // dpi
+    bzero((void *)(stEntry + 36), 28);                // pad[7]
+    __asm__ volatile ("" ::: "memory");
+
+    words[0] = kSvga3dCmdDefineGbScreenTarget;
+    words[1] = 28;
+    words[2] = _stduStid;
+    words[3] = kStduWidth;
+    words[4] = kStduHeight;
+    words[5] = 0;                   // xRoot
+    words[6] = 0;                   // yRoot
+    words[7] = kSvgaStflagPrimary;
+    words[8] = 0;                   // dpi
+    if (!fifoSubmitWords(fifo, words, 9) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": stdu: DEFINE_GB_SCREENTARGET refused\n");
+        return;
+    }
+
+    // 6. First frame: copy the current framebuffer into the surface memory.
+    _vramMap = _aperture->map();
+    if (_vramMap == nullptr) {
+        IOLog(VGPU_FB_TAG ": stdu: could not map the framebuffer\n");
+        return;
+    }
+    _vramVirt = (void *)_vramMap->getVirtualAddress();
+    memcpy(_stduVirt, _vramVirt, kStduBytes);
+
+    // 7. BIND then UPDATE -- the screen target shows surface sid 2 from here on.
+    words[0] = kSvga3dCmdBindGbScreenTarget;
+    words[1] = 16;
+    words[2] = _stduStid;
+    words[3] = _surfaceId;
+    words[4] = 0;                   // face
+    words[5] = 0;                   // mipmap
+    if (!fifoSubmitWords(fifo, words, 6) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": stdu: BIND_GB_SCREENTARGET refused\n");
+        return;
+    }
+
+    words[0] = kSvga3dCmdUpdateGbScreenTarget;
+    words[1] = 20;
+    words[2] = _stduStid;
+    words[3] = 0;                   // rect.x
+    words[4] = 0;                   // rect.y
+    words[5] = kStduWidth;
+    words[6] = kStduHeight;
+    if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": stdu: UPDATE_GB_SCREENTARGET refused\n");
+        return;
+    }
+
+    _stduActive = true;
+    IOLog(VGPU_FB_TAG ": stdu: screen target 0 (%ux%u) bound to surface %u on MOB %u -- "
+          "STDU present path is UP\n", kStduWidth, kStduHeight, _surfaceId, _stduMobId);
 }
 
 void vgpuFramebuffer::fifoDump(volatile UInt32 *fifo, const char *when) {
@@ -1209,6 +1575,21 @@ void vgpuFramebuffer::stop(IOService *provider) {
     if (_fifoMap != nullptr) {
         _fifoMap->release();
         _fifoMap = nullptr;
+    }
+    if (_vramMap != nullptr) {
+        _vramMap->release();
+        _vramMap = nullptr;
+        _vramVirt = nullptr;
+    }
+    if (_stduPtMem != nullptr) {
+        _stduPtMem->release();
+        _stduPtMem = nullptr;
+        _stduPtVirt = nullptr;
+    }
+    if (_stduMem != nullptr) {
+        _stduMem->release();
+        _stduMem = nullptr;
+        _stduVirt = nullptr;
     }
     if (_aperture != nullptr) {
         _aperture->release();
