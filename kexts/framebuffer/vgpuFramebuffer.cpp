@@ -178,8 +178,15 @@ enum {
     kSvga3dCmdDefineGbSurface = 1097,
     kSvga3dCmdDxDefineContext = 1143,
     kSvga3dCmdDefineGbScreenTarget = 1124,
+    kSvga3dCmdDestroyGbScreenTarget = 1125,
     kSvga3dCmdBindGbScreenTarget   = 1126,
     kSvga3dCmdUpdateGbScreenTarget = 1127,
+    kSvga3dCmdDxSetCotable         = 1207,
+    kSvga3dCmdDxDefineRenderTargetView = 1187,
+    kSvga3dCmdDxSetRenderTargets   = 1161,
+    kSvga3dCmdDxClearRenderTargetView = 1176,
+    kSvga3dCmdReadbackGbSurface    = 1104,
+    kSvga3dResourceTexture2D       = 3,
 };
 
 enum {
@@ -248,6 +255,13 @@ static const UInt32 kFbStage = 2;
 
 // kGbStage gates the GB object stack (see gbBringUp); 5 adds the STDU present path.
 static const UInt32 kGbStage = 5;
+
+// kDxTest runs the DX clear/readback round-trip experiment after the present path is up.
+// Measured 2026-10-06: with the test present, the host aborts FIFO processing at
+// DEFINE_GB_SCREENTARGET (deterministically, next/stop frozen mid-stream) even though the
+// identical byte stream passed in earlier boots and the test itself runs only afterwards.
+// Root cause unknown -- bisect with this switch next session.
+static const UInt32 kDxTest = 0;
 
 // Periodic full-screen re-present interval, in milliseconds. The GMRFB points straight at
 // the framebuffer in BAR1, so each present is a host-side DMA with no guest copy; the cost
@@ -365,6 +379,7 @@ private:
     bool fenceAck(volatile UInt32 *fifo, UInt32 *seq);
     void gbBringUp(volatile UInt32 *fifo);
     void stduBringUp(volatile UInt32 *fifo);
+    void dxReadbackTest(volatile UInt32 *fifo);
 
     void presentSetup(volatile UInt32 *fifo);
     void presentTick(void);
@@ -1425,6 +1440,17 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     bzero((void *)(stEntry + 36), 28);                // pad[7]
     __asm__ volatile ("" ::: "memory");
 
+    // Screen targets cannot be redefined while they exist (the host aborts FIFO
+    // processing), and they survive guest reboots -- so destroy stid 0 first and ignore
+    // the outcome (on the first boot after a power cycle it does not exist yet).
+    words[0] = kSvga3dCmdDestroyGbScreenTarget;
+    words[1] = 4;
+    words[2] = _stduStid;
+    fifoSubmitWords(fifo, words, 3);
+    if (!fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": stdu: DESTROY_GB_SCREENTARGET not acked (first boot?)\n");
+    }
+
     // Display topology: in screen-target mode the MKS needs the guest to declare its
     // displays through the SVGA_REG_DISPLAY_* registers (vmwgfx does this from its
     // display-unit layout code).
@@ -1485,6 +1511,102 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     _stduActive = true;
     IOLog(VGPU_FB_TAG ": stdu: screen target 0 (%ux%u) bound to surface %u on MOB %u -- "
           "STDU present path is UP\n", kStduWidth, kStduHeight, _surfaceId, _stduMobId);
+
+    if (kDxTest) {
+        dxReadbackTest(fifo);
+    }
+}
+
+//
+// DX command-stream round trip: bind a COTable, define a render target view of the display
+// surface, set it, clear it to magenta through the host's 3D engine, read the surface back
+// into its MOB, and verify the pixel values from guest memory.
+//
+// The COTable storage reuses the 16 KiB data MOB (mobid 1): one SVGACOTableDXRTViewEntry is
+// 32 bytes, so it holds hundreds of views. The readback writes the host's dirty surface
+// contents back into the surface's backing MOB (mobid 2), which is exactly the memory the
+// present loop copies -- this test runs before the present timer starts, so nothing races.
+//
+void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
+    const UInt32 cid = 1;           // created in gbBringUp (kGbStage >= 4)
+    const UInt32 cotableMobId = 1;  // the 16 KiB data MOB
+    const UInt32 rtvId = 0;
+    const UInt32 invalidId = 0xFFFFFFFF;
+    const UInt32 expected = 0xFFFF00FF;   // X8R8G8B8 magenta, alpha = 0xFF
+    UInt32 words[16];
+
+    // DX_SET_COTABLE {cid, mobid, type=SVGA_COTABLE_RTVIEW(0), validSizeInBytes=0}.
+    words[0] = kSvga3dCmdDxSetCotable;
+    words[1] = 16;
+    words[2] = cid;
+    words[3] = cotableMobId;
+    words[4] = 0;                   // SVGA_COTABLE_RTVIEW
+    words[5] = 0;                   // validSizeInBytes
+    if (!fifoSubmitWords(fifo, words, 6) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": dx: DX_SET_COTABLE refused\n");
+        return;
+    }
+
+    // DX_DEFINE_RENDERTARGET_VIEW {viewId, sid, format, resourceDimension,
+    //                              desc{mipSlice, firstArraySlice, arraySize}}.
+    words[0] = kSvga3dCmdDxDefineRenderTargetView;
+    words[1] = 28;
+    words[2] = rtvId;
+    words[3] = _surfaceId;
+    words[4] = kSvga3dSurfaceFormatX8R8G8B8;
+    words[5] = kSvga3dResourceTexture2D;
+    words[6] = 0;                   // desc.mipSlice
+    words[7] = 0;                   // desc.firstArraySlice
+    words[8] = 1;                   // desc.arraySize
+    if (!fifoSubmitWords(fifo, words, 9) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": dx: DX_DEFINE_RENDERTARGET_VIEW refused\n");
+        return;
+    }
+
+    // DX_SET_RENDERTARGETS {depthStencilViewId, rtv ids...} -- one RTV, no depth stencil.
+    words[0] = kSvga3dCmdDxSetRenderTargets;
+    words[1] = 8;
+    words[2] = invalidId;           // depthStencilViewId = none
+    words[3] = rtvId;
+    if (!fifoSubmitWords(fifo, words, 4) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": dx: DX_SET_RENDERTARGETS refused\n");
+        return;
+    }
+
+    // DX_CLEAR_RENDERTARGET_VIEW {viewId, rgba} -- magenta, alpha 1.0.
+    words[0] = kSvga3dCmdDxClearRenderTargetView;
+    words[1] = 20;
+    words[2] = rtvId;
+    const float magenta[4] = { 1.0f, 0.0f, 1.0f, 1.0f };
+    memcpy(&words[3], magenta, 16);
+    if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": dx: DX_CLEAR_RENDERTARGET_VIEW refused\n");
+        return;
+    }
+
+    // READBACK_GB_SURFACE {sid} -- host flushes its dirty surface copy into the MOB.
+    words[0] = kSvga3dCmdReadbackGbSurface;
+    words[1] = 4;
+    words[2] = _surfaceId;
+    if (!fifoSubmitWords(fifo, words, 3) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": dx: READBACK_GB_SURFACE refused\n");
+        return;
+    }
+    __asm__ volatile ("" ::: "memory");
+
+    // The readback landed in the surface's backing MOB -- our own copy of it is the same
+    // memory. Check a few pixels across the frame.
+    volatile UInt32 *px = (volatile UInt32 *)_stduVirt;
+    UInt32 p0 = px[0];
+    UInt32 pMid = px[(kStduHeight / 2) * kStduWidth + (kStduWidth / 2)];
+    UInt32 pLast = px[(kStduHeight - 1) * kStduWidth + (kStduWidth - 1)];
+    if (p0 == expected && pMid == expected && pLast == expected) {
+        IOLog(VGPU_FB_TAG ": dx: ROUND TRIP VERIFIED -- cleared surface read back as "
+              "0x%08x at every sample (host 3D engine wrote guest-visible memory)\n", p0);
+    } else {
+        IOLog(VGPU_FB_TAG ": dx: readback mismatch: p0=0x%08x pMid=0x%08x pLast=0x%08x "
+              "(expected 0x%08x)\n", p0, pMid, pLast, expected);
+    }
 }
 
 void vgpuFramebuffer::fifoDump(volatile UInt32 *fifo, const char *when) {
