@@ -277,6 +277,35 @@ Two real bugs fixed en route to the bisect:
 - `SVGA3D_HWVERSION_CURRENT` is `0x00020001`, not `0x08000001`; the guest announces it in
   `SVGA_FIFO_GUEST_3D_HWVERSION`.
 
+## Stage 5 measured: legacy screen objects are processed but do not present (2026-10-06 evening)
+
+The screen-object present path was implemented and ran to completion (`kFbStage=5`):
+
+```
+present: screen 0 defined (1024x768), GMRFB = BAR1+0, blit acked -- screen-object present path is UP
+present: periodic re-present started (33 ms)
+present tick 1 (next 1312 stop 1312)   ... tick 300, 600, 900 ... (next == stop throughout)
+```
+
+`SVGA_CMD_DEFINE_SCREEN` (34), `SVGA_CMD_DEFINE_GMRFB` (36) and
+`SVGA_CMD_BLIT_GMRFB_TO_SCREEN` (37) are all accepted and processed in real time — the
+GMRFB points straight at the framebuffer in BAR1 via `SVGA_GMR_FRAMEBUFFER` (gmrId
+0xFFFFFFFE), so each present is a pure host-side DMA with no guest copy, and the
+`thread_call` re-present loop runs at 30 Hz with the host keeping `NEXT_CMD == STOP`.
+
+The display did not change: the VNC output stays on the last legacy-presented frame. And a
+WindowServer log comparison between a working boot and a frozen boot shows **identical**
+CoreDisplay behaviour (both log the same virtual-framebuffer/display-pipe errors, both run
+the same session flow) — so the guest graphics stack is innocent.
+
+Conclusion: on this vGPU10 device the legacy screen-object path does not feed the display
+pipeline at all. What VMware's own guest driver uses on this generation is the **GB screen
+target** display unit (STDU): `SVGA_3D_CMD_DEFINE_GB_SCREEN_TARGET` with a backing-store
+surface in the `SVGA_OTABLE_SCREENTARGET` object table, presented through the DX/GB
+pipeline — see Linux vmwgfx `vmwgfx_stdu.c` for the reference implementation. The next
+milestone is that path; the legacy screen-object code stays in the tree (dormant behind
+`kFbStage`) as instrumentation.
+
 ## Acceleration: what you get
 
 | Capability | Status |

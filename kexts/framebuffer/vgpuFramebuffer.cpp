@@ -33,6 +33,7 @@
 #include <IOKit/IODeviceMemory.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/pci/IOPCIDevice.h>
+#include <kern/thread_call.h>
 #include <mach/kmod.h>
 
 #define VGPU_FB_TAG "vgpu-fb"
@@ -135,7 +136,22 @@ enum {
 enum {
     kSvgaCmdFence = 30,
     kSvgaCmdUpdate = 1,   // [x][y][width][height]: framebuffer rect changed, rescan it
+    kSvgaCmdDefineScreen = 34,
+    kSvgaCmdDefineGmrfb = 36,
+    kSvgaCmdBlitGmrfbToScreen = 37,
 };
+
+// SVGA_GMR_FRAMEBUFFER: a SVGAGuestPtr gmrId that addresses the legacy framebuffer (BAR1)
+// directly; the ptr offset is a byte offset into the BAR. This lets the screen-object
+// present path read the console framebuffer without any guest-side copy.
+static const UInt32 kSvgaGmrFramebuffer = 0xFFFFFFFE;
+
+// SVGAGMRImageFormat: bitsPerPixel | colorDepth << 8. Our inherited mode is bpp 32, depth 24
+// (32-bit BGRX) -- one of the formats the GMRFB blits support.
+static const UInt32 kSvgaGmrfbFormatBgrx32 = 32 | (24 << 8);
+
+// SVGA_SCREEN flags.
+static const UInt32 kSvgaScreenIsPrimary = 1 << 1;
 
 //
 // ---------------------------------------------------------------------------
@@ -195,15 +211,28 @@ enum {
 //   2 = FIFO init only (MIN/MAX/CONFIG_DONE), no guest commands at all
 //   3 = init + one fence command
 //   4 = init + fence + full-screen UPDATE probe
+//   5 = init + fence + screen-object present path (DEFINE_SCREEN, DEFINE_GMRFB over the
+//       framebuffer, BLIT_GMRFB_TO_SCREEN) + the periodic present timer
 //
 // MEASURED (2026-10-06 bisect): with 3D enabled, stage 2 alone freezes presentation --
 // the moment the guest writes CONFIG_DONE, the MKS switches to the screen-target
 // presentation model and the legacy framebuffer auto-scanout is disabled. SVGA_CMD_UPDATE
 // (acked!) does not restore it. So FIFO ownership REQUIRES implementing the screen-target
 // present path (DEFINE_SCREEN / GB screen target / blits) before it can be safe.
-// kFbStage stays 0 until that lands; the fence/GB/DX machinery is retained for the
-// experiments and re-enables with kFbStage >= 2.
+// Stage 5 is that present path.
+// 2026-10-06 evening: stage 5 (legacy DEFINE_SCREEN + GMRFB blits over the framebuffer)
+// runs fully -- DEFINE_SCREEN/DEFINE_GMRFB/BLIT_GMRFB_TO_SCREEN all fence-acked, the 33 ms
+// re-present thread_call fires and the host consumes every blit -- yet the display keeps
+// showing the last legacy frame. Conclusion: on this vGPU10 device the legacy screen-object
+// path does not feed the display pipeline; presentation must go through GB screen targets
+// (STDU) -- see docs/vmware-svga-capabilities.md. Ship kFbStage=0 (working display) until
+// that path exists.
 static const UInt32 kFbStage = 0;
+
+// Periodic full-screen re-present interval, in milliseconds. The GMRFB points straight at
+// the framebuffer in BAR1, so each present is a host-side DMA with no guest copy; the cost
+// is bounded and dirty-tracking can replace this later.
+static const UInt32 kPresentIntervalMs = 33;
 
 // One 4 KiB page of PPN64 entries describes up to 512 pages = 2 MiB.
 static const IOByteCount kGbPageBytes        = 4096;
@@ -298,6 +327,15 @@ private:
     bool fifoSubmitWords(volatile UInt32 *fifo, const UInt32 *words, UInt32 wordCount);
     bool fenceAck(volatile UInt32 *fifo, UInt32 *seq);
     void gbBringUp(volatile UInt32 *fifo);
+
+    void presentSetup(volatile UInt32 *fifo);
+    void presentTick(void);
+    static void presentTickC(thread_call_param_t param0, thread_call_param_t param1);
+    void schedulePresent(void);
+    thread_call_t _presentCall = nullptr;
+    UInt32 _presentTicks = 0;
+    volatile UInt32 *_presentFifo = nullptr;
+    IOMemoryMap *_fifoMap = nullptr;
 
     // The GB working buffer stays resident for the life of the kext: the host reads the
     // object tables out of it whenever it validates later commands.
@@ -545,10 +583,146 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
         }
     }
 
+    // The screen-object present path: own the display after CONFIG_DONE.
+    if (kFbStage >= 5) {
+        // presentSetup arms a periodic timer that keeps submitting blits through the FIFO
+        // mapping after this function returns -- keep the mapping alive for the kext's
+        // lifetime (the extra retain is dropped in stop()).
+        map->retain();
+        _fifoMap = map;
+        presentSetup(fifo);
+    }
+
     // Guest-backed object infrastructure: object tables, a data MOB, and a GB surface.
     gbBringUp(fifo);
 
     map->release();
+}
+
+//
+// Screen-object present path.
+//
+// Once the guest owns the FIFO (CONFIG_DONE), the MKS stops auto-presenting the framebuffer
+// and expects the driver to drive screen objects. Three commands set that up:
+//
+//   DEFINE_SCREEN         -- screen 0, primary, the inherited mode, at (0,0);
+//   DEFINE_GMRFB          -- the GMRFB is the blit *source*: it points straight at the
+//                            framebuffer in BAR1 via SVGA_GMR_FRAMEBUFFER, so presents need
+//                            no guest-side copy at all;
+//   BLIT_GMRFB_TO_SCREEN  -- one full-screen blit from the GMRFB to screen 0.
+//
+// A periodic timer re-blits the whole screen at kPresentIntervalMs. It is a pure host-side
+// DMA (the GMRFB lives in BAR1), so the guest cost is just the FIFO dwords; dirty tracking
+// can shrink it later. Single-producer (the timer) after start() completes, so no lock is
+// needed beyond the reserve protocol itself.
+//
+void vgpuFramebuffer::presentSetup(volatile UInt32 *fifo) {
+    if (!_deviceModeValid) {
+        return;
+    }
+    _presentFifo = fifo;
+    UInt32 words[16];
+
+    // DEFINE_SCREEN: SVGAScreenObject v1 -- structSize=28 (no backingStore field; it is
+    // optional with SVGA_FIFO_CAP_SCREEN_OBJECT, which this host advertises).
+    words[0] = kSvgaCmdDefineScreen;
+    words[1] = 28;                  // sizeof(SVGAScreenObject) without backingStore
+    words[2] = 28;                  // structSize
+    words[3] = 0;                   // screenId
+    words[4] = kSvgaScreenIsPrimary;
+    words[5] = _deviceWidth;
+    words[6] = _deviceHeight;
+    words[7] = 0;                   // root.x
+    words[8] = 0;                   // root.y
+    words[9] = 0;                   // cloneCount
+    if (!fifoSubmitWords(fifo, words, 10) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": present: DEFINE_SCREEN refused\n");
+        return;
+    }
+
+    // DEFINE_GMRFB: {ptr{gmrId, offset}, bytesPerLine, format} -- 16 bytes.
+    words[0] = kSvgaCmdDefineGmrfb;
+    words[1] = 16;
+    words[2] = kSvgaGmrFramebuffer;   // gmrId: the legacy framebuffer (BAR1)
+    words[3] = _deviceFbOffset;       // ptr.offset: byte offset into BAR1
+    words[4] = _devicePitch;
+    words[5] = kSvgaGmrfbFormatBgrx32;
+    if (!fifoSubmitWords(fifo, words, 6) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": present: DEFINE_GMRFB refused\n");
+        return;
+    }
+
+    // BLIT_GMRFB_TO_SCREEN: {srcOrigin{x,y}, destRect{l,t,r,b}, destScreenId} -- 28 bytes.
+    words[0] = kSvgaCmdBlitGmrfbToScreen;
+    words[1] = 28;
+    words[2] = 0;                   // srcOrigin.x
+    words[3] = 0;                   // srcOrigin.y
+    words[4] = 0;                   // destRect.left
+    words[5] = 0;                   // destRect.top
+    words[6] = _deviceWidth;        // destRect.right
+    words[7] = _deviceHeight;       // destRect.bottom
+    words[8] = 0;                   // destScreenId
+    if (!fifoSubmitWords(fifo, words, 9) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": present: BLIT_GMRFB_TO_SCREEN refused\n");
+        return;
+    }
+    IOLog(VGPU_FB_TAG ": present: screen 0 defined (%ux%u), GMRFB = BAR1+%u, blit acked -- "
+          "screen-object present path is UP\n", _deviceWidth, _deviceHeight, _deviceFbOffset);
+
+    // Keep presenting. The first tick fires after one interval; each tick reschedules.
+    _presentCall = thread_call_allocate(&vgpuFramebuffer::presentTickC, (thread_call_param_t)this);
+    if (_presentCall == nullptr) {
+        IOLog(VGPU_FB_TAG ": present: could not allocate the present thread_call\n");
+        return;
+    }
+    schedulePresent();
+    IOLog(VGPU_FB_TAG ": present: periodic re-present started (%u ms)\n", kPresentIntervalMs);
+}
+
+// thread_call callback: fire one present and reschedule.
+void vgpuFramebuffer::presentTickC(thread_call_param_t param0, thread_call_param_t param1) {
+    (void)param1;
+    vgpuFramebuffer *self = (vgpuFramebuffer *)param0;
+    if (self != nullptr) {
+        self->presentTick();
+        self->schedulePresent();
+    }
+}
+
+// Schedule the next present tick. thread_call_enter_delayed takes an absolute mach
+// absolute-time deadline; compute now + interval.
+void vgpuFramebuffer::schedulePresent(void) {
+    if (_presentCall == nullptr) {
+        return;
+    }
+    UInt64 now = 0, delta = 0;
+    clock_get_uptime(&now);
+    nanoseconds_to_absolutetime((UInt64)kPresentIntervalMs * 1000000ULL, &delta);
+    thread_call_enter_delayed(_presentCall, now + delta);
+}
+
+void vgpuFramebuffer::presentTick(void) {
+    if (_presentFifo == nullptr || !_deviceModeValid) {
+        return;
+    }
+    _presentTicks++;
+    if (_presentTicks <= 3 || _presentTicks % 300 == 0) {
+        IOLog(VGPU_FB_TAG ": present tick %u (next %u stop %u)\n", _presentTicks,
+              _presentFifo[kSvgaFifoNextCmd], _presentFifo[kSvgaFifoStop]);
+    }
+    // One full-screen blit; no fence -- the FIFO order guarantees a later blit wins, and
+    // skipping the wait keeps the timer cadence stable.
+    UInt32 words[9];
+    words[0] = kSvgaCmdBlitGmrfbToScreen;
+    words[1] = 28;
+    words[2] = 0;
+    words[3] = 0;
+    words[4] = 0;
+    words[5] = 0;
+    words[6] = _deviceWidth;
+    words[7] = _deviceHeight;
+    words[8] = 0;
+    fifoSubmitWords(_presentFifo, words, 9);
 }
 
 // The backdoor needs the write before each read; a tiny wrapper keeps the dump loop honest.
@@ -626,25 +800,50 @@ bool vgpuFramebuffer::fifoSubmitWords(volatile UInt32 *fifo, const UInt32 *words
     const UInt32 next = fifo[kSvgaFifoNextCmd];
     const UInt32 stop = fifo[kSvgaFifoStop];
     const UInt32 fmax = fifo[kSvgaFifoMax];
+    const UInt32 fmin = fifo[kSvgaFifoMin];
     const UInt32 bytesFree = (next >= stop) ? (fmax - next) : (stop - next);
     const IOByteCount byteCount = (IOByteCount)wordCount * sizeof (UInt32);
     if (byteCount > bytesFree) {
-        IOLog(VGPU_FB_TAG ": fifo submit refused: %u bytes needed, %u free (no wrap handling)\n",
+        IOLog(VGPU_FB_TAG ": fifo submit refused: %u bytes needed, %u free\n",
               (unsigned)byteCount, bytesFree);
         return false;
     }
     const UInt32 caps = fifo[kSvgaFifoCapabilities];
-    if ((caps & kSvgaFifoCapReserve) != 0) {
-        fifo[kSvgaFifoReserved] = byteCount;
+    const bool canReserve = (caps & kSvgaFifoCapReserve) != 0;
+    const IOByteCount bytesToEnd = (IOByteCount)(fmax - next);
+
+    if (byteCount <= bytesToEnd) {
+        // Fits before FIFO_MAX: the simple case.
+        if (canReserve) {
+            fifo[kSvgaFifoReserved] = byteCount;
+        }
+        for (UInt32 i = 0; i < wordCount; i++) {
+            fifo[(next / sizeof (UInt32)) + i] = words[i];
+        }
+        __asm__ volatile ("" ::: "memory");
+        fifo[kSvgaFifoNextCmd] = next + byteCount;
+        if (canReserve) {
+            fifo[kSvgaFifoReserved] = 0;
+        }
+        return true;
     }
-    for (UInt32 i = 0; i < wordCount; i++) {
-        fifo[(next / sizeof (UInt32)) + i] = words[i];
-    }
-    __asm__ volatile ("" ::: "memory");
-    fifo[kSvgaFifoNextCmd] = next + byteCount;
-    if ((caps & kSvgaFifoCapReserve) != 0) {
+
+    // Would straddle FIFO_MAX. Pad the tail with SVGA_CMD_INVALID_CMD (0) dwords, wrap
+    // NEXT_CMD to FIFO_MIN, and write the command there. Nothing is written after
+    // advancing NEXT_CMD, so the host never observes a half-written command; the pad
+    // dwords only become visible when NEXT_CMD finally sweeps past them.
+    if (canReserve) {
         fifo[kSvgaFifoReserved] = 0;
     }
+    const UInt32 padDwords = (UInt32)(bytesToEnd / sizeof (UInt32));
+    for (UInt32 i = 0; i < padDwords; i++) {
+        fifo[(next / sizeof (UInt32)) + i] = 0;   // SVGA_CMD_INVALID_CMD
+    }
+    for (UInt32 i = 0; i < wordCount; i++) {
+        fifo[(fmin / sizeof (UInt32)) + i] = words[i];
+    }
+    __asm__ volatile ("" ::: "memory");
+    fifo[kSvgaFifoNextCmd] = fmin + byteCount;
     return true;
 }
 
@@ -1001,6 +1200,16 @@ bool vgpuFramebuffer::start(IOService *provider) {
 void vgpuFramebuffer::stop(IOService *provider) {
     IOLog(VGPU_FB_TAG ": stop\n");
 
+    if (_presentCall != nullptr) {
+        thread_call_cancel(_presentCall);
+        thread_call_free(_presentCall);
+        _presentCall = nullptr;
+    }
+    _presentFifo = nullptr;
+    if (_fifoMap != nullptr) {
+        _fifoMap->release();
+        _fifoMap = nullptr;
+    }
     if (_aperture != nullptr) {
         _aperture->release();
         _aperture = nullptr;
