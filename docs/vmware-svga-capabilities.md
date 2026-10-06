@@ -241,6 +241,42 @@ From here, rendering work is a matter of context state: binding the surface as a
 target view, clearing, and reading the result back through the MOB — the round trip that
 would prove the host's 3D engine actually computed into guest memory.
 
+## Bisect: guest FIFO ownership kills the legacy present path (measured 2026-10-06)
+
+A boot freeze appeared between the October 5 milestones and was bisected with staged
+switches in the kext (`kFbStage` / `kGbStage`). Findings, all measured on this host:
+
+| kext configuration | display |
+|---|---|
+| kext loaded, console takeover, **no FIFO writes at all** | **works** — lock screen, desktop, everything |
+| + FIFO init (`FIFO_MIN/MAX/CONFIG_DONE`), no guest commands | **frozen** at the boot progress screen |
+| + `SVGA_CMD_FENCE` (acked), + full-screen `SVGA_CMD_UPDATE` (acked) | still frozen |
+| + GB objects / DX context (all fence-acked) | still frozen |
+| kext unloaded entirely | works |
+
+The guest system keeps booting fine over SSH in every frozen case (WindowServer and
+loginwindow run); only presentation dies. So: **the moment the guest takes ownership of the
+FIFO with 3D enabled, the MKS stops auto-presenting the framebuffer** — it switches to the
+screen-target presentation model and the legacy scanout is gone. Acked `SVGA_CMD_UPDATE`
+does not bring it back. Notably the same sequence presented fine on September 29; nothing on
+the host changed since (GPU driver and VMware binaries date-checked), which makes the
+trigger state-dependent rather than version-dependent — treat it as a platform behaviour
+boundary, not a bug we introduced.
+
+Consequence for the driver: **FIFO ownership and the present path must land together.**
+The next milestone is the screen-object present path — `SVGA_CMD_DEFINE_SCREEN`, a
+GMRFB/GB-surface as the source, and the blit/DMA that feeds it — so that our kext keeps
+presenting the console after `CONFIG_DONE`. Until then the kext ships with `kFbStage=0`
+(full display, SVGA3D machinery dormant behind the switch).
+
+Two real bugs fixed en route to the bisect:
+
+- **Stack overflow**: the SVGA3D command builder used a `UInt32 words[10]` array while
+  `DEFINE_GB_SURFACE` writes twelve dwords — an 8-byte stack corruption in the kernel that
+  froze boots nondeterministically. Now `words[16]` with a comment.
+- `SVGA3D_HWVERSION_CURRENT` is `0x00020001`, not `0x08000001`; the guest announces it in
+  `SVGA_FIFO_GUEST_3D_HWVERSION`.
+
 ## Acceleration: what you get
 
 | Capability | Status |

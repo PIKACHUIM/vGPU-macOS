@@ -134,6 +134,7 @@ enum {
 // stream is live.
 enum {
     kSvgaCmdFence = 30,
+    kSvgaCmdUpdate = 1,   // [x][y][width][height]: framebuffer rect changed, rescan it
 };
 
 //
@@ -188,6 +189,21 @@ enum {
     kSvga3dSurfaceHintDynamic = 1ULL << 2,
     kSvga3dSurfaceHintTexture = 1ULL << 5,
 };
+
+// kFbStage gates the FIFO bring-up itself (bisecting the boot-freeze):
+//   0 = read-only probe: register reads and dumps only, no FIFO writes, no fence
+//   2 = FIFO init only (MIN/MAX/CONFIG_DONE), no guest commands at all
+//   3 = init + one fence command
+//   4 = init + fence + full-screen UPDATE probe
+//
+// MEASURED (2026-10-06 bisect): with 3D enabled, stage 2 alone freezes presentation --
+// the moment the guest writes CONFIG_DONE, the MKS switches to the screen-target
+// presentation model and the legacy framebuffer auto-scanout is disabled. SVGA_CMD_UPDATE
+// (acked!) does not restore it. So FIFO ownership REQUIRES implementing the screen-target
+// present path (DEFINE_SCREEN / GB screen target / blits) before it can be safe.
+// kFbStage stays 0 until that lands; the fence/GB/DX machinery is retained for the
+// experiments and re-enables with kFbStage >= 2.
+static const UInt32 kFbStage = 0;
 
 // One 4 KiB page of PPN64 entries describes up to 512 pages = 2 MiB.
 static const IOByteCount kGbPageBytes        = 4096;
@@ -442,6 +458,12 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
     volatile UInt32 *fifo = (volatile UInt32 *)map->getVirtualAddress();
 
     fifoDump(fifo, "before");
+    if (kFbStage == 0) {
+        // Read-only bisect mode: no FIFO writes at all.
+        IOLog(VGPU_FB_TAG ": probeFifo: read-only (kFbStage=0)\n");
+        map->release();
+        return;
+    }
     if (fifo[kSvgaFifoMin] != 0 && fifo[kSvgaFifoMin] != kSvgaFifoExtendedMandatoryRegs * 4) {
         IOLog(VGPU_FB_TAG ": FIFO configured by another driver (min %u), leaving it alone\n",
               fifo[kSvgaFifoMin]);
@@ -506,7 +528,22 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
 
     // End-to-end proof of the command stream: submit SVGA_CMD_FENCE and wait for the host
     // to acknowledge it by writing the value back into SVGA_FIFO_FENCE.
-    fenceTest(fifo);
+    if (kFbStage >= 3) {
+        fenceTest(fifo);
+
+        // Presentation probe: after CONFIG_DONE the host no longer auto-traces framebuffer
+        // changes, so nothing new is presented (the boot screen freezes). SVGA_CMD_UPDATE is
+        // the legacy "this rect of the framebuffer changed, scan it out again" notification.
+        // Submitting one full-screen UPDATE is the minimal fix candidate.
+        if (kFbStage >= 4 && _deviceModeValid) {
+            UInt32 upd[5] = { kSvgaCmdUpdate, 0, 0, _deviceWidth, _deviceHeight };
+            if (fifoSubmitWords(fifo, upd, 5) && fenceAck(fifo, &_fenceSeq)) {
+                IOLog(VGPU_FB_TAG ": full-screen UPDATE submitted and acked\n");
+            } else {
+                IOLog(VGPU_FB_TAG ": full-screen UPDATE not acked\n");
+            }
+        }
+    }
 
     // Guest-backed object infrastructure: object tables, a data MOB, and a GB surface.
     gbBringUp(fifo);
@@ -639,9 +676,26 @@ bool vgpuFramebuffer::fenceAck(volatile UInt32 *fifo, UInt32 *seq) {
 // The SVGA3D bodies are assembled into dword streams with memcpy because they are packed
 // structures; x86 tolerates the unaligned stores, but memcpy keeps the layout explicit.
 //
+// kGbStage gates how far the bring-up goes, because the display side effects of each GB
+// step are not yet understood:
+//   0 = nothing GB at all (fence test only)
+//   1 = register the object-table bases
+//   2 = also define the data MOB
+//   3 = also define the GB surface
+//   4 = also the DX context table and DX_DEFINE_CONTEXT
+// Measured: with the full sequence the guest boots and SSH works but the display stays on
+// the frozen boot progress screen -- WindowServer runs, nothing new is presented. Bisect
+// with this switch until the offending step is known.
+//
+static const UInt32 kGbStage = 0;
+
 void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
     if (_gbMem != nullptr) {
         return;   // already up (kext start runs once, but stay idempotent)
+    }
+    if (kGbStage == 0) {
+        IOLog(VGPU_FB_TAG ": gb: disabled (kGbStage=0)\n");
+        return;
     }
 
     _gbMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
@@ -705,7 +759,10 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
     const UInt32 dxCtxId      = 1;
 
     // SET_OTABLE_BASE64: {type, baseAddress PPN64, sizeInBytes, validSizeInBytes, ptDepth}
-    UInt32 words[10];
+    // 16 dwords covers every command built here; DEFINE_GB_SURFACE needs 12 and an earlier
+    // revision declared 10 -- a two-dword stack overflow that corrupted adjacent locals and
+    // froze boots nondeterministically. Keep the bound generous.
+    UInt32 words[16];
     words[0] = kSvga3dCmdSetOtableBase64;
     words[1] = 24;   // body size in bytes
     words[2] = kSvgaOtableMob;
@@ -733,6 +790,7 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
           (unsigned long long)ppnSurfacePt, surfaceTableBytes);
 
     // The guest writes its half of the MOB entry before defining it.
+    if (kGbStage >= 2) {
     volatile UInt8 *mobTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffMobTable);
     UInt32 mobEntryOff = dataMobId * kGbMobEntryBytes;
     UInt32 mobDepth = kSvga3dMobFmtPt64_0;
@@ -754,10 +812,12 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
     }
     IOLog(VGPU_FB_TAG ": gb: data MOB %u defined (ppn %llu, %u bytes, PT64_0)\n",
           dataMobId, (unsigned long long)ppnDataPt, dataBytes);
+    }
 
     // DEFINE_GB_SURFACE: {sid, surfaceFlags(64), format, numMipLevels, multisampleCount,
     //                     autogenFilter, size{w,h,d}} -- 40 bytes, and the header size
     // must say so exactly: the host aborts FIFO processing on a size mismatch.
+    if (kGbStage >= 3) {
     const UInt64 surfaceFlags = kSvga3dSurfaceHintDynamic | kSvga3dSurfaceHintTexture;
     const UInt32 width = 256, height = 256, depth = 1;
     words[0] = kSvga3dCmdDefineGbSurface;
@@ -800,11 +860,13 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
 
     IOLog(VGPU_FB_TAG ": gb: GB SURFACE %u defined (%ux%u X8R8G8B8 on MOB %u) -- "
           "GB object model is UP\n", surfaceId, width, height, dataMobId);
+    }  // kGbStage >= 3
 
     // ------------------------------------------------------------------
     // DX (vGPU10) context. Gated on the DXCONTEXT device capability: the
     // DX command set is only legal when the host advertises it.
     // ------------------------------------------------------------------
+    if (kGbStage >= 4) {
     const UInt32 devcapDx  = devcapRead(kSvgaDevcapDxContext);
     const UInt32 devcapSm41 = devcapRead(kSvgaDevcapSm41);
     const UInt32 devcapGl43 = devcapRead(kSvgaDevcapGl43);
@@ -839,6 +901,7 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
         return;
     }
     IOLog(VGPU_FB_TAG ": gb: DX CONTEXT %u created -- DX command set is OPEN\n", dxCtxId);
+    }  // kGbStage >= 4
 }
 
 void vgpuFramebuffer::fifoDump(volatile UInt32 *fifo, const char *when) {
