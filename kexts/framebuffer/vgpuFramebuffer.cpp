@@ -261,14 +261,14 @@ enum {
 static const UInt32 kFbStage = 2;
 
 // kGbStage gates the GB object stack (see gbBringUp); 5 adds the STDU present path.
-static const UInt32 kGbStage = 0;
+static const UInt32 kGbStage = 4;
 
 // kDxTest runs the DX clear/readback round-trip experiment after the present path is up.
 // Measured 2026-10-06: with the test present, the host aborts FIFO processing at
 // DEFINE_GB_SCREENTARGET (deterministically, next/stop frozen mid-stream) even though the
 // identical byte stream passed in earlier boots and the test itself runs only afterwards.
 // Root cause unknown -- bisect with this switch next session.
-static const UInt32 kDxTest = 0;
+static const UInt32 kDxTest = 1;
 
 // STDU object teardown before the defines (see the bisect note in stduBringUp).
 static const UInt32 kStduTeardown = 0;
@@ -1355,14 +1355,15 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
           (unsigned long long)ppnDxCtxPt, dxCtxTableBytes);
 
     // Context state MOB: the DX context only becomes live once its state mob is bound
-    // with DX_BIND_CONTEXT. 64 KiB scattered, PT64_1 (one PT page).
+    // with DX_BIND_CONTEXT. 512 KiB scattered (the SVGADXContextMobFormat state block
+    // is large), PT64_1 (one PT page holds all 128 PPNs).
     _ctxPage = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
-        kernel_task, kIODirectionInOut, kGbPageBytes * 16, 0xFFFULL);
+        kernel_task, kIODirectionInOut, kGbPageBytes * 128, 0xFFFULL);
     if (_ctxPage == nullptr) {
         IOLog(VGPU_FB_TAG ": gb: could not allocate the context MOB\n");
         return;
     }
-    bzero((void *)_ctxPage->map()->getVirtualAddress(), kGbPageBytes * 16);
+    bzero((void *)_ctxPage->map()->getVirtualAddress(), kGbPageBytes * 128);
     _dxPtMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
         kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous, kGbPageBytes, 0xFFFULL);
     if (_dxPtMem == nullptr) {
@@ -1376,7 +1377,7 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
         return;
     }
     volatile UInt64 *ctxPt = (volatile UInt64 *)_dxPtMem->map()->getVirtualAddress();
-    for (UInt32 i = 0; i < 16; i++) {
+    for (UInt32 i = 0; i < 128; i++) {
         IOVirtualAddress addr = _ctxPage->getPhysicalSegment((IOByteCount)i * kGbPageBytes, &ctxLen);
         if (addr == 0) {
             IOLog(VGPU_FB_TAG ": gb: context MOB page %u not resolvable\n", i);
@@ -1400,7 +1401,7 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
     words[2] = kCtxMobId;
     words[3] = kSvga3dMobFmtPt64_1;
     memcpy(&words[4], &ctxPtPpn, 8);
-    words[6] = kGbPageBytes * 16;
+    words[6] = kGbPageBytes * 128;
     if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": gb: context MOB define refused\n");
         return;
@@ -1823,29 +1824,16 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         return;
     }
 
-    // DX_DEFINE_CONTEXT through the CB, flagged as a DX stream referencing cid itself.
+    // DX_DEFINE_CONTEXT through a PLAIN CB (the context does not exist yet, so the
+    // DX_CONTEXT flag/dxContext field would fail header validation).
     words[0] = kSvga3dCmdDxDefineContext;
     words[1] = 4;
     words[2] = cid;
-    if (!cbSubmitDx(words, 3)) {
+    if (!cbSubmit(words, 3)) {
         IOLog(VGPU_FB_TAG ": dx: CB DX_DEFINE_CONTEXT refused\n");
         return;
     }
 
-    // DX_BIND_CONTEXT {cid, mobid, validContents=0} -- DX-flagged CB now that the
-    // context exists.
-    words[0] = kSvga3dCmdDxBindContext;
-    words[1] = 12;
-    words[2] = cid;
-    words[3] = kCtxMobId;
-    words[4] = 0;
-    if (!cbSubmitDx(words, 5)) {
-        IOLog(VGPU_FB_TAG ": dx: CB DX_BIND_CONTEXT refused\n");
-        return;
-    }
-
-    // DX state setup: COTABLE bind, RTV define, cotable resize, render targets,
-    // viewport + scissor (the SVGA clear may clip to them).
     words[0] = kSvga3dCmdDxSetCotable;
     words[1] = 16;
     words[2] = cid;
@@ -1857,6 +1845,20 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         return;
     }
 
+    // DX_BIND_CONTEXT {cid, mobid, validContents=0} -- plain CB (context id travels in
+    // the command body; the DX_CONTEXT header flag is rejected by this host).
+    words[0] = kSvga3dCmdDxBindContext;
+    words[1] = 12;
+    words[2] = cid;
+    words[3] = kCtxMobId;
+    words[4] = 0;
+    if (!cbSubmit(words, 5)) {
+        IOLog(VGPU_FB_TAG ": dx: CB DX_BIND_CONTEXT refused\n");
+        return;
+    }
+
+    // DX state setup: COTABLE bind, RTV define, cotable resize, render targets,
+    // viewport + scissor (the SVGA clear may clip to them).
     words[0] = kSvga3dCmdDxDefineRenderTargetView;
     words[1] = 28;
     words[2] = rtvId;
@@ -2042,11 +2044,9 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
         return false;
     }
     memcpy((void *)_cbDataVirt, cmds, byteCount);
-    // Pad the payload to an 8-byte multiple: CB command lengths may be required to be
-    // 8-aligned (DEFINE_GB_MOB64 is 28 bytes; an unaligned length rejected parse at 0).
-    for (UInt32 pad = byteCount; pad < (byteCount + 7) & ~7u; pad += 4) {
-        *(volatile UInt32 *)(_cbDataVirt + pad) = 0;
-    }
+    // NOTE: no padding -- zero-filled padding parses as command id 0 and the host
+    // reports COMMAND_ERROR right after the real command (that was the offset-12
+    // "failure" of DX_DEFINE_CONTEXT, which had actually succeeded).
     __asm__ volatile ("" ::: "memory");
 
     volatile UInt32 *h = (volatile UInt32 *)_cbHeaderVirt;
@@ -2056,7 +2056,7 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
     *(volatile UInt64 *)(_cbHeaderVirt + 8) = _cbId++;                    // id
     // NO_IRQ always; DX_CONTEXT only for DX-command payloads.
     *(volatile UInt32 *)(_cbHeaderVirt + 16) = 1 | (dxContext ? 2 : 0);   // flags
-    *(volatile UInt32 *)(_cbHeaderVirt + 20) = (byteCount + 7) & ~7u;     // length, 8-aligned
+    *(volatile UInt32 *)(_cbHeaderVirt + 20) = byteCount;                 // length
     *(volatile UInt64 *)(_cbHeaderVirt + 24) = _cbDataPA;                 // ptr.pa
     *(volatile UInt32 *)(_cbHeaderVirt + 32) = 0;                         // offset
     *(volatile UInt32 *)(_cbHeaderVirt + 36) = dxContext;                 // dxContext
