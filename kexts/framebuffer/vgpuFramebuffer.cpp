@@ -258,23 +258,31 @@ enum {
 //   4 = init + fence + full-screen UPDATE probe
 //   5 = init + fence + legacy screen-object present path (DEFINE_SCREEN, DEFINE_GMRFB over
 //       the framebuffer, BLIT_GMRFB_TO_SCREEN) + the periodic present timer
-static const UInt32 kFbStage = 0;
+static const UInt32 kFbStage = 2;
 
 // kGbStage gates the GB object stack (see gbBringUp); 5 adds the STDU present path.
-static const UInt32 kGbStage = 0;
+static const UInt32 kGbStage = 4;
 
 // kDxTest runs the DX clear/readback round-trip experiment after the present path is up.
 // Measured 2026-10-06: with the test present, the host aborts FIFO processing at
 // DEFINE_GB_SCREENTARGET (deterministically, next/stop frozen mid-stream) even though the
 // identical byte stream passed in earlier boots and the test itself runs only afterwards.
 // Root cause unknown -- bisect with this switch next session.
-static const UInt32 kDxTest = 0;
+static const UInt32 kDxTest = 1;
 
 // STDU object teardown before the defines (see the bisect note in stduBringUp).
 static const UInt32 kStduTeardown = 0;
 
 // MOB id of the DX context state block.
 static const UInt32 kCtxMobId = 3;
+
+// ---- Command buffer (CB) submission --------------------------------------
+// On vGPU10 hosts the DX command set is accepted but NOT executed when
+// submitted through the legacy FIFO; vmwgfx submits every DX command through
+// the command-buffer mechanism (SVGA_REG_COMMAND_LOW/HIGH). The CB is a
+// 64-byte SVGACBHeader describing a command payload, submitted by writing
+// its physical address into the COMMAND registers.
+static const UInt32 kCbDataBytes = 64 * 1024;
 
 // Periodic full-screen re-present interval, in milliseconds. The GMRFB points straight at
 // the framebuffer in BAR1, so each present is a host-side DMA with no guest copy; the cost
@@ -421,6 +429,19 @@ private:
     IOBufferMemoryDescriptor *_dxMem = nullptr;     // DX test surface memory
     void                    *_dxVirt = nullptr;
     IOBufferMemoryDescriptor *_dxPtMem = nullptr;   // DX test surface PT page
+    // Command buffer submission state.
+    IOPCIDevice              *_pci = nullptr;          // for register access in cbSubmit
+    IOBufferMemoryDescriptor *_cbHeaderMem = nullptr;  // 64 B, contiguous
+    volatile UInt8           *_cbHeaderVirt = nullptr;
+    UInt64                    _cbHeaderPA = 0;
+    IOBufferMemoryDescriptor *_cbDataMem = nullptr;    // 64 KiB, contiguous
+    volatile UInt8           *_cbDataVirt = nullptr;
+    UInt64                    _cbDataPA = 0;
+    UInt64                    _cbId = 1;
+
+    bool cbInit(void);
+    bool cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 cbContext);
+    bool cbSubmit(const UInt32 *cmds, UInt32 wordCount);
 
     // The GB working buffer stays resident for the life of the kext: the host reads the
     // object tables out of it whenever it validates later commands.
@@ -552,6 +573,7 @@ bool vgpuFramebuffer::readDeviceMode(IOPCIDevice *pci, UInt16 *portOut) {
 // SVGA3D is live from inside the guest.
 //
 void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
+    _pci = pci;
     UInt32 memStart = svgaReadRegister(_svgaPortBase, kSvgaRegMemStart);
     UInt32 memSize  = svgaReadRegister(_svgaPortBase, kSvgaRegMemSize);
     UInt32 memRegs  = svgaReadRegister(_svgaPortBase, kSvgaRegMemRegs);
@@ -1683,6 +1705,22 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
 // display objects so a DX failure cannot take the display down.
 //
 void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
+    if (!cbInit()) {
+        return;
+    }
+    // Bootstrap the CB mechanism itself: the start/stop device command is submitted
+    // through the CB device context (SVGA_CB_CONTEXT_DEVICE = 0x3f).
+    {
+        // CB device commands carry NO size field -- the CB header length delimits the
+        // buffer and a device-context CB holds exactly one command (vmwgfx: packed
+        // {uint32 id; SVGADCCmdStartStop body;}).
+        UInt32 dc[3] = { 1, 1, 0 };      // id=START_STOP_CONTEXT, enable=1, context=0
+        if (!cbSubmitCtx(dc, 3, 0x3F)) {
+            IOLog(VGPU_FB_TAG ": cb: device-context START_STOP failed\n");
+            return;
+        }
+        IOLog(VGPU_FB_TAG ": cb: CB mechanism started (device context)\n");
+    }
     const UInt32 cid = 1;             // created in gbBringUp (kGbStage >= 4)
     const UInt32 cotableMobId = 1;    // the 16 KiB data MOB
     const UInt32 rtvId = 0;
@@ -1745,7 +1783,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[3] = kSvga3dMobFmtPt64_1;
     memcpy(&words[4], &ptPpn, 8);
     words[6] = dxBytes;
-    if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+    if (!cbSubmit(words, 7)) {
         IOLog(VGPU_FB_TAG ": dx: DEFINE_GB_MOB64 refused\n");
         return;
     }
@@ -1785,7 +1823,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[9] = dxW;
     words[10] = dxH;
     words[11] = 1;
-    if (!fifoSubmitWords(fifo, words, 12) || !fenceAck(fifo, &_fenceSeq)) {
+    if (!cbSubmit(words, 12)) {
         IOLog(VGPU_FB_TAG ": dx: DEFINE_GB_SURFACE refused\n");
         return;
     }
@@ -1798,7 +1836,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[3] = cotableMobId;
     words[4] = 0;                   // SVGA_COTABLE_RTVIEW
     words[5] = 0;
-    if (!fifoSubmitWords(fifo, words, 6) || !fenceAck(fifo, &_fenceSeq)) {
+    if (!cbSubmit(words, 6)) {
         IOLog(VGPU_FB_TAG ": dx: DX_SET_COTABLE refused\n");
         return;
     }
@@ -1812,7 +1850,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[6] = 0;
     words[7] = 0;
     words[8] = 1;
-    if (!fifoSubmitWords(fifo, words, 9) || !fenceAck(fifo, &_fenceSeq)) {
+    if (!cbSubmit(words, 9)) {
         IOLog(VGPU_FB_TAG ": dx: DX_DEFINE_RENDERTARGET_VIEW refused\n");
         return;
     }
@@ -1823,7 +1861,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[3] = cotableMobId;
     words[4] = 0;
     words[5] = 32;                  // one RTView entry
-    if (!fifoSubmitWords(fifo, words, 6) || !fenceAck(fifo, &_fenceSeq)) {
+    if (!cbSubmit(words, 6)) {
         IOLog(VGPU_FB_TAG ": dx: DX_SET_COTABLE resize refused\n");
         return;
     }
@@ -1832,7 +1870,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[1] = 8;
     words[2] = invalidId;
     words[3] = rtvId;
-    if (!fifoSubmitWords(fifo, words, 4) || !fenceAck(fifo, &_fenceSeq)) {
+    if (!cbSubmit(words, 4)) {
         IOLog(VGPU_FB_TAG ": dx: DX_SET_RENDERTARGETS refused\n");
         return;
     }
@@ -1842,7 +1880,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[2] = 0;
     const float viewport[6] = { 0.0f, 0.0f, (float)dxW, (float)dxH, 0.0f, 1.0f };
     memcpy(&words[3], viewport, 24);
-    if (!fifoSubmitWords(fifo, words, 9) || !fenceAck(fifo, &_fenceSeq)) {
+    if (!cbSubmit(words, 9)) {
         IOLog(VGPU_FB_TAG ": dx: DX_SET_VIEWPORTS refused\n");
         return;
     }
@@ -1854,7 +1892,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[4] = 0;
     words[5] = dxW;
     words[6] = dxH;
-    if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+    if (!cbSubmit(words, 7)) {
         IOLog(VGPU_FB_TAG ": dx: DX_SET_SCISSORRECTS refused\n");
         return;
     }
@@ -1882,7 +1920,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     dma[12] = dxW; dma[13] = dxH; dma[14] = 1;
     dma[15] = 0;  dma[16] = 0;  dma[17] = 0;
     dma[18] = 12; dma[19] = dxBytes; dma[20] = 0;
-    if (!fifoSubmitWords(fifo, dma, 21) || !fenceAck(fifo, &_fenceSeq)) {
+    if (!cbSubmit(dma, 21)) {
         IOLog(VGPU_FB_TAG ": dx: SURFACE_DMA upload refused\n");
         return;
     }
@@ -1895,7 +1933,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
 
     // 4. SURFACE_DMA READ_HOST_VRAM: host surface sid 3 -> mobid 4
     dma[8] = 2;                     // SVGA3D_READ_HOST_VRAM
-    if (!fifoSubmitWords(fifo, dma, 21) || !fenceAck(fifo, &_fenceSeq)) {
+    if (!cbSubmit(dma, 21)) {
         IOLog(VGPU_FB_TAG ": dx: SURFACE_DMA download refused\n");
         return;
     }
@@ -1915,7 +1953,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         words[2] = rtvId;
         const float magenta[4] = { 1.0f, 0.0f, 1.0f, 1.0f };
         memcpy(&words[3], magenta, 16);
-        if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+        if (!cbSubmit(words, 7)) {
             IOLog(VGPU_FB_TAG ": dx: DX_CLEAR refused\n");
             return;
         }
@@ -1924,7 +1962,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         }
         __asm__ volatile ("" ::: "memory");
         dma[8] = 2;
-        if (!fifoSubmitWords(fifo, dma, 21) || !fenceAck(fifo, &_fenceSeq)) {
+        if (!cbSubmit(dma, 21)) {
             IOLog(VGPU_FB_TAG ": dx: post-clear DMA refused\n");
             return;
         }
@@ -1944,6 +1982,102 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         IOLog(VGPU_FB_TAG ": dx: DMA round-trip mismatch: p0=0x%08x pMid=0x%08x pLast=0x%08x\n",
               p0, pMid, pLast);
     }
+}
+
+// Initialise the command-buffer areas: a 64-byte header and a 64 KiB command
+// payload, both physically contiguous.
+bool vgpuFramebuffer::cbInit(void) {
+    _cbHeaderMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+        kernel_task, kIODirectionInOut, 64, 0x3F);
+    _cbDataMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+        kernel_task, kIODirectionInOut, kCbDataBytes, 0xFFFULL);
+    if (_cbHeaderMem == nullptr || _cbDataMem == nullptr) {
+        IOLog(VGPU_FB_TAG ": cb: allocation failed\n");
+        return false;
+    }
+    _cbHeaderVirt = (volatile UInt8 *)_cbHeaderMem->map()->getVirtualAddress();
+    _cbDataVirt = (volatile UInt8 *)_cbDataMem->map()->getVirtualAddress();
+    IOByteCount len = 0;
+    IOVirtualAddress pa = _cbHeaderMem->getPhysicalSegment(0, &len);
+    if (pa == 0 || (pa & 0x3F) != 0) {
+        IOLog(VGPU_FB_TAG ": cb: header PA not 64-aligned\n");
+        return false;
+    }
+    _cbHeaderPA = (UInt64)pa;
+    pa = _cbDataMem->getPhysicalSegment(0, &len);
+    if (pa == 0 || (pa & 0x3F) != 0) {
+        IOLog(VGPU_FB_TAG ": cb: data PA not 64-aligned\n");
+        return false;
+    }
+    _cbDataPA = (UInt64)pa;
+    IOLog(VGPU_FB_TAG ": cb: header @ %llx, data @ %llx\n",
+          (unsigned long long)_cbHeaderPA, (unsigned long long)_cbDataPA);
+    return true;
+}
+
+// Submit one command buffer holding `wordCount` dwords and wait (poll) for the
+// device to complete it. Returns false on submission/parse error.
+bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 cbContext) {
+    const UInt32 byteCount = wordCount * sizeof(UInt32);
+    if (byteCount > kCbDataBytes) {
+        IOLog(VGPU_FB_TAG ": cb: payload too large (%u)\n", byteCount);
+        return false;
+    }
+    memcpy((void *)_cbDataVirt, cmds, byteCount);
+
+    volatile UInt32 *h = (volatile UInt32 *)_cbHeaderVirt;
+    // status = SVGA_CB_STATUS_NONE, errorOffset = 0
+    h[0] = 0;
+    h[1] = 0;
+    *(volatile UInt64 *)(_cbHeaderVirt + 8) = _cbId++;                    // id
+    *(volatile UInt32 *)(_cbHeaderVirt + 16) = 1;                         // flags = NO_IRQ
+    *(volatile UInt32 *)(_cbHeaderVirt + 20) = byteCount;                 // length
+    *(volatile UInt64 *)(_cbHeaderVirt + 24) = _cbDataPA;                 // ptr.pa
+    *(volatile UInt32 *)(_cbHeaderVirt + 32) = 0;                         // offset
+    *(volatile UInt32 *)(_cbHeaderVirt + 36) = 0;                         // dxContext
+    for (int i = 0; i < 6; i++) {
+        *(volatile UInt32 *)(_cbHeaderVirt + 40 + 4 * i) = 0;             // mustBeZero
+    }
+    __asm__ volatile ("" ::: "memory");
+
+    IOPCIDevice *pci = _pci;   // registered in probeFifo
+    if (pci == nullptr) {
+        return false;
+    }
+    UInt16 port = _svgaPortBase;
+    svgaWriteRegister(port, 49, (UInt32)(_cbHeaderPA >> 32));   // SVGA_REG_COMMAND_HIGH
+    svgaWriteRegister(port, 48,
+                      (UInt32)(_cbHeaderPA & 0xFFFFFFFFu) | (cbContext & 0x3F));
+
+    // Poll for completion (NO_IRQ): status changes from 0 (NONE).
+    for (UInt32 spin = 0; spin < 200000000u; spin++) {
+        UInt32 status = h[0];
+        if (status == 1) {          // SVGA_CB_STATUS_COMPLETED
+            return true;
+        }
+        if (status == 2) {          // QUEUE_FULL: retry after a short spin
+            IODelay(100);
+            continue;
+        }
+        if (status == 3) {          // COMMAND_ERROR
+            IOLog(VGPU_FB_TAG ": cb: COMMAND_ERROR at offset %u\n", h[1]);
+            return false;
+        }
+        if (status == 4) {          // CB_HEADER_ERROR
+            IOLog(VGPU_FB_TAG ": cb: CB_HEADER_ERROR\n");
+            return false;
+        }
+        if (status == 6) {          // SUBMISSION_ERROR
+            IOLog(VGPU_FB_TAG ": cb: SUBMISSION_ERROR\n");
+            return false;
+        }
+    }
+    IOLog(VGPU_FB_TAG ": cb: timeout waiting for completion\n");
+    return false;
+}
+
+bool vgpuFramebuffer::cbSubmit(const UInt32 *cmds, UInt32 wordCount) {
+    return cbSubmitCtx(cmds, wordCount, 0);   // SVGA_CB_CONTEXT_0
 }
 
 void vgpuFramebuffer::fifoDump(volatile UInt32 *fifo, const char *when) {
