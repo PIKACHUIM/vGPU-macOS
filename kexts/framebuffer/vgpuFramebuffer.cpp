@@ -261,14 +261,14 @@ enum {
 static const UInt32 kFbStage = 2;
 
 // kGbStage gates the GB object stack (see gbBringUp); 5 adds the STDU present path.
-static const UInt32 kGbStage = 4;
+static const UInt32 kGbStage = 0;
 
 // kDxTest runs the DX clear/readback round-trip experiment after the present path is up.
 // Measured 2026-10-06: with the test present, the host aborts FIFO processing at
 // DEFINE_GB_SCREENTARGET (deterministically, next/stop frozen mid-stream) even though the
 // identical byte stream passed in earlier boots and the test itself runs only afterwards.
 // Root cause unknown -- bisect with this switch next session.
-static const UInt32 kDxTest = 1;
+static const UInt32 kDxTest = 0;
 
 // STDU object teardown before the defines (see the bisect note in stduBringUp).
 static const UInt32 kStduTeardown = 0;
@@ -440,8 +440,9 @@ private:
     UInt64                    _cbId = 1;
 
     bool cbInit(void);
-    bool cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 cbContext);
+    bool cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 cbContext, UInt32 dxContext);
     bool cbSubmit(const UInt32 *cmds, UInt32 wordCount);
+    bool cbSubmitDx(const UInt32 *cmds, UInt32 wordCount);
 
     // The GB working buffer stays resident for the life of the kext: the host reads the
     // object tables out of it whenever it validates later commands.
@@ -652,6 +653,17 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
         svgaWriteRegister(_svgaPortBase, 35, 0xFFFFFFFF);         // SVGA_ID_INVALID: deselect
 
         svgaWriteRegister(_svgaPortBase, kSvgaRegConfigDone, 1);
+
+        // Re-publish the topology right AFTER taking the FIFO: the 10-06 23:39 success
+        // suggests this is what keeps/revives the display source once the guest owns the
+        // FIFO -- possibly without needing any GB screen-target objects at all.
+        svgaWriteRegister(_svgaPortBase, 35, 0);                  // SVGA_REG_DISPLAY_ID
+        svgaWriteRegister(_svgaPortBase, 36, 1);                  // SVGA_REG_DISPLAY_IS_PRIMARY
+        svgaWriteRegister(_svgaPortBase, 37, 0);                  // SVGA_REG_DISPLAY_POSITION_X
+        svgaWriteRegister(_svgaPortBase, 38, 0);                  // SVGA_REG_DISPLAY_POSITION_Y
+        svgaWriteRegister(_svgaPortBase, 39, _deviceWidth);       // SVGA_REG_DISPLAY_WIDTH
+        svgaWriteRegister(_svgaPortBase, 40, _deviceHeight);      // SVGA_REG_DISPLAY_HEIGHT
+        svgaWriteRegister(_svgaPortBase, 35, 0xFFFFFFFF);         // SVGA_ID_INVALID: deselect
         IOLog(VGPU_FB_TAG ": FIFO configured: regs %u bytes (%u dwords), data %u..%u, CONFIG_DONE=1\n",
               regBytes, kSvgaFifoExtendedMandatoryRegs, regBytes, fifoBytes);
         fifoDump(fifo, "after ");
@@ -1394,28 +1406,10 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
         return;
     }
 
-    // SVGA_3D_CMD_DX_DEFINE_CONTEXT: {uint32 cid} -- 4 bytes.
-    words[0] = kSvga3dCmdDxDefineContext;
-    words[1] = 4;
-    words[2] = dxCtxId;
-    if (!fifoSubmitWords(fifo, words, 3) || !fenceAck(fifo, &_fenceSeq)) {
-        IOLog(VGPU_FB_TAG ": gb: DX_DEFINE_CONTEXT refused\n");
-        return;
-    }
-
-    // DX_BIND_CONTEXT {cid, mobid, validContents=0} -- the activation step. Without it
-    // every DX command is silently ignored (CLEAR/readback results invisible, 10-07).
-    words[0] = kSvga3dCmdDxBindContext;
-    words[1] = 12;
-    words[2] = dxCtxId;
-    words[3] = kCtxMobId;
-    words[4] = 0;                   // validContents: fresh context
-    if (!fifoSubmitWords(fifo, words, 5) || !fenceAck(fifo, &_fenceSeq)) {
-        IOLog(VGPU_FB_TAG ": gb: DX_BIND_CONTEXT refused\n");
-        return;
-    }
-    IOLog(VGPU_FB_TAG ": gb: DX CONTEXT %u created and BOUND to MOB %u -- DX command set "
-          "is OPEN\n", dxCtxId, kCtxMobId);
+    // DX_DEFINE_CONTEXT + DX_BIND_CONTEXT are submitted through the command buffer
+    // (see dxReadbackTest): DX commands in the legacy FIFO are accepted but ignored.
+    IOLog(VGPU_FB_TAG ": gb: DX context state MOB %u ready (define+bind deferred to CB)\n",
+          kCtxMobId);
     }  // kGbStage >= 4
 
     // ------------------------------------------------------------------
@@ -1715,7 +1709,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         // buffer and a device-context CB holds exactly one command (vmwgfx: packed
         // {uint32 id; SVGADCCmdStartStop body;}).
         UInt32 dc[3] = { 1, 1, 0 };      // id=START_STOP_CONTEXT, enable=1, context=0
-        if (!cbSubmitCtx(dc, 3, 0x3F)) {
+        if (!cbSubmitCtx(dc, 3, 0x3F, 0)) {
             IOLog(VGPU_FB_TAG ": cb: device-context START_STOP failed\n");
             return;
         }
@@ -1776,14 +1770,15 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     memcpy((void *)(mobTable + mobEntryOff + 8), &ptPpn, 8);
     __asm__ volatile ("" ::: "memory");
 
-    // DEFINE_GB_MOB64 mobid 4.
+    // DEFINE_GB_MOB64 mobid 4 -- GB commands go through the legacy FIFO (they execute
+    // there); only the DX command set moves to the CB.
     words[0] = kSvga3dCmdDefineGbMob64;
     words[1] = 20;
     words[2] = mobId;
     words[3] = kSvga3dMobFmtPt64_1;
     memcpy(&words[4], &ptPpn, 8);
     words[6] = dxBytes;
-    if (!cbSubmit(words, 7)) {
+    if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": dx: DEFINE_GB_MOB64 refused\n");
         return;
     }
@@ -1811,7 +1806,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     bzero((void *)(entry + 56), 16);
     __asm__ volatile ("" ::: "memory");
 
-    // DEFINE_GB_SURFACE sid 3 (256x256 X8R8G8B8).
+    // DEFINE_GB_SURFACE sid 3 (256x256 X8R8G8B8) -- legacy FIFO.
     words[0] = kSvga3dCmdDefineGbSurface;
     words[1] = 40;
     words[2] = surfId;
@@ -1823,8 +1818,29 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[9] = dxW;
     words[10] = dxH;
     words[11] = 1;
-    if (!cbSubmit(words, 12)) {
+    if (!fifoSubmitWords(fifo, words, 12) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": dx: DEFINE_GB_SURFACE refused\n");
+        return;
+    }
+
+    // DX_DEFINE_CONTEXT through the CB, flagged as a DX stream referencing cid itself.
+    words[0] = kSvga3dCmdDxDefineContext;
+    words[1] = 4;
+    words[2] = cid;
+    if (!cbSubmitDx(words, 3)) {
+        IOLog(VGPU_FB_TAG ": dx: CB DX_DEFINE_CONTEXT refused\n");
+        return;
+    }
+
+    // DX_BIND_CONTEXT {cid, mobid, validContents=0} -- DX-flagged CB now that the
+    // context exists.
+    words[0] = kSvga3dCmdDxBindContext;
+    words[1] = 12;
+    words[2] = cid;
+    words[3] = kCtxMobId;
+    words[4] = 0;
+    if (!cbSubmitDx(words, 5)) {
+        IOLog(VGPU_FB_TAG ": dx: CB DX_BIND_CONTEXT refused\n");
         return;
     }
 
@@ -1836,7 +1852,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[3] = cotableMobId;
     words[4] = 0;                   // SVGA_COTABLE_RTVIEW
     words[5] = 0;
-    if (!cbSubmit(words, 6)) {
+    if (!cbSubmitDx(words, 6)) {
         IOLog(VGPU_FB_TAG ": dx: DX_SET_COTABLE refused\n");
         return;
     }
@@ -1850,7 +1866,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[6] = 0;
     words[7] = 0;
     words[8] = 1;
-    if (!cbSubmit(words, 9)) {
+    if (!cbSubmitDx(words, 9)) {
         IOLog(VGPU_FB_TAG ": dx: DX_DEFINE_RENDERTARGET_VIEW refused\n");
         return;
     }
@@ -1861,7 +1877,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[3] = cotableMobId;
     words[4] = 0;
     words[5] = 32;                  // one RTView entry
-    if (!cbSubmit(words, 6)) {
+    if (!cbSubmitDx(words, 6)) {
         IOLog(VGPU_FB_TAG ": dx: DX_SET_COTABLE resize refused\n");
         return;
     }
@@ -1870,7 +1886,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[1] = 8;
     words[2] = invalidId;
     words[3] = rtvId;
-    if (!cbSubmit(words, 4)) {
+    if (!cbSubmitDx(words, 4)) {
         IOLog(VGPU_FB_TAG ": dx: DX_SET_RENDERTARGETS refused\n");
         return;
     }
@@ -1880,7 +1896,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[2] = 0;
     const float viewport[6] = { 0.0f, 0.0f, (float)dxW, (float)dxH, 0.0f, 1.0f };
     memcpy(&words[3], viewport, 24);
-    if (!cbSubmit(words, 9)) {
+    if (!cbSubmitDx(words, 9)) {
         IOLog(VGPU_FB_TAG ": dx: DX_SET_VIEWPORTS refused\n");
         return;
     }
@@ -1892,7 +1908,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[4] = 0;
     words[5] = dxW;
     words[6] = dxH;
-    if (!cbSubmit(words, 7)) {
+    if (!cbSubmitDx(words, 7)) {
         IOLog(VGPU_FB_TAG ": dx: DX_SET_SCISSORRECTS refused\n");
         return;
     }
@@ -1953,7 +1969,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         words[2] = rtvId;
         const float magenta[4] = { 1.0f, 0.0f, 1.0f, 1.0f };
         memcpy(&words[3], magenta, 16);
-        if (!cbSubmit(words, 7)) {
+        if (!cbSubmitDx(words, 7)) {
             IOLog(VGPU_FB_TAG ": dx: DX_CLEAR refused\n");
             return;
         }
@@ -2016,25 +2032,34 @@ bool vgpuFramebuffer::cbInit(void) {
 }
 
 // Submit one command buffer holding `wordCount` dwords and wait (poll) for the
-// device to complete it. Returns false on submission/parse error.
-bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 cbContext) {
+// device to complete it. dxContext != 0 marks the payload as a DX-command stream
+// (SVGA_CB_FLAG_DX_CONTEXT + the context id in the header); 0 submits a plain stream.
+bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 cbContext,
+                                  UInt32 dxContext) {
     const UInt32 byteCount = wordCount * sizeof(UInt32);
     if (byteCount > kCbDataBytes) {
         IOLog(VGPU_FB_TAG ": cb: payload too large (%u)\n", byteCount);
         return false;
     }
     memcpy((void *)_cbDataVirt, cmds, byteCount);
+    // Pad the payload to an 8-byte multiple: CB command lengths may be required to be
+    // 8-aligned (DEFINE_GB_MOB64 is 28 bytes; an unaligned length rejected parse at 0).
+    for (UInt32 pad = byteCount; pad < (byteCount + 7) & ~7u; pad += 4) {
+        *(volatile UInt32 *)(_cbDataVirt + pad) = 0;
+    }
+    __asm__ volatile ("" ::: "memory");
 
     volatile UInt32 *h = (volatile UInt32 *)_cbHeaderVirt;
     // status = SVGA_CB_STATUS_NONE, errorOffset = 0
     h[0] = 0;
     h[1] = 0;
     *(volatile UInt64 *)(_cbHeaderVirt + 8) = _cbId++;                    // id
-    *(volatile UInt32 *)(_cbHeaderVirt + 16) = 1;                         // flags = NO_IRQ
-    *(volatile UInt32 *)(_cbHeaderVirt + 20) = byteCount;                 // length
+    // NO_IRQ always; DX_CONTEXT only for DX-command payloads.
+    *(volatile UInt32 *)(_cbHeaderVirt + 16) = 1 | (dxContext ? 2 : 0);   // flags
+    *(volatile UInt32 *)(_cbHeaderVirt + 20) = (byteCount + 7) & ~7u;     // length, 8-aligned
     *(volatile UInt64 *)(_cbHeaderVirt + 24) = _cbDataPA;                 // ptr.pa
     *(volatile UInt32 *)(_cbHeaderVirt + 32) = 0;                         // offset
-    *(volatile UInt32 *)(_cbHeaderVirt + 36) = 0;                         // dxContext
+    *(volatile UInt32 *)(_cbHeaderVirt + 36) = dxContext;                 // dxContext
     for (int i = 0; i < 6; i++) {
         *(volatile UInt32 *)(_cbHeaderVirt + 40 + 4 * i) = 0;             // mustBeZero
     }
@@ -2077,7 +2102,12 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
 }
 
 bool vgpuFramebuffer::cbSubmit(const UInt32 *cmds, UInt32 wordCount) {
-    return cbSubmitCtx(cmds, wordCount, 0);   // SVGA_CB_CONTEXT_0
+    return cbSubmitCtx(cmds, wordCount, 0, 0);   // plain stream on CONTEXT_0
+}
+
+// DX-command payload: SVGA_CB_FLAG_DX_CONTEXT + the DX context id.
+bool vgpuFramebuffer::cbSubmitDx(const UInt32 *cmds, UInt32 wordCount) {
+    return cbSubmitCtx(cmds, wordCount, 0, 1);   // dxContext = cid 1
 }
 
 void vgpuFramebuffer::fifoDump(volatile UInt32 *fifo, const char *when) {
