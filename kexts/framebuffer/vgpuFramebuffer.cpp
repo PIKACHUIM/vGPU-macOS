@@ -1840,7 +1840,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[3] = cotableMobId;
     words[4] = 0;                   // SVGA_COTABLE_RTVIEW
     words[5] = 0;
-    if (!cbSubmitDx(words, 6)) {
+    if (!cbSubmit(words, 6)) {
         IOLog(VGPU_FB_TAG ": dx: DX_SET_COTABLE refused\n");
         return;
     }
@@ -2105,9 +2105,10 @@ bool vgpuFramebuffer::cbSubmit(const UInt32 *cmds, UInt32 wordCount) {
     return cbSubmitCtx(cmds, wordCount, 0, 0);   // plain stream on CONTEXT_0
 }
 
-// DX-command payload: SVGA_CB_FLAG_DX_CONTEXT + the DX context id.
+// DX-command payload: SVGA_CB_FLAG_DX_CONTEXT + DX context id 0 (the host's default
+// DX context; cid 1 via plain CB was rejected at header validation).
 bool vgpuFramebuffer::cbSubmitDx(const UInt32 *cmds, UInt32 wordCount) {
-    return cbSubmitCtx(cmds, wordCount, 0, 1);   // dxContext = cid 1
+    return cbSubmitCtx(cmds, wordCount, 0, 0);
 }
 
 void vgpuFramebuffer::fifoDump(volatile UInt32 *fifo, const char *when) {
