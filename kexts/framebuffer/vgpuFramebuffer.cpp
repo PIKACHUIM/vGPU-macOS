@@ -279,6 +279,13 @@ static const UInt32 kCbDump = 0;
 // 0 = skip registration entirely (single-variable test).
 static const UInt32 kCbPrepend = 0;
 
+// GUEST_DRIVER_ID (regs 61-64) + DXCONTEXT otable pre-write were BOTH added in
+// 80ba752 (19:43) -- exactly the boundary where BIND_CONTEXT flipped from accepted
+// (14:04 boots: neither present, verified against the persisted guest log) to
+// refused (every boot since). 0 = skip both, restoring the proven 14:04 config.
+static const UInt32 kGuestDriverId = 0;
+static const UInt32 kOtablePrewrite = 0;
+
 // STDU object teardown before the defines (see the bisect note in stduBringUp).
 static const UInt32 kStduTeardown = 0;
 
@@ -1863,11 +1870,11 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
 
     // ---- DX chain via the CB (vm3dmp semantics: flags=3, header dxContext=0) ----
 
-    // DXCONTEXT OTable entry {cid, kCtxMobId} -- gbBringUp already wrote {1, 3};
-    // Revert to the 2026-10-08 14:04 known-good configuration (BIND{1,1,0} then
-    // ACCEPTED): DEFINE and BIND as SEPARATE single-command CBs, state MOB = mobid 1
-    // (16 KiB data MOB). Single variable for this boot = PREPEND registration OFF.
-    {
+    // DXCONTEXT OTable entry {cid, mobid}: ABSENT in the 14:04 boots where BIND was
+    // accepted; present (added 80ba752) in every boot where BIND was refused. The
+    // host's DEFINE_CONTEXT creates the entry itself -- pre-writing it plausibly
+    // makes the host's define/bind path see a conflicting entry. Gated off by default.
+    if (kOtablePrewrite) {
         volatile UInt8 *dxTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffDxCtxTable);
         volatile UInt8 *dxEntry = dxTable + (IOByteCount)cid * kGbDxCtxEntryBytes;
         UInt32 stateMob = 1;
@@ -1876,6 +1883,8 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         __asm__ volatile ("" ::: "memory");
         IOLog(VGPU_FB_TAG ": dx: DXCONTEXT otable entry {cid %u, mob %u} written\n",
               cid, stateMob);
+    } else {
+        IOLog(VGPU_FB_TAG ": dx: otable pre-write skipped (kOtablePrewrite=0)\n");
     }
 
     words[0] = kSvga3dCmdDxDefineContext;
@@ -2097,14 +2106,19 @@ bool vgpuFramebuffer::cbInit(void) {
           (unsigned long long)_cbHeaderPA, (unsigned long long)_cbDataPA);
 
     // Guest driver identity (vm3dmp writes exactly this at init): announce the WDDM
-    // driver class + version triple. The MKS gates its DX command processing on the
-    // announced driver class -- without it DX commands are rejected/inert.
+    // driver class + version triple. BISECT 10-08: this write correlates 1:1 with
+    // BIND_CONTEXT rejection (14:04 boots without it had BIND accepted; every boot
+    // with it has BIND refused). Gated behind kGuestDriverId.
     UInt16 port = _svgaPortBase;
-    svgaWriteRegister(port, 61, 1);           // SVGA_REG_GUEST_DRIVER_ID = WDDM
-    svgaWriteRegister(port, 62, 0x1801560);   // SVGA_REG_GUEST_DRIVER_VERSION1 (vm3dmp)
-    svgaWriteRegister(port, 63, 0x90011);     // SVGA_REG_GUEST_DRIVER_VERSION2
-    svgaWriteRegister(port, 64, 0xb0003);     // SVGA_REG_GUEST_DRIVER_VERSION3
-    IOLog(VGPU_FB_TAG ": cb: GUEST_DRIVER_ID=WDDM + version triple written\n");
+    if (kGuestDriverId) {
+        svgaWriteRegister(port, 61, 1);           // SVGA_REG_GUEST_DRIVER_ID = WDDM
+        svgaWriteRegister(port, 62, 0x1801560);   // SVGA_REG_GUEST_DRIVER_VERSION1 (vm3dmp)
+        svgaWriteRegister(port, 63, 0x90011);     // SVGA_REG_GUEST_DRIVER_VERSION2
+        svgaWriteRegister(port, 64, 0xb0003);     // SVGA_REG_GUEST_DRIVER_VERSION3
+        IOLog(VGPU_FB_TAG ": cb: GUEST_DRIVER_ID=WDDM + version triple written\n");
+    } else {
+        IOLog(VGPU_FB_TAG ": cb: GUEST_DRIVER_ID write skipped (kGuestDriverId=0)\n");
+    }
 
     // Register a PREPEND buffer (SVGA_REG_CMD_PREPEND_LOW/HIGH = 53/54), exactly as
     // vm3dmp does before/with every submission: PREPEND_HIGH = PA>>32,

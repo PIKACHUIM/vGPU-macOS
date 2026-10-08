@@ -94,3 +94,32 @@
 - `disasm/vmxdis.py` — vmware-vmx.exe 反汇编（支持 PE32+ 头解析）。
 - vmware-vmx 符号池格式：`.rsrc` 内 `{u32 nameoff(B=0x10f950c 相对), u16 flag, u16 len, u64 RVA}`，
   变长步进扫描可提取全部 SVGA 符号（注意条目非 16 字节对齐，需容错扫描）。
+## 6. 深夜终局修正（23:07-23:45）：14:04 证据被推翻
+
+关键发现：调取客体会话日志库（跨重启持久）中 14:04 boot 的原始行，发现当时日志里
+**没有任何 BIND 结果行**——"BIND 成功"只是"走到了 SET_COTABLE"的推断，而那个版本的
+代码在 BIND 失败时可能并不提前返回、也不打日志。**BIND_CONTEXT 很可能从未被任何
+MKS 代次接受过。**
+
+由此"MKS 代次假说"降级（四代 MKS 行为一致的证据链）：
+- 23:34 全新 MKS（冷启动、无 driver id、无 otable 预写、无 PREPEND、flags=1）
+  → DEFINE 接受、BIND 仍拒。
+- 23:21 全新 MKS + flags=3 → DEFINE 直接 CB_HEADER_ERROR。
+- 17:15 前后的 vmx diff = 无 SVGA 差异；四代 vmware.log 的 compatibility level 全 = 10；
+  FIFO caps（0x77f/3D_HWVERSION=0/3dcaps 全零）两代完全一致。
+
+**最终确定的事实基线（不再有幽灵变量）**：
+1. DX_DEFINE_CONTEXT（plain CB flags=1）是唯一被接受的 DX 命令。
+2. 其余一切 DX 命令（BIND/SET_COTABLE/SET_SHADER_IFACE/GB-define-via-CB）一律
+   COMMAND_ERROR@0；DX flag CB 一律 CB_HEADER_ERROR。
+3. DEFINE 是唯一不引用 MOB 的 DX 命令 → **工作假设：MKS 的 CB 路径对 DX 命令中
+   的 MOB 引用做了某种校验并拒绝**（或 DX 分派器要求 DX_CONTEXT flag 而该 flag 又
+   被头校验拒绝——两者必居其一，mksSandbox 静态分析可裁决）。
+4. CB 命令错误楔死 ctx-0 队列（已多次复现）。
+
+**方向判定（回答"方向是不是歪了"）**：
+- 没歪。老 SVGA3D 管线不存在（vGPU10 设备 3D_HWVERSION 恒 0），DX/CB 是唯一 3D 路径。
+- 今晚的"回归恐慌"是方法论教训：bisect 必须给每个命令加正向日志（成功也要打），
+  不能靠"没有失败日志"推断成功。已纠正。
+- 最高杠杆下一步 = mksSandbox DX 分派器静态分析（DXBindContext 校验条件），
+  而非继续盲试字节序列。
