@@ -66,6 +66,51 @@
 
 部署窗口注意：DX 实验版下 SSH 间歇死亡——硬复位后前 2 分钟抢 put+build+install。
 
+## vm3dmp.sys 逆向发现（10-08，Windows SVGA3D WDDM 驱动，Tools 12.4.5）
+
+对 `driver/vm3dmp.sys`（用户提供）的 capstone 反汇编已完成核心路径解码：
+
+### CB 提交架构（三层）
+1. **提交 helper** `0x1400095d8(device, cbCtxIdx, dxCtx, payload, [qword0, len, ?, flags=2, ...])`：
+   查设备结构 `+0x18a4` 能力位 bit5（COMMAND_BUFFERS）→ 走 CB（`0x14001a76c`→`0x140013990`）
+   或 legacy FIFO（`0x14001a900`）。
+2. **CB header 构造**（`0x140013990`，共 32 个 CB 上下文槽，每个 0xb38 字节）：
+   - `flags`：DX 类调用（arg8=2）→ **1|2 = 3**（NO_IRQ|DX_CONTEXT）；条件位 4=MOB。
+   - `dxContext`（header+0x24）= 第 3 寄存器参数，**所有 DX 调用恒 0**。
+   - ptr（+0x18）：arg10 字节非 0 时为 {mobid(+0x18), offset(+0x1c)} + flags|4。
+3. **payload = 多条 {id,size,body} 命令连续拼接**，无填充、无前导命令。
+
+### 关键序列（反汇编实证）
+- **DEFINE+BIND 打包单 CB**：`{0x477,4,cid}{0x479,12,cid,stateMob,0}`。
+- **SET_COTABLE**：`{0x4b7,16,cid,type,mobid,validSize}`；**初始 validSize=0**。
+- **COTABLE MOB 按类型精确分配**（`0x140011178` 条目数表）：RTVIEW=32 条目 →
+  `round_up(32*4,4096)` = 4 KiB 单页 **PT64_0**（基页即数据页）。
+- **DEFINE_GB_MOB64 也经 CB**（`0x14000fd70`：`{0x46f,20,mobid,ptDepth,ppn64,size}`，flags=3）。
+- 解绑路径（context 销毁）：`SET_COTABLE{mobid=0,validSize=0}` + `DESTROY_GB_MOB{mobid}`——
+  解释了 10-07 看到的神秘 `{0x446,4,mobid}` 尾随命令。
+- CB device commands 无 size 字段（header.length 定界）。
+- HWVERSION 仍写 0x20001（与我们一致，非差异点）。
+
+### 本 MKS（WS14/15 时代 vGPU10）实测对照矩阵
+| 提交 | vm3dmp 预期 | 本 MKS 实测 |
+|---|---|---|
+| DX 命令 + flags3 + dx0 | 执行 | DEFINE ✓，SET_COTABLE ✗（命令级） |
+| DX 命令 + flags2（无 NO_IRQ） | — | CB_HEADER_ERROR |
+| GB define + flags3 CB | 执行 | CB_HEADER_ERROR |
+| GB define + plain CB（flags1） | — | COMMAND_ERROR @0 |
+| GB define + legacy FIFO | — | fence 通过（显示证明执行） |
+| DX 命令 + legacy FIFO | — | fence 通过但惰性（哨兵存活） |
+
+**结论**：本 MKS 的 CB 是 vGPU10 早期实现，与 vm3dmp 12.4.5（WS17 MKS）语义分叉——
+GB define 只认 legacy FIFO、DX 命令集需要 12.x MKS 才完整支持。**时代匹配的 10.3.10 驱动
+（已从 packages.vmware.com 下载其安装器）是正确参照**；其 vm3dmp.sys 位于 LZX 压缩的
+MSI media CAB 内（cab_003，expand/7z 均失败，需 msiexec /a 走正式 MSI 数据库——
+安装器只内嵌 48KB 引导 MSI，完整 DB 的提取路径待继续）。
+
+### 10-08 晚新增：legacy DX + CB bootstrap = 启动死锁
+DC START_STOP_CONTEXT 之后经 legacy FIFO 提交 DX 链（带 fence）→ guest 启动卡死
+（进度条 1/3，SSH 死）。**CB bootstrap 与 legacy DX 链不能共存**——下次实验二选一。
+
 ## 参考资料与提取路径
 
 - `vmwgfx`（Linux 4.19）：vmwgfx_stdu.c / vmwgfx_cmdbuf.c / vmwgfx_mob.c / vmwgfx_cotable.c

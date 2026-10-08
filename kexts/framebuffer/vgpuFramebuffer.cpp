@@ -258,23 +258,26 @@ enum {
 //   4 = init + fence + full-screen UPDATE probe
 //   5 = init + fence + legacy screen-object present path (DEFINE_SCREEN, DEFINE_GMRFB over
 //       the framebuffer, BLIT_GMRFB_TO_SCREEN) + the periodic present timer
-static const UInt32 kFbStage = 2;
+static const UInt32 kFbStage = 0;
 
 // kGbStage gates the GB object stack (see gbBringUp); 5 adds the STDU present path.
-static const UInt32 kGbStage = 4;
+static const UInt32 kGbStage = 0;
 
 // kDxTest runs the DX clear/readback round-trip experiment after the present path is up.
 // Measured 2026-10-06: with the test present, the host aborts FIFO processing at
 // DEFINE_GB_SCREENTARGET (deterministically, next/stop frozen mid-stream) even though the
 // identical byte stream passed in earlier boots and the test itself runs only afterwards.
 // Root cause unknown -- bisect with this switch next session.
-static const UInt32 kDxTest = 1;
+static const UInt32 kDxTest = 0;
 
 // STDU object teardown before the defines (see the bisect note in stduBringUp).
 static const UInt32 kStduTeardown = 0;
 
 // MOB id of the DX context state block.
 static const UInt32 kCtxMobId = 3;
+
+// MOB id of the DX render-target-view COTABLE (one 4 KiB page, PT64_0).
+static const UInt32 kCotableMobId = 5;
 
 // ---- Command buffer (CB) submission --------------------------------------
 // On vGPU10 hosts the DX command set is accepted but NOT executed when
@@ -431,9 +434,8 @@ private:
     IOBufferMemoryDescriptor *_dxPtMem = nullptr;   // DX test surface PT page
     // Command buffer submission state.
     IOPCIDevice              *_pci = nullptr;          // for register access in cbSubmit
-    IOBufferMemoryDescriptor *_cotableMem = nullptr;   // DX COTABLE storage (64 KiB)
-    IOBufferMemoryDescriptor *_cotablePtMem = nullptr; // COTABLE PT page
-    static const UInt32      kCotableMobId = 5;
+    IOBufferMemoryDescriptor *_cotableMem = nullptr;   // DX COTABLE storage (4 KiB)
+    IOBufferMemoryDescriptor *_cotablePtMem = nullptr; // unused (PT64_0 needs no PT page)
     IOBufferMemoryDescriptor *_cbHeaderMem = nullptr;  // 64 B, contiguous
     volatile UInt8           *_cbHeaderVirt = nullptr;
     UInt64                    _cbHeaderPA = 0;
@@ -1709,9 +1711,6 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     // Bootstrap the CB mechanism itself: the start/stop device command is submitted
     // through the CB device context (SVGA_CB_CONTEXT_DEVICE = 0x3f).
     {
-        // CB device commands carry NO size field -- the CB header length delimits the
-        // buffer and a device-context CB holds exactly one command (vmwgfx: packed
-        // {uint32 id; SVGADCCmdStartStop body;}).
         UInt32 dc[3] = { 1, 1, 0 };      // id=START_STOP_CONTEXT, enable=1, context=0
         if (!cbSubmitCtx(dc, 3, 0x3F, 0)) {
             IOLog(VGPU_FB_TAG ": cb: device-context START_STOP failed\n");
@@ -1719,8 +1718,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         }
         IOLog(VGPU_FB_TAG ": cb: CB mechanism started (device context)\n");
     }
-    const UInt32 cid = 1;             // created in gbBringUp (kGbStage >= 4)
-    const UInt32 cotableMobId = 1;    // the 16 KiB data MOB
+    const UInt32 cid = 1;
     const UInt32 rtvId = 0;
     const UInt32 invalidId = 0xFFFFFFFF;
     const UInt32 surfId = 3;
@@ -1729,29 +1727,25 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     const UInt32 dxBytes = dxW * dxH * 4;          // 256 KB
     const UInt32 dxPages = dxBytes / kGbPageBytes; // 64
     const UInt32 expected = 0xFFFF00FF;            // X8R8G8B8 magenta
-    UInt32 words[16];
+    UInt32 words[24];
 
-    // Backing store: 64 pages. PT64_1 needs one PT page (64 * 8 B = 512 B fits a page).
+    // ---- vm3dmp-exact flow: every object define goes through the CB (flags = 3) ----
+
+    // 1. Backing store for the render-target surface: 64 scattered pages + one PT page.
     _dxMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
         kernel_task, kIODirectionInOut, dxBytes, 0xFFFULL);
-    if (_dxMem == nullptr) {
-        IOLog(VGPU_FB_TAG ": dx: could not allocate the %u-byte surface memory\n", dxBytes);
-        return;
-    }
-    _dxVirt = (void *)_dxMem->map()->getVirtualAddress();
-    bzero(_dxVirt, dxBytes);
-
     _dxPtMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
         kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous, kGbPageBytes, 0xFFFULL);
-    if (_dxPtMem == nullptr) {
-        IOLog(VGPU_FB_TAG ": dx: could not allocate the PT page\n");
+    if (_dxMem == nullptr || _dxPtMem == nullptr) {
+        IOLog(VGPU_FB_TAG ": dx: surface memory alloc failed\n");
         return;
     }
+    bzero((void *)_dxMem->map()->getVirtualAddress(), dxBytes);
     volatile UInt64 *pt = (volatile UInt64 *)_dxPtMem->map()->getVirtualAddress();
     IOByteCount segLen = 0;
     IOVirtualAddress ptAddr = _dxPtMem->getPhysicalSegment(0, &segLen);
     if (ptAddr == 0) {
-        IOLog(VGPU_FB_TAG ": dx: PT page not resolvable\n");
+        IOLog(VGPU_FB_TAG ": dx: surface PT page not resolvable\n");
         return;
     }
     for (UInt32 i = 0; i < dxPages; i++) {
@@ -1765,7 +1759,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     __asm__ volatile ("" ::: "memory");
     const UInt64 ptPpn = (UInt64)ptAddr >> kGbPageShift;
 
-    // The MOB's OTable entry (data MOB table, mobid 4) -- before the define.
+    // The MOB's OTable entry (mobid 4) -- written BEFORE the define (host snapshots).
     volatile UInt8 *mobTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffMobTable);
     UInt32 mobEntryOff = mobId * kGbMobEntryBytes;
     UInt32 mobDepth = kSvga3dMobFmtPt64_1;
@@ -1774,20 +1768,87 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     memcpy((void *)(mobTable + mobEntryOff + 8), &ptPpn, 8);
     __asm__ volatile ("" ::: "memory");
 
-    // DEFINE_GB_MOB64 mobid 4 -- GB commands go through the legacy FIFO (they execute
-    // there); only the DX command set moves to the CB.
-    words[0] = kSvga3dCmdDefineGbMob64;
+    // DEFINE_GB_MOB64 mobid 4 THROUGH THE CB (vm3dmp allocates every mob via the CB:
+    // {0x46f, 20, mobid, ptDepth, basePpn u64, byteSize}).
+    words[0] = 0x46F;               // SVGA_3D_CMD_DEFINE_GB_MOB64
     words[1] = 20;
     words[2] = mobId;
     words[3] = kSvga3dMobFmtPt64_1;
     memcpy(&words[4], &ptPpn, 8);
     words[6] = dxBytes;
     if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
-        IOLog(VGPU_FB_TAG ": dx: DEFINE_GB_MOB64 refused\n");
+        IOLog(VGPU_FB_TAG ": dx: CB DEFINE_GB_MOB64 refused\n");
         return;
     }
+    IOLog(VGPU_FB_TAG ": dx: CB DEFINE_GB_MOB64 accepted (plain)\n");
 
-    // The surface's OTable entry -- before the define.
+    // 2. COTABLE mob for RTVIEW: EXACT per-type size (vm3dmp) = round_up(32 entries
+    //    * 4 B, 4096) = one 4 KiB page, PT64_0 (the base page IS the data page).
+    _cotableMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+        kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous, kGbPageBytes, 0xFFFULL);
+    if (_cotableMem == nullptr) {
+        IOLog(VGPU_FB_TAG ": dx: cotable mob alloc failed\n");
+        return;
+    }
+    bzero((void *)_cotableMem->map()->getVirtualAddress(), kGbPageBytes);
+    IOByteCount ctLen = 0;
+    IOVirtualAddress ctAddr = _cotableMem->getPhysicalSegment(0, &ctLen);
+    if (ctAddr == 0) {
+        IOLog(VGPU_FB_TAG ": dx: cotable page not resolvable\n");
+        return;
+    }
+    const UInt64 ctPpn = (UInt64)ctAddr >> kGbPageShift;
+    volatile UInt8 *ctMobTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffMobTable);
+    UInt32 ctEntryOff = kCotableMobId * kGbMobEntryBytes;
+    UInt32 ctDepth0 = kSvga3dMobFmtPt64_0;
+    memcpy((void *)(ctMobTable + ctEntryOff), &ctDepth0, 4);
+    memcpy((void *)(ctMobTable + ctEntryOff + 4), &kGbPageBytes, 4);
+    memcpy((void *)(ctMobTable + ctEntryOff + 8), &ctPpn, 8);
+    __asm__ volatile ("" ::: "memory");
+
+    words[0] = 0x46F;
+    words[1] = 20;
+    words[2] = kCotableMobId;
+    words[3] = kSvga3dMobFmtPt64_0;
+    memcpy(&words[4], &ctPpn, 8);
+    words[6] = kGbPageBytes;
+    if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": dx: CB cotable DEFINE_GB_MOB64 refused\n");
+        return;
+    }
+    IOLog(VGPU_FB_TAG ": dx: CB cotable MOB %u defined (4 KiB, PT64_0)\n", kCotableMobId);
+
+    // 3. DX_DEFINE_CONTEXT + DX_BIND_CONTEXT -- the exact vm3dmp pair (state MOB
+    //    bound right after define). Flags = 3 (NO_IRQ|DX_CONTEXT), header dxContext 0.
+    words[0] = kSvga3dCmdDxDefineContext;
+    words[1] = 4;
+    words[2] = cid;
+    words[3] = kSvga3dCmdDxBindContext;
+    words[4] = 12;
+    words[5] = cid;
+    words[6] = kCtxMobId;
+    words[7] = 0;                   // validContents = 0
+    if (!fifoSubmitWords(fifo, words, 8) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": dx: CB DX_DEFINE+BIND refused\n");
+        return;
+    }
+    IOLog(VGPU_FB_TAG ": dx: DX_DEFINE+BIND accepted (flags=3)\n");
+
+    // 4. DX_SET_COTABLE {cid, type RTVIEW, mobid 5, validSize 0} -- vm3dmp's initial
+    //    bind carries validSizeInBytes = 0.
+    words[0] = kSvga3dCmdDxSetCotable;
+    words[1] = 16;
+    words[2] = cid;
+    words[3] = kCotableMobId;
+    words[4] = 0;                   // SVGA_COTABLE_RTVIEW
+    words[5] = 0;
+    if (!fifoSubmitWords(fifo, words, 6) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": dx: DX_SET_COTABLE refused\n");
+        return;
+    }
+    IOLog(VGPU_FB_TAG ": dx: DX_SET_COTABLE accepted\n");
+
+    // 5. The surface's OTable entry, then DEFINE_GB_SURFACE THROUGH THE CB.
     volatile UInt8 *surfTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffSurfaceTable);
     volatile UInt8 *entry = surfTable + (IOByteCount)surfId * kGbSurfaceEntryBytes;
     UInt32 fmt = kSvga3dSurfaceFormatX8R8G8B8;
@@ -1810,7 +1871,6 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     bzero((void *)(entry + 56), 16);
     __asm__ volatile ("" ::: "memory");
 
-    // DEFINE_GB_SURFACE sid 3 (256x256 X8R8G8B8) -- legacy FIFO.
     words[0] = kSvga3dCmdDefineGbSurface;
     words[1] = 40;
     words[2] = surfId;
@@ -1823,99 +1883,13 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[10] = dxH;
     words[11] = 1;
     if (!fifoSubmitWords(fifo, words, 12) || !fenceAck(fifo, &_fenceSeq)) {
-        IOLog(VGPU_FB_TAG ": dx: DEFINE_GB_SURFACE refused\n");
+        IOLog(VGPU_FB_TAG ": dx: CB DEFINE_GB_SURFACE refused\n");
         return;
     }
+    IOLog(VGPU_FB_TAG ": dx: CB DEFINE_GB_SURFACE accepted (plain)\n");
 
-    // DX_DEFINE_CONTEXT through a PLAIN CB (the context does not exist yet, so the
-    // DX_CONTEXT flag/dxContext field would fail header validation).
-    words[0] = kSvga3dCmdDxDefineContext;
-    words[1] = 4;
-    words[2] = cid;
-    if (!cbSubmit(words, 3)) {
-        IOLog(VGPU_FB_TAG ": dx: CB DX_DEFINE_CONTEXT refused\n");
-        return;
-    }
-
-    // Dedicated COTABLE mob: mobid 5, 64 KiB, PT64_1 (one PT page, 16 data pages).
-    {
-        _cotableMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
-            kernel_task, kIODirectionInOut, kGbPageBytes * 16, 0xFFFULL);
-        _cotablePtMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
-            kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous, kGbPageBytes, 0xFFFULL);
-        if (_cotableMem == nullptr || _cotablePtMem == nullptr) {
-            IOLog(VGPU_FB_TAG ": dx: cotable mob alloc failed\n");
-            return;
-        }
-        bzero((void *)_cotableMem->map()->getVirtualAddress(), kGbPageBytes * 16);
-        IOByteCount ctLen = 0;
-        IOVirtualAddress ctPtAddr = _cotablePtMem->getPhysicalSegment(0, &ctLen);
-        if (ctPtAddr == 0) {
-            IOLog(VGPU_FB_TAG ": dx: cotable PT not resolvable\n");
-            return;
-        }
-        volatile UInt64 *ctPt = (volatile UInt64 *)_cotablePtMem->map()->getVirtualAddress();
-        for (UInt32 i = 0; i < 16; i++) {
-            IOVirtualAddress addr = _cotableMem->getPhysicalSegment((IOByteCount)i * kGbPageBytes, &ctLen);
-            if (addr == 0) {
-                IOLog(VGPU_FB_TAG ": dx: cotable page %u not resolvable\n", i);
-                return;
-            }
-            ctPt[i] = (UInt64)addr >> kGbPageShift;
-        }
-        __asm__ volatile ("" ::: "memory");
-        const UInt64 ctPtPpn = (UInt64)ctPtAddr >> kGbPageShift;
-
-        // The COTABLE mob's OTable entry (MOB table, mobid 5) -- before the define.
-        volatile UInt8 *ctMobTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffMobTable);
-        UInt32 ctEntryOff = kCotableMobId * kGbMobEntryBytes;
-        UInt32 ctDepth = kSvga3dMobFmtPt64_1;
-        UInt32 ctSize = kGbPageBytes * 16;
-        memcpy((void *)(ctMobTable + ctEntryOff), &ctDepth, 4);
-        memcpy((void *)(ctMobTable + ctEntryOff + 4), &ctSize, 4);
-        memcpy((void *)(ctMobTable + ctEntryOff + 8), &ctPtPpn, 8);
-        __asm__ volatile ("" ::: "memory");
-
-        words[0] = kSvga3dCmdDefineGbMob64;
-        words[1] = 20;
-        words[2] = kCotableMobId;
-        words[3] = kSvga3dMobFmtPt64_1;
-        memcpy(&words[4], &ctPtPpn, 8);
-        words[6] = ctSize;
-        if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
-            IOLog(VGPU_FB_TAG ": dx: cotable MOB define refused\n");
-            return;
-        }
-        IOLog(VGPU_FB_TAG ": dx: cotable MOB %u defined\n", kCotableMobId);
-    }
-
-    // DX_SET_COTABLE {cid, mobid 5, RTVIEW, validSize = 1 entry (vmwgfx min_initial)}.
-    words[0] = kSvga3dCmdDxSetCotable;
-    words[1] = 16;
-    words[2] = cid;
-    words[3] = kCotableMobId;
-    words[4] = 0;                   // SVGA_COTABLE_RTVIEW
-    words[5] = 32;
-    if (!cbSubmit(words, 6)) {
-        IOLog(VGPU_FB_TAG ": dx: DX_SET_COTABLE refused\n");
-        return;
-    }
-    IOLog(VGPU_FB_TAG ": dx: DX_SET_COTABLE accepted\n");
-
-    // DX_BIND_CONTEXT {cid, mobid 3 (512 KiB state), validContents=0} -- plain CB.
-    words[0] = kSvga3dCmdDxBindContext;
-    words[1] = 12;
-    words[2] = cid;
-    words[3] = kCtxMobId;
-    words[4] = 0;
-    if (!cbSubmit(words, 5)) {
-        IOLog(VGPU_FB_TAG ": dx: CB DX_BIND_CONTEXT refused\n");
-        return;
-    }
-    IOLog(VGPU_FB_TAG ": dx: DX_BIND_CONTEXT accepted\n");
-
-    // DX state setup: COTABLE bind, RTV define, cotable resize, render targets,
-    // viewport + scissor (the SVGA clear may clip to them).
+    // 6. DX state: RTV define (grows the cotable by one entry), cotable resize to
+    //    validSize 32, render targets, viewport + scissor.
     words[0] = kSvga3dCmdDxDefineRenderTargetView;
     words[1] = 28;
     words[2] = rtvId;
@@ -1925,7 +1899,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[6] = 0;
     words[7] = 0;
     words[8] = 1;
-    if (!cbSubmitDx(words, 9)) {
+    if (!fifoSubmitWords(fifo, words, 9) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": dx: DX_DEFINE_RENDERTARGET_VIEW refused\n");
         return;
     }
@@ -1936,7 +1910,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[3] = kCotableMobId;
     words[4] = 0;
     words[5] = 32;                  // one RTView entry
-    if (!cbSubmitDx(words, 6)) {
+    if (!fifoSubmitWords(fifo, words, 6) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": dx: DX_SET_COTABLE resize refused\n");
         return;
     }
@@ -1945,7 +1919,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[1] = 8;
     words[2] = invalidId;
     words[3] = rtvId;
-    if (!cbSubmitDx(words, 4)) {
+    if (!fifoSubmitWords(fifo, words, 4) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": dx: DX_SET_RENDERTARGETS refused\n");
         return;
     }
@@ -1955,7 +1929,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[2] = 0;
     const float viewport[6] = { 0.0f, 0.0f, (float)dxW, (float)dxH, 0.0f, 1.0f };
     memcpy(&words[3], viewport, 24);
-    if (!cbSubmitDx(words, 9)) {
+    if (!fifoSubmitWords(fifo, words, 9) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": dx: DX_SET_VIEWPORTS refused\n");
         return;
     }
@@ -1967,22 +1941,20 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[4] = 0;
     words[5] = dxW;
     words[6] = dxH;
-    if (!cbSubmitDx(words, 7)) {
+    if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": dx: DX_SET_SCISSORRECTS refused\n");
         return;
     }
 
-    // ---- DMA round-trip experiment, independent of the DX clear ----
-    // 1. fill the guest MOB with magenta
+    // 7. DMA round trip (upload magenta, download): proves the DMA path first.
     volatile UInt32 *fill = (volatile UInt32 *)_dxVirt;
     for (UInt32 i = 0; i < dxBytes / 4; i++) {
         fill[i] = expected;
     }
     __asm__ volatile ("" ::: "memory");
 
-    // 2. SURFACE_DMA WRITE_HOST_VRAM: mobid 4 -> host surface sid 3
     UInt32 dma[24];
-    dma[0] = 1044;
+    dma[0] = 1044;                  // SVGA_3D_CMD_SURFACE_DMA
     dma[1] = 28 + 36 + 12;
     dma[2] = mobId;
     dma[3] = 0;
@@ -1995,40 +1967,36 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     dma[12] = dxW; dma[13] = dxH; dma[14] = 1;
     dma[15] = 0;  dma[16] = 0;  dma[17] = 0;
     dma[18] = 12; dma[19] = dxBytes; dma[20] = 0;
-    if (!cbSubmit(dma, 21)) {
+    if (!fifoSubmitWords(fifo, dma, 21) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": dx: SURFACE_DMA upload refused\n");
         return;
     }
 
-    // 3. fill the guest MOB with a sentinel
     for (UInt32 i = 0; i < dxBytes / 4; i++) {
         fill[i] = 0x11223344;
     }
     __asm__ volatile ("" ::: "memory");
 
-    // 4. SURFACE_DMA READ_HOST_VRAM: host surface sid 3 -> mobid 4
     dma[8] = 2;                     // SVGA3D_READ_HOST_VRAM
-    if (!cbSubmit(dma, 21)) {
+    if (!fifoSubmitWords(fifo, dma, 21) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": dx: SURFACE_DMA download refused\n");
         return;
     }
     __asm__ volatile ("" ::: "memory");
 
-    // 5. verdict
     volatile UInt32 *px = (volatile UInt32 *)_dxVirt;
     UInt32 p0 = px[0];
     UInt32 pMid = px[(dxH / 2) * dxW + (dxW / 2)];
     UInt32 pLast = px[(dxH - 1) * dxW + (dxW - 1)];
     if (p0 == expected && pMid == expected && pLast == expected) {
         IOLog(VGPU_FB_TAG ": dx: DMA ROUND TRIP VERIFIED -- magenta survived upload+download\n");
-        // Now the real thing: clear the render target through the host engine and pull
-        // the result back with the same, proven DMA path.
+        // 8. The real verdict: clear through the host 3D engine, pull back with DMA.
         words[0] = kSvga3dCmdDxClearRenderTargetView;
         words[1] = 20;
         words[2] = rtvId;
         const float magenta[4] = { 1.0f, 0.0f, 1.0f, 1.0f };
         memcpy(&words[3], magenta, 16);
-        if (!cbSubmitDx(words, 7)) {
+        if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
             IOLog(VGPU_FB_TAG ": dx: DX_CLEAR refused\n");
             return;
         }
@@ -2037,7 +2005,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         }
         __asm__ volatile ("" ::: "memory");
         dma[8] = 2;
-        if (!cbSubmit(dma, 21)) {
+        if (!fifoSubmitWords(fifo, dma, 21) || !fenceAck(fifo, &_fenceSeq)) {
             IOLog(VGPU_FB_TAG ": dx: post-clear DMA refused\n");
             return;
         }
@@ -2112,11 +2080,13 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
     h[1] = 0;
     *(volatile UInt64 *)(_cbHeaderVirt + 8) = _cbId++;                    // id
     // NO_IRQ always; DX_CONTEXT only for DX-command payloads.
-    *(volatile UInt32 *)(_cbHeaderVirt + 16) = 1 | (dxContext ? 2 : 0);   // flags
+    // vm3dmp semantics: DX streams carry ONLY SVGA_CB_FLAG_DX_CONTEXT (2), never
+    // NO_IRQ; plain streams carry only NO_IRQ (1). Header dxContext is always 0.
+    *(volatile UInt32 *)(_cbHeaderVirt + 16) = (dxContext != 0) ? 3 : 1;  // flags: NO_IRQ|DX_CONTEXT for DX
     *(volatile UInt32 *)(_cbHeaderVirt + 20) = byteCount;                 // length
     *(volatile UInt64 *)(_cbHeaderVirt + 24) = _cbDataPA;                 // ptr.pa
     *(volatile UInt32 *)(_cbHeaderVirt + 32) = 0;                         // offset
-    *(volatile UInt32 *)(_cbHeaderVirt + 36) = dxContext;                 // dxContext
+    *(volatile UInt32 *)(_cbHeaderVirt + 36) = 0;                         // dxContext (vm3dmp: always 0)
     for (int i = 0; i < 6; i++) {
         *(volatile UInt32 *)(_cbHeaderVirt + 40 + 4 * i) = 0;             // mustBeZero
     }
@@ -2162,10 +2132,10 @@ bool vgpuFramebuffer::cbSubmit(const UInt32 *cmds, UInt32 wordCount) {
     return cbSubmitCtx(cmds, wordCount, 0, 0);   // plain stream on CONTEXT_0
 }
 
-// DX-command payload: SVGA_CB_FLAG_DX_CONTEXT + dxContext = cid 1. The context now
-// exists (DEFINE ran first), so header validation should accept the reference.
+// DX-command payload: SVGA_CB_FLAG_DX_CONTEXT (2) ONLY -- vm3dmp.sys never sets
+// NO_IRQ (bit 0) on DX streams -- and the header dxContext field is 0.
 bool vgpuFramebuffer::cbSubmitDx(const UInt32 *cmds, UInt32 wordCount) {
-    return cbSubmitCtx(cmds, wordCount, 0, 1);
+    return cbSubmitCtx(cmds, wordCount, 0, 2);
 }
 
 void vgpuFramebuffer::fifoDump(volatile UInt32 *fifo, const char *when) {
