@@ -101,6 +101,12 @@
 | GB define + legacy FIFO | — | fence 通过（显示证明执行） |
 | DX 命令 + legacy FIFO | — | fence 通过但惰性（哨兵存活） |
 
+> **宿主实为 WS 26.0**（vmware.log 实证），且宿主上 Windows VM 同样 BaseCapsLevel 9——
+> level 9 是 WS26 新沙箱渲染器（mksSandbox/ISBRenderer-VK）对所有客户机的设定，**3D 照常工作**。
+> Tools 13.1.5 的 vm3dmp.sys 与 12.4.5 逐字节相同（md5 一致）——逆向对象即现役驱动。
+> **因此 MKS 完全支持该协议；剩余差异在我们自己的初始化/提交序列里。**
+> darwin 的 UI 警告"此客户机操作系统不支持 3D 加速"只是产品策略文案，设备能力不受影响。
+
 **结论**：本 MKS 的 CB 是 vGPU10 早期实现，与 vm3dmp 12.4.5（WS17 MKS）语义分叉——
 GB define 只认 legacy FIFO、DX 命令集需要 12.x MKS 才完整支持。**时代匹配的 10.3.10 驱动
 （已从 packages.vmware.com 下载其安装器）是正确参照**；其 vm3dmp.sys 位于 LZX 压缩的
