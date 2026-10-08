@@ -274,6 +274,11 @@ static const UInt32 kDxTest = 0;
 // Dump every CB header+payload to the log (bisect instrumentation).
 static const UInt32 kCbDump = 0;
 
+// Register the PREPEND buffer (regs 53/54). 10-08 evening correlation: with PREPEND
+// registered BIND_CONTEXT was refused; the 14:04 boot without it had BIND accepted.
+// 0 = skip registration entirely (single-variable test).
+static const UInt32 kCbPrepend = 0;
+
 // STDU object teardown before the defines (see the bisect note in stduBringUp).
 static const UInt32 kStduTeardown = 0;
 
@@ -1722,7 +1727,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         }
         IOLog(VGPU_FB_TAG ": cb: CB mechanism started (device context)\n");
     }
-    const UInt32 cid = 1;
+    const UInt32 cid = 2;           // 10-08 late: fresh cid to test "context 1 poisoned" hypothesis
     const UInt32 rtvId = 0;
     const UInt32 invalidId = 0xFFFFFFFF;
     const UInt32 surfId = 3;
@@ -1859,12 +1864,13 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     // ---- DX chain via the CB (vm3dmp semantics: flags=3, header dxContext=0) ----
 
     // DXCONTEXT OTable entry {cid, kCtxMobId} -- gbBringUp already wrote {1, 3};
-    // re-assert it here (the dedicated 512 KiB state MOB, NOT mob 1 which backs
-    // GB surface 1 -- binding a surface-backed mob is a plausible rejection cause).
+    // Revert to the 2026-10-08 14:04 known-good configuration (BIND{1,1,0} then
+    // ACCEPTED): DEFINE and BIND as SEPARATE single-command CBs, state MOB = mobid 1
+    // (16 KiB data MOB). Single variable for this boot = PREPEND registration OFF.
     {
         volatile UInt8 *dxTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffDxCtxTable);
         volatile UInt8 *dxEntry = dxTable + (IOByteCount)cid * kGbDxCtxEntryBytes;
-        UInt32 stateMob = kCtxMobId;
+        UInt32 stateMob = 1;
         memcpy((void *)(dxEntry + 0), &cid, 4);
         memcpy((void *)(dxEntry + 4), &stateMob, 4);
         __asm__ volatile ("" ::: "memory");
@@ -1872,23 +1878,25 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
               cid, stateMob);
     }
 
-    // vm3dmp packs DEFINE_CONTEXT and BIND_CONTEXT into ONE CB (0x20 bytes):
-    // {0x477,4,cid}{0x479,12,cid,stateMob,0}. A BIND error wedges the whole
-    // context-0 CB queue (observed 10-08: every later CB times out), so this is
-    // the ONE shot per boot -- exact vm3dmp bytes, dedicated state mob.
-    {
-        UInt32 packed[8] = {
-            kSvga3dCmdDxDefineContext, 4, cid,
-            kSvga3dCmdDxBindContext, 12, cid, kCtxMobId, 0,
-        };
-        bool ok = cbSubmit(packed, 8);
-        IOLog(VGPU_FB_TAG ": dx: PACKED DEFINE+BIND {cid %u, mob %u} -> %s\n",
-              cid, kCtxMobId, ok ? "ACCEPTED" : "refused");
-        if (!ok) {
-            IOLog(VGPU_FB_TAG ": dx: queue wedged; stopping DX test\n");
-            return;
-        }
+    words[0] = kSvga3dCmdDxDefineContext;
+    words[1] = 4;
+    words[2] = cid;
+    if (!cbSubmit(words, 3)) {
+        IOLog(VGPU_FB_TAG ": dx: CB DX_DEFINE refused\n");
+        return;
     }
+    IOLog(VGPU_FB_TAG ": dx: DX_DEFINE accepted\n");
+
+    words[0] = kSvga3dCmdDxBindContext;
+    words[1] = 12;
+    words[2] = cid;
+    words[3] = 1;                   // state MOB = mobid 1 (14:04 known-good)
+    words[4] = 0;
+    if (!cbSubmit(words, 5)) {
+        IOLog(VGPU_FB_TAG ": dx: CB DX_BIND refused (queue wedged; stop)\n");
+        return;
+    }
+    IOLog(VGPU_FB_TAG ": dx: DX_BIND accepted (no PREPEND registered)\n");
 
     // BISECT: DEFINE and BIND as SEPARATE single-command CBs (this MKS rejects
     // multi-command DX CBs with CB_HEADER_ERROR), state MOB = mobid 1 (the 16 KiB
@@ -2105,6 +2113,7 @@ bool vgpuFramebuffer::cbInit(void) {
     // driver strings ("No room left to prepend the command buffer...") show this is
     // the queue-front buffer used to resume a preempted/errored CB. vm3dmp keeps it
     // registered at all times, so we mirror that.
+    if (kCbPrepend) {
     _cbPrependMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
         kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous, 4096, 0x3F);
     if (_cbPrependMem == nullptr) {
@@ -2123,6 +2132,10 @@ bool vgpuFramebuffer::cbInit(void) {
     svgaWriteRegister(port, 53, (UInt32)(ppPA & 0xFFFFFFFFu) | 0u);
     IOLog(VGPU_FB_TAG ": cb: PREPEND registered @ %llx (ctx 0)\n",
           (unsigned long long)ppPA);
+    }  // kCbPrepend
+    else {
+        IOLog(VGPU_FB_TAG ": cb: PREPEND registration disabled (kCbPrepend=0)\n");
+    }
     return true;
 }
 

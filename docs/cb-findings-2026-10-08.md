@@ -59,13 +59,33 @@
 
 ## 4. 下一步（按优先级）
 
-1. **楔死恢复**：BIND 错误后试 device-ctx `SVGA_DC_CMD_PREEMPT` +
-   PREPEND 缓冲重放（复刻 vm3dmp 错误路径）；确认 CB 能否复活。
-2. **validContents=1 + 内容合法的 state MOB**：向 state MOB 写入
-   SVGADXContextMobFormat 布局（全零 + 合法 cotable 段）后 BIND。
-3. **cbContext 1 上的 CB**：楔死可能是 per-context 的，换 context 提交绕开。
-4. 宿主侧：用符号表脚本（`disasm/`，含 vmx_svga_syms.json 提取器）定位
-   `SVGAQueueCommandBuffer`，弄清 BIND 校验逻辑（工具链已就绪）。
+0. **MKS 代次假说（10-08 深夜升级为首位）**：DX 行为随 MKS 进程代次变化——
+   14:04（上一 MKS 进程）：flags=3 DX CB 通过、BIND{1,1,0} 成功、卡 SET_COTABLE；
+   19:15 起的 MKS 进程：flags=3 CB → CB_HEADER_ERROR、BIND 一律 COMMAND_ERROR
+   （cid=1/2、mob=1/3、valid=0/1、分离/打包全试遍，含 22:44 全新 power cycle）。
+   两代之间 guest 代码仅差 PREPEND 注册（已排除：kCbPrepend=0 下 BIND 仍拒）。
+   → 下次实验：逐行 diff 两代 vmware.log 的 SVGA3dCaps 段（尤其 "guest, compatibility
+   level" 与 vmotion.svga.* 钳位），并 dump FIFO 寄存器对比 GUEST_3D_HWVERSION(288)。
+1. **mksSandbox.exe 静态分析**：DX 命令号 0x477 在 .text 仅出现于 NOT_REACHED 断言
+   分支——真正的 DX 分派走基址差跳转表。找到 DXBindContext 处理函数即可读出校验条件。
+   DX 命令名表：.data 0x36f2xx（名字指针数组）；DXBindContext 名串在 .rdata 0x2832f8。
+2. **楔死恢复**：BIND 错误后试 device-ctx SVGA_DC_CMD_PREEMPT + PREPEND 重放。
+3. **validContents=1 + 内容合法的 state MOB**（至今未在活队列上评估过）。
+
+## 5b. 补充实验记录（10-08 深夜）
+
+| boot | 配置 | 结果 |
+|---|---|---|
+| 21:02 | PREPEND 注册 + DEFINE 单发 + BIND 矩阵 | BIND{1,1,0}=ERROR@0，其余全楔死 |
+| 21:11 | packed DEFINE+BIND{mob3} | ERROR@12（DEFINE 过、BIND 拒），队列楔死 |
+| 22:34 | kCbPrepend=0（排除 PREPEND）+ BIND{1,1,0} | 仍 ERROR@0 |
+| 22:44 | 全新 power cycle（vmrun start，MKS 全新） | 仍 BIND 拒 |
+| 22:56 | cid=2（排除 context-1 污染） | 仍 BIND 拒 |
+
+- MKS 对 CB 命令错误**完全静默**：mks.sandbox.log.vmxShadowAll=TRUE 加进 vmx
+  （备份 .vmx.bak-shadow）也未捕获任何 BIND 拒绝日志。
+- **日志读取坑：guest 默认 shell 是 zsh，`log` 是 zsh 内建**——必须 `sh -c 'log show ...'`。
+- 14:04 成功记录与今晚矛盾的唯一剩变量 = MKS 进程代次（guest 代码侧已无差异）。
 
 ## 5. 工具链（本轮新增，全部可复用）
 
