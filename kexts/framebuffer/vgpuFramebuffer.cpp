@@ -184,6 +184,7 @@ enum {
     kSvga3dCmdSurfaceDestroy       = 1041,
     kSvga3dCmdDestroyGbMob         = 1094,
     kSvga3dCmdDxBindContext        = 1145,
+    kSvga3dCmdDxSetShaderIface     = 1277,   // 0x4fd: {cid, ifaceMobid, prependOffset} -- vm3dmp sends it right after BIND_CONTEXT
     kSvga3dCmdDxSetCotable         = 1207,
     kSvga3dCmdDxDefineRenderTargetView = 1187,
     kSvga3dCmdDxSetRenderTargets   = 1161,
@@ -446,6 +447,7 @@ private:
     volatile UInt8           *_cbDataVirt = nullptr;
     UInt64                    _cbDataPA = 0;
     UInt64                    _cbId = 1;
+    IOBufferMemoryDescriptor *_cbPrependMem = nullptr; // 4 KiB PREPEND buffer (regs 53/54)
 
     bool cbInit(void);
     bool cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 cbContext, UInt32 dxContext);
@@ -1856,39 +1858,55 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
 
     // ---- DX chain via the CB (vm3dmp semantics: flags=3, header dxContext=0) ----
 
-    // DXCONTEXT OTable entry {cid, stateMob} -- MUST be written before DEFINE_CONTEXT
-    // (the host snapshots otable entries when it processes the define; vm3dmp does the
-    // same). Without it BIND has nothing to validate against (COMMAND_ERROR @0).
+    // DXCONTEXT OTable entry {cid, kCtxMobId} -- gbBringUp already wrote {1, 3};
+    // re-assert it here (the dedicated 512 KiB state MOB, NOT mob 1 which backs
+    // GB surface 1 -- binding a surface-backed mob is a plausible rejection cause).
     {
         volatile UInt8 *dxTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffDxCtxTable);
         volatile UInt8 *dxEntry = dxTable + (IOByteCount)cid * kGbDxCtxEntryBytes;
-        UInt32 stateMob = 1;            // 16 KiB data MOB (BISECT: only accepted mob)
+        UInt32 stateMob = kCtxMobId;
         memcpy((void *)(dxEntry + 0), &cid, 4);
         memcpy((void *)(dxEntry + 4), &stateMob, 4);
         __asm__ volatile ("" ::: "memory");
-        IOLog(VGPU_FB_TAG ": dx: DXCONTEXT otable entry {cid %u, mob 1} written\n", cid);
+        IOLog(VGPU_FB_TAG ": dx: DXCONTEXT otable entry {cid %u, mob %u} written\n",
+              cid, stateMob);
+    }
+
+    // vm3dmp packs DEFINE_CONTEXT and BIND_CONTEXT into ONE CB (0x20 bytes):
+    // {0x477,4,cid}{0x479,12,cid,stateMob,0}. A BIND error wedges the whole
+    // context-0 CB queue (observed 10-08: every later CB times out), so this is
+    // the ONE shot per boot -- exact vm3dmp bytes, dedicated state mob.
+    {
+        UInt32 packed[8] = {
+            kSvga3dCmdDxDefineContext, 4, cid,
+            kSvga3dCmdDxBindContext, 12, cid, kCtxMobId, 0,
+        };
+        bool ok = cbSubmit(packed, 8);
+        IOLog(VGPU_FB_TAG ": dx: PACKED DEFINE+BIND {cid %u, mob %u} -> %s\n",
+              cid, kCtxMobId, ok ? "ACCEPTED" : "refused");
+        if (!ok) {
+            IOLog(VGPU_FB_TAG ": dx: queue wedged; stopping DX test\n");
+            return;
+        }
     }
 
     // BISECT: DEFINE and BIND as SEPARATE single-command CBs (this MKS rejects
     // multi-command DX CBs with CB_HEADER_ERROR), state MOB = mobid 1 (the 16 KiB
     // data MOB -- the only mob BIND has ever accepted here).
-    words[0] = kSvga3dCmdDxDefineContext;
-    words[1] = 4;
-    words[2] = cid;
-    if (!cbSubmit(words, 3)) {
-        IOLog(VGPU_FB_TAG ": dx: CB DX_DEFINE refused\n");
-        return;
-    }
-    words[0] = kSvga3dCmdDxBindContext;
+    // SET_SHADER_IFACE (0x4fd) -- vm3dmp sends this IMMEDIATELY after DEFINE+BIND
+    // (create sequence: DEFINE+BIND packed CB, then SET_SHADER_IFACE CB, and only
+    // later cotable binds). Body = {cid, stateMobid, prependOffset=0x2000}: the
+    // shader interface block lives at offset 0x2000 inside the state MOB.
+    words[0] = kSvga3dCmdDxSetShaderIface;
     words[1] = 12;
     words[2] = cid;
-    words[3] = 1;                   // state MOB = mobid 1 (BISECT: only accepted mob)
-    words[4] = 0;
+    words[3] = 1;                   // state MOB (same field the BIND used)
+    words[4] = 0x2000;
     if (!cbSubmit(words, 5)) {
-        IOLog(VGPU_FB_TAG ": dx: CB DX_BIND refused\n");
-        return;
+        IOLog(VGPU_FB_TAG ": dx: DX_SET_SHADER_IFACE refused (continuing)\n");
+    } else {
+        IOLog(VGPU_FB_TAG ": dx: DX_SET_SHADER_IFACE accepted\n");
     }
-    IOLog(VGPU_FB_TAG ": dx: DX_DEFINE+BIND accepted (separate CBs)\n");
 
     // SET_COTABLE {cid, RTVIEW, mobid 5, validSize 0} (vm3dmp initial bind).
     words[0] = kSvga3dCmdDxSetCotable;
@@ -2079,6 +2097,32 @@ bool vgpuFramebuffer::cbInit(void) {
     svgaWriteRegister(port, 63, 0x90011);     // SVGA_REG_GUEST_DRIVER_VERSION2
     svgaWriteRegister(port, 64, 0xb0003);     // SVGA_REG_GUEST_DRIVER_VERSION3
     IOLog(VGPU_FB_TAG ": cb: GUEST_DRIVER_ID=WDDM + version triple written\n");
+
+    // Register a PREPEND buffer (SVGA_REG_CMD_PREPEND_LOW/HIGH = 53/54), exactly as
+    // vm3dmp does before/with every submission: PREPEND_HIGH = PA>>32,
+    // PREPEND_LOW = PA_low | cbContext (low 6 bits repurposed as context id).
+    // Host-side reverse (vmware-vmx symbols: SVGAWriteCommandPrependReg) + guest
+    // driver strings ("No room left to prepend the command buffer...") show this is
+    // the queue-front buffer used to resume a preempted/errored CB. vm3dmp keeps it
+    // registered at all times, so we mirror that.
+    _cbPrependMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+        kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous, 4096, 0x3F);
+    if (_cbPrependMem == nullptr) {
+        IOLog(VGPU_FB_TAG ": cb: prepend buffer alloc failed (continuing)\n");
+        return true;   // non-fatal: keep going without it
+    }
+    bzero((void *)_cbPrependMem->map()->getVirtualAddress(), 4096);
+    IOByteCount ppLen = 0;
+    IOVirtualAddress ppAddr = _cbPrependMem->getPhysicalSegment(0, &ppLen);
+    if (ppAddr == 0 || (ppAddr & 0x3F) != 0) {
+        IOLog(VGPU_FB_TAG ": cb: prepend buffer PA not 64-aligned (continuing)\n");
+        return true;
+    }
+    UInt64 ppPA = (UInt64)ppAddr;
+    svgaWriteRegister(port, 54, (UInt32)(ppPA >> 32));
+    svgaWriteRegister(port, 53, (UInt32)(ppPA & 0xFFFFFFFFu) | 0u);
+    IOLog(VGPU_FB_TAG ": cb: PREPEND registered @ %llx (ctx 0)\n",
+          (unsigned long long)ppPA);
     return true;
 }
 
@@ -2142,6 +2186,17 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
         return false;
     }
     UInt16 port = _svgaPortBase;
+    // vm3dmp re-writes the PREPEND registers on every command append into a CB
+    // (PA with cbContext OR'd into the low 6 bits). Mirror that.
+    if (_cbPrependMem != nullptr) {
+        IOByteCount ppLen = 0;
+        IOVirtualAddress ppAddr = _cbPrependMem->getPhysicalSegment(0, &ppLen);
+        if (ppAddr != 0) {
+            UInt64 ppPA = (UInt64)ppAddr;
+            svgaWriteRegister(port, 54, (UInt32)(ppPA >> 32));
+            svgaWriteRegister(port, 53, (UInt32)(ppPA & 0xFFFFFFFFu) | (cbContext & 0x3F));
+        }
+    }
     svgaWriteRegister(port, 49, (UInt32)(_cbHeaderPA >> 32));   // SVGA_REG_COMMAND_HIGH
     svgaWriteRegister(port, 48,
                       (UInt32)(_cbHeaderPA & 0xFFFFFFFFu) | (cbContext & 0x3F));
