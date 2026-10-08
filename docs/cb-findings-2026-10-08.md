@@ -123,3 +123,25 @@ MKS 代次接受过。**
   不能靠"没有失败日志"推断成功。已纠正。
 - 最高杠杆下一步 = mksSandbox DX 分派器静态分析（DXBindContext 校验条件），
   而非继续盲试字节序列。
+## 7. 00:05-00:30 补充：精确尺寸假设也被否
+
+- 从 svga3d_dx.h 精确计算 sizeof(SVGADXContextMobFormat) = **8964 B**（SHADERTYPE=7、
+  QUERY=64、COTABLE=12、UAV=64）→ 页对齐 12288 B / 3 页。
+- 全新 12288 B state MOB（mob 6, PT64_1, 3 页）+ otable {2,6} + BIND{2,6,0}
+  → **仍 COMMAND_ERROR@0**。
+- 过程坑：3 页缓冲的 getPhysicalSegment 循环误用 _cotableMem（4KB）导致 "page 1
+  not resolvable"，已修（_ctxStateMem）。IOBufferMemoryDescriptor mask 0xFFF 对
+  多页非连续分配的逐页 getPhysicalSegment 与 gbBringUp 512KB 用法相同，可用。
+
+**客体侧单变量已全部穷尽**：flags(1/3)、打包(分离/packed)、cid(1/2)、state mob
+(16KB/512KB/12288B)、otable 预写(开/关)、driver id(开/关)、PREPEND(开/关)、
+冷启动/热重启。BIND 一律 COMMAND_ERROR@0，DEFINE 一律通过。
+
+**P1 剩余唯一路径 = mksSandbox DX 分派器静态分析**。已建立的线索：
+- DX 命令名表（.data 0x36ef50 起 2120 项，index = cmdId - 1040）；
+- DXBindContext 名串 .rdata 0x2832f8；
+- 0x477 在 .text 只出现在 NOT_REACHED 断言 → 分派走基址差跳转表；
+- .rdata 四个大跳转表（93/105/80/80 项）已定位，均未确认归属。
+- 下一步具体动作：以 SVGA_CB_STATUS_COMMAND_ERROR(3)/CB_HEADER_ERROR(4) 的
+  写入点为锚，回溯到命令解析循环，再进 DX 分派分支；或在 Windows 客体上抓
+  vm3dmp 的完整 CB 序列做金标准对照。

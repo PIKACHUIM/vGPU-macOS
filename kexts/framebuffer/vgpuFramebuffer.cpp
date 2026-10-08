@@ -460,6 +460,8 @@ private:
     UInt64                    _cbDataPA = 0;
     UInt64                    _cbId = 1;
     IOBufferMemoryDescriptor *_cbPrependMem = nullptr; // 4 KiB PREPEND buffer (regs 53/54)
+    IOBufferMemoryDescriptor *_ctxStateMem = nullptr;  // exact-size DX state MOB (12288 B)
+    IOBufferMemoryDescriptor *_ctxStatePtMem = nullptr; // its PT page
 
     bool cbInit(void);
     bool cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 cbContext, UInt32 dxContext);
@@ -1896,16 +1898,69 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     }
     IOLog(VGPU_FB_TAG ": dx: DX_DEFINE accepted\n");
 
+    // Exact-size state MOB experiment: sizeof(SVGADXContextMobFormat) = 8964 B
+    // (computed from svga3d_dx.h with SHADERTYPE=7, QUERY=64, COTABLE=12, UAV=64)
+    // -> 3 pages = 12288 B. The host may validate the BIND mob size against the
+    // DX context format; 16 KiB and 512 KiB both failed. Fresh mob 6 (PT64_1).
+    const UInt32 stateMobId = 6;
+    const UInt32 ctxStateBytes = 12288;
+    _ctxStateMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+        kernel_task, kIODirectionInOut, ctxStateBytes, 0xFFFULL);
+    _ctxStatePtMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+        kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous, kGbPageBytes, 0xFFFULL);
+    if (_ctxStateMem == nullptr || _ctxStatePtMem == nullptr) {
+        IOLog(VGPU_FB_TAG ": dx: exact-size state MOB alloc failed\n");
+        return;
+    }
+    bzero((void *)_ctxStateMem->map()->getVirtualAddress(), ctxStateBytes);
+    volatile UInt64 *spt = (volatile UInt64 *)_ctxStatePtMem->map()->getVirtualAddress();
+    IOByteCount smLen = 0;
+    IOVirtualAddress smPt = _ctxStatePtMem->getPhysicalSegment(0, &smLen);
+    if (smPt == 0) {
+        IOLog(VGPU_FB_TAG ": dx: state MOB PT page not resolvable\n");
+        return;
+    }
+    for (UInt32 i = 0; i < ctxStateBytes / kGbPageBytes; i++) {
+        IOVirtualAddress addr = _ctxStateMem->getPhysicalSegment((IOByteCount)i * kGbPageBytes, &smLen);
+        if (addr == 0) {
+            IOLog(VGPU_FB_TAG ": dx: state MOB page %u not resolvable\n", i);
+            return;
+        }
+        spt[i] = (UInt64)addr >> kGbPageShift;
+    }
+    __asm__ volatile ("" ::: "memory");
+    const UInt64 smPtPpn = (UInt64)smPt >> kGbPageShift;
+    {
+        volatile UInt8 *dxTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffDxCtxTable);
+        volatile UInt8 *dxEntry = dxTable + (IOByteCount)cid * kGbDxCtxEntryBytes;
+        memcpy((void *)(dxEntry + 0), &cid, 4);
+        memcpy((void *)(dxEntry + 4), &stateMobId, 4);
+        __asm__ volatile ("" ::: "memory");
+        IOLog(VGPU_FB_TAG ": dx: otable entry {cid %u, mob %u} (exact-size 12288 B)\n",
+              cid, stateMobId);
+    }
+    words[0] = kSvga3dCmdDefineGbMob64;
+    words[1] = 20;
+    words[2] = stateMobId;
+    words[3] = kSvga3dMobFmtPt64_1;
+    memcpy(&words[4], &smPtPpn, 8);
+    words[6] = ctxStateBytes;
+    if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": dx: exact-size state MOB define refused\n");
+        return;
+    }
+    IOLog(VGPU_FB_TAG ": dx: exact-size state MOB %u defined (12288 B PT64_1)\n", stateMobId);
+
     words[0] = kSvga3dCmdDxBindContext;
     words[1] = 12;
     words[2] = cid;
-    words[3] = 1;                   // state MOB = mobid 1 (14:04 known-good)
+    words[3] = stateMobId;
     words[4] = 0;
     if (!cbSubmit(words, 5)) {
         IOLog(VGPU_FB_TAG ": dx: CB DX_BIND refused (queue wedged; stop)\n");
         return;
     }
-    IOLog(VGPU_FB_TAG ": dx: DX_BIND accepted (no PREPEND registered)\n");
+    IOLog(VGPU_FB_TAG ": dx: DX_BIND accepted (exact-size state MOB)\n");
 
     // BISECT: DEFINE and BIND as SEPARATE single-command CBs (this MKS rejects
     // multi-command DX CBs with CB_HEADER_ERROR), state MOB = mobid 1 (the 16 KiB
