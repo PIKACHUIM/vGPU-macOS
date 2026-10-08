@@ -258,17 +258,17 @@ enum {
 //   4 = init + fence + full-screen UPDATE probe
 //   5 = init + fence + legacy screen-object present path (DEFINE_SCREEN, DEFINE_GMRFB over
 //       the framebuffer, BLIT_GMRFB_TO_SCREEN) + the periodic present timer
-static const UInt32 kFbStage = 0;
+static const UInt32 kFbStage = 2;
 
 // kGbStage gates the GB object stack (see gbBringUp); 5 adds the STDU present path.
-static const UInt32 kGbStage = 0;
+static const UInt32 kGbStage = 4;
 
 // kDxTest runs the DX clear/readback round-trip experiment after the present path is up.
 // Measured 2026-10-06: with the test present, the host aborts FIFO processing at
 // DEFINE_GB_SCREENTARGET (deterministically, next/stop frozen mid-stream) even though the
 // identical byte stream passed in earlier boots and the test itself runs only afterwards.
 // Root cause unknown -- bisect with this switch next session.
-static const UInt32 kDxTest = 0;
+static const UInt32 kDxTest = 1;
 
 // STDU object teardown before the defines (see the bisect note in stduBringUp).
 static const UInt32 kStduTeardown = 0;
@@ -431,6 +431,9 @@ private:
     IOBufferMemoryDescriptor *_dxPtMem = nullptr;   // DX test surface PT page
     // Command buffer submission state.
     IOPCIDevice              *_pci = nullptr;          // for register access in cbSubmit
+    IOBufferMemoryDescriptor *_cotableMem = nullptr;   // DX COTABLE storage (64 KiB)
+    IOBufferMemoryDescriptor *_cotablePtMem = nullptr; // COTABLE PT page
+    static const UInt32      kCotableMobId = 5;
     IOBufferMemoryDescriptor *_cbHeaderMem = nullptr;  // 64 B, contiguous
     volatile UInt8           *_cbHeaderVirt = nullptr;
     UInt64                    _cbHeaderPA = 0;
@@ -1834,19 +1837,72 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         return;
     }
 
+    // Dedicated COTABLE mob: mobid 5, 64 KiB, PT64_1 (one PT page, 16 data pages).
+    {
+        _cotableMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+            kernel_task, kIODirectionInOut, kGbPageBytes * 16, 0xFFFULL);
+        _cotablePtMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+            kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous, kGbPageBytes, 0xFFFULL);
+        if (_cotableMem == nullptr || _cotablePtMem == nullptr) {
+            IOLog(VGPU_FB_TAG ": dx: cotable mob alloc failed\n");
+            return;
+        }
+        bzero((void *)_cotableMem->map()->getVirtualAddress(), kGbPageBytes * 16);
+        IOByteCount ctLen = 0;
+        IOVirtualAddress ctPtAddr = _cotablePtMem->getPhysicalSegment(0, &ctLen);
+        if (ctPtAddr == 0) {
+            IOLog(VGPU_FB_TAG ": dx: cotable PT not resolvable\n");
+            return;
+        }
+        volatile UInt64 *ctPt = (volatile UInt64 *)_cotablePtMem->map()->getVirtualAddress();
+        for (UInt32 i = 0; i < 16; i++) {
+            IOVirtualAddress addr = _cotableMem->getPhysicalSegment((IOByteCount)i * kGbPageBytes, &ctLen);
+            if (addr == 0) {
+                IOLog(VGPU_FB_TAG ": dx: cotable page %u not resolvable\n", i);
+                return;
+            }
+            ctPt[i] = (UInt64)addr >> kGbPageShift;
+        }
+        __asm__ volatile ("" ::: "memory");
+        const UInt64 ctPtPpn = (UInt64)ctPtAddr >> kGbPageShift;
+
+        // The COTABLE mob's OTable entry (MOB table, mobid 5) -- before the define.
+        volatile UInt8 *ctMobTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffMobTable);
+        UInt32 ctEntryOff = kCotableMobId * kGbMobEntryBytes;
+        UInt32 ctDepth = kSvga3dMobFmtPt64_1;
+        UInt32 ctSize = kGbPageBytes * 16;
+        memcpy((void *)(ctMobTable + ctEntryOff), &ctDepth, 4);
+        memcpy((void *)(ctMobTable + ctEntryOff + 4), &ctSize, 4);
+        memcpy((void *)(ctMobTable + ctEntryOff + 8), &ctPtPpn, 8);
+        __asm__ volatile ("" ::: "memory");
+
+        words[0] = kSvga3dCmdDefineGbMob64;
+        words[1] = 20;
+        words[2] = kCotableMobId;
+        words[3] = kSvga3dMobFmtPt64_1;
+        memcpy(&words[4], &ctPtPpn, 8);
+        words[6] = ctSize;
+        if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+            IOLog(VGPU_FB_TAG ": dx: cotable MOB define refused\n");
+            return;
+        }
+        IOLog(VGPU_FB_TAG ": dx: cotable MOB %u defined\n", kCotableMobId);
+    }
+
+    // DX_SET_COTABLE {cid, mobid 5, RTVIEW, validSize = 1 entry (vmwgfx min_initial)}.
     words[0] = kSvga3dCmdDxSetCotable;
     words[1] = 16;
     words[2] = cid;
-    words[3] = cotableMobId;
+    words[3] = kCotableMobId;
     words[4] = 0;                   // SVGA_COTABLE_RTVIEW
-    words[5] = 0;
+    words[5] = 32;
     if (!cbSubmit(words, 6)) {
         IOLog(VGPU_FB_TAG ": dx: DX_SET_COTABLE refused\n");
         return;
     }
+    IOLog(VGPU_FB_TAG ": dx: DX_SET_COTABLE accepted\n");
 
-    // DX_BIND_CONTEXT {cid, mobid, validContents=0} -- plain CB (context id travels in
-    // the command body; the DX_CONTEXT header flag is rejected by this host).
+    // DX_BIND_CONTEXT {cid, mobid 3 (512 KiB state), validContents=0} -- plain CB.
     words[0] = kSvga3dCmdDxBindContext;
     words[1] = 12;
     words[2] = cid;
@@ -1856,6 +1912,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         IOLog(VGPU_FB_TAG ": dx: CB DX_BIND_CONTEXT refused\n");
         return;
     }
+    IOLog(VGPU_FB_TAG ": dx: DX_BIND_CONTEXT accepted\n");
 
     // DX state setup: COTABLE bind, RTV define, cotable resize, render targets,
     // viewport + scissor (the SVGA clear may clip to them).
@@ -1876,7 +1933,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[0] = kSvga3dCmdDxSetCotable;
     words[1] = 16;
     words[2] = cid;
-    words[3] = cotableMobId;
+    words[3] = kCotableMobId;
     words[4] = 0;
     words[5] = 32;                  // one RTView entry
     if (!cbSubmitDx(words, 6)) {
@@ -2245,6 +2302,14 @@ void vgpuFramebuffer::stop(IOService *provider) {
     if (_dxPtMem != nullptr) {
         _dxPtMem->release();
         _dxPtMem = nullptr;
+    }
+    if (_cotableMem != nullptr) {
+        _cotableMem->release();
+        _cotableMem = nullptr;
+    }
+    if (_cotablePtMem != nullptr) {
+        _cotablePtMem->release();
+        _cotablePtMem = nullptr;
     }
     if (_aperture != nullptr) {
         _aperture->release();
