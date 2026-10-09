@@ -145,3 +145,36 @@ MKS 代次接受过。**
 - 下一步具体动作：以 SVGA_CB_STATUS_COMMAND_ERROR(3)/CB_HEADER_ERROR(4) 的
   写入点为锚，回溯到命令解析循环，再进 DX 分派分支；或在 Windows 客体上抓
   vm3dmp 的完整 CB 序列做金标准对照。
+## 8. 10-09 深夜：VMX DX 分派表与 BIND 处理链完整定位（突破）
+
+**vmware-vmx.exe 自带完整 DX 命令分派表**（.rdata，stride 24B）：
+`{u32 cmdId; u32 pad; u64 handlerVA(.text); u32 minDwords; u32 maxDwords}`
+- 表起点 ≈ VA 0x140BDCF00（首条目 0x477）
+- 0x477 DEFINE_CONTEXT → 0x14055B900
+- 0x479 BIND_CONTEXT   → 0x14055E5B0（min=1, max=0xE dwords）
+
+**BIND 处理链（全部已定位）**：
+```
+handler 0x14055E5B0:
+  read 4 dwords body (0x140508BB0)
+  hash(cid) 查全局哈希表 (0x140A0DF40)
+  ├─ 命中 → 0x1404D1740 真正绑定工人:
+  │    0x1404CFD60(cid): cid≤0xFFFF + otable(type5) 条目存在 + entry.cid==cid
+  │      + 0x1404CA530(...,0x2000) MOB 校验
+  │    [record+0x5B74]==-1 → 直接成功
+  │    全局字节门 [BSS 0x1410F3A6D]==0 → FAIL   ← 头号嫌疑
+  │    0x1404CA530(mobid, validContents, …, 0x4000) MOB 校验
+  └─ 未命中 → 0x1404CBC80(5,cid,1,&out) otable 兜底查找
+       entry.cid!=-1 && entry.mobid!=-1 → 0x100(成功) else 0x101
+```
+错误码：0x100=成功, 0x101=失败(COMMAND_ERROR), 0x102=分配失败。
+DEFINE(0x14055B900) 同构：hash 未命中 → otable 创建/置位 → 0x100。
+
+**头号嫌疑**：BSS 字节门 0x1410F3A6D（"DX context mob binding enabled" 类开关）——
+未找到直接写它的指令（可能被整块 memcpy 初始化）。次要：0x1404C7D30（对 guest otable
+内存的读取校验，参数含 PT 深度）。
+
+**意义**：DX 协议在 VMX 内有完整本机实现——不再是黑盒。下会话收尾动作：
+1. 反汇编 0x1404C7D30 与 0x1404CA530 内层，确定 MOB 校验的确切条件；
+2. 找 0x1410F3A6D 的初始化者（memcpy 模式扫描 / 启动路径回溯）；
+3. 若门是 driver-id/沙箱握手设置 → 补齐对应 guest 侧步骤即可让 BIND 通过。
