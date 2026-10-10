@@ -293,7 +293,7 @@ static const UInt32 kCbPrepend = 0;
 // 80ba752 (19:43) -- exactly the boundary where BIND_CONTEXT flipped from accepted
 // (14:04 boots: neither present, verified against the persisted guest log) to
 // refused (every boot since). 0 = skip both, restoring the proven 14:04 config.
-static const UInt32 kGuestDriverId = 0;
+static const UInt32 kGuestDriverId = 1;
 static const UInt32 kOtablePrewrite = 0;
 
 // STDU object teardown before the defines (see the bisect note in stduBringUp).
@@ -692,6 +692,20 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
         svgaWriteRegister(_svgaPortBase, 39, _deviceWidth);       // SVGA_REG_DISPLAY_WIDTH
         svgaWriteRegister(_svgaPortBase, 40, _deviceHeight);      // SVGA_REG_DISPLAY_HEIGHT
         svgaWriteRegister(_svgaPortBase, 35, 0xFFFFFFFF);         // SVGA_ID_INVALID: deselect
+
+        // Guest driver identity BEFORE CONFIG_DONE: real drivers (vm3dmp) announce the
+        // WDDM driver class during init, before any command. If the MKS snapshots the
+        // announced-driver state when CONFIG_DONE flips (or when the first command
+        // arrives), a late write (inside the delayed test) is too late -- which is
+        // exactly what the 10-10 23:39 boot showed (driver-id written at test time:
+        // commands accepted, nothing rendered). Gated by kGuestDriverId.
+        if (kGuestDriverId) {
+            svgaWriteRegister(_svgaPortBase, 61, 1);           // SVGA_REG_GUEST_DRIVER_ID = WDDM
+            svgaWriteRegister(_svgaPortBase, 62, 0x1801560);   // SVGA_REG_GUEST_DRIVER_VERSION1
+            svgaWriteRegister(_svgaPortBase, 63, 0x90011);     // SVGA_REG_GUEST_DRIVER_VERSION2
+            svgaWriteRegister(_svgaPortBase, 64, 0xb0003);     // SVGA_REG_GUEST_DRIVER_VERSION3
+            IOLog(VGPU_FB_TAG ": fifo: GUEST_DRIVER_ID=WDDM + versions announced BEFORE CONFIG_DONE\n");
+        }
 
         svgaWriteRegister(_svgaPortBase, kSvgaRegConfigDone, 1);
 
@@ -2383,9 +2397,10 @@ bool vgpuFramebuffer::cbInit(void) {
           (unsigned long long)_cbHeaderPA, (unsigned long long)_cbDataPA);
 
     // Guest driver identity (vm3dmp writes exactly this at init): announce the WDDM
-    // driver class + version triple. BISECT 10-08: this write correlates 1:1 with
-    // BIND_CONTEXT rejection (14:04 boots without it had BIND accepted; every boot
-    // with it has BIND refused). Gated behind kGuestDriverId.
+    // driver class + version triple. PRIME HYPOTHESIS 10-10: the MKS enables its 3D
+    // render pipeline only after the guest announces a driver via GUEST_DRIVER_ID --
+    // the 10-10 gbc test (driver-id OFF) showed every GB command accepted but nothing
+    // rendered. Single variable for this boot.
     UInt16 port = _svgaPortBase;
     if (kGuestDriverId) {
         svgaWriteRegister(port, 61, 1);           // SVGA_REG_GUEST_DRIVER_ID = WDDM

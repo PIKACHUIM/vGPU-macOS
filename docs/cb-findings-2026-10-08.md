@@ -217,3 +217,43 @@ READBACK_GB_IMAGE(1103){sid3}          -> accepted
 2. UPDATE_GB_IMAGE(1101) guest→host 方向同步测试，隔离 DEFINE 快照行为。
 3. 若 CLEAR 确未实现：查 MKS 二进制老管线分派表（.data 命令号 1057 处理项），
    或试 SETSCISSORRECT/ZRANGE 等更多状态命令。
+## 9. 10-10 晚：GB context 渲染路径全链路实测——accepted but inert 的终审
+
+kext 新增 **gbContextTest**（老 SVGA3D 渲染路径，vmwgfx/QEMU vmsvga3d 同款，绕开 DX）+
+**延迟测试框架**（thread_call 延迟 kDxTestDelayS=90s 执行 + presentTick _dxBusy 互斥，
+保证 SSH/logd 就绪后测试结果必定落盘，MKS 楔死也不丢数据）。
+
+**23:39 boot（driver-id 关）与 23:49 boot（driver-id 早写 + 晚写）结果逐字节一致**：
+```
+DEFINE_GB_CONTEXT accepted
+BIND_GB_CONTEXT accepted (mob 7, 65536 B)
+SETRENDERTARGET accepted (sid 3)
+SETVIEWPORT accepted
+CLEAR accepted
+readback p0/pMid/pLast = ffff00ff（= 预填品红，非 CLEAR 目标色）
+state mob all zero（宿主从不写 context 状态机）
+=> CLEAR did not render (buffer unchanged)
+```
+
+**结论（终审）**：
+1. MKS 对 darwin 客体**接受一切** SVGA3D/GB 命令（fence 全 ack），但**从不调用 3D
+   渲染引擎**——既不执行 context 状态机，也不画一个像素。与 DX 路径（DEFINE 过、
+   引用 MOB 的全拒）在更高层汇合为同一件事：这个客体的 3D 被宿主整体关闭。
+2. 客体侧可变量**全部穷尽且全部无效**：driver-id（早/晚）、PREPEND、MOB 尺寸、
+   context id、打包方式、flags、冷/热启动。渲染门不在客体可达的任何寄存器/命令里。
+3. 剩余唯一可动变量 = **宿主 VM 配置层**（guestOS=darwin19 → MKS 初始化时的渲染
+   使能决策）。这解释了全部现象：VMware 从未发布过 macOS 客体的 3D 驱动，MKS 对
+   darwin 客体禁用 3D 是产品决策，大概率是配置期的静态分支。
+
+**下一步（唯一有杠杆的路线）**：
+- 静态分析 mksSandbox/vmware-vmx 中渲染使能决策：以 VMX DX 分派表（已定位）与
+  BSS 门 0x1410F3A6D 为锚，回溯其初始化者——它大概率由 VM 配置（guestOS/能力
+  协商）设置。找到条件 = 找到开关。
+- 或 vmx 实验线：guestOS 变体（unlocker 已补丁的平台位）+ SVGA 能力钳位对比。
+
+**工程资产（本轮新增，全部已入库）**：
+- gbContextTest：老 SVGA3D 全链路测试（GB context + RT + CLEAR + READBACK 品红校验），
+  命令体布局来自 Linux svga3d_cmd.h，可作为未来任何渲染通道的自检门。
+- 延迟测试框架：kDxTestDelayS + dxTestC + _dxBusy 互斥——任何会楔死 MKS 的实验都
+  应该用这个模式跑。
+- 部署工具链：mssh 内置重试、断言式部署脚本（grep 断言开关状态后再 build）。
