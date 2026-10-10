@@ -178,3 +178,42 @@ DEFINE(0x14055B900) 同构：hash 未命中 → otable 创建/置位 → 0x100�
 1. 反汇编 0x1404C7D30 与 0x1404CA530 内层，确定 MOB 校验的确切条件；
 2. 找 0x1410F3A6D 的初始化者（memcpy 模式扫描 / 启动路径回溯）；
 3. 若门是 driver-id/沙箱握手设置 → 补齐对应 guest 侧步骤即可让 BIND 通过。
+## 9. 10-10 下午：宿主子系统恢复 + GB context 渲染链全通（渲染里程碑）
+
+**宿主恢复**：VM 无法启动的真凶 = 残留 `.vmx.lck` 目录（每次失败启动都会刷新它），
+删除后 vmrun 正常启动。"Module CPUID initialization failed" 是锁冲突的伴随症状，
+不是 Hyper-V 问题（本机一直跑 WHP 模式，属正常）。
+
+**kext 修复**：
+- panic 解码：读 `/Library/Logs/DiagnosticReports/Kernel-*.panic`，故障 PC = kext+0x6707
+  `mov eax,[rax]`，rax = this+0x2a8 = `_dxVirt`——PT 修复重构时丢失了 `_dxVirt` 赋值，
+  读回验证解引用 NULL → 崩溃循环（uptime 123s = bring-up+90s 延迟测试触发时刻）。
+  **已修**（`_dxVirt = _dxMem->map()->getVirtualAddress()`）。
+- 延迟 DX 测试设施：thread_call 延迟 kDxTestDelayS=90s（dxTestC 双参），presentTick
+  以 _dxBusy 互斥——冻结/panic 后日志仍可从持久库读出，恢复流程安全化。
+
+**⭐ 渲染里程碑：GB context 渲染链全链路被宿主接受**（第一个在 darwin guest 上被
+接受的渲染路径命令组，vmwgfx/QEMU 同款老管线）：
+```
+DEFINE_GB_CONTEXT(1107){cid=1}        -> accepted
+BIND_GB_CONTEXT(1109){1, mob7, valid} -> accepted (64KB state MOB)
+DEFINE_GB_MOB64{mob7, PT64_1}
+SETRENDERTARGET(1050){1, COLOR0, sid3} -> accepted
+SETVIEWPORT(1055){1, 0,0,256,256}      -> accepted
+CLEAR(1057){1, COLOR, white}           -> accepted
+READBACK_GB_IMAGE(1103){sid3}          -> accepted
+```
+
+**读回判别实验**（预填充品红 → CLEAR 白 → READBACK）：
+- 结果：缓冲区**原封不动（品红）** → CLEAR 没有实际渲染（或 READBACK 是 no-op）。
+- 状态 MOB 探针：宿主不向 guest 状态 MOB 回写状态（全零，状态在宿主内部）。
+- 未决二选一：①MKS 老管线 CLEAR 未实现渲染（仅分派接受）；②READBACK_GB_IMAGE
+  为接受但不落盘（类似 legacy UPDATE 的表现）。
+
+**下一步（优先级序）**：
+1. **显示侧验证**：把被 CLEAR 的 surface 接到 STDU screen target（b89c619 已证明
+   STDU 显示路径可用），VNC 截屏看 CLEAR 颜色是否上屏——上屏 = 宿主渲染实证，
+   READBACK 是否 no-op 就无关紧要（渲染→显示已是可用管线）。
+2. UPDATE_GB_IMAGE(1101) guest→host 方向同步测试，隔离 DEFINE 快照行为。
+3. 若 CLEAR 确未实现：查 MKS 二进制老管线分派表（.data 命令号 1057 处理项），
+   或试 SETSCISSORRECT/ZRANGE 等更多状态命令。

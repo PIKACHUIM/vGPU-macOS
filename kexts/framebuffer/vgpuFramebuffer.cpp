@@ -176,6 +176,12 @@ enum {
     kSvga3dCmdSetOtableBase64 = 1115,
     kSvga3dCmdDefineGbMob64   = 1135,
     kSvga3dCmdDefineGbSurface = 1097,
+    kSvga3dCmdDefineGbContext    = 1107,
+    kSvga3dCmdBindGbContext      = 1109,
+    kSvga3dCmdReadbackGbImage    = 1103,
+    kSvga3dCmdSetRenderTarget    = 1050,
+    kSvga3dCmdSetViewport        = 1055,
+    kSvga3dCmdClearRt            = 1057,
     kSvga3dCmdDxDefineContext = 1143,
     kSvga3dCmdDefineGbScreenTarget = 1124,
     kSvga3dCmdDestroyGbScreenTarget = 1125,
@@ -273,6 +279,10 @@ static const UInt32 kDxTest = 0;
 
 // Dump every CB header+payload to the log (bisect instrumentation).
 static const UInt32 kCbDump = 0;
+
+// Delay before the DX test runs (seconds after kext bring-up). Gives SSH/logd time
+// to be fully live so results survive an MKS wedge.
+static const UInt32 kDxTestDelayS = 90;
 
 // Register the PREPEND buffer (regs 53/54). 10-08 evening correlation: with PREPEND
 // registered BIND_CONTEXT was refused; the 14:04 boot without it had BIND accepted.
@@ -427,6 +437,12 @@ private:
     void schedulePresent(void);
     thread_call_t _presentCall = nullptr;
     UInt32 _presentTicks = 0;
+    // Delayed DX test: runs on its own thread_call N seconds after bring-up so the
+    // guest is fully booted (SSH + logd flushing) before anything can wedge the MKS.
+    static void dxTestC(thread_call_param_t param0, thread_call_param_t param1);
+    volatile UInt32 _dxBusy = 0;          // presentTick skips while the DX test owns the FIFO
+    thread_call_t _dxCall = nullptr;
+    volatile UInt32 *_dxFifo = nullptr;
     volatile UInt32 *_presentFifo = nullptr;
     IOMemoryMap *_fifoMap = nullptr;
 
@@ -447,7 +463,8 @@ private:
     UInt32                   _ctxMobId = 3;
     IOBufferMemoryDescriptor *_dxMem = nullptr;     // DX test surface memory
     void                    *_dxVirt = nullptr;
-    IOBufferMemoryDescriptor *_dxPtMem = nullptr;   // DX test surface PT page
+    IOBufferMemoryDescriptor *_dxPtMem = nullptr;   // context MOB 3 PT page (gbBringUp, must stay alive)
+    IOBufferMemoryDescriptor *_surfPtMem = nullptr; // DX test surface PT page (dedicated)
     // Command buffer submission state.
     IOPCIDevice              *_pci = nullptr;          // for register access in cbSubmit
     IOBufferMemoryDescriptor *_cotableMem = nullptr;   // DX COTABLE storage (4 KiB)
@@ -743,7 +760,20 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
     gbBringUp(fifo);
 
     if (kDxTest) {
-        dxReadbackTest(fifo);
+        // Run the DX test from a delayed thread_call (kDxTestDelayS after bring-up):
+        // by then the guest is fully up (SSH reachable, logd persisting) so the test
+        // results survive even if the MKS wedges. presentTick skips while we run.
+        _dxFifo = fifo;
+        _dxCall = thread_call_allocate(&vgpuFramebuffer::dxTestC, (thread_call_param_t)this);
+        if (_dxCall != nullptr) {
+            UInt64 now = 0, delta = 0;
+            clock_get_uptime(&now);
+            nanoseconds_to_absolutetime((UInt64)kDxTestDelayS * 1000000000ULL, &delta);
+            thread_call_enter_delayed(_dxCall, now + delta);
+            IOLog(VGPU_FB_TAG ": dx: test scheduled in %u s\n", kDxTestDelayS);
+        } else {
+            IOLog(VGPU_FB_TAG ": dx: could not allocate dx thread_call\n");
+        }
     }
 
     // The present path: STDU (GB screen targets) when the GB stack is up, else the legacy
@@ -883,7 +913,25 @@ void vgpuFramebuffer::schedulePresent(void) {
     thread_call_enter_delayed(_presentCall, now + delta);
 }
 
+// Delayed DX test entry: runs kDxTestDelayS seconds after bring-up.
+void vgpuFramebuffer::dxTestC(thread_call_param_t param0, thread_call_param_t param1) {
+    (void)param1;
+    vgpuFramebuffer *self = (vgpuFramebuffer *)param0;
+    if (self == nullptr) {
+        return;
+    }
+    self->_dxBusy = 1;
+    __asm__ volatile ("" ::: "memory");
+    IOLog(VGPU_FB_TAG ": dx: delayed test starting (fifo=%p)\n", (void *)self->_dxFifo);
+    self->dxReadbackTest(self->_dxFifo);
+    __asm__ volatile ("" ::: "memory");
+    self->_dxBusy = 0;
+}
+
 void vgpuFramebuffer::presentTick(void) {
+    if (_dxBusy) {
+        return;                     // DX test owns the FIFO right now
+    }
     if (_presentFifo == nullptr || !_deviceModeValid) {
         return;
     }
@@ -1752,16 +1800,26 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     // Surface backing store: 64 pages + PT page (PT64_1).
     _dxMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
         kernel_task, kIODirectionInOut, dxBytes, 0xFFFULL);
-    _dxPtMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+    _surfPtMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
         kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous, kGbPageBytes, 0xFFFULL);
-    if (_dxMem == nullptr || _dxPtMem == nullptr) {
+    if (_dxMem == nullptr || _surfPtMem == nullptr) {
         IOLog(VGPU_FB_TAG ": dx: surface memory alloc failed\n");
         return;
     }
     bzero((void *)_dxMem->map()->getVirtualAddress(), dxBytes);
-    volatile UInt64 *pt = (volatile UInt64 *)_dxPtMem->map()->getVirtualAddress();
+    _dxVirt = (void *)_dxMem->map()->getVirtualAddress();
+    {
+        // Discriminator fill: the GB-context CLEAR uses WHITE; if readback returns
+        // magenta, CLEAR did not render (or readback is a no-op); if white, the
+        // legacy-pipeline render path works end to end.
+        volatile UInt32 *fill = (volatile UInt32 *)_dxVirt;
+        for (UInt32 i = 0; i < dxW * dxH; i++) {
+            fill[i] = 0xFFFF00FF;
+        }
+    }
+    volatile UInt64 *pt = (volatile UInt64 *)_surfPtMem->map()->getVirtualAddress();
     IOByteCount segLen = 0;
-    IOVirtualAddress ptAddr = _dxPtMem->getPhysicalSegment(0, &segLen);
+    IOVirtualAddress ptAddr = _surfPtMem->getPhysicalSegment(0, &segLen);
     if (ptAddr == 0) {
         IOLog(VGPU_FB_TAG ": dx: surface PT page not resolvable\n");
         return;
@@ -1868,6 +1926,170 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     if (!fifoSubmitWords(fifo, words, 12) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": dx: legacy DEFINE_GB_SURFACE refused\n");
         return;
+    }
+
+    // =====================================================================
+    // GB CONTEXT RENDER PATH (vmwgfx/QEMU-style: no DX commands at all).
+    // All via legacy FIFO, the path our GB objects are proven on.
+    //   DEFINE_GB_CONTEXT(1107){cid}, BIND_GB_CONTEXT(1109){cid,mob,valid},
+    //   SETRENDERTARGET(1050){cid,type,::sid,face,mip}, CLEAR(1057){cid,flag,
+    //   color,depth,stencil}, READBACK_GB_IMAGE(1103){sid,face,mip}.
+    // =====================================================================
+    {
+        const UInt32 gcid = 1;
+        const UInt32 gctxMob = 7;
+        const UInt32 gctxBytes = 65536;
+
+        _ctxStateMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+            kernel_task, kIODirectionInOut, gctxBytes, 0xFFFULL);
+        _ctxStatePtMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+            kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous, kGbPageBytes, 0xFFFULL);
+        if (_ctxStateMem == nullptr || _ctxStatePtMem == nullptr) {
+            IOLog(VGPU_FB_TAG ": gbc: context MOB alloc failed\n");
+            return;
+        }
+        bzero((void *)_ctxStateMem->map()->getVirtualAddress(), gctxBytes);
+        volatile UInt64 *gpt = (volatile UInt64 *)_ctxStatePtMem->map()->getVirtualAddress();
+        IOByteCount gLen = 0;
+        IOVirtualAddress gPt = _ctxStatePtMem->getPhysicalSegment(0, &gLen);
+        if (gPt == 0) {
+            IOLog(VGPU_FB_TAG ": gbc: context PT page not resolvable\n");
+            return;
+        }
+        for (UInt32 i = 0; i < gctxBytes / kGbPageBytes; i++) {
+            IOVirtualAddress addr = _ctxStateMem->getPhysicalSegment((IOByteCount)i * kGbPageBytes, &gLen);
+            if (addr == 0) {
+                IOLog(VGPU_FB_TAG ": gbc: context MOB page %u not resolvable\n", i);
+                return;
+            }
+            gpt[i] = (UInt64)addr >> kGbPageShift;
+        }
+        __asm__ volatile ("" ::: "memory");
+        const UInt64 gPtPpn = (UInt64)gPt >> kGbPageShift;
+
+        // DEFINE_GB_CONTEXT {cid}
+        words[0] = kSvga3dCmdDefineGbContext;
+        words[1] = 4;
+        words[2] = gcid;
+        if (!fifoSubmitWords(fifo, words, 3) || !fenceAck(fifo, &_fenceSeq)) {
+            IOLog(VGPU_FB_TAG ": gbc: DEFINE_GB_CONTEXT refused\n");
+            return;
+        }
+        IOLog(VGPU_FB_TAG ": gbc: DEFINE_GB_CONTEXT accepted\n");
+
+        // DEFINE_GB_MOB64 for the context state mob (before bind reads it).
+        words[0] = kSvga3dCmdDefineGbMob64;
+        words[1] = 20;
+        words[2] = gctxMob;
+        words[3] = kSvga3dMobFmtPt64_1;
+        memcpy(&words[4], &gPtPpn, 8);
+        words[6] = gctxBytes;
+        if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+            IOLog(VGPU_FB_TAG ": gbc: context MOB define refused\n");
+            return;
+        }
+
+        // BIND_GB_CONTEXT {cid, mobid, validContents}
+        words[0] = kSvga3dCmdBindGbContext;
+        words[1] = 12;
+        words[2] = gcid;
+        words[3] = gctxMob;
+        words[4] = 0;
+        if (!fifoSubmitWords(fifo, words, 5) || !fenceAck(fifo, &_fenceSeq)) {
+            IOLog(VGPU_FB_TAG ": gbc: BIND_GB_CONTEXT refused\n");
+            return;
+        }
+        IOLog(VGPU_FB_TAG ": gbc: BIND_GB_CONTEXT accepted (mob %u, %u B)\n", gctxMob, gctxBytes);
+
+        // SETRENDERTARGET {cid, type=COLOR0(2), sid 3, face 0, mip 0}
+        words[0] = kSvga3dCmdSetRenderTarget;
+        words[1] = 20;
+        words[2] = gcid;
+        words[3] = 2;                   // SVGA3D_RT_COLOR0
+        words[4] = surfId;
+        words[5] = 0;
+        words[6] = 0;
+        if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+            IOLog(VGPU_FB_TAG ": gbc: SETRENDERTARGET refused\n");
+            return;
+        }
+        IOLog(VGPU_FB_TAG ": gbc: SETRENDERTARGET accepted (sid %u)\n", surfId);
+
+        // SETVIEWPORT {cid, rect} -- the context state MOB is all-zero, so the
+        // viewport would be 0x0 and CLEAR would clip to nothing (readback all-zero).
+        // Zero-initialised minZ/maxZ handled by the host for the legacy pipeline;
+        // rect covers the whole 256x256 target.
+        words[0] = kSvga3dCmdSetViewport;
+        words[1] = 20;
+        words[2] = gcid;
+        words[3] = 0;                   // rect.x
+        words[4] = 0;                   // rect.y
+        words[5] = dxW;                 // rect.w
+        words[6] = dxH;                 // rect.h
+        if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+            IOLog(VGPU_FB_TAG ": gbc: SETVIEWPORT refused\n");
+            return;
+        }
+        IOLog(VGPU_FB_TAG ": gbc: SETVIEWPORT accepted\n");
+
+        // CLEAR {cid, flag=COLOR, color, depth 1.0, stencil 0} -- WHITE against the
+        // magenta prefill discriminates CLEAR-vs-readback responsibility.
+        const UInt32 gbcClear = 0xFFFFFFFF;
+        words[0] = kSvga3dCmdClearRt;
+        words[1] = 20;
+        words[2] = gcid;
+        words[3] = 1;                   // SVGA3D_CLEAR_COLOR
+        words[4] = gbcClear;            // white
+        words[5] = 0x3F800000;          // 1.0f
+        words[6] = 0;
+        if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+            IOLog(VGPU_FB_TAG ": gbc: CLEAR refused\n");
+            return;
+        }
+        IOLog(VGPU_FB_TAG ": gbc: CLEAR accepted\n");
+
+        // READBACK_GB_IMAGE {sid 3, face 0, mip 0}
+        words[0] = kSvga3dCmdReadbackGbImage;
+        words[1] = 12;
+        words[2] = surfId;
+        words[3] = 0;
+        words[4] = 0;
+        if (!fifoSubmitWords(fifo, words, 5) || !fenceAck(fifo, &_fenceSeq)) {
+            IOLog(VGPU_FB_TAG ": gbc: READBACK_GB_IMAGE refused\n");
+            return;
+        }
+        __asm__ volatile ("" ::: "memory");
+        volatile UInt32 *px = (volatile UInt32 *)_dxVirt;
+        UInt32 p0 = px[0];
+        UInt32 pMid = px[(dxH / 2) * dxW + (dxW / 2)];
+        UInt32 pLast = px[(dxH - 1) * dxW + (dxW - 1)];
+        IOLog(VGPU_FB_TAG ": gbc: readback p0=%08x pMid=%08x pLast=%08x "
+              "(white=%08x magenta=%08x)\n",
+              p0, pMid, pLast, gbcClear, 0xFFFF00FFu);
+        // Probe: did the host write pipeline state (viewport etc.) into the bound
+        // context MOB? Nonzero dwords = host mirrors state into guest memory.
+        {
+            volatile UInt32 *st = (volatile UInt32 *)_ctxStateMem->map()->getVirtualAddress();
+            UInt32 nz = 0;
+            for (UInt32 i = 0; i < gctxBytes / 4 && nz < 8; i++) {
+                if (st[i] != 0) {
+                    IOLog(VGPU_FB_TAG ": gbc: state mob dword[%u] @+%#x = %08x\n",
+                          i, i * 4, st[i]);
+                    nz++;
+                }
+            }
+            if (nz == 0) {
+                IOLog(VGPU_FB_TAG ": gbc: state mob all zero (host keeps state internal)\n");
+            }
+        }
+        if (p0 == gbcClear && pMid == gbcClear && pLast == gbcClear) {
+            IOLog(VGPU_FB_TAG ": gbc: *** GB CONTEXT RENDER ROUND TRIP VERIFIED ***\n");
+        } else if (p0 == 0xFFFF00FF) {
+            IOLog(VGPU_FB_TAG ": gbc: CLEAR did not render (buffer unchanged)\n");
+        } else {
+            IOLog(VGPU_FB_TAG ": gbc: readback mismatch\n");
+        }
+        return;   // GB path is this boot's answer; skip the DX chain
     }
 
     // ---- DX chain via the CB (vm3dmp semantics: flags=3, header dxContext=0) ----
