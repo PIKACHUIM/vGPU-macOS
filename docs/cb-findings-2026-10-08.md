@@ -257,3 +257,54 @@ state mob all zero（宿主从不写 context 状态机）
 - 延迟测试框架：kDxTestDelayS + dxTestC + _dxBusy 互斥——任何会楔死 MKS 的实验都
   应该用这个模式跑。
 - 部署工具链：mssh 内置重试、断言式部署脚本（grep 断言开关状态后再 build）。
+## 10. 10-11/12 深夜：分派表重析 + BIND handler 全解码 + CB flags 真凶 + gate 补丁实验
+
+**宿主日志证实 3D 设备层是开的**（vmware.log）：
+`MKSRenderMain: PowerOn allowed BasicOps ISB DX12 DX11 DX11Basic VK`、
+`svga.supports3D bool 1`、`SVGA3dCaps: host, at power on (3d enabled)`。
+渲染门不在设备能力层。
+
+**gbc 经 CB 被拒**：DEFINE_GB_CONTEXT via plain CB → CB 拒（legacy FIFO 则接受但惰性）。
+vGPU10/DX 设备上 legacy "GB context" 概念已废弃——渲染唯一通道 = DX 命令经 CB。
+
+**分派表重新解析（此前错位）**：stride 24，布局 {u32 id; u32 pad; u32 pad2;
+u64 handler @+12; u32 min/max}：
+- 0x477 DEFINE_CONTEXT → 0x14055b900（读 1 dword body）
+- 0x478 DESTROY_CONTEXT → 0x1405591b0
+- 0x479 BIND_CONTEXT → 0x14055e5b0
+- 0x47a READBACK_CONTEXT → 0x14055cb50
+
+**BIND handler 全解码（0x14055e5b0）**：
+```
+读 body {cid, mobid, valid}——但只使用 cid（mobid/valid 被无视！）
+hash(cid) 查记录：
+├─ 存在 → worker 0x1404d1740:
+│    ctx-validate([record+0])（otable type5 条目 + entry.cid==cid
+│      + mob-validate(entry.mobid, 0, buf, 0x2000)）
+│    [record+0x5b74]==-1 → 直接成功（无 gate、无 mob 校验！）
+│    gate byte [0x1410F3A6D]==0 → 拒
+│    mob-validate(record.mob, record.5b78, buf2, 0x4000)
+└─ 不存在 → OTABLE FALLBACK：0x1404cbc80(5,cid,1,&out) 读条目，
+     entry[0]!=-1 && entry[1]!=-1 → 0x100 成功！
+```
+**要点**：BIND 命令的 mobid 被宿主无视；record 的 mob 绑定来自其他路径；
+无 hash 记录时 BIND 只查 otable 条目（客体内存，我们预写）。
+
+**gate 补丁实验**：vmware-vmx.exe .data 0x10f246d 0→1（备份 .bak-gatepatch，
+UAC 提权补丁）。BIND 仍拒 → gate 不充分（或未到达该阶段）。
+
+**⭐ CB flags 真凶**：cbSubmitDx 一直发 flags=3（NO_IRQ|DX_CONTEXT），
+vm3dmp 是 **flags=2（仅 DX_CONTEXT）**——所有历史 CB_HEADER_ERROR 的来源。
+已修（`(dxContext != 0) ? 2 : 1`）。STEP1 BIND-no-define（flags=3 末版）→
+CB_HEADER_ERROR 实证。flags=2 版已部署但 guest crash-loop 未取到结果。
+
+**稳定性问题**：安装后 guest 间歇 crash-loop（2min20s 周期重启、auxKC 重建期），
+且 vmrun hard stop 后 vmware-authd 反复楔死（非管理员无法修，需 GUI 开机或管理员
+Restart-Service VMAuthdService）。
+
+**下一步（按优先级）**：
+1. 开机读 flags=2 boot 的三步序列结果（STEP1 fallback BIND 是关键判据）；
+2. 若 STEP1 成功：DEFINE → BIND(worker) → SET_COTABLE → RTV → CLEAR → READBACK
+   全链（_dxBusy 延迟框架已就位）；
+3. 若 STEP1 仍拒：读 CB status 细分（COMMAND_ERROR vs HEADER_ERROR vs timeout），
+   查 0x1404cbc80 对 otable 条目的解析（条目尺寸是否真是 8B）。

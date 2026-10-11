@@ -265,20 +265,20 @@ enum {
 //   4 = init + fence + full-screen UPDATE probe
 //   5 = init + fence + legacy screen-object present path (DEFINE_SCREEN, DEFINE_GMRFB over
 //       the framebuffer, BLIT_GMRFB_TO_SCREEN) + the periodic present timer
-static const UInt32 kFbStage = 0;
+static const UInt32 kFbStage = 2;
 
 // kGbStage gates the GB object stack (see gbBringUp); 5 adds the STDU present path.
-static const UInt32 kGbStage = 0;
+static const UInt32 kGbStage = 4;
 
 // kDxTest runs the DX clear/readback round-trip experiment after the present path is up.
 // Measured 2026-10-06: with the test present, the host aborts FIFO processing at
 // DEFINE_GB_SCREENTARGET (deterministically, next/stop frozen mid-stream) even though the
 // identical byte stream passed in earlier boots and the test itself runs only afterwards.
 // Root cause unknown -- bisect with this switch next session.
-static const UInt32 kDxTest = 0;
+static const UInt32 kDxTest = 1;
 
 // Dump every CB header+payload to the log (bisect instrumentation).
-static const UInt32 kCbDump = 0;
+static const UInt32 kCbDump = 1;
 
 // Delay before the DX test runs (seconds after kext bring-up). Gives SSH/logd time
 // to be fully live so results survive an MKS wedge.
@@ -294,6 +294,10 @@ static const UInt32 kCbPrepend = 0;
 // (14:04 boots: neither present, verified against the persisted guest log) to
 // refused (every boot since). 0 = skip both, restoring the proven 14:04 config.
 static const UInt32 kGuestDriverId = 1;
+
+// GB-context render commands transport: 1 = plain CB (vmwgfx-style on GBOBJECTS
+// devices), 0 = legacy FIFO (accepted-but-inert, see 10-10 findings).
+static const UInt32 kGbcViaCb = 1;
 static const UInt32 kOtablePrewrite = 0;
 
 // STDU object teardown before the defines (see the bisect note in stduBringUp).
@@ -1798,7 +1802,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         }
         IOLog(VGPU_FB_TAG ": cb: CB mechanism started (device context)\n");
     }
-    const UInt32 cid = 2;           // 10-08 late: fresh cid to test "context 1 poisoned" hypothesis
+    const UInt32 cid = 1;           // matches the prewritten DXCONTEXT otable slot {1,3}
     const UInt32 rtvId = 0;
     const UInt32 invalidId = 0xFFFFFFFF;
     const UInt32 surfId = 3;
@@ -1941,15 +1945,62 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         IOLog(VGPU_FB_TAG ": dx: legacy DEFINE_GB_SURFACE refused\n");
         return;
     }
+    IOLog(VGPU_FB_TAG ": dx: legacy DEFINE_GB_SURFACE accepted (sid %u on mob %u)\n",
+          surfId, mobId);
+
+    // ---- DX CONTEXT: reversed handler 0x14055e5b0 (10-12): BIND {cid,mob,valid}
+    // only uses cid; hash-record absent -> OTABLE FALLBACK: entry {cid,mob} both
+    // != -1 (OUR prewritten slot!) -> 0x100 SUCCESS. With a record (after DEFINE)
+    // -> worker: ctx-validate + gate + mob-validate. Sequence this boot:
+    //   1) BIND-no-define  (fallback path, prewritten slot {1,3})
+    //   2) DEFINE          (creates hash record)
+    //   3) BIND            (worker path; record mob likely -1 -> success branch)
+    // vm3dmp transport: flags=2 (DX_CONTEXT), dxContext=0. A CB error wedges the
+    // ctx-0 queue, so each step stops on failure.
+    {
+        UInt32 bindCmd[5] = { kSvga3dCmdDxBindContext, 12, cid, kCtxMobId, 0 };
+        bool ok1 = cbSubmitDx(bindCmd, 5);
+        IOLog(VGPU_FB_TAG ": dx: STEP1 BIND-no-define {cid %u, mob %u} -> %s\n",
+              cid, kCtxMobId, ok1 ? "ACCEPTED (otable fallback)" : "refused");
+        if (!ok1) {
+            IOLog(VGPU_FB_TAG ": dx: queue wedged; skipping rest of DX chain\n");
+            return;
+        }
+
+        UInt32 defCmd[3] = { kSvga3dCmdDxDefineContext, 4, cid };
+        bool ok2 = cbSubmitDx(defCmd, 3);
+        IOLog(VGPU_FB_TAG ": dx: STEP2 DEFINE {cid %u} -> %s\n",
+              cid, ok2 ? "ACCEPTED" : "refused");
+        if (!ok2) {
+            IOLog(VGPU_FB_TAG ": dx: queue wedged; skipping rest of DX chain\n");
+            return;
+        }
+
+        bool ok3 = cbSubmitDx(bindCmd, 5);
+        IOLog(VGPU_FB_TAG ": dx: STEP3 BIND-after-define {cid %u} -> %s\n",
+              cid, ok3 ? "ACCEPTED (worker path)" : "refused");
+        if (!ok3) {
+            IOLog(VGPU_FB_TAG ": dx: queue wedged; skipping rest of DX chain\n");
+            return;
+        }
+        IOLog(VGPU_FB_TAG ": dx: *** ALL THREE DX CONTEXT STEPS ACCEPTED ***\n");
+    }
 
     // =====================================================================
     // GB CONTEXT RENDER PATH (vmwgfx/QEMU-style: no DX commands at all).
-    // All via legacy FIFO, the path our GB objects are proven on.
     //   DEFINE_GB_CONTEXT(1107){cid}, BIND_GB_CONTEXT(1109){cid,mob,valid},
     //   SETRENDERTARGET(1050){cid,type,::sid,face,mip}, CLEAR(1057){cid,flag,
     //   color,depth,stencil}, READBACK_GB_IMAGE(1103){sid,face,mip}.
+    // Transport: on this vGPU10/GBOBJECTS device the legacy FIFO parses+fences
+    // every 3D command but never executes the render pipeline (10-10: CLEAR
+    // no-op, state MOB untouched). vmwgfx on GBOBJECTS devices submits ALL 3D
+    // commands through command buffers -- so kGbcViaCb=1 sends the render path
+    // via plain CB (dxContext=0, flags=0), keeping the GB MOB define on the
+    // legacy FIFO (proven by the working display path). Single variable.
     // =====================================================================
     {
+#define GBC_SUBMIT(w, n) (kGbcViaCb ? cbSubmit((w), (n)) \
+                                     : (fifoSubmitWords(fifo, (w), (n)) && fenceAck(fifo, &_fenceSeq)))
         const UInt32 gcid = 1;
         const UInt32 gctxMob = 7;
         const UInt32 gctxBytes = 65536;
@@ -1985,7 +2036,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         words[0] = kSvga3dCmdDefineGbContext;
         words[1] = 4;
         words[2] = gcid;
-        if (!fifoSubmitWords(fifo, words, 3) || !fenceAck(fifo, &_fenceSeq)) {
+        if (!GBC_SUBMIT(words, 3)) {
             IOLog(VGPU_FB_TAG ": gbc: DEFINE_GB_CONTEXT refused\n");
             return;
         }
@@ -2009,7 +2060,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         words[2] = gcid;
         words[3] = gctxMob;
         words[4] = 0;
-        if (!fifoSubmitWords(fifo, words, 5) || !fenceAck(fifo, &_fenceSeq)) {
+        if (!GBC_SUBMIT(words, 5)) {
             IOLog(VGPU_FB_TAG ": gbc: BIND_GB_CONTEXT refused\n");
             return;
         }
@@ -2023,7 +2074,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         words[4] = surfId;
         words[5] = 0;
         words[6] = 0;
-        if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+        if (!GBC_SUBMIT(words, 7)) {
             IOLog(VGPU_FB_TAG ": gbc: SETRENDERTARGET refused\n");
             return;
         }
@@ -2040,7 +2091,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         words[4] = 0;                   // rect.y
         words[5] = dxW;                 // rect.w
         words[6] = dxH;                 // rect.h
-        if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+        if (!GBC_SUBMIT(words, 7)) {
             IOLog(VGPU_FB_TAG ": gbc: SETVIEWPORT refused\n");
             return;
         }
@@ -2056,7 +2107,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         words[4] = gbcClear;            // white
         words[5] = 0x3F800000;          // 1.0f
         words[6] = 0;
-        if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+        if (!GBC_SUBMIT(words, 7)) {
             IOLog(VGPU_FB_TAG ": gbc: CLEAR refused\n");
             return;
         }
@@ -2068,7 +2119,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         words[2] = surfId;
         words[3] = 0;
         words[4] = 0;
-        if (!fifoSubmitWords(fifo, words, 5) || !fenceAck(fifo, &_fenceSeq)) {
+        if (!GBC_SUBMIT(words, 5)) {
             IOLog(VGPU_FB_TAG ": gbc: READBACK_GB_IMAGE refused\n");
             return;
         }
@@ -2469,7 +2520,9 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
     // NO_IRQ always; DX_CONTEXT only for DX-command payloads.
     // vm3dmp semantics: DX streams carry ONLY SVGA_CB_FLAG_DX_CONTEXT (2), never
     // NO_IRQ; plain streams carry only NO_IRQ (1). Header dxContext is always 0.
-    *(volatile UInt32 *)(_cbHeaderVirt + 16) = (dxContext != 0) ? 3 : 1;  // flags: NO_IRQ|DX_CONTEXT for DX
+    // BUGFIX 10-12: this used to send 3 (NO_IRQ|DX_CONTEXT) for DX streams --
+    // the source of every CB_HEADER_ERROR we have seen. vm3dmp sends flags=2.
+    *(volatile UInt32 *)(_cbHeaderVirt + 16) = (dxContext != 0) ? 2 : 1;  // flags
     *(volatile UInt32 *)(_cbHeaderVirt + 20) = byteCount;                 // length
     *(volatile UInt64 *)(_cbHeaderVirt + 24) = _cbDataPA;                 // ptr.pa
     *(volatile UInt32 *)(_cbHeaderVirt + 32) = 0;                         // offset
