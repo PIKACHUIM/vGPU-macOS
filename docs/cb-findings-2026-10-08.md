@@ -375,3 +375,14 @@ mksSandbox 侧的上下文状态：DX context 存在性/绑定状态在 sandbox�
   1. vm3dmp 0x140016550（cmd1 发送）的调用者与 dl 值——确认队列启动的正确 payload；
   2. mksSandbox DX 分派器（CB 接收后到 DX 处理的路径——header 校验可能就在 sandbox）；
   3. 用设备队列做 DX 命令探测（不楔死！）——例如 DEFINE/BIND 直接发 0x3f 队列看错误类型。
+## 14. 10-14：设备队列探测——DX flag CB 拒绝与队列无关，guest 侧穷尽完毕
+
+- DX CB（packed DEFINE+BIND）发 **cbContext=0x3f（设备队列）**：同样 STATUS 4
+  （CB_HEADER_ERROR）→ 拒绝与队列无关，是 DX_CONTEXT flag + dxContext 组合本身
+  在 header 校验层被拒。
+- guest 侧可变量 100% 穷尽：flags{2,3,7}、cbContext{0,1,0x3f}、dxContext{0,1}、
+  PREPEND 注册、DC cmd 3、队列启动命令、gate 补丁、otable 步长。
+- **结论**：拒绝条件在宿主内部状态（与 guest 提交内容无关）。剩余手段：
+  ①宿主侧动态分析（管理员 x64dbg 附着 vmware-vmx.exe，断 COMMAND 写处理链/或对
+  status=4 写下断点）；②mksSandbox DX 分派器全量逆向；③Windows 金标准 trace。
+- kext 现状：DX CB 走 cbContext=1 + PROBE-A（设备队列）；下次部署应按实验矩阵切换。

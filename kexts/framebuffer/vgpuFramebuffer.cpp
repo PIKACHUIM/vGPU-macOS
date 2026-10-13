@@ -1974,9 +1974,12 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
             kSvga3dCmdDxDefineContext, 4, cid,
             kSvga3dCmdDxBindContext, 12, cid, kCtxMobId, 0,
         };
-        bool ok1 = cbSubmitDx(packed, 8, cid);
-        IOLog(VGPU_FB_TAG ": dx: STEP1 packed DEFINE+BIND {cid %u, mob %u} DX-CB ctx1 -> %s\n",
-              cid, kCtxMobId, ok1 ? "ACCEPTED" : "refused");
+        // PROBE A: same DX CB on the DEVICE queue (0x3f) -- errors there do not
+        // wedge, so this is a safe read of the rejection type.
+        bool okA = cbSubmitCtx(packed, 8, 0x3F, cid);
+        IOLog(VGPU_FB_TAG ": dx: PROBE-A DEFINE+BIND on DEVICE queue -> %s\n",
+              okA ? "ACCEPTED" : "refused");
+        bool ok1 = okA;
         if (!ok1) {
             IOLog(VGPU_FB_TAG ": dx: queue wedged; skipping rest of DX chain\n");
             return;
