@@ -308,3 +308,22 @@ Restart-Service VMAuthdService）。
    全链（_dxBusy 延迟框架已就位）；
 3. 若 STEP1 仍拒：读 CB status 细分（COMMAND_ERROR vs HEADER_ERROR vs timeout），
    查 0x1404cbc80 对 otable 条目的解析（条目尺寸是否真是 8B）。
+## 11. 10-13：DX otable 16B 步长 + guest 侧再次穷尽 + 处理进程归属修正
+
+- **DXCONTEXT otable 条目步长 = 16B**（VMX 0x1404d1810：0x1404c9fb0(edx=cid*16, r9d=0x10)
+  读 16B/条目）——kext kGbDxCtxEntryBytes 已 8→16 修正（kGbDxCtxTableEnts 256→128）。
+- **guest 侧再穷尽**：BIND-no-define（fallback）/ BIND-after-define（worker）/ DEFINE 后
+  重写 otable 条目 / 16B 步长 / gate=1 补丁——全部 COMMAND_ERROR@0。
+- **关键推理**：宿主的 DX otable 读取不来自 guest MOB 预写（与 surface otable 的懒读
+  不同）——宿主维护内部影子，仅由宿主侧操作更新。BIND handler 无视命令 mobid，而
+  VMX 内没有任何路径把 {cid,mob} 写进影子 → **BIND 处理不在 VMX，而在 mksSandbox.exe**
+  （独立渲染进程，有 DXBindContext trace 名；VMX 的 DX 分派表属于 legacy/replay 路径，
+  mksSandbox 日志 "SVGA3dDevCaps: replayFifo host" 佐证）。
+- **CB header 语义修正**：DX_CONTEXT flag 下 header.dxContext 必须有效——但 dxContext=1
+  （DEFINE 后有效）仍 HEADER_ERROR → 该 MKS 对 DX flag CB 直接头拒绝（或校验更严）。
+- **DEFINE 语义修正**：0x14055b900 = "若条目已绑定则重置 {-1,-1}"（unbind），不创建
+  hash 记录。
+- **下一步唯一主线：mksSandbox.exe 的 DX 分派器逆向**（DX 名字表 .data 0x36ef50 起
+  2120 项，index=cmdId-1040；DXBindContext 名串 .rdata 0x2832f8；命令处理函数经
+  基址差跳转表分派）。或：Windows 客体 vm3dmp 金标准对照（WIN10-IOA 可用）。
+- VM 现状：实验 kext（kFbStage=2/kGbStage=4/kDxTest=1，测试已跑完）稳定运行中。

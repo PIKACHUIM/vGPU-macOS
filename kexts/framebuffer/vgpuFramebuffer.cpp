@@ -348,8 +348,8 @@ static const IOByteCount kGbOffStTable       = 0xF000;
 static const IOByteCount kGbWorkingBytes     = 0x10000;
 
 // DX context object table: SVGAOTableDXContextEntry {uint32 cid; SVGAMobId mobid;} = 8 bytes.
-static const UInt32     kGbDxCtxTableEnts    = 256;  // 2 KiB
-static const UInt32     kGbDxCtxEntryBytes   = 8;
+static const UInt32     kGbDxCtxTableEnts    = 128;  // 2 KiB at 16B/entry
+static const UInt32     kGbDxCtxEntryBytes   = 16;  // VMX reads 16B/entry (0x1404c9fb0 edx=cid*16, r9d=0x10)
 
 //
 // Screen target (STDU) present path. The screen target's content is a GB surface of the
@@ -487,7 +487,7 @@ private:
     bool cbInit(void);
     bool cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 cbContext, UInt32 dxContext);
     bool cbSubmit(const UInt32 *cmds, UInt32 wordCount);
-    bool cbSubmitDx(const UInt32 *cmds, UInt32 wordCount);
+    bool cbSubmitDx(const UInt32 *cmds, UInt32 wordCount, UInt32 dxCtxId);
 
     // The GB working buffer stays resident for the life of the kext: the host reads the
     // object tables out of it whenever it validates later commands.
@@ -1948,19 +1948,20 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     IOLog(VGPU_FB_TAG ": dx: legacy DEFINE_GB_SURFACE accepted (sid %u on mob %u)\n",
           surfId, mobId);
 
-    // ---- DX CONTEXT: reversed handler 0x14055e5b0 (10-12): BIND {cid,mob,valid}
-    // only uses cid; hash-record absent -> OTABLE FALLBACK: entry {cid,mob} both
-    // != -1 (OUR prewritten slot!) -> 0x100 SUCCESS. With a record (after DEFINE)
-    // -> worker: ctx-validate + gate + mob-validate. Sequence this boot:
-    //   1) BIND-no-define  (fallback path, prewritten slot {1,3})
-    //   2) DEFINE          (creates hash record)
-    //   3) BIND            (worker path; record mob likely -1 -> success branch)
-    // vm3dmp transport: flags=2 (DX_CONTEXT), dxContext=0. A CB error wedges the
-    // ctx-0 queue, so each step stops on failure.
+    // ---- DX CONTEXT chain, ALL via plain CB (flags=1). The VMX .data gate byte
+    // (0x1410F3A6D) is patched to 1 on the host since 10-12 -- the historical
+    // plain-CB BIND/SET_COTABLE refusals were the gate. Order:
+    //   1) DEFINE {cid}          -- creates the hash record (historically COMPLETED)
+    //   2) BIND {cid,mob,valid}  -- worker: record.mob==-1 -> success branch
+    //   3) SET_COTABLE {cid,RTVIEW,mob5,0} -- worker: gate(=1) + mob-validate
     {
+        // STEP1 = BIND-NO-DEFINE via plain CB: handler fallback path reads the
+        // otable entry (our prewritten {1,3}) directly -- no hash record exists
+        // yet, so no worker, no gate. DEFINE would RESET the entry to {-1,-1}
+        // (its actual semantics: "unbind"), so it must come AFTER.
         UInt32 bindCmd[5] = { kSvga3dCmdDxBindContext, 12, cid, kCtxMobId, 0 };
-        bool ok1 = cbSubmitDx(bindCmd, 5);
-        IOLog(VGPU_FB_TAG ": dx: STEP1 BIND-no-define {cid %u, mob %u} -> %s\n",
+        bool ok1 = cbSubmit(bindCmd, 5);
+        IOLog(VGPU_FB_TAG ": dx: STEP1 BIND-no-define {cid %u, mob %u} plain CB -> %s\n",
               cid, kCtxMobId, ok1 ? "ACCEPTED (otable fallback)" : "refused");
         if (!ok1) {
             IOLog(VGPU_FB_TAG ": dx: queue wedged; skipping rest of DX chain\n");
@@ -1968,22 +1969,46 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         }
 
         UInt32 defCmd[3] = { kSvga3dCmdDxDefineContext, 4, cid };
-        bool ok2 = cbSubmitDx(defCmd, 3);
-        IOLog(VGPU_FB_TAG ": dx: STEP2 DEFINE {cid %u} -> %s\n",
-              cid, ok2 ? "ACCEPTED" : "refused");
-        if (!ok2) {
+        bool ok1b = cbSubmit(defCmd, 3);
+        IOLog(VGPU_FB_TAG ": dx: STEP2 DEFINE {cid %u} plain CB -> %s\n",
+              cid, ok1b ? "ACCEPTED" : "refused");
+        if (!ok1b) {
             IOLog(VGPU_FB_TAG ": dx: queue wedged; skipping rest of DX chain\n");
             return;
         }
 
-        bool ok3 = cbSubmitDx(bindCmd, 5);
-        IOLog(VGPU_FB_TAG ": dx: STEP3 BIND-after-define {cid %u} -> %s\n",
-              cid, ok3 ? "ACCEPTED (worker path)" : "refused");
-        if (!ok3) {
-            IOLog(VGPU_FB_TAG ": dx: queue wedged; skipping rest of DX chain\n");
+        // RE-PREWRITE the DXCONTEXT otable entry {cid, kCtxMobId} AFTER the define:
+        // the host's define may have rewritten it (entry.mobid=-1), which would fail
+        // ctx-validate's mob check before the gate is ever reached. If the host reads
+        // the entry from the guest otable MOB at BIND time, this restores it.
+        {
+            volatile UInt8 *dxTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffDxCtxTable);
+            volatile UInt8 *dxEntry = dxTable + (IOByteCount)cid * kGbDxCtxEntryBytes;
+            memcpy((void *)(dxEntry + 0), &cid, 4);
+            memcpy((void *)(dxEntry + 4), &kCtxMobId, 4);
+            __asm__ volatile ("" ::: "memory");
+            IOLog(VGPU_FB_TAG ": dx: otable entry {cid %u, mob %u} re-written post-define\n",
+                  cid, kCtxMobId);
+        }
+
+        UInt32 bindCmd2[5] = { kSvga3dCmdDxBindContext, 12, cid, kCtxMobId, 0 };
+        bool ok2 = cbSubmit(bindCmd2, 5);
+        IOLog(VGPU_FB_TAG ": dx: STEP3 BIND-after-define {cid %u, mob %u} plain CB -> %s\n",
+              cid, kCtxMobId, ok2 ? "ACCEPTED" : "refused");
+        if (!ok2) {
+            IOLog(VGPU_FB_TAG ": dx: BIND refused on worker path; queue wedged\n");
             return;
         }
-        IOLog(VGPU_FB_TAG ": dx: *** ALL THREE DX CONTEXT STEPS ACCEPTED ***\n");
+
+        UInt32 cot[6] = { kSvga3dCmdDxSetCotable, 16, cid, 0 /*RTVIEW*/, kCotableMobId, 0 };
+        bool ok3 = cbSubmit(cot, 6);
+        IOLog(VGPU_FB_TAG ": dx: STEP3 SET_COTABLE {cid %u, RTVIEW, mob %u} -> %s\n",
+              cid, kCotableMobId, ok3 ? "ACCEPTED" : "refused");
+        if (!ok3) {
+            IOLog(VGPU_FB_TAG ": dx: SET_COTABLE refused; queue wedged\n");
+            return;
+        }
+        IOLog(VGPU_FB_TAG ": dx: *** DX CONTEXT CHAIN (DEFINE+BIND+COTABLE) ACCEPTED ***\n");
     }
 
     // =====================================================================
@@ -2526,7 +2551,10 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
     *(volatile UInt32 *)(_cbHeaderVirt + 20) = byteCount;                 // length
     *(volatile UInt64 *)(_cbHeaderVirt + 24) = _cbDataPA;                 // ptr.pa
     *(volatile UInt32 *)(_cbHeaderVirt + 32) = 0;                         // offset
-    *(volatile UInt32 *)(_cbHeaderVirt + 36) = 0;                         // dxContext (vm3dmp: always 0)
+    // SVGA_CB_FLAG_DX_CONTEXT requires dxContext to be a VALID DX context id;
+    // 0 is invalid and trips the header validator (CB_HEADER_ERROR) -- the real
+    // source of every header rejection we have seen (10-13).
+    *(volatile UInt32 *)(_cbHeaderVirt + 36) = dxContext;                 // dxContext
     for (int i = 0; i < 6; i++) {
         *(volatile UInt32 *)(_cbHeaderVirt + 40 + 4 * i) = 0;             // mustBeZero
     }
@@ -2610,8 +2638,8 @@ bool vgpuFramebuffer::cbSubmit(const UInt32 *cmds, UInt32 wordCount) {
 
 // DX-command payload: SVGA_CB_FLAG_DX_CONTEXT (2) ONLY -- vm3dmp.sys never sets
 // NO_IRQ (bit 0) on DX streams -- and the header dxContext field is 0.
-bool vgpuFramebuffer::cbSubmitDx(const UInt32 *cmds, UInt32 wordCount) {
-    return cbSubmitCtx(cmds, wordCount, 0, 2);
+bool vgpuFramebuffer::cbSubmitDx(const UInt32 *cmds, UInt32 wordCount, UInt32 dxCtxId) {
+    return cbSubmitCtx(cmds, wordCount, 0, dxCtxId);
 }
 
 void vgpuFramebuffer::fifoDump(volatile UInt32 *fifo, const char *when) {
