@@ -1810,6 +1810,11 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
             bool okdc = cbSubmitCtx(dc3, 2, 0x3F, 0);
             IOLog(VGPU_FB_TAG ": dx: DC cmd 3 {cid %u} -> %s\n",
                   dcCid, okdc ? "ACCEPTED" : "refused");
+            // AFTER the context exists: START the DX queue (cbContext 1).
+            UInt32 startQ1[3] = { 1, 1, 1 };   // START_STOP_CONTEXT{enable=1, ctx=1}
+            bool okq1 = cbSubmitCtx(startQ1, 3, 0x3F, 0);
+            IOLog(VGPU_FB_TAG ": dx: START_STOP_CONTEXT {enable 1, ctx 1} post-cmd3 -> %s\n",
+                  okq1 ? "ACCEPTED" : "refused");
         }
     }
     const UInt32 cid = 1;           // matches the prewritten DXCONTEXT otable slot {1,3}
@@ -2594,20 +2599,25 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
             IODelay(100);
             continue;
         }
-        if (status == 3) {          // COMMAND_ERROR
-            IOLog(VGPU_FB_TAG ": cb: COMMAND_ERROR at offset %u\n", h[1]);
-            return false;
-        }
-        if (status == 4) {          // CB_HEADER_ERROR
-            IOLog(VGPU_FB_TAG ": cb: CB_HEADER_ERROR\n");
-            return false;
-        }
-        if (status == 6) {          // SUBMISSION_ERROR
-            IOLog(VGPU_FB_TAG ": cb: SUBMISSION_ERROR\n");
+        if (status >= 3) {          // COMMAND_ERROR / CB_HEADER_ERROR / ...
+            IOLog(VGPU_FB_TAG ": cb: STATUS %u (errorOffset %u) -- full header dump://n",
+                  status, h[1]);
+            for (int d = 0; d < 4; d++) {
+                IOLog(VGPU_FB_TAG ": cb hdr[%2u..%2u] %08x %08x %08x %08x %08x %08x %08x %08x\n",
+                      d * 8, d * 8 + 7,
+                      h[d * 8 + 0], h[d * 8 + 1], h[d * 8 + 2], h[d * 8 + 3],
+                      h[d * 8 + 4], h[d * 8 + 5], h[d * 8 + 6], h[d * 8 + 7]);
+            }
             return false;
         }
     }
-    IOLog(VGPU_FB_TAG ": cb: timeout waiting for completion\n");
+    IOLog(VGPU_FB_TAG ": cb: timeout waiting for completion -- header dump://n");
+    for (int d = 0; d < 4; d++) {
+        IOLog(VGPU_FB_TAG ": cb hdr[%2u..%2u] %08x %08x %08x %08x %08x %08x %08x %08x\n",
+              d * 8, d * 8 + 7,
+              h[d * 8 + 0], h[d * 8 + 1], h[d * 8 + 2], h[d * 8 + 3],
+              h[d * 8 + 4], h[d * 8 + 5], h[d * 8 + 6], h[d * 8 + 7]);
+    }
     return false;
 }
 

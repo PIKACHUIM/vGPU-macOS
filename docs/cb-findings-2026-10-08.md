@@ -358,3 +358,20 @@ mksSandbox 侧的上下文状态：DX context 存在性/绑定状态在 sandbox�
    序列（含 HEADER 内容），与我们逐字节 diff；
 3. 或检查 VMX 头校验函数（CB_HEADER_ERROR 写 status=4 处）——锚点：搜写 status=4
    的代码。
+## 13. 10-14 凌晨：设备队列不楔死 + 队列启动语义待解
+
+- **⭐ 设备队列（cbContext 0x3f）的 COMMAND_ERROR 不楔死队列**——错误后同队列后续 CB
+  照常 COMPLETED（ctx-0 队列则会楔死）。迭代实验应尽量走设备队列！
+- **DC cmd 3 {cid 1} 恒 ACCEPTED**（DEFINE 前/后均可）。
+- **START_STOP_CONTEXT{enable=1, ctx=1} 恒 COMMAND_ERROR@0**（cmd 3 前/后都试过）——
+  payload 语义不对或队列 1 不可用此命令启动。vm3dmp 的 cmd 1 发送点 0x140016550
+  （body {1, (signed)dl, 0} 12B），其调用者的 dl 值待查。
+- 失败 header 全量 dump 已加（宿主只写 status/errorOffset，无额外诊断）。
+- **DX flag CB（flags 含 bit1）仍无条件 CB_HEADER_ERROR**，与 cbContext/flags/dxContext/
+  PREPEND/DC cmd 3 无关。
+- **kext 提交现状**：DX CB 走 cbContext=1（cbSubmitDx），flags=7（含实验 bit4），
+  header.dxContext=cid；设备队列引导含 q0 启动 + cmd3；PREPEND 注册开启。
+- **待解主线**：
+  1. vm3dmp 0x140016550（cmd1 发送）的调用者与 dl 值——确认队列启动的正确 payload；
+  2. mksSandbox DX 分派器（CB 接收后到 DX 处理的路径——header 校验可能就在 sandbox）；
+  3. 用设备队列做 DX 命令探测（不楔死！）——例如 DEFINE/BIND 直接发 0x3f 队列看错误类型。
