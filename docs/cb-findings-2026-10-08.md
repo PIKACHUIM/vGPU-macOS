@@ -327,3 +327,34 @@ Restart-Service VMAuthdService）。
   2120 项，index=cmdId-1040；DXBindContext 名串 .rdata 0x2832f8；命令处理函数经
   基址差跳转表分派）。或：Windows 客体 vm3dmp 金标准对照（WIN10-IOA 可用）。
 - VM 现状：实验 kext（kFbStage=2/kGbStage=4/kDxTest=1，测试已跑完）稳定运行中。
+## 12. 10-13 深夜：vm3dmp 金标准对齐——cbContext/flags/DC cmd 3 全复刻仍 HEADER_ERROR
+
+**vm3dmp 提交路径精读（0x140013990 header builder + 0x14001a76c submit）**：
+- header 布局与我们一致（status/err/id q64/flags@0x10/length@0x14/PA q64@0x18/
+  offset@0x20/dxContext@0x24）。
+- **DX CB 走 cbContext=1/2（从不 0）**，flags = NO_IRQ|DX_CONTEXT（=3，另有条件 |4），
+  header.dxContext = 真实 cid（cbContext∈{1,2} 且 dxCtx!=-1 时写）。
+- flags 计算含条件 **|4**（bpl 参数置位时）——位 4 语义未知。
+- 设备命令（cbContext 0x3f）：cmd 1 = START_STOP_CONTEXT{enable,ctx} 12B、
+  cmd 2 = PREEMPT 12B、**cmd 3 = {cid} 8B**（devcap bit12 门控）——我们补发了 cmd 3。
+
+**kext 实测矩阵（全部 CB_HEADER_ERROR）**：
+| 变体 | 结果 |
+|---|---|
+| cbContext=1 + flags=3 + dx=cid + packed DEFINE+BIND | HEADER_ERROR |
+| 同上 + flags=7（|4） | HEADER_ERROR |
+| 同上 + PREPEND 注册启用 | HEADER_ERROR |
+| 同上 + DC cmd 3 先行 | HEADER_ERROR（但 cmd 3 本身 ACCEPTED ✓）|
+| plain CB DEFINE（对照） | COMPLETED（恒定）|
+
+**结论**：DX flag CB 在 header 校验层被无条件拒绝——与 cbContext/flags/dxContext
+取值、PREPEND、DC cmd 3 均无关。validator 检查的东西在我们控制之外（大概率是
+mksSandbox 侧的上下文状态：DX context 存在性/绑定状态在 sandbox，VMX 只转发）。
+
+**下一步**：
+1. mksSandbox.exe DX 分派器逆向（名字表 0x14036ef50 idx=cmdId-272 已确认；找
+   SVGA3D 命令处理循环与其 CB 接收路径——sandbox 从 VMX 收什么、缺什么状态）；
+2. Windows 侧金标准 trace：WIN10-IOA 上用内核调试器记录 vm3dmp 实际 port/MMIO 写
+   序列（含 HEADER 内容），与我们逐字节 diff；
+3. 或检查 VMX 头校验函数（CB_HEADER_ERROR 写 status=4 处）——锚点：搜写 status=4
+   的代码。

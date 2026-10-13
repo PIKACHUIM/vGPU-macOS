@@ -287,7 +287,7 @@ static const UInt32 kDxTestDelayS = 90;
 // Register the PREPEND buffer (regs 53/54). 10-08 evening correlation: with PREPEND
 // registered BIND_CONTEXT was refused; the 14:04 boot without it had BIND accepted.
 // 0 = skip registration entirely (single-variable test).
-static const UInt32 kCbPrepend = 0;
+static const UInt32 kCbPrepend = 1;
 
 // GUEST_DRIVER_ID (regs 61-64) + DXCONTEXT otable pre-write were BOTH added in
 // 80ba752 (19:43) -- exactly the boundary where BIND_CONTEXT flipped from accepted
@@ -1801,6 +1801,16 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
             return;
         }
         IOLog(VGPU_FB_TAG ": cb: CB mechanism started (device context)\n");
+        // DC cmd 3 {cid}: vm3dmp sends this device command (8-byte body, gated on a
+        // devcap bit) around DX context lifetime -- plausibly "register DX context".
+        // Sent on the device queue (0x3f) BEFORE any DX CB.
+        {
+            const UInt32 dcCid = 1;   // cid of the DX chain below (declared later)
+            UInt32 dc3[2] = { 3, dcCid };
+            bool okdc = cbSubmitCtx(dc3, 2, 0x3F, 0);
+            IOLog(VGPU_FB_TAG ": dx: DC cmd 3 {cid %u} -> %s\n",
+                  dcCid, okdc ? "ACCEPTED" : "refused");
+        }
     }
     const UInt32 cid = 1;           // matches the prewritten DXCONTEXT otable slot {1,3}
     const UInt32 rtvId = 0;
@@ -1948,63 +1958,30 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     IOLog(VGPU_FB_TAG ": dx: legacy DEFINE_GB_SURFACE accepted (sid %u on mob %u)\n",
           surfId, mobId);
 
-    // ---- DX CONTEXT chain, ALL via plain CB (flags=1). The VMX .data gate byte
-    // (0x1410F3A6D) is patched to 1 on the host since 10-12 -- the historical
-    // plain-CB BIND/SET_COTABLE refusals were the gate. Order:
-    //   1) DEFINE {cid}          -- creates the hash record (historically COMPLETED)
-    //   2) BIND {cid,mob,valid}  -- worker: record.mob==-1 -> success branch
-    //   3) SET_COTABLE {cid,RTVIEW,mob5,0} -- worker: gate(=1) + mob-validate
+    // ---- DX CONTEXT chain, vm3dmp-exact (10-13 reverse of 0x140013990/0x14001a76c):
+    // DX CBs go on cbContext=1 (vm3dmp uses 1/2, NEVER 0 -- queue 0 is device/paging),
+    // flags=3 (NO_IRQ|DX_CONTEXT), header.dxContext = the real cid. vm3dmp's create
+    // sequence is a packed {DEFINE}{BIND} pair in ONE CB.
+    //   1) packed DEFINE+BIND
+    //   2) SET_COTABLE {cid, RTVIEW, mob5, 0}
     {
-        // STEP1 = BIND-NO-DEFINE via plain CB: handler fallback path reads the
-        // otable entry (our prewritten {1,3}) directly -- no hash record exists
-        // yet, so no worker, no gate. DEFINE would RESET the entry to {-1,-1}
-        // (its actual semantics: "unbind"), so it must come AFTER.
-        UInt32 bindCmd[5] = { kSvga3dCmdDxBindContext, 12, cid, kCtxMobId, 0 };
-        bool ok1 = cbSubmit(bindCmd, 5);
-        IOLog(VGPU_FB_TAG ": dx: STEP1 BIND-no-define {cid %u, mob %u} plain CB -> %s\n",
-              cid, kCtxMobId, ok1 ? "ACCEPTED (otable fallback)" : "refused");
+        UInt32 packed[8] = {
+            kSvga3dCmdDxDefineContext, 4, cid,
+            kSvga3dCmdDxBindContext, 12, cid, kCtxMobId, 0,
+        };
+        bool ok1 = cbSubmitDx(packed, 8, cid);
+        IOLog(VGPU_FB_TAG ": dx: STEP1 packed DEFINE+BIND {cid %u, mob %u} DX-CB ctx1 -> %s\n",
+              cid, kCtxMobId, ok1 ? "ACCEPTED" : "refused");
         if (!ok1) {
             IOLog(VGPU_FB_TAG ": dx: queue wedged; skipping rest of DX chain\n");
             return;
         }
 
-        UInt32 defCmd[3] = { kSvga3dCmdDxDefineContext, 4, cid };
-        bool ok1b = cbSubmit(defCmd, 3);
-        IOLog(VGPU_FB_TAG ": dx: STEP2 DEFINE {cid %u} plain CB -> %s\n",
-              cid, ok1b ? "ACCEPTED" : "refused");
-        if (!ok1b) {
-            IOLog(VGPU_FB_TAG ": dx: queue wedged; skipping rest of DX chain\n");
-            return;
-        }
-
-        // RE-PREWRITE the DXCONTEXT otable entry {cid, kCtxMobId} AFTER the define:
-        // the host's define may have rewritten it (entry.mobid=-1), which would fail
-        // ctx-validate's mob check before the gate is ever reached. If the host reads
-        // the entry from the guest otable MOB at BIND time, this restores it.
-        {
-            volatile UInt8 *dxTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffDxCtxTable);
-            volatile UInt8 *dxEntry = dxTable + (IOByteCount)cid * kGbDxCtxEntryBytes;
-            memcpy((void *)(dxEntry + 0), &cid, 4);
-            memcpy((void *)(dxEntry + 4), &kCtxMobId, 4);
-            __asm__ volatile ("" ::: "memory");
-            IOLog(VGPU_FB_TAG ": dx: otable entry {cid %u, mob %u} re-written post-define\n",
-                  cid, kCtxMobId);
-        }
-
-        UInt32 bindCmd2[5] = { kSvga3dCmdDxBindContext, 12, cid, kCtxMobId, 0 };
-        bool ok2 = cbSubmit(bindCmd2, 5);
-        IOLog(VGPU_FB_TAG ": dx: STEP3 BIND-after-define {cid %u, mob %u} plain CB -> %s\n",
-              cid, kCtxMobId, ok2 ? "ACCEPTED" : "refused");
-        if (!ok2) {
-            IOLog(VGPU_FB_TAG ": dx: BIND refused on worker path; queue wedged\n");
-            return;
-        }
-
         UInt32 cot[6] = { kSvga3dCmdDxSetCotable, 16, cid, 0 /*RTVIEW*/, kCotableMobId, 0 };
-        bool ok3 = cbSubmit(cot, 6);
-        IOLog(VGPU_FB_TAG ": dx: STEP3 SET_COTABLE {cid %u, RTVIEW, mob %u} -> %s\n",
-              cid, kCotableMobId, ok3 ? "ACCEPTED" : "refused");
-        if (!ok3) {
+        bool ok2 = cbSubmitDx(cot, 6, cid);
+        IOLog(VGPU_FB_TAG ": dx: STEP2 SET_COTABLE {cid %u, RTVIEW, mob %u} -> %s\n",
+              cid, kCotableMobId, ok2 ? "ACCEPTED" : "refused");
+        if (!ok2) {
             IOLog(VGPU_FB_TAG ": dx: SET_COTABLE refused; queue wedged\n");
             return;
         }
@@ -2545,9 +2522,11 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
     // NO_IRQ always; DX_CONTEXT only for DX-command payloads.
     // vm3dmp semantics: DX streams carry ONLY SVGA_CB_FLAG_DX_CONTEXT (2), never
     // NO_IRQ; plain streams carry only NO_IRQ (1). Header dxContext is always 0.
-    // BUGFIX 10-12: this used to send 3 (NO_IRQ|DX_CONTEXT) for DX streams --
-    // the source of every CB_HEADER_ERROR we have seen. vm3dmp sends flags=2.
-    *(volatile UInt32 *)(_cbHeaderVirt + 16) = (dxContext != 0) ? 2 : 1;  // flags
+    // 10-13 vm3dmp-exact: DX streams carry flags=3 (NO_IRQ|DX_CONTEXT) -- the
+    // builder at 0x140013a51 sets NO_IRQ and DX_CONTEXT together; the 10-12
+    // "flags=2" fix was based on a misread. DX CBs also go on cbContext=1/2,
+    // never 0 (see cbSubmitDx).
+    *(volatile UInt32 *)(_cbHeaderVirt + 16) = (dxContext != 0) ? 7 : 1;  // flags: NO_IRQ|DX_CONTEXT|KEEP_HW_CURRENT(4?)
     *(volatile UInt32 *)(_cbHeaderVirt + 20) = byteCount;                 // length
     *(volatile UInt64 *)(_cbHeaderVirt + 24) = _cbDataPA;                 // ptr.pa
     *(volatile UInt32 *)(_cbHeaderVirt + 32) = 0;                         // offset
@@ -2639,7 +2618,9 @@ bool vgpuFramebuffer::cbSubmit(const UInt32 *cmds, UInt32 wordCount) {
 // DX-command payload: SVGA_CB_FLAG_DX_CONTEXT (2) ONLY -- vm3dmp.sys never sets
 // NO_IRQ (bit 0) on DX streams -- and the header dxContext field is 0.
 bool vgpuFramebuffer::cbSubmitDx(const UInt32 *cmds, UInt32 wordCount, UInt32 dxCtxId) {
-    return cbSubmitCtx(cmds, wordCount, 0, dxCtxId);
+    // vm3dmp submits DX CBs on cbContext 1/2 (0x140013a68 checks cbContext 1 or 2
+    // for the DX_CONTEXT flag); queue 0 is the device/paging queue.
+    return cbSubmitCtx(cmds, wordCount, 1, dxCtxId);
 }
 
 void vgpuFramebuffer::fifoDump(volatile UInt32 *fifo, const char *when) {
