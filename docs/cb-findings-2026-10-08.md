@@ -386,3 +386,43 @@ mksSandbox 侧的上下文状态：DX context 存在性/绑定状态在 sandbox�
   ①宿主侧动态分析（管理员 x64dbg 附着 vmware-vmx.exe，断 COMMAND 写处理链/或对
   status=4 写下断点）；②mksSandbox DX 分派器全量逆向；③Windows 金标准 trace。
 - kext 现状：DX CB 走 cbContext=1 + PROBE-A（设备队列）；下次部署应按实验矩阵切换。
+## 15. 10-21 凌晨：🏆 CB_HEADER_ERROR 根因实锤——flags 只允许 bit0（NO_IRQ）
+
+**工具链**：x64dbg MCP（80 工具，SSE 127.0.0.1:3000）+ 自研 `disasm/mcp_x64dbg.py` 客户端。
+VMX 有 DACL 自我保护（OpenProcess ALL_ACCESS 被拒，mksSandbox 允许）→
+**必须以管理员运行 x64dbg 才能附着 vmware-vmx.exe**（SeDebugPrivilege 越过 DACL）。
+
+**定位方法（可复用）**：
+1. kext 在 data 缓冲 +0x800 写标记 "VGPU-CB-DATA-AT-0x800-DEADBEEF!"（宿主不会碰）→
+   在 VMX 进程内存搜到标记 → data 缓冲宿主地址 → header 地址 = data + (headerPA-dataPA)；
+2. 在 header+0（status dword）下**硬件写断点** → 每次 CB 完成都会命中；
+3. 命中现场：rax=header VA、rcx=status 值、返回地址在 [rsp] → 静态反汇编调用者。
+
+**捕获到的写入链**：
+```
+wrapper 0x140603530(dst, &status, len)  —— 把状态写回 guest 内存
+  ↑ 调用者 0x140087df1（CB 完成路径）
+  ↑ 0x140087dd1: mov ebx,4   ← CB_HEADER_ERROR 的产生处
+```
+**校验器 (0x140087c40..d50) 逻辑**：
+```
+eax = header.length(+0x14)
+if (len == 0) -> status 1 (COMPLETED)
+page-crossing check on header.ptr.pa(+0x18) + len  -> fail: status 4
+call 0x140607760                                     -> fail: status 4
+test dword header.flags(+0x10), 0xFFFFFFFE           -> != 0: status 4   ★★★
+...
+call DC process(0x140603b30) -> 命令层错误 -> status 3 (+errorOffset)
+```
+
+**结论（实锤）**：**SVGACBHeader.flags 只允许 0 或 1（SVGA_CB_FLAG_NO_IRQ）**。
+任何其它位（包括我们一直用的 DX_CONTEXT=2）都会在 header 校验处以
+CB_HEADER_ERROR(4) 被拒——因此 flags=2/3/7 的全部历史实验注定失败。
+vm3dmp 的 DX 路径不走这个 validator（或本产品的 DX flag 被禁用）。
+
+**实测验证**：probe 改 flags=1 后，状态立刻从 **4 → 3（COMMAND_ERROR）**：
+header 层完全通过，现在只剩命令处理层（DEFINE/BIND handler）的拒绝。
+设备队列（0x3f）与 ctx-0 都是 status 3。
+
+**下一步**：在 0x140603b30（DC 命令处理）处断点，看 DEFINE 与 BIND 谁被拒、
+被哪条规则拒（命令层错误码 3 的来源）；然后修命令序列。

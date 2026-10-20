@@ -284,6 +284,11 @@ static const UInt32 kCbDump = 1;
 // to be fully live so results survive an MKS wedge.
 static const UInt32 kDxTestDelayS = 90;
 
+// Periodic DX probe: every kProbeEveryS seconds re-submit the packed DEFINE+BIND
+// on the device queue (errors there do not wedge). Used while a host-side debugger
+// is attached to catch the CB status write. 0 = off.
+static const UInt32 kProbeEveryS = 4;
+
 // Register the PREPEND buffer (regs 53/54). 10-08 evening correlation: with PREPEND
 // registered BIND_CONTEXT was refused; the 14:04 boot without it had BIND accepted.
 // 0 = skip registration entirely (single-variable test).
@@ -444,8 +449,10 @@ private:
     // Delayed DX test: runs on its own thread_call N seconds after bring-up so the
     // guest is fully booted (SSH + logd flushing) before anything can wedge the MKS.
     static void dxTestC(thread_call_param_t param0, thread_call_param_t param1);
+    static void probeC(thread_call_param_t param0, thread_call_param_t param1);
     volatile UInt32 _dxBusy = 0;          // presentTick skips while the DX test owns the FIFO
     thread_call_t _dxCall = nullptr;
+    thread_call_t _probeCall = nullptr;   // periodic PROBE-A resubmitter (debugger target)
     volatile UInt32 *_dxFifo = nullptr;
     volatile UInt32 *_presentFifo = nullptr;
     IOMemoryMap *_fifoMap = nullptr;
@@ -783,6 +790,7 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
         // results survive even if the MKS wedges. presentTick skips while we run.
         _dxFifo = fifo;
         _dxCall = thread_call_allocate(&vgpuFramebuffer::dxTestC, (thread_call_param_t)this);
+        _probeCall = thread_call_allocate(&vgpuFramebuffer::probeC, (thread_call_param_t)this);
         if (_dxCall != nullptr) {
             UInt64 now = 0, delta = 0;
             clock_get_uptime(&now);
@@ -944,6 +952,51 @@ void vgpuFramebuffer::dxTestC(thread_call_param_t param0, thread_call_param_t pa
     self->dxReadbackTest(self->_dxFifo);
     __asm__ volatile ("" ::: "memory");
     self->_dxBusy = 0;
+
+    // Arm the periodic debug probe (self-rearming).
+    if (kProbeEveryS != 0 && self->_probeCall != nullptr) {
+        AbsoluteTime when = 0;
+        uint64_t delta = 0;
+        clock_get_uptime(&when);
+        nanoseconds_to_absolutetime((UInt64)kProbeEveryS * 1000000000ULL, &delta);
+        thread_call_enter_delayed(self->_probeCall, when + delta);
+    }
+}
+
+// Periodic probe: same packed DEFINE+BIND as the DX chain, on the device queue --
+// this is the submission a host-side debugger watches (status write on the CB header).
+void vgpuFramebuffer::probeC(thread_call_param_t param0, thread_call_param_t param1) {
+    (void)param1;
+    vgpuFramebuffer *self = (vgpuFramebuffer *)param0;
+    if (self == nullptr || self->_cbHeaderVirt == nullptr || self->_cbDataVirt == nullptr) {
+        return;
+    }
+    self->_dxBusy = 1;
+    __asm__ volatile ("" ::: "memory");
+    UInt32 packed[8] = {
+        kSvga3dCmdDxDefineContext, 4, 1,
+        kSvga3dCmdDxBindContext, 12, 1, kCtxMobId, 0,
+    };
+    // FLAGS MUST BE 1 (NO_IRQ only): the VMX header validator does
+    //   test flags, 0xFFFFFFFE ; jne -> CB_HEADER_ERROR  (0x140087c90)
+    // so no DX_CONTEXT bit here. The cid travels inside the command body.
+    bool ok = self->cbSubmitCtx(packed, 8, 0x3F, 0);
+    IOLog(VGPU_FB_TAG ": probe: DEFINE+BIND on device queue -> %s\n",
+          ok ? "ACCEPTED" : "refused");
+    // Same CB on the regular queue 0 (ctx-0): with flags=1 the header validator
+    // passes; this tells us whether the DX command handlers accept the pair there.
+    // (An error on ctx-0 wedges that queue only -- the device queue keeps probing.)
+    bool ok0 = self->cbSubmitCtx(packed, 8, 0, 0);
+    IOLog(VGPU_FB_TAG ": probe: DEFINE+BIND on queue 0 -> %s\n",
+          ok0 ? "ACCEPTED" : "refused");
+    self->_dxBusy = 0;
+    if (self->_probeCall != nullptr) {
+        AbsoluteTime when = 0;
+        uint64_t delta = 0;
+        clock_get_uptime(&when);
+        nanoseconds_to_absolutetime((UInt64)kProbeEveryS * 1000000000ULL, &delta);
+        thread_call_enter_delayed(self->_probeCall, when + delta);
+    }
 }
 
 void vgpuFramebuffer::presentTick(void) {
@@ -2441,6 +2494,14 @@ bool vgpuFramebuffer::cbInit(void) {
     }
     _cbHeaderVirt = (volatile UInt8 *)_cbHeaderMem->map()->getVirtualAddress();
     _cbDataVirt = (volatile UInt8 *)_cbDataMem->map()->getVirtualAddress();
+    // Host-side debug marker: never touched by the host (beyond CB length), used by
+    // a host debugger to locate this buffer in the VMX address space and thereby
+    // derive the guest-PA -> host-VA mapping of the kernel allocation.
+    {
+        static const char kCbMarker[32] = "VGPU-CB-DATA-AT-0x800-DEADBEEF!";
+        memcpy((void *)((char *)_cbDataVirt + 0x800), kCbMarker, 32);
+        __asm__ volatile ("" ::: "memory");
+    }
     IOByteCount len = 0;
     IOVirtualAddress pa = _cbHeaderMem->getPhysicalSegment(0, &len);
     if (pa == 0 || (pa & 0x3F) != 0) {
