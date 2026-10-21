@@ -353,8 +353,8 @@ static const IOByteCount kGbOffStTable       = 0xF000;
 static const IOByteCount kGbWorkingBytes     = 0x10000;
 
 // DX context object table: SVGAOTableDXContextEntry {uint32 cid; SVGAMobId mobid;} = 8 bytes.
-static const UInt32     kGbDxCtxTableEnts    = 128;  // 2 KiB at 16B/entry
-static const UInt32     kGbDxCtxEntryBytes   = 16;  // VMX reads 16B/entry (0x1404c9fb0 edx=cid*16, r9d=0x10)
+static const UInt32     kGbDxCtxTableEnts    = 256;  // 2 KiB at 8B/entry (host otables[5].count)
+static const UInt32     kGbDxCtxEntryBytes   = 8;   // {u32 cid; u32 mobid}; host keeps count = size/8
 
 //
 // Screen target (STDU) present path. The screen target's content is a GB surface of the
@@ -450,9 +450,13 @@ private:
     // guest is fully booted (SSH + logd flushing) before anything can wedge the MKS.
     static void dxTestC(thread_call_param_t param0, thread_call_param_t param1);
     static void probeC(thread_call_param_t param0, thread_call_param_t param1);
+    static void probeC2(thread_call_param_t param0, thread_call_param_t param1);
+    void probeRun(void);
+    void armProbe(thread_call_t call);
     volatile UInt32 _dxBusy = 0;          // presentTick skips while the DX test owns the FIFO
     thread_call_t _dxCall = nullptr;
-    thread_call_t _probeCall = nullptr;   // periodic PROBE-A resubmitter (debugger target)
+    thread_call_t _probeCall = nullptr;   // periodic probe (ping-pong pair: a thread
+    thread_call_t _probeCall2 = nullptr;  // call cannot re-enter itself)
     volatile UInt32 *_dxFifo = nullptr;
     volatile UInt32 *_presentFifo = nullptr;
     IOMemoryMap *_fifoMap = nullptr;
@@ -791,6 +795,7 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
         _dxFifo = fifo;
         _dxCall = thread_call_allocate(&vgpuFramebuffer::dxTestC, (thread_call_param_t)this);
         _probeCall = thread_call_allocate(&vgpuFramebuffer::probeC, (thread_call_param_t)this);
+        _probeCall2 = thread_call_allocate(&vgpuFramebuffer::probeC2, (thread_call_param_t)this);
         if (_dxCall != nullptr) {
             UInt64 now = 0, delta = 0;
             clock_get_uptime(&now);
@@ -953,25 +958,24 @@ void vgpuFramebuffer::dxTestC(thread_call_param_t param0, thread_call_param_t pa
     __asm__ volatile ("" ::: "memory");
     self->_dxBusy = 0;
 
-    // Arm the periodic debug probe (self-rearming).
-    if (kProbeEveryS != 0 && self->_probeCall != nullptr) {
-        AbsoluteTime when = 0;
-        uint64_t delta = 0;
-        clock_get_uptime(&when);
-        nanoseconds_to_absolutetime((UInt64)kProbeEveryS * 1000000000ULL, &delta);
-        thread_call_enter_delayed(self->_probeCall, when + delta);
+    // Arm the periodic debug probe (ping-pong pair keeps it re-arming).
+    if (kProbeEveryS != 0) {
+        self->armProbe(self->_probeCall);
     }
 }
 
 // Periodic probe: same packed DEFINE+BIND as the DX chain, on the device queue --
 // this is the submission a host-side debugger watches (status write on the CB header).
-void vgpuFramebuffer::probeC(thread_call_param_t param0, thread_call_param_t param1) {
-    (void)param1;
-    vgpuFramebuffer *self = (vgpuFramebuffer *)param0;
-    if (self == nullptr || self->_cbHeaderVirt == nullptr || self->_cbDataVirt == nullptr) {
+//
+// NOTE: a thread_call CANNOT re-enter itself, so thread_call_enter_delayed() from
+// inside the running call silently does nothing -- the original self-rearming
+// probe fired exactly once per boot. Two calls ping-pong instead: probeC arms
+// _probeCall2 and probeC2 arms _probeCall.
+void vgpuFramebuffer::probeRun(void) {
+    if (_cbHeaderVirt == nullptr || _cbDataVirt == nullptr) {
         return;
     }
-    self->_dxBusy = 1;
+    _dxBusy = 1;
     __asm__ volatile ("" ::: "memory");
     UInt32 packed[8] = {
         kSvga3dCmdDxDefineContext, 4, 1,
@@ -980,23 +984,47 @@ void vgpuFramebuffer::probeC(thread_call_param_t param0, thread_call_param_t par
     // FLAGS MUST BE 1 (NO_IRQ only): the VMX header validator does
     //   test flags, 0xFFFFFFFE ; jne -> CB_HEADER_ERROR  (0x140087c90)
     // so no DX_CONTEXT bit here. The cid travels inside the command body.
-    bool ok = self->cbSubmitCtx(packed, 8, 0x3F, 0);
+    bool ok = cbSubmitCtx(packed, 8, 0x3F, 0);
     IOLog(VGPU_FB_TAG ": probe: DEFINE+BIND on device queue -> %s\n",
           ok ? "ACCEPTED" : "refused");
     // Same CB on the regular queue 0 (ctx-0): with flags=1 the header validator
     // passes; this tells us whether the DX command handlers accept the pair there.
     // (An error on ctx-0 wedges that queue only -- the device queue keeps probing.)
-    bool ok0 = self->cbSubmitCtx(packed, 8, 0, 0);
+    bool ok0 = cbSubmitCtx(packed, 8, 0, 0);
     IOLog(VGPU_FB_TAG ": probe: DEFINE+BIND on queue 0 -> %s\n",
           ok0 ? "ACCEPTED" : "refused");
-    self->_dxBusy = 0;
-    if (self->_probeCall != nullptr) {
-        AbsoluteTime when = 0;
-        uint64_t delta = 0;
-        clock_get_uptime(&when);
-        nanoseconds_to_absolutetime((UInt64)kProbeEveryS * 1000000000ULL, &delta);
-        thread_call_enter_delayed(self->_probeCall, when + delta);
+    _dxBusy = 0;
+}
+
+void vgpuFramebuffer::armProbe(thread_call_t call) {
+    if (call == nullptr) {
+        return;
     }
+    AbsoluteTime when = 0;
+    uint64_t delta = 0;
+    clock_get_uptime(&when);
+    nanoseconds_to_absolutetime((UInt64)kProbeEveryS * 1000000000ULL, &delta);
+    thread_call_enter_delayed(call, when + delta);
+}
+
+void vgpuFramebuffer::probeC(thread_call_param_t param0, thread_call_param_t param1) {
+    (void)param1;
+    vgpuFramebuffer *self = (vgpuFramebuffer *)param0;
+    if (self == nullptr) {
+        return;
+    }
+    self->probeRun();
+    self->armProbe(self->_probeCall2);
+}
+
+void vgpuFramebuffer::probeC2(thread_call_param_t param0, thread_call_param_t param1) {
+    (void)param1;
+    vgpuFramebuffer *self = (vgpuFramebuffer *)param0;
+    if (self == nullptr) {
+        return;
+    }
+    self->probeRun();
+    self->armProbe(self->_probeCall);
 }
 
 void vgpuFramebuffer::presentTick(void) {
@@ -1374,7 +1402,12 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
     memcpy(&words[3], &ppnOtablePt, 8);
     words[5] = mobTableBytes;
     words[6] = 0;
-    words[7] = kSvga3dMobFmtPt64_0;
+    // PT64_1: the base page is a page table whose entries are the data pages.
+    // (10-21: this used to say PT64_0 -- "base page IS the data page" -- while
+    // passing the PT page, so the host read PPN numbers as table entries. The
+    // DXCONTEXT entry read validates the mobid through this table, which is why
+    // every nonzero mobid failed there.)
+    words[7] = kSvga3dMobFmtPt64_1;
     if (!fifoSubmitWords(fifo, words, 8) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": gb: MOB object table base refused\n");
         return;
@@ -1386,7 +1419,7 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
     memcpy(&words[3], &ppnSurfacePt, 8);
     words[5] = surfaceTableBytes;
     words[6] = 0;
-    words[7] = kSvga3dMobFmtPt64_0;
+    words[7] = kSvga3dMobFmtPt64_1;   // same base-is-a-PT-page fix as the MOB table
     if (!fifoSubmitWords(fifo, words, 8) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": gb: SURFACE object table base refused\n");
         return;
@@ -1483,10 +1516,25 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
     }
 
     // SVGA_3D_CMD_SET_OTABLE_BASE64 for SVGA_OTABLE_DXCONTEXT.
+    //
+    // 10-21: format PT64_0 means "the base page IS the data page" (MOBFMT_PT64_0
+    // == 4, no page table). This used to register the PT page (offset 0xC000)
+    // instead of the table page (0xD000), so the host read PPN numbers as entries:
+    // DEFINE_CONTEXT saw entry[1] != -1, reset it to {-1,-1} *inside the PT page*
+    // (which is why the reset was invisible in our table page) and BIND's otable
+    // fallback then found {-1,-1} -> COMMAND_ERROR at offset 12. Same class of bug
+    // may exist for the MOB/SURFACE otables, but those are proven irrelevant
+    // (their DEFINE commands carry everything in the command body), so this change
+    // is DXCONTEXT-only on purpose -- one variable at a time.
+    const UInt64 ppnDxCtxData = pagePpn + (kGbOffDxCtxTable >> kGbPageShift);
     words[0] = kSvga3dCmdSetOtableBase64;
     words[1] = 24;
     words[2] = kSvgaOtableDxContext;
+    // 10-22: back to the exact configuration that produced the one accepted
+    // DEFINE (23:48) -- PT page base, PT64_0, size 2048 -- to isolate the index.
     memcpy(&words[3], &ppnDxCtxPt, 8);
+    // vmwgfx (vmw_otables_setup -> vmw_setup_otable_base) PFN_ALIGNs the size
+    // before handing it to the host: a 2 KiB table is registered as 4096.
     words[5] = dxCtxTableBytes;
     words[6] = 0;
     words[7] = kSvga3dMobFmtPt64_0;
@@ -1494,7 +1542,7 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
         IOLog(VGPU_FB_TAG ": gb: DXCONTEXT object table base refused\n");
         return;
     }
-    IOLog(VGPU_FB_TAG ": gb: DXCONTEXT otable base set (ppn %llu, %u bytes)\n",
+    IOLog(VGPU_FB_TAG ": gb: DXCONTEXT otable base set (pt ppn %llu, %u bytes, PT64_0)\n",
           (unsigned long long)ppnDxCtxPt, dxCtxTableBytes);
 
     // Context state MOB: the DX context only becomes live once its state mob is bound
@@ -2016,37 +2064,84 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     IOLog(VGPU_FB_TAG ": dx: legacy DEFINE_GB_SURFACE accepted (sid %u on mob %u)\n",
           surfId, mobId);
 
-    // ---- DX CONTEXT chain, vm3dmp-exact (10-13 reverse of 0x140013990/0x14001a76c):
-    // DX CBs go on cbContext=1 (vm3dmp uses 1/2, NEVER 0 -- queue 0 is device/paging),
-    // flags=3 (NO_IRQ|DX_CONTEXT), header.dxContext = the real cid. vm3dmp's create
-    // sequence is a packed {DEFINE}{BIND} pair in ONE CB.
-    //   1) packed DEFINE+BIND
-    //   2) SET_COTABLE {cid, RTVIEW, mob5, 0}
+    // ---- DX CONTEXT chain (10-21: otable entry stride is 8 B, not 16) -------
+    // Live/static host facts:
+    //   * SET_OTABLE_BASE64(DXCONTEXT=5) lands in the VMX otables[5] record as
+    //     {base ppn, size 0x800, state 4, count 256} -> 8 bytes per entry.
+    //   * DEFINE_CONTEXT (0x477) with flags=1 (NO_IRQ only) is ACCEPTED on queue 0.
+    //     Its handler reads otable[cid] and, if the entry is not {-1,-1}, resets
+    //     the whole entry to {-1,-1} (i.e. "unbind") and succeeds.
+    //   * BIND_CONTEXT (0x479) then fails (errorOffset=12): no hash record exists
+    //     and the otable fallback requires otable[cid] = {x,y}, both != -1.
+    // Experiment: DEFINE, read the entry back (is the reset visible in OUR MOB or
+    // only in a host shadow?), rewrite {cid, stateMob}, then BIND.
     {
-        UInt32 packed[8] = {
-            kSvga3dCmdDxDefineContext, 4, cid,
-            kSvga3dCmdDxBindContext, 12, cid, kCtxMobId, 0,
-        };
-        // PROBE A: same DX CB on the DEVICE queue (0x3f) -- errors there do not
-        // wedge, so this is a safe read of the rejection type.
-        bool okA = cbSubmitCtx(packed, 8, 0x3F, cid);
-        IOLog(VGPU_FB_TAG ": dx: PROBE-A DEFINE+BIND on DEVICE queue -> %s\n",
-              okA ? "ACCEPTED" : "refused");
-        bool ok1 = okA;
-        if (!ok1) {
-            IOLog(VGPU_FB_TAG ": dx: queue wedged; skipping rest of DX chain\n");
-            return;
-        }
+        volatile UInt8 *dxTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffDxCtxTable);
 
-        UInt32 cot[6] = { kSvga3dCmdDxSetCotable, 16, cid, 0 /*RTVIEW*/, kCotableMobId, 0 };
-        bool ok2 = cbSubmitDx(cot, 6, cid);
-        IOLog(VGPU_FB_TAG ": dx: STEP2 SET_COTABLE {cid %u, RTVIEW, mob %u} -> %s\n",
-              cid, kCotableMobId, ok2 ? "ACCEPTED" : "refused");
-        if (!ok2) {
-            IOLog(VGPU_FB_TAG ": dx: SET_COTABLE refused; queue wedged\n");
-            return;
+        // Entry-format probe matrix (10-21). DEFINE_CONTEXT yields 0x100 only when
+        // the host can READ otable[cid] and entry[0] != -1 (it then resets the entry
+        // to {-1,-1}); a refused DEFINE therefore means the read itself failed.
+        // Vary cid and the mob field to find what that read validates.
+        struct { UInt32 cid; UInt32 e0; UInt32 e1; } variants[4] = {
+            { 1,  1,  3  },   // index 1 (the one that was accepted at 23:48)
+            { 2,  2,  3  },   // index 2
+            { 3,  3,  3  },   // index 3
+            { 8,  8,  3  },   // index 8 -- does a low index limit exist?
+        };
+        for (UInt32 v = 0; v < 4; v++) {
+            UInt32 c = variants[v].cid;
+            UInt32 m = variants[v].e1;
+            UInt32 x0 = variants[v].e0;
+            UInt32 x1 = variants[v].e1;
+            volatile UInt8 *e = dxTable + (IOByteCount)c * kGbDxCtxEntryBytes;
+            memcpy((void *)(e + 0), &x0, 4);
+            memcpy((void *)(e + 4), &x1, 4);
+            __asm__ volatile ("" ::: "memory");
+
+            // DEFINE first (it needs a readable, non-empty entry; it then resets
+            // the entry to {-1,-1} and reports success), then rewrite + BIND.
+            UInt32 defCmd[3] = { kSvga3dCmdDxDefineContext, 4, c };
+            bool okd = cbSubmitCtx(defCmd, 3, 0, 0);
+            UInt32 a0 = *(volatile UInt32 *)(e + 0);
+            UInt32 a1 = *(volatile UInt32 *)(e + 4);
+            IOLog(VGPU_FB_TAG ": dx: VAR%u cid %u entry {%u,%u} DEFINE %s entry-after {%d,%d}\n",
+                  v, c, x0, x1, okd ? "ACCEPTED" : "refused", (int)a0, (int)a1);
+            if (!okd) {
+                continue;
+            }
+            memcpy((void *)(e + 0), &x0, 4);
+            memcpy((void *)(e + 4), &x1, 4);
+            __asm__ volatile ("" ::: "memory");
+
+            UInt32 bindCmd[5] = { kSvga3dCmdDxBindContext, 12, c, m, 0 };
+            bool okb = cbSubmitCtx(bindCmd, 5, 0, 0);
+            IOLog(VGPU_FB_TAG ": dx: VAR%u cid %u entry {%u,%u} BIND -> %s\n",
+                  v, c, x0, x1, okb ? "ACCEPTED" : "refused");
+            if (okb) {
+                IOLog(VGPU_FB_TAG ": dx: *** BIND ACCEPTED cid %u ***\n", c);
+                // vmwgfx passes {cid, type, mobid = res->start, validSizeInBytes = size}.
+                // Sweep validSize, plus an unbind control (mobid = INVALID_ID).
+                struct { const char *tag; UInt32 mob; UInt32 valid; } cots[3] = {
+                    { "mob5 valid4096",   kCotableMobId, kGbPageBytes },
+                    { "mob5 valid16384",  kCotableMobId, 16384 },
+                    { "mobINVALID unbind", 0xFFFFFFFFu,  0 },
+                };
+                for (UInt32 k = 0; k < 3; k++) {
+                    // SVGA3dCmdDXSetCOTable is {cid, mobid, type, validSizeInBytes}
+                    // -- mobid comes BEFORE type (we had them swapped, which is why
+                    // even the unbind form was refused).
+                    UInt32 cot[6] = { kSvga3dCmdDxSetCotable, 16, c,
+                                      cots[k].mob, 0 /*RTVIEW*/, cots[k].valid };
+                    bool okc = cbSubmitCtx(cot, 6, 0, 0);
+                    IOLog(VGPU_FB_TAG ": dx: SET_COTABLE %s -> %s\n",
+                          cots[k].tag, okc ? "ACCEPTED" : "refused");
+                    if (okc && cots[k].mob != 0xFFFFFFFFu) {
+                        break;
+                    }
+                }
+                break;
+            }
         }
-        IOLog(VGPU_FB_TAG ": dx: *** DX CONTEXT CHAIN (DEFINE+BIND+COTABLE) ACCEPTED ***\n");
     }
 
     // =====================================================================

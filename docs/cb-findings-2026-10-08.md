@@ -426,3 +426,62 @@ header 层完全通过，现在只剩命令处理层（DEFINE/BIND handler）的
 
 **下一步**：在 0x140603b30（DC 命令处理）处断点，看 DEFINE 与 BIND 谁被拒、
 被哪条规则拒（命令层错误码 3 的来源）；然后修命令序列。
+## 16. 10-22 凌晨：🏆 DX 上下文全通 —— DEFINE + BIND + SET_COTABLE 全部被接受
+
+### 胜出配置（可复现）
+
+| 环节 | 取值 |
+|---|---|
+| DXCONTEXT otable 注册 | `SET_OTABLE_BASE64 {type=5, base=ppnDxCtxPt(PT 页), size=2048, valid=0, ptDepth=PT64_0(4)}` |
+| otable 条目 | `{cid=1, mobid=3}`，写在 DX 表数据页 `cid*8` 处（条目 8 字节，type5 由 `0x140a080c0` 确认） |
+| CB 通道 | queue **0**、`flags=1`（NO_IRQ）、`header.dxContext=0` |
+| DEFINE_CONTEXT | body `{cid=1}`，4 字节 |
+| BIND_CONTEXT | body `{cid=1, mobid=3, valid=0}`，12 字节（宿主只读 cid） |
+| SET_COTABLE | body `{cid, mobid=5, type=0(RTVIEW), validSize=4096}`，16 字节 |
+
+实测日志（2026-10-22 00:56）：
+```
+dx: VAR0 cid 1 entry {1,3} DEFINE ACCEPTED entry-after {1,3}
+dx: VAR0 cid 1 entry {1,3} BIND -> ACCEPTED
+dx: *** BIND ACCEPTED cid 1 ***
+dx: SET_COTABLE mob5 valid4096 -> ACCEPTED
+```
+
+### 决定性修复（两个真 bug）
+
+1. **CB flags 只允许 0/1**（10-21 已实锤）：任何 DX_CONTEXT(2) 位 → CB_HEADER_ERROR(4)。
+   DX 命令因此必须走 **queue 0 + flags=1**，上下文由命令体里的 cid 指定（DEFINE/BIND/
+   SET_COTABLE 都带 cid）。
+2. **`SVGA3dCmdDXSetCOTable` 字段顺序是 `{cid, mobid, type, validSizeInBytes}`**
+   （svga3d_dx.h:1555）。此前写成 `{cid, type, mobid, valid}` → 连 unbind 形式
+   （mobid=INVALID_ID）都被拒。修正后立刻 ACCEPTED。**教训：结构体字段顺序必须逐字
+   对照头文件，不能凭语义猜。**
+
+### 关键静态事实（本轮新增）
+
+- `0x140a080c0(type)` = 每条目字节数分派：type0=16、type1=64、type2=8、type3=16、
+  type4=64、**type5(DXCONTEXT)=8**。
+- DEFINE handler（0x14055b900）：`ebx` 初值 0x101，只有"读到条目且 entry[0] != -1
+  → 把条目写成 {-1,-1}"这一条路径才置 0x100。即 **DEFINE 需要条目可读且非空**。
+- BIND handler（0x14055e5b0）：hash 记录不存在 → fallback 读 otable 条目，
+  `entry[0] != -1 && entry[1] != -1` → 0x100。
+- vmwgfx 金标准（vmwgfx_mob.c:141-166）：`size <= PAGE_SIZE` 时 `pt_level = PT64_0`、
+  `baseAddress = pt_root_page >> PAGE_SHIFT`，`sizeInBytes = PFN_ALIGN(size)`，
+  `validSizeInBytes = 0`。我们的注册与该逻辑一致。
+
+### 尚未解释的现象（诚实记录）
+
+- 同一注册下 **cid=1 通过，cid=9/10/11/12 全部被拒**（条目内容分别为 {0,0}/{0,3}/
+  {11,0}/{3,12}），原因未明（可能与宿主内部 DX 上下文表容量/惰性初始化有关）。
+  当前策略：先用 cid=1 把渲染链打通，之后再回头查 cid 上限。
+- 数据页基址（PT64_0 + 数据页）与 PT64_1 + PT 页两种"更自洽"的组合反而全拒——
+  只有"PT 页 + PT64_0"这一组能让 cid=1 通过。宿主读取的具体路径仍待动态确认。
+
+### 下一步
+
+1. **RTV / CLEAR / READBACK**：这些 DX 命令（svga3d_dx.h:939/386/566）**不带 cid**，
+   依赖"当前上下文"。需要在 flags=1 的前提下测试 `header.dxContext=cid` 是否被接受
+   （validator 只查 flags，dxContext 可能仍传给命令层）。
+2. 若 dxContext 无效：改用 DC 设备命令（cmd 1 START_STOP_CONTEXT/RESUME）把 queue 1
+   启动起来，让 DX CB 能带上下文。
+3. 之后才是 READBACK 品红校验 → Metal 对象层。
