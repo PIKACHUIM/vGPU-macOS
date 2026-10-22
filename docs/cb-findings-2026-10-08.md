@@ -485,3 +485,73 @@ dx: SET_COTABLE mob5 valid4096 -> ACCEPTED
 2. 若 dxContext 无效：改用 DC 设备命令（cmd 1 START_STOP_CONTEXT/RESUME）把 queue 1
    启动起来，让 DX CB 能带上下文。
 3. 之后才是 READBACK 品红校验 → Metal 对象层。
+## 17. 10-23 凌晨：上下文创建链全通，渲染命令（DEFINE_RTV）仍被拒
+
+### 本轮通过的命令（按此顺序，全部 ACCEPTED）
+
+```
+DEFINE_CONTEXT   {cid 1}                                   queue0 flags1
+BIND_CONTEXT     {cid 1, mob 3, valid 0}                    queue0 flags1
+SET_COTABLE      {cid 1, mobid 5, type 0(RTVIEW), 4096}     queue0 flags1
+DXBindShaderIface{cid 1, mob 3, 0x2000}   (cmd 1277)        queue0 flags1
+```
+
+顺序很重要：**SET_SHADER_IFACE 必须在 SET_COTABLE 之后**。放在之前会让
+SET_COTABLE 被拒（实测 00:32 那轮）。
+
+### 仍被拒的命令
+
+`DEFINE_RENDERTARGET_VIEW`（1187）在所有组合下都拒：
+
+| 变体 | 结果 |
+|---|---|
+| queue0 / dxContext 0 / arraySize 1 | refused |
+| queue1 / dxContext 0 / arraySize 1 | refused |
+| queue0 / dxContext cid / arraySize 1 | refused |
+| queue1 / dxContext cid / arraySize 0 | refused |
+
+所以与 cbContext、header.dxContext、desc 都无关。这条命令**不带 cid**，属于
+"渲染状态类"，怀疑需要上下文被激活（START_STOP_CONTEXT 或 DC cmd 3 真正建出
+`[ctx+0x150]`）。
+
+### 本轮修掉的两个结构错误
+
+1. **surface otable 条目尺寸 72 → 64**。`SVGAOTableSurfaceEntry` 是 64 字节
+   （format, surface1Flags, numMipLevels, multisampleCount, autogenFilter,
+   size{w,h,d}, mobid, arraySize, mobPitch, surface2Flags, msPattern, quality,
+   byteStride, minLOD, pad2）；我们原来按 72 字节写、还把 flags 当 64 位，
+   导致 sid>0 的条目全部错位。改用正确布局后 RTV 仍拒，说明这不是 RTV 的根因，
+   但条目错位本身必须修（其它 DX 命令会读它）。
+2. **命令名核对**（mksSandbox 名表，idx = cmdId-272）：1143 DXDefineContext、
+   1145 DXBindContext、1187 DXDefineRenderTargetView、1161 DXSetRenderTargets、
+   1176 DXClearRenderTargetView、1183 DXReadbackSubResource、1207 DXSetCOTable、
+   **1277 DXBindShaderIface**（不是 SetShaderIface）。ID 全部正确。
+
+### DC 设备命令分派（0x14054b860）解码
+
+```
+rdx = 0x140000000
+byte = [rdx + cmd + 0x54bb0c]; off = [rdx + 4*byte + 0x54baf0]; jmp rdx+off
+cmd 0,3 -> 0x14054b8f7   ; 建对象：cmp [rdi+0x150],0; jne err0xd; call 0x1404f2f20
+cmd 1,2 -> 0x14054b92d   ; 要求 [rdi+0x150] != 0，否则 ebx=0xd 失败
+cmd 4   -> 0x14054b955   ; 建 [rdi+0x158]（16 字节，xmm 拷贝自 body）
+cmd 5   -> 0x14054b978
+```
+**推论**：`START_STOP_CONTEXT{1,1,1}` 恒拒 = `[rdi+0x150]` 仍为 0 = 我们发的
+DC cmd 3 虽然报 ACCEPTED，但并没有真正建出上下文对象（或 payload 不对）。
+下一步应解码 cmd 3 的 body 语义（0x14054b8de 分支会拿 body 第一个 dword 与
+`[rdi+0x10]` 比较，不等则 err 0xe）。
+
+### 队列楔死现象（重要）
+
+**queue 0 连续失败约 4~5 次后会楔死**：之后所有 CB 的 status 一直是 0，kext 侧
+表现为 "timeout waiting for completion"（约 0.4 s/次）。每次开机只有有限次
+试错预算，实验设计要把最可能的组合排在最前。
+
+### 下一步（按优先级）
+
+1. 解码 DC cmd 3 的 body（0x14054b8de / 0x1404f2f20），让 `[ctx+0x150]` 真正建立；
+   之后 START_STOP_CONTEXT 应能通过 → queue 1 拥有"当前上下文" → RTV/CLEAR 才有望通过。
+2. 或从 mksSandbox 侧确认渲染命令的上下文来源（CB header.dxContext 在本轮被证明
+   无效，除非 flags 有 DX 位，而 flags 又被 validator 限制为 0/1）。
+3. RTV 通过后再接 CLEAR_RTV → READBACK_SUBRESOURCE → 品红/绿色校验。

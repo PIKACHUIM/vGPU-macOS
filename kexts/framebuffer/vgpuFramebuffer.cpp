@@ -198,6 +198,7 @@ enum {
     kSvga3dCmdDxSetScissorRects    = 1175,
     kSvga3dCmdDxClearRenderTargetView = 1176,
     kSvga3dCmdReadbackGbSurface    = 1104,
+    kSvga3dCmdDxReadbackSubResource = 1183,
     kSvga3dResourceTexture2D       = 3,
 };
 
@@ -337,7 +338,7 @@ static const UInt32     kGbSurfaceTableEnts  = 64;   // 64 * 72 = 4608 bytes
 // Sizes derived from the SVGAOTable*Entry structures (packed, 8-byte trailing alignment on
 // the mob entry; the surface entry is 72 bytes exactly as vmwgfx's headers define it).
 static const UInt32 kGbMobEntryBytes         = 16;
-static const UInt32 kGbSurfaceEntryBytes     = 72;
+static const UInt32 kGbSurfaceEntryBytes     = 64;   // SVGAOTableSurfaceEntry (0x140a080c0: type1=64)
 
 // Offsets inside the single contiguous working buffer the kext allocates.
 static const IOByteCount kGbOffPtOtable      = 0x0000;
@@ -2030,20 +2031,35 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     UInt64 sflags = kSvga3dSurfaceHintRenderTarget | kSvga3dSurfaceBindRenderTarget;
     UInt32 mips = 1, ms = 1, filter = 0, depth = 1;
     UInt32 pitch = dxW * 4;
-    memcpy((void *)(entry + 0), &fmt, 4);
-    memcpy((void *)(entry + 4), &sflags, 8);
-    memcpy((void *)(entry + 12), &mips, 4);
-    memcpy((void *)(entry + 16), &ms, 4);
-    memcpy((void *)(entry + 20), &filter, 4);
-    memcpy((void *)(entry + 24), &dxW, 4);
-    memcpy((void *)(entry + 28), &dxH, 4);
-    memcpy((void *)(entry + 32), &depth, 4);
-    memcpy((void *)(entry + 36), &mobId, 4);
-    memcpy((void *)(entry + 40), &mips, 4);
-    memcpy((void *)(entry + 44), &pitch, 4);
-    UInt64 zero64 = 0;
-    memcpy((void *)(entry + 48), &zero64, 8);
-    bzero((void *)(entry + 56), 16);
+    // SVGAOTableSurfaceEntry is 64 bytes (svga3d_cmd.h):
+    //   format, surface1Flags, numMipLevels, multisampleCount, autogenFilter,
+    //   size{width,height,depth}, mobid, arraySize, mobPitch, surface2Flags,
+    //   multisamplePattern(u8), qualityLevel(u8), bufferByteStride(u16),
+    //   minLOD(float), pad0[2].
+    // We used to write a 72-byte layout with a 64-bit flags field, so every entry
+    // after sid 0 was misaligned and the DX RTV path read garbage for sid 3.
+    UInt32 sflags32 = (UInt32)(kSvga3dSurfaceHintRenderTarget | kSvga3dSurfaceBindRenderTarget);
+    UInt32 surface2 = 0;
+    UInt8  msPattern = 0, quality = 0;
+    UInt16 byteStride = 0;
+    float  minLOD = 0.0f;
+    bzero((void *)entry, kGbSurfaceEntryBytes);
+    memcpy((void *)(entry + 0),  &fmt, 4);
+    memcpy((void *)(entry + 4),  &sflags32, 4);
+    memcpy((void *)(entry + 8),  &mips, 4);
+    memcpy((void *)(entry + 12), &ms, 4);
+    memcpy((void *)(entry + 16), &filter, 4);
+    memcpy((void *)(entry + 20), &dxW, 4);
+    memcpy((void *)(entry + 24), &dxH, 4);
+    memcpy((void *)(entry + 28), &depth, 4);
+    memcpy((void *)(entry + 32), &mobId, 4);
+    memcpy((void *)(entry + 36), &mips, 4);        // arraySize
+    memcpy((void *)(entry + 40), &pitch, 4);
+    memcpy((void *)(entry + 44), &surface2, 4);
+    memcpy((void *)(entry + 48), &msPattern, 1);
+    memcpy((void *)(entry + 49), &quality, 1);
+    memcpy((void *)(entry + 50), &byteStride, 2);
+    memcpy((void *)(entry + 52), &minLOD, 4);
     __asm__ volatile ("" ::: "memory");
 
     words[0] = kSvga3dCmdDefineGbSurface;
@@ -2119,25 +2135,100 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
                   v, c, x0, x1, okb ? "ACCEPTED" : "refused");
             if (okb) {
                 IOLog(VGPU_FB_TAG ": dx: *** BIND ACCEPTED cid %u ***\n", c);
-                // vmwgfx passes {cid, type, mobid = res->start, validSizeInBytes = size}.
-                // Sweep validSize, plus an unbind control (mobid = INVALID_ID).
-                struct { const char *tag; UInt32 mob; UInt32 valid; } cots[3] = {
-                    { "mob5 valid4096",   kCotableMobId, kGbPageBytes },
-                    { "mob5 valid16384",  kCotableMobId, 16384 },
-                    { "mobINVALID unbind", 0xFFFFFFFFu,  0 },
+                // SVGA3dCmdDXSetCOTable is {cid, mobid, type, validSizeInBytes}
+                // -- mobid comes BEFORE type (we had them swapped, which is why
+                // even the unbid form was refused).
+                bool cotOk = false;
+                struct { const char *tag; UInt32 mob; UInt32 valid; } cots[2] = {
+                    { "mob5 valid4096", kCotableMobId, kGbPageBytes },
+                    { "mob5 valid8192", kCotableMobId, 8192 },
                 };
-                for (UInt32 k = 0; k < 3; k++) {
-                    // SVGA3dCmdDXSetCOTable is {cid, mobid, type, validSizeInBytes}
-                    // -- mobid comes BEFORE type (we had them swapped, which is why
-                    // even the unbind form was refused).
+                for (UInt32 k = 0; k < 2; k++) {
                     UInt32 cot[6] = { kSvga3dCmdDxSetCotable, 16, c,
                                       cots[k].mob, 0 /*RTVIEW*/, cots[k].valid };
                     bool okc = cbSubmitCtx(cot, 6, 0, 0);
                     IOLog(VGPU_FB_TAG ": dx: SET_COTABLE %s -> %s\n",
                           cots[k].tag, okc ? "ACCEPTED" : "refused");
-                    if (okc && cots[k].mob != 0xFFFFFFFFu) {
+                    if (okc) {
+                        cotOk = true;
                         break;
                     }
+                }
+                if (!cotOk) {
+                    break;
+                }
+
+                // SET_SHADER_IFACE (0x4fd) must come AFTER the cotable: when it was
+                // sent before, the cotable binding was refused (state ordering).
+                {
+                    UInt32 si[5] = { kSvga3dCmdDxSetShaderIface, 12, c,
+                                     kCtxMobId, 0x2000 };
+                    bool oki = cbSubmitCtx(si, 5, 0, 0);
+                    IOLog(VGPU_FB_TAG ": dx: SET_SHADER_IFACE mob3 post-cotable -> %s\n",
+                          oki ? "ACCEPTED" : "refused");
+                }
+
+                // ---- render target view over the 256x256 X8R8G8B8 surface ----
+                // SVGA3dCmdDXDefineRenderTargetView {rtvId, sid, format,
+                //   resourceDimension, desc{mipSlice, firstArraySlice, arraySize}}
+                // No cid in the body, so the context has to come from the CB
+                // routing. Sweep the two candidates (queue 1 like vm3dmp, queue 0
+                // like our working context commands) and dxContext on/off.
+                const UInt32 rtvId = 1;
+                bool okRtv = false;
+                UInt32 rtvQ = 0, rtvDx = 0;
+                for (UInt32 t = 0; t < 4 && !okRtv; t++) {
+                    UInt32 q  = (t & 1) ? 1 : 0;          // cbContext
+                    UInt32 dx = (t & 2) ? c : 0;          // header.dxContext
+                    UInt32 arraySize = (t == 3) ? 0 : 1;
+                    UInt32 rtv[9] = { kSvga3dCmdDxDefineRenderTargetView, 28,
+                                      rtvId, surfId, kSvga3dSurfaceFormatX8R8G8B8,
+                                      kSvga3dResourceTexture2D, 0, 0, arraySize };
+                    okRtv = cbSubmitCtx(rtv, 9, q, dx);
+                    IOLog(VGPU_FB_TAG ": dx: DEFINE_RTV q%u dx%u arr%u -> %s\n",
+                          q, dx ? c : 0, arraySize, okRtv ? "ACCEPTED" : "refused");
+                    if (okRtv) {
+                        rtvQ = q;
+                        rtvDx = dx;
+                    }
+                }
+                if (!okRtv) {
+                    // Do NOT bail: CLEAR/READBACK tell us whether the whole class of
+                    // cid-less render commands is blocked (context not active) or only
+                    // the RTV definition is.
+                    rtvQ = 0;
+                    rtvDx = 0;
+                    IOLog(VGPU_FB_TAG ": dx: DEFINE_RTV refused -- probing CLEAR/READBACK anyway\n");
+                }
+                IOLog(VGPU_FB_TAG ": dx: DEFINE_RTV {rtv %u, sid %u} -> %s\n",
+                      rtvId, surfId, okRtv ? "ACCEPTED" : "refused");
+                if (!okRtv) {
+                    break;
+                }
+
+                // ---- clear it to green (X8R8G8B8 0xFF00FF00) ----
+                UInt32 clr[8] = { kSvga3dCmdDxClearRenderTargetView, 20, rtvId, 0, 0, 0, 0 };
+                { float g[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
+                  memcpy(&clr[3], g, 16); }
+                bool okClr = cbSubmitCtx(clr, 7, rtvQ, rtvDx);
+                IOLog(VGPU_FB_TAG ": dx: CLEAR_RTV {rtv %u} -> %s\n",
+                      rtvId, okClr ? "ACCEPTED" : "refused");
+                if (!okClr) {
+                    break;
+                }
+
+                // ---- read the surface back into our buffer ----
+                UInt32 rb[4] = { kSvga3dCmdDxReadbackSubResource, 8, surfId, 0 };
+                bool okRb = cbSubmitCtx(rb, 4, rtvQ, rtvDx);
+                IOLog(VGPU_FB_TAG ": dx: READBACK_SUBRESOURCE {sid %u} -> %s\n",
+                      surfId, okRb ? "ACCEPTED" : "refused");
+                __asm__ volatile ("" ::: "memory");
+                if (okRb) {
+                    UInt32 px = *(volatile UInt32 *)_dxVirt;
+                    UInt32 mid = *(volatile UInt32 *)((char *)_dxVirt +
+                                  (IOByteCount)(dxW * (dxH / 2) + dxW / 2) * 4);
+                    IOLog(VGPU_FB_TAG ": dx: READBACK pixels first=0x%08x mid=0x%08x"
+                          " (want 0xff00ff00)\n", px, mid);
                 }
                 break;
             }
@@ -2690,7 +2781,10 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
     // builder at 0x140013a51 sets NO_IRQ and DX_CONTEXT together; the 10-12
     // "flags=2" fix was based on a misread. DX CBs also go on cbContext=1/2,
     // never 0 (see cbSubmitDx).
-    *(volatile UInt32 *)(_cbHeaderVirt + 16) = (dxContext != 0) ? 7 : 1;  // flags: NO_IRQ|DX_CONTEXT|KEEP_HW_CURRENT(4?)
+    // The validator only accepts flags 0/1 (test flags,0xFFFFFFFE -> CB_HEADER_ERROR),
+    // so NEVER set the DX_CONTEXT bit. dxContext is still carried in the header and
+    // is what the command layer uses to pick the context for cid-less DX commands.
+    *(volatile UInt32 *)(_cbHeaderVirt + 16) = 1;   // flags: NO_IRQ only
     *(volatile UInt32 *)(_cbHeaderVirt + 20) = byteCount;                 // length
     *(volatile UInt64 *)(_cbHeaderVirt + 24) = _cbDataPA;                 // ptr.pa
     *(volatile UInt32 *)(_cbHeaderVirt + 32) = 0;                         // offset
