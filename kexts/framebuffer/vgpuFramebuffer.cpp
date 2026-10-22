@@ -1912,11 +1912,16 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
             bool okdc = cbSubmitCtx(dc3, 2, 0x3F, 0);
             IOLog(VGPU_FB_TAG ": dx: DC cmd 3 {cid %u} -> %s\n",
                   dcCid, okdc ? "ACCEPTED" : "refused");
-            // AFTER the context exists: START the DX queue (cbContext 1).
-            UInt32 startQ1[3] = { 1, 1, 1 };   // START_STOP_CONTEXT{enable=1, ctx=1}
-            bool okq1 = cbSubmitCtx(startQ1, 3, 0x3F, 0);
-            IOLog(VGPU_FB_TAG ": dx: START_STOP_CONTEXT {enable 1, ctx 1} post-cmd3 -> %s\n",
-                  okq1 ? "ACCEPTED" : "refused");
+            // START_STOP sweep on the (non-wedging) device queue. The bootstrap
+            // above proves {cmd 1, 1, 0} works, and {cmd 1, 1, 1} does not -- so
+            // the last dword selects the queue/context and id 1 is not servable
+            // yet. Sweep 0..3 to see which ids exist after DC cmd 3.
+            for (UInt32 q = 0; q < 4; q++) {
+                UInt32 startQ[3] = { 1, 1, q };
+                bool okq = cbSubmitCtx(startQ, 3, 0x3F, 0);
+                IOLog(VGPU_FB_TAG ": dx: START_STOP {enable 1, id %u} post-cmd3 -> %s\n",
+                      q, okq ? "ACCEPTED" : "refused");
+            }
         }
     }
     const UInt32 cid = 1;           // matches the prewritten DXCONTEXT otable slot {1,3}

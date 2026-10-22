@@ -555,3 +555,18 @@ DC cmd 3 虽然报 ACCEPTED，但并没有真正建出上下文对象（或 payl
 2. 或从 mksSandbox 侧确认渲染命令的上下文来源（CB header.dxContext 在本轮被证明
    无效，除非 flags 有 DX 位，而 flags 又被 validator 限制为 0/1）。
 3. RTV 通过后再接 CLEAR_RTV → READBACK_SUBRESOURCE → 品红/绿色校验。
+### 17.1 START_STOP 的 id 扫描（01:08）
+
+设备队列上 `{cmd 1, enable 1, id N}` 扫描结果：
+
+| id | 结果 |
+|---|---|
+| 0 | **ACCEPTED** |
+| 1 | refused |
+| 2 | refused |
+| 3 | refused |
+
+即宿主只有一个可服务的设备上下文（id 0），我们想要的 "queue 1" 根本不存在。
+DC 分派里 cmd 4 = 建 `[rdi+0x158]`（16 字节描述符，xmm 拷贝自 body）、cmd 5 使用它，
+cmd 6/7 会重建 `[rdi+0x150]` —— **cmd 4/5 很可能就是"建队列/提交队列"**，
+是让 cid-less 渲染命令有上下文可依附的关键。下一轮从解码 cmd 4/5 开始。
