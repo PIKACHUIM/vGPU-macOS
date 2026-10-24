@@ -570,3 +570,146 @@ DC cmd 3 虽然报 ACCEPTED，但并没有真正建出上下文对象（或 payl
 DC 分派里 cmd 4 = 建 `[rdi+0x158]`（16 字节描述符，xmm 拷贝自 body）、cmd 5 使用它，
 cmd 6/7 会重建 `[rdi+0x150]` —— **cmd 4/5 很可能就是"建队列/提交队列"**，
 是让 cid-less 渲染命令有上下文可依附的关键。下一轮从解码 cmd 4/5 开始。
+
+## 18. 10-25 凌晨：DC 命令表实证 + flags 判决实验（§17 的"队列 1 / cmd 4-5 建队列"路线作废）
+
+> 本节由新会话（上下文重建后）完成。所有地址基于 `vmware-vmx.exe`
+> （Tools 13.1.5 / WS 26.0，22,967,216 B，imagebase 0x140000000）。
+
+### 18.1 DC 设备命令的真实分派（静态，可复核）
+
+CB 里设备命令的处理函数在 **0x140087c10**（.pdata: begin 0x87c10 / end 0x87cd4），
+命令循环在 0x140087cf0：
+
+```
+rdx = 4B 读出的 cmd id
+cmp id, 6 ; jae -> 错误路径
+16B/条的命令表 @ 0x140A4F6A0 = {u32 bodyBytes; u32 pad; u64 handler}
+  cmd 0 -> body 0 B  handler 0x140017ec0
+  cmd 1 -> body 8 B  handler 0x140087170    (START_STOP_CONTEXT)
+  cmd 2 -> body 8 B  handler 0x140086e60    (PREEMPT)
+  cmd 3 -> body 4 B  handler 0x140087090
+  cmd 4 -> body 4 B  handler 0x140086c40
+  cmd 5 -> body 4 B  handler 0x140086d70
+推进量 = 4 (id) + bodyBytes
+```
+
+**⇒ §17 的"cmd 4 = 16 字节队列描述符（xmm 从 body 拷入）"不成立**：DC body 长度由
+本表给定，cmd 3/4/5 都是 4 字节。§17 那段 0x14054b860 的分派属于另一条路径
+（legacy / replayFifo），不是 CB 设备命令通道。
+
+### 18.2 START_STOP_CONTEXT 硬编码只接受 context 0（静态 + 实测双证）
+
+handler 0x140087170：
+
+```
+body = 8 B 读入 [rsp+0x20] = {u32 enable | u32 context}
+cmp eax, 1        ; enable
+ja  FAIL          ; enable > 1 -> 失败
+cmp [rsp+0x24], 0 ; context
+jne FAIL          ; ★ context != 0 一律失败
+```
+
+⇒ 任何 `START_STOP_CONTEXT{enable=1, context=N>0}` **恒** COMMAND_ERROR。
+这解释了 10-23 的 id 扫描（只有 0 通过）——不是"队列 1 还没建出来"，而是
+**本宿主根本不存在 context 1**。vmwgfx 侧同样是单上下文：`vmw_cmdbuf.c:1343`
+只调用 `vmw_cmdbuf_startstop(man, 0, true)`，即 `SVGA_CB_CONTEXT_0`，另加设备上下文 0x3f。
+
+### 18.3 cmd 3/4/5 = 每上下文 0/1 的状态记账，不是"建队列"
+
+三个 handler 结构完全同构：
+
+```
+if (bit29 of dword [perVM+0xf4] == 0) -> FAIL      ; 能力门
+read body dword = idx
+if (idx > 1) -> FAIL                               ; 只允许 0 或 1
+if (idx == 1 && bit29 == 0) -> FAIL
+entry = perVM_ctxBase + idx*0x118
+  cmd3: word[entry+0xae0] = 1
+  cmd4: if (byte[entry+0xae0]) { if (dword[+0xad8]==0 && dword[+0xadc]==0)
+                                     word[+0xae0] = 0;  else byte[+0xae1] = 1; }
+  cmd5: qword[entry+0xad0] = 0; dword[entry+0xad8] = 0
+```
+
+- `perVM_ctxBase = 0x141775a60`（.per_vm 段），能力 dword = `0x141775b54` = base+0xf4。
+- body 是**上下文索引 0/1**，不是 cid —— 我们一直在发 `{3, cid=1}`，实际含义是"索引 1"。
+- ⇒ 这是 2 个上下文槽的激活/挂起记账，**没有任何"创建队列"的语义**。
+
+### 18.4 ★ 判决实验：DX_CONTEXT flag 在本宿主被 header 层无条件拒绝
+
+利用静态读出的校验器顺序（0x140087c10 内）：
+
+```
+if (header.length == 0) -> COMPLETED          ← 在 flags 检查之前
+page-crossing check on header.ptr.pa + len
+call 0x140607760
+test dword header.flags, 0xFFFFFFFE  -> CB_HEADER_ERROR(4)
+```
+
+新增 `kFlagsProbe`（kext 内置，设备队列 0x3f，不楔死），同一 boot 实测（2026-10-25 00:43）：
+
+| flags | len 0 | len 12（DC cmd1 START_STOP{1,0}） |
+|---|---|---|
+| 0 | COMPLETED | COMPLETED |
+| 1 | COMPLETED | COMPLETED |
+| 2 | **COMPLETED** | **STATUS 4 (CB_HEADER_ERROR)** |
+| 3 | **COMPLETED** | **STATUS 4** |
+
+**结论（实锤，不再有解释空间）**：
+1. flags=2/3 的 CB **确实**走同一个提交函数（len==0 的捷径在同一个函数里先返回
+   COMPLETED），所以不存在"DX flag 走了另一条通道"这回事。
+2. 本宿主的 CB header validator 对所有队列**无条件**拒绝 `flags & 0xFFFFFFFE`。
+   ⇒ **CB header 无法表达 dxContext，`SVGA_CB_FLAG_DX_CONTEXT` 这条 vmwgfx 正路在本机被封死。**
+3. flags=0 也合法（测试用的是 `flags & 0xFFFFFFFE`，bit0 是唯一被允许的位）。
+
+### 18.5 由此得到的矛盾与新的头号假设
+
+矛盾：Windows 客体 vm3dmp 在同一宿主上 3D 正常，但若它真用 flags=3 提交 DX CB
+就会被同一个 validator 拒。二者只能有一个成立。
+
+静态新线索（关键）：`svga.enableDXContext` 是一个**可读的布尔配置项**
+（xref 0x1404bfe3c：`lea rdx,str; mov ecx,1; call 0x1400a95d0` = 默认 TRUE 的读配置），
+读完立刻检查 **perVM 能力 dword 的 bit28**：
+
+```
+0x1404bfe58  mov rax,[0x1404f31c0]      ; per-VM 结构指针
+0x1404bfe5f  mov ecx,[rax+0xf4]         ; = 0x141775b54（与 18.3 的 bit29 同一个 dword）
+0x1404bfe65  shr ecx,0x1c ; test cl,1   ; ★ bit28 = "DX context 可用"
+```
+
+同一个 dword 的 bit28 管 DX context、bit29 管 DC cmd 3/4/5。
+**头号假设：bit28/bit29 就是 darwin 客体拿不到 DX 的宿主侧开关**，
+而它们由 SVGA 能力协商（hwVersion / capLevel / capabilitiesMask / guestOS）在
+power-on 时算出来。
+
+**其他可能被忽略的宿主侧配置项**（vmware-vmx.exe 字符串表，均可写进 .vmx 试探）：
+
+```
+svga.enableDXContext      svga.enableDX / enableDX2 / enableDX3
+svga.enableCmdBuffer2     svga.enableRegCommandBuffers
+svga.allowHB3DOnPowerOn   svga.allowHB3DOnResume
+svga.capabilitiesMask     svga.unsafeFeatures
+svga.baseCapsLevel        svga.dump3dCaps / verbose3dCapsLogging
+svga.enableCOTableCopy    svga.enableHPCmdQueue
+```
+
+### 18.6 下一步（按优先级）
+
+1. **读运行期 perVM dword 0x141775b54 的真实值**（x64dbg 附 vmware-vmx.exe，或
+   静态补丁把 bit28/bit29 测试改成恒真）——确认 bit28 是否为 0。这一步能直接判定
+   "darwin 客体被关掉 DX context"是否成立。
+2. 在 .vmx 里试 `svga.enableDXContext` / `svga.enableDX3` / `svga.allowHB3DOnPowerOn`
+   + `svga.dump3dCaps=TRUE` + `svga.verbose3dCapsLogging=TRUE`（需要整机冷启动，
+   不是客体 reboot），重跑 `kFlagsProbe`：若 flags=2 len12 变 COMPLETED，则找到总开关。
+3. 若 bit28 恒置不上（产品策略写死）：退到"绕开 CB header"的路线 —— 用 cbContext
+   寄存器位表达上下文，或改走 legacy FIFO（vm3dmp 之外的第二次 oracle 对照）。
+
+### 18.7 本轮工程改动
+
+- `kexts/framebuffer/vgpuFramebuffer.cpp`：
+  `cbSubmitCtx()` 增加 `flags` 参数（默认 1，调用点语义不变）；新增 `kFlagsProbe`
+  （设备队列上跑 flags 0/1/2/3 × len 0/12 的 8 点矩阵，不楔死、不渲染）；
+  `kProbeEveryS` 置 0（4 s 一次的 DEFINE+BIND 循环会白耗队列错误预算）。
+- 状态：`kFbStage=2 / kGbStage=4 / kDxTest=1 / kCbDump=1 / kFlagsProbe=1`（实验版）。
+- 本轮同 boot 其余结果：DEFINE/BIND/SET_COTABLE/SET_SHADER_IFACE 依旧全 ACCEPTED，
+  DEFINE_RTV 四种路由（q0/q1 × dx0/dx1）依旧全部 STATUS 3。

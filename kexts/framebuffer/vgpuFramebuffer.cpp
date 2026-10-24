@@ -281,6 +281,19 @@ static const UInt32 kDxTest = 1;
 // Dump every CB header+payload to the log (bisect instrumentation).
 static const UInt32 kCbDump = 1;
 
+// 2026-10-25: CB header flag probe. The header validator
+// (vmware-vmx.exe!0x140087c10) runs, in this order:
+//     if (header.length == 0) -> COMPLETED          <-- returns BEFORE the flags test
+//     page-crossing check on ptr.pa
+//     call 0x140607760
+//     test header.flags, 0xFFFFFFFE -> CB_HEADER_ERROR(4)
+// So a length==0 CB with flags=2 answers the standing question: do DX-flag CBs
+// traverse THIS validator (the only gate we have ever seen write status 4), or do
+// they take a different submission path? COMPLETED = this is the only gate;
+// status 4 = flags=2 never reaches this code, i.e. another path exists.
+// Device queue (0x3f) only: device-queue errors never wedge the queue.
+static const UInt32 kFlagsProbe = 1;
+
 // Delay before the DX test runs (seconds after kext bring-up). Gives SSH/logd time
 // to be fully live so results survive an MKS wedge.
 static const UInt32 kDxTestDelayS = 90;
@@ -288,7 +301,7 @@ static const UInt32 kDxTestDelayS = 90;
 // Periodic DX probe: every kProbeEveryS seconds re-submit the packed DEFINE+BIND
 // on the device queue (errors there do not wedge). Used while a host-side debugger
 // is attached to catch the CB status write. 0 = off.
-static const UInt32 kProbeEveryS = 4;
+static const UInt32 kProbeEveryS = 0;
 
 // Register the PREPEND buffer (regs 53/54). 10-08 evening correlation: with PREPEND
 // registered BIND_CONTEXT was refused; the 14:04 boot without it had BIND accepted.
@@ -497,7 +510,8 @@ private:
     IOBufferMemoryDescriptor *_ctxStatePtMem = nullptr; // its PT page
 
     bool cbInit(void);
-    bool cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 cbContext, UInt32 dxContext);
+    bool cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 cbContext, UInt32 dxContext,
+                     UInt32 flags = 1);
     bool cbSubmit(const UInt32 *cmds, UInt32 wordCount);
     bool cbSubmitDx(const UInt32 *cmds, UInt32 wordCount, UInt32 dxCtxId);
 
@@ -2755,6 +2769,20 @@ bool vgpuFramebuffer::cbInit(void) {
     else {
         IOLog(VGPU_FB_TAG ": cb: PREPEND registration disabled (kCbPrepend=0)\n");
     }
+
+    if (kFlagsProbe) {
+        static const UInt32 kProbeFlags[4] = { 0, 1, 2, 3 };
+        UInt32 startstop[3] = { 1, 1, 0 };   // DC cmd 1, enable=1, context=0 (known-good)
+        for (UInt32 i = 0; i < 4; i++) {
+            UInt32 f = kProbeFlags[i];
+            bool emptyOk = cbSubmitCtx(nullptr, 0, 0x3F, 0, f);
+            IOLog(VGPU_FB_TAG ": probe: flags %u len 0  -> %s\n",
+                  f, emptyOk ? "COMPLETED" : "NOT-COMPLETED");
+            bool realOk = cbSubmitCtx(startstop, 3, 0x3F, 0, f);
+            IOLog(VGPU_FB_TAG ": probe: flags %u len 12 -> %s\n",
+                  f, realOk ? "COMPLETED" : "NOT-COMPLETED");
+        }
+    }
     return true;
 }
 
@@ -2762,13 +2790,15 @@ bool vgpuFramebuffer::cbInit(void) {
 // device to complete it. dxContext != 0 marks the payload as a DX-command stream
 // (SVGA_CB_FLAG_DX_CONTEXT + the context id in the header); 0 submits a plain stream.
 bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 cbContext,
-                                  UInt32 dxContext) {
+                                  UInt32 dxContext, UInt32 flags) {
     const UInt32 byteCount = wordCount * sizeof(UInt32);
     if (byteCount > kCbDataBytes) {
         IOLog(VGPU_FB_TAG ": cb: payload too large (%u)\n", byteCount);
         return false;
     }
-    memcpy((void *)_cbDataVirt, cmds, byteCount);
+    if (byteCount != 0) {
+        memcpy((void *)_cbDataVirt, cmds, byteCount);
+    }
     // NOTE: no padding -- zero-filled padding parses as command id 0 and the host
     // reports COMMAND_ERROR right after the real command (that was the offset-12
     // "failure" of DX_DEFINE_CONTEXT, which had actually succeeded).
@@ -2789,7 +2819,7 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
     // The validator only accepts flags 0/1 (test flags,0xFFFFFFFE -> CB_HEADER_ERROR),
     // so NEVER set the DX_CONTEXT bit. dxContext is still carried in the header and
     // is what the command layer uses to pick the context for cid-less DX commands.
-    *(volatile UInt32 *)(_cbHeaderVirt + 16) = 1;   // flags: NO_IRQ only
+    *(volatile UInt32 *)(_cbHeaderVirt + 16) = flags;   // flags (default: NO_IRQ only)
     *(volatile UInt32 *)(_cbHeaderVirt + 20) = byteCount;                 // length
     *(volatile UInt64 *)(_cbHeaderVirt + 24) = _cbDataPA;                 // ptr.pa
     *(volatile UInt32 *)(_cbHeaderVirt + 32) = 0;                         // offset
@@ -2811,7 +2841,7 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
               (unsigned long long)(_cbId - 1), hd[8], hd[9], hd[10], hd[11]);
         IOLog(VGPU_FB_TAG ": cb[%llu] pay: %08x %08x %08x %08x %08x %08x %08x %08x\n",
               (unsigned long long)(_cbId - 1),
-              cmds[0], wordCount > 1 ? cmds[1] : 0, wordCount > 2 ? cmds[2] : 0,
+              cmds != nullptr && wordCount > 0 ? cmds[0] : 0, wordCount > 1 ? cmds[1] : 0, wordCount > 2 ? cmds[2] : 0,
               wordCount > 3 ? cmds[3] : 0, wordCount > 4 ? cmds[4] : 0,
               wordCount > 5 ? cmds[5] : 0, wordCount > 6 ? cmds[6] : 0,
               wordCount > 7 ? cmds[7] : 0);

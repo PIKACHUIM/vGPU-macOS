@@ -41,6 +41,17 @@
   context (0x3f) 提交被宿主执行。CB device command 无 size 字段。
 - SURFACE_DMA 必须原子提交（拆分提交 → NEXT_CMD 越过不完整命令 → 宿主 abort）。
 
+## 2026-10-25 更新（上下文重建后）
+
+- **CB header flags 判决完成**：host 的 CB validator 无条件拒绝 `flags & 0xFFFFFFFE`
+  （判决实验见 `cb-findings` §18.4：flags=2/3 + len 0 → COMPLETED，len 12 → STATUS 4）。
+  ⇒ `SVGA_CB_FLAG_DX_CONTEXT` 在本机不可用，CB header 无法携带 dxContext。
+- **"队列 1"路线作废**：`START_STOP_CONTEXT` 硬编码只接受 `context == 0`；
+  DC cmd 3/4/5 是上下文索引 0/1 的状态记账，与"建队列"无关（§18.1–18.3）。
+- **新主线**：per-VM 能力 dword `0x141775b54` 的 bit28（DX context）/ bit29（DC cmd3-5），
+  由 SVGA 能力协商在 power-on 时决定；`svga.enableDXContext` 等 .vmx 配置项是候选开关（§18.5）。
+- 实验版开关：`kFbStage=2 / kGbStage=4 / kDxTest=1 / kCbDump=1 / kFlagsProbe=1`，`kProbeEveryS=0`。
+
 ## 当前开放问题
 
 ### P1：context-0 CB 里的 SVGA3D 命令解析失败（CB → 3D 执行的最后一关）
