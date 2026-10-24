@@ -713,3 +713,90 @@ svga.enableCOTableCopy    svga.enableHPCmdQueue
 - 状态：`kFbStage=2 / kGbStage=4 / kDxTest=1 / kCbDump=1 / kFlagsProbe=1`（实验版）。
 - 本轮同 boot 其余结果：DEFINE/BIND/SET_COTABLE/SET_SHADER_IFACE 依旧全 ACCEPTED，
   DEFINE_RTV 四种路由（q0/q1 × dx0/dx1）依旧全部 STATUS 3。
+
+## 19. 10-25 凌晨（二）：★ 渲染命令被拒的最终根因 —— DX 管理器对象从未被创建
+
+> 冷启动（`vmrun stop hard` → `start`，加了 `svga.dump3dCaps` / `verbose3dCapsLogging`）
+> + x64dbg 附 `vmware-vmx.exe` 实测。ASLR 后模块基址每次不同（本次 0x7FF7369B0000），
+> 下面给的是**静态 VA**（imagebase 0x140000000），运行时 = 基址 + (VA - 0x140000000)。
+
+### 19.1 冷启动复测：结论稳定，packed-CB 也无效
+
+- `kFlagsProbe` 与热启动完全一致（flags 2/3 + len>0 → STATUS 4）→ 不是缓存/脏状态问题。
+- 新增 packed-CB 实验（`{BIND,RTV}` / `{BIND,SET_COTABLE,RTV}` / `{DEFINE,BIND,RTV}` 打包单 CB）
+  全部 refused ⇒ **"当前上下文只在一个 CB 内有效"的假设也被否掉**。
+
+### 19.2 DX 渲染命令 handler 的公共前置检查
+
+`DEFINE_RENDER_TARGET_VIEW`(1187) 的 handler = **0x14055be80**（分派表条目
+VA 0x140bde944，stride 24，{u32 id; u32 pad; u32 pad2; u64 handler@+12; u32 min; u32 max}）：
+
+```
+read 4 dwords body          ; {rtvId, sid, format, resourceDimension}
+cmp eax,4 / jne FAIL
+rbx = qword [0x1414930A0]   ; ★ DX 管理器对象
+test rbx,rbx ; je FAIL      ; → 返回 0x101 (COMMAND_ERROR)
+...
+call 0x1404d1940(rbx, type=0, rtvId)         ; 读 RTVIEW cotable 条目
+call 0x1404d19e0(rbx, type=0, rtvId, &entry, 0x20)  ; 写 32 字节 RTVIEW 条目
+```
+
+对 `0x1414930A0` 做全 .text rip 相对引用扫描：**0x14055a3xx–0x140560xxx 之间几十个
+handler 全部引用它**（0x14055beb1 / 0x14055bf97 / 0x14055c076 …），即**所有 DX 渲染命令
+的第一道门都是这颗指针非空**。DEFINE/BIND/SET_COTABLE 的 handler 不查它，所以那几条一直通过。
+
+### 19.3 实测：这颗指针是 NULL
+
+x64dbg attach 到在跑的 vmware-vmx.exe（PID 34264，基址 0x7FF7369B0000）读
+`[0x1414930A0]` → **0x0000000000000000**。
+
+⇒ 我们的每一条渲染命令（RTV / CLEAR / READBACK …）在进入任何真正校验之前就返回
+COMMAND_ERROR。之前所有"body/尺寸/顺序/queue/flags 穷尽"的实验注定无效，因为它们
+都没能跨过这道门。
+
+### 19.4 谁应该创建它？——只有带 DX_CONTEXT flag 的 CB
+
+全 .text 只有**一个**写入点：`0x14050a077  mov qword [0x1414930A0], rax`，其前因：
+
+```
+0x14050a010  call 0x140603b30            ; 命令批处理器
+0x14050a015  rax = [rbp-0x30]            ; 返回的描述符（0x40 字节）
+0x14050a04e  test r8b, 2                 ; ★ 描述符 bit1
+0x14050a052  je   0x14050a20d            ; bit1 == 0 → 不创建
+0x14050a058  cmp  dword [0x141493802], 0 ; 第二道门（文件初值 0x40903 ≠ 0，不是拦路者）
+0x14050a05f  je   0x14050a222
+0x14050a072  call 0x140a17350            ; 建对象
+0x14050a077  mov  [0x1414930A0], rax     ; 存起来
+```
+
+描述符 bit1 = **`SVGA_CB_FLAG_DX_CONTEXT`**。也就是说：**DX 管理器是"第一次遇到带
+DX_CONTEXT 标志的 CB 时"才惰性创建的**。
+
+而 §18.4 已实锤：header validator 无条件拒绝 `flags & 0xFFFFFFFE`。
+**两者合起来 ⇒ 在本 build 上，只要不修改宿主，"CX 上下文/渲染"这条链在构造上就不可能打通。**
+（Windows 客体的 3D 必然是走了本路径之外的东西，或是这套 vGPU10 sandbox 只在特定
+能力组合下才启用——这正是下一步要用 vm3dmp trace 澄清的点。）
+
+### 19.5 破局方案：给 header validator 放开 bit1（1 字节补丁）
+
+```
+文件: C:/Program Files\VMware\VMware Workstation\x64\vmware-vmx.exe   (22,967,216 B)
+目标: 0x140087c90  test dword ptr [rbp-0x59], 0xFFFFFFFE
+机器码: F7 45 A7 FE FF FF FF   0F 85 34 01 00 00
+              ^^ file offset 0x87293
+补丁: 0x87293  FE → FC          → mask 变成 0xFFFFFFFC（放行 bit1，bit2+ 仍拒绝）
+```
+
+- 语义最小、可逆（改回 FC→FE 即可），且只影响"CB flags 是否放行 DX_CONTEXT"。
+- 打完补丁后重跑 `kFlagsProbe`：flags=2 + len12 应变 COMPLETED；
+  然后 DX 链（DEFINE→BIND→SET_COTABLE→RTV→CLEAR→READBACK）应能一路到像素。
+- 备份：先 `copy vmware-vmx.exe vmware-vmx.exe.bak-dxflag`（需管理员）。
+- 风险：影响本机所有 VM 的 VMX 进程（含 Windows 客体）；二进制被改后签名不符，
+  但 VMware Workstation 运行时不校验自身签名（10-13 的 gate patch 已有先例）。
+
+### 19.6 x64dbg 实测踩坑（下次直接用）
+
+- 模块基址每次启动都变（ASLR）：先 `module_get_main` 取 base，再 `base + (VA - 0x140000000)`。
+- `module_get_main` 在未 attach 状态不可用；VM 重启后 PID 会变，必须重新 `tasklist` 取 PID。
+- 读完必须 `script_execute {"command":"detach"}`，否则 VM 停在调试态 / vmrun stop 会卡。
+- `memory_read` 的返回是 `{address,data(hex),size}`，`data` 里可能带空格，需先去掉再 fromhex。

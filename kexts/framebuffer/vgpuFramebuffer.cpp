@@ -2212,6 +2212,45 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
                     }
                 }
                 if (!okRtv) {
+                    // 2026-10-25: the "current context" may only live for ONE CB
+                    // submission. vm3dmp packs DEFINE+BIND into a single CB (builder
+                    // 0x140013990); we have always split BIND and the render command
+                    // into separate CBs, so the command layer may have no context
+                    // when it reaches the cid-less RTV. Test three packings on
+                    // queue 0 / flags 1 (the only legal flags on this host):
+                    //   P0 {BIND, RTV}
+                    //   P1 {BIND, SET_COTABLE, RTV}
+                    //   P2 {DEFINE, BIND, RTV}
+                    for (UInt32 p = 0; p < 3; p++) {
+                        UInt32 pk[24];
+                        UInt32 n = 0;
+                        if (p == 2) {
+                            pk[n++] = kSvga3dCmdDxDefineContext; pk[n++] = 4; pk[n++] = c;
+                        }
+                        pk[n++] = kSvga3dCmdDxBindContext;   pk[n++] = 12;
+                        pk[n++] = c; pk[n++] = kCtxMobId; pk[n++] = 0;
+                        if (p == 1) {
+                            pk[n++] = kSvga3dCmdDxSetCotable; pk[n++] = 16;
+                            pk[n++] = c; pk[n++] = kCotableMobId; pk[n++] = 0;
+                            pk[n++] = kGbPageBytes;
+                        }
+                        pk[n++] = kSvga3dCmdDxDefineRenderTargetView; pk[n++] = 28;
+                        pk[n++] = rtvId; pk[n++] = surfId;
+                        pk[n++] = kSvga3dSurfaceFormatX8R8G8B8;
+                        pk[n++] = kSvga3dResourceTexture2D;
+                        pk[n++] = 0; pk[n++] = 0; pk[n++] = 1;
+                        bool okp = cbSubmitCtx(pk, n, 0, 0);
+                        IOLog(VGPU_FB_TAG ": dx: PACKED p%u (%u dwords) -> %s\n",
+                              p, n, okp ? "ACCEPTED" : "refused");
+                        if (okp) {
+                            okRtv = true;
+                            rtvQ = 0;
+                            rtvDx = 0;
+                            break;
+                        }
+                    }
+                }
+                if (!okRtv) {
                     // Do NOT bail: CLEAR/READBACK tell us whether the whole class of
                     // cid-less render commands is blocked (context not active) or only
                     // the RTV definition is.

@@ -48,8 +48,14 @@
   ⇒ `SVGA_CB_FLAG_DX_CONTEXT` 在本机不可用，CB header 无法携带 dxContext。
 - **"队列 1"路线作废**：`START_STOP_CONTEXT` 硬编码只接受 `context == 0`；
   DC cmd 3/4/5 是上下文索引 0/1 的状态记账，与"建队列"无关（§18.1–18.3）。
-- **新主线**：per-VM 能力 dword `0x141775b54` 的 bit28（DX context）/ bit29（DC cmd3-5），
-  由 SVGA 能力协商在 power-on 时决定；`svga.enableDXContext` 等 .vmx 配置项是候选开关（§18.5）。
+- **★ 渲染命令被拒的最终根因（§19）**：所有 DX 渲染 handler 的第一道门是
+  `[0x1414930A0]` 这颗 DX 管理器指针非空；x64dbg 实测它是 **NULL**。
+  而该指针全程序只有一个写入点（0x14050a077），前置条件正是
+  `test descriptor.bit1 (= SVGA_CB_FLAG_DX_CONTEXT)` —— 也就是说：
+  **DX 管理器要"带 DX_CONTEXT 标志的 CB"才会被惰性创建，而那个标志被 header
+  validator 封死。本 build 上不修改宿主就永远打不通渲染链。**
+- **破局方案（待批准执行）**：`vmware-vmx.exe` 1 字节补丁
+  file offset `0x87293` `FE → FC`（mask 0xFFFFFFFE → 0xFFFFFFFC，只放行 bit1）。见 §19.5。
 - 实验版开关：`kFbStage=2 / kGbStage=4 / kDxTest=1 / kCbDump=1 / kFlagsProbe=1`，`kProbeEveryS=0`。
 
 ## 当前开放问题
