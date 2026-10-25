@@ -800,3 +800,78 @@ DX_CONTEXT 标志的 CB 时"才惰性创建的**。
 - `module_get_main` 在未 attach 状态不可用；VM 重启后 PID 会变，必须重新 `tasklist` 取 PID。
 - 读完必须 `script_execute {"command":"detach"}`，否则 VM 停在调试态 / vmrun stop 会卡。
 - `memory_read` 的返回是 `{address,data(hex),size}`，`data` 里可能带空格，需先去掉再 fromhex。
+
+## 20. 10-25 下午：host 补丁生效（flags bit1 放行），但暴露出"两条 CB 提交路径"
+
+### 20.1 补丁已打并验证（vmware-vmx.exe, 1 字节）
+
+```
+file offset 0x87293  FE → FC        ; test [rbp-0x59], 0xFFFFFFFE -> 0xFFFFFFFC
+备份: vmware-vmx.exe.bak-dxflag（22,967,216 B，同日创建）
+```
+
+同一 boot 实测（2026-10-25 15:27）：
+
+| flags | len 0 | len 12 |
+|---|---|---|
+| 0 / 1 | COMPLETED | COMPLETED |
+| 2 / 3 | COMPLETED | **COMPLETED** ← 之前是 STATUS 4 |
+
+⇒ header 层对 `DX_CONTEXT` 的封禁确实只由那一个 mask 决定，**补丁有效**。
+
+### 20.2 但 RTV 仍然被拒，DX 管理器仍是 NULL
+
+kext 侧把 RTV 扫成 4 个组合（cbContext × dxContext × flags，全部带 DX flag）：
+
+```
+DEFINE_RTV q1 dx1 flags3 -> refused
+DEFINE_RTV q0 dx1 flags3 -> refused
+DEFINE_RTV q1 dx1 flags2 -> refused
+DEFINE_RTV q1 dx0 flags3 -> refused
+```
+
+x64dbg 复读 `[0x1414930A0]` → **仍然是 0x0**（PID 16600，base 0x7ff64bc60000）。
+即：flags bit1 现在合法了，但**创建 DX 管理器的那段代码根本没被执行到**。
+
+### 20.3 结论：CB 提交存在两条路径，我们的 CB 走的是"另一条"
+
+`[0x1414930A0]` 唯一的创建点在 0x14050a000 附近，它的上下文是：
+
+```
+0x14050a010  call 0x140603b30           ; 处理一批命令
+0x14050a015  rax = [rbp-0x30]           ; ← 返回的 "header" 指针
+0x14050a019  xmm2 = [rax+0x10]          ; header+0x10 = SVGACBHeader.flags
+0x14050a024  movd r8d, xmm2
+0x14050a04e  test r8b, 2                ; flags & DX_CONTEXT
+0x14050a052  je   0x14050a20d           ; 未置位 → 不创建
+0x14050a077  mov [0x1414930A0], rax     ; 唯一创建点
+```
+
+也就是说"`flags & DX_CONTEXT` → 建管理器"这条规则确实存在，但**只在 0x14050a000 这条
+提交路径上生效**；我们一直用的那条路径（header validator 0x140087c10 → 同样的
+0x140603b30，但 r8d=1 而非 3）不建管理器。
+
+### 20.4 头号假设：缺的是 **MOB 形态的 CB**（`SVGA_CB_FLAG_MOB` = bit2）
+
+三条独立证据指向同一件事：
+
+1. **vmwgfx**：`vmw_cmdbuf.c:893  cb_hdr->flags = SVGA_CB_FLAG_MOB;` —— 主路径是 MOB 形态，
+   `header->handle` 在 MOB 模式下是 mob 句柄而不是物理地址；submit 仍旧写
+   `REG_COMMAND_HIGH/LOW`（`vmw_cmdbuf.c:310-318`）。
+2. **vm3dmp**：逆向早已发现 —— arg10 字节非 0 时 ptr 写成 `{mobid(+0x18), offset(+0x1c)}`
+   且 **flags |= 4**（`cb-findings` §1）。
+3. **本机行为**：我们全部 CB 都用 `ptr.pa`（物理地址）形态 + flags 无 bit2，正好落在
+   "不建 DX 管理器"的那条路径上。
+
+⇒ **下一步必须实现 MOB 形态 CB**：把 header+payload 放进一个 GB MOB（PT64_0 单页足够），
+`ptr = {mobid, offset}`、`flags |= 4`，提交仍走 `REG_COMMAND_HIGH/LOW`。
+补丁的 mask 目前是 0xFFFFFFFC（只放行 bit1），若 MOB 形态仍被 header 层拒，
+则把 mask 再放宽到 0xFFFFFFF8（放行 bit2），同法 1 字节。
+
+### 20.5 工具状态
+
+- x64dbg 的 MCP 在本次 attach/detach 反复之后**再 attach 会失败**
+  （`attach failed`，`debug_get_state` = stopped）。需要重启 x64dbg 才能继续动态调试；
+  静态分析不受影响。
+- 本轮 kext 改动：RTV 扫描改成 (cbContext, dxContext, flags) 四组、`rtvFlags` 一路传给
+  CLEAR/READBACK、`kPackedTest=0`（打包实验退役，省 queue-0 错误预算）。

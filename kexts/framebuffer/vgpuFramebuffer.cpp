@@ -294,6 +294,11 @@ static const UInt32 kCbDump = 1;
 // Device queue (0x3f) only: device-queue errors never wedge the queue.
 static const UInt32 kFlagsProbe = 1;
 
+// 2026-10-25: packed-CB variant of the RTV test ({BIND,RTV} etc). It failed while
+// the host still rejected flags bit1 and costs 3 queue-0 error slots, so it is off
+// by default now that the real blocker (DX manager never created) is known.
+static const UInt32 kPackedTest = 0;
+
 // Delay before the DX test runs (seconds after kext bring-up). Gives SSH/logd time
 // to be fully live so results survive an MKS wedge.
 static const UInt32 kDxTestDelayS = 90;
@@ -2195,23 +2200,36 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
                 // like our working context commands) and dxContext on/off.
                 const UInt32 rtvId = 1;
                 bool okRtv = false;
-                UInt32 rtvQ = 0, rtvDx = 0;
+                UInt32 rtvQ = 0, rtvDx = 0, rtvFlags = 1;
+                // 2026-10-25 (host patched): the CB header validator now lets flags
+                // bit1 through, so DX_CONTEXT can finally be expressed. The DX
+                // manager object [0x1414930A0] -- whose null check blocked every
+                // render command -- is created lazily by the FIRST CB carrying that
+                // bit (vmware-vmx!0x14050a04e `test r8b,2` -> 0x14050a077). Queue 0
+                // wedges after ~4-5 failures, so the likeliest variants go first.
+                struct { UInt32 q; UInt32 dx; UInt32 flags; } rv[4] = {
+                    { 1, 1, 3 },   // vm3dmp-exact: ctx 1, NO_IRQ|DX_CONTEXT, dx = cid
+                    { 0, 1, 3 },   // same payload on context 0
+                    { 1, 1, 2 },   // DX_CONTEXT only (no NO_IRQ)
+                    { 1, 0, 3 },   // flag set, dxContext id left 0
+                };
                 for (UInt32 t = 0; t < 4 && !okRtv; t++) {
-                    UInt32 q  = (t & 1) ? 1 : 0;          // cbContext
-                    UInt32 dx = (t & 2) ? c : 0;          // header.dxContext
-                    UInt32 arraySize = (t == 3) ? 0 : 1;
+                    UInt32 q = rv[t].q;
+                    UInt32 dx = rv[t].dx ? c : 0;
+                    UInt32 fl = rv[t].flags;
                     UInt32 rtv[9] = { kSvga3dCmdDxDefineRenderTargetView, 28,
                                       rtvId, surfId, kSvga3dSurfaceFormatX8R8G8B8,
-                                      kSvga3dResourceTexture2D, 0, 0, arraySize };
-                    okRtv = cbSubmitCtx(rtv, 9, q, dx);
-                    IOLog(VGPU_FB_TAG ": dx: DEFINE_RTV q%u dx%u arr%u -> %s\n",
-                          q, dx ? c : 0, arraySize, okRtv ? "ACCEPTED" : "refused");
+                                      kSvga3dResourceTexture2D, 0, 0, 1 };
+                    okRtv = cbSubmitCtx(rtv, 9, q, dx, fl);
+                    IOLog(VGPU_FB_TAG ": dx: DEFINE_RTV q%u dx%u flags%u -> %s\n",
+                          q, dx ? c : 0, fl, okRtv ? "ACCEPTED" : "refused");
                     if (okRtv) {
                         rtvQ = q;
                         rtvDx = dx;
+                        rtvFlags = fl;
                     }
                 }
-                if (!okRtv) {
+                if (!okRtv && kPackedTest) {
                     // 2026-10-25: the "current context" may only live for ONE CB
                     // submission. vm3dmp packs DEFINE+BIND into a single CB (builder
                     // 0x140013990); we have always split BIND and the render command
@@ -2268,7 +2286,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
                 UInt32 clr[8] = { kSvga3dCmdDxClearRenderTargetView, 20, rtvId, 0, 0, 0, 0 };
                 { float g[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
                   memcpy(&clr[3], g, 16); }
-                bool okClr = cbSubmitCtx(clr, 7, rtvQ, rtvDx);
+                bool okClr = cbSubmitCtx(clr, 7, rtvQ, rtvDx, rtvFlags);
                 IOLog(VGPU_FB_TAG ": dx: CLEAR_RTV {rtv %u} -> %s\n",
                       rtvId, okClr ? "ACCEPTED" : "refused");
                 if (!okClr) {
@@ -2277,7 +2295,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
 
                 // ---- read the surface back into our buffer ----
                 UInt32 rb[4] = { kSvga3dCmdDxReadbackSubResource, 8, surfId, 0 };
-                bool okRb = cbSubmitCtx(rb, 4, rtvQ, rtvDx);
+                bool okRb = cbSubmitCtx(rb, 4, rtvQ, rtvDx, rtvFlags);
                 IOLog(VGPU_FB_TAG ": dx: READBACK_SUBRESOURCE {sid %u} -> %s\n",
                       surfId, okRb ? "ACCEPTED" : "refused");
                 __asm__ volatile ("" ::: "memory");
