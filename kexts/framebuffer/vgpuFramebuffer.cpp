@@ -299,6 +299,15 @@ static const UInt32 kFlagsProbe = 1;
 // by default now that the real blocker (DX manager never created) is known.
 static const UInt32 kPackedTest = 0;
 
+// 2026-10-25: submit command buffers in MOB form (SVGA_CB_FLAG_MOB). vmwgfx's
+// primary path is MOB-based (vmw_cmdbuf.c:892-896): the CB header itself keeps a
+// normal DMA address and is still submitted through SVGA_REG_COMMAND_LOW/HIGH,
+// but ptr becomes {u32 mobid, u32 mobOffset} pointing at a GB MOB and flags gets
+// bit2. The host's DX manager object (0x1414930A0) -- whose null check rejects
+// every render command -- is only created on that form.
+static const UInt32 kCbMobMode = 1;
+static const UInt32 kCbMobId = 6;      // GB MOB id holding CB payloads
+
 // Delay before the DX test runs (seconds after kext bring-up). Gives SSH/logd time
 // to be fully live so results survive an MKS wedge.
 static const UInt32 kDxTestDelayS = 90;
@@ -510,11 +519,15 @@ private:
     volatile UInt8           *_cbDataVirt = nullptr;
     UInt64                    _cbDataPA = 0;
     UInt64                    _cbId = 1;
+    IOBufferMemoryDescriptor *_cbMobMem = nullptr;     // CB payload MOB (1 page, PT64_0)
+    volatile UInt8           *_cbMobVirt = nullptr;
+    bool                      _cbMobReady = false;
     IOBufferMemoryDescriptor *_cbPrependMem = nullptr; // 4 KiB PREPEND buffer (regs 53/54)
     IOBufferMemoryDescriptor *_ctxStateMem = nullptr;  // exact-size DX state MOB (12288 B)
     IOBufferMemoryDescriptor *_ctxStatePtMem = nullptr; // its PT page
 
     bool cbInit(void);
+    bool cbMobSetup(volatile UInt32 *fifo);   // MOB-form CB payload MOB
     bool cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 cbContext, UInt32 dxContext,
                      UInt32 flags = 1);
     bool cbSubmit(const UInt32 *cmds, UInt32 wordCount);
@@ -2048,6 +2061,12 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     }
     IOLog(VGPU_FB_TAG ": dx: legacy cotable MOB %u defined (4 KiB PT64_0)\n", kCotableMobId);
 
+    // MOB-form CB payload (see cbMobSetup): kept out of this function so the
+    // frame stays under the stack-probe threshold -- adding it inline made clang
+    // emit a weak ____chkstk_darwin reference, which kmutil refuses to link into
+    // the auxiliary kernel collection (Code=31).
+    cbMobSetup(fifo);
+
     // The surface's OTable entry, then DEFINE_GB_SURFACE via legacy.
     volatile UInt8 *surfTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffSurfaceTable);
     volatile UInt8 *entry = surfTable + (IOByteCount)surfId * kGbSurfaceEntryBytes;
@@ -2745,6 +2764,50 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
 
 // Initialise the command-buffer areas: a 64-byte header and a 64 KiB command
 // payload, both physically contiguous.
+bool vgpuFramebuffer::cbMobSetup(volatile UInt32 *fifo) {
+    if (kCbMobMode == 0) {
+        return false;
+    }
+    UInt32 words[24];
+    _cbMobMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+        kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous,
+        kGbPageBytes, 0xFFFULL);
+    if (_cbMobMem == nullptr) {
+        IOLog(VGPU_FB_TAG ": dx: cb payload MOB alloc failed\n");
+        return false;
+    }
+    _cbMobVirt = (volatile UInt8 *)_cbMobMem->map()->getVirtualAddress();
+    bzero((void *)_cbMobVirt, kGbPageBytes);
+    IOByteCount mbLen = 0;
+    IOVirtualAddress mbAddr = _cbMobMem->getPhysicalSegment(0, &mbLen);
+    if (mbAddr == 0) {
+        IOLog(VGPU_FB_TAG ": dx: cb payload MOB page not resolvable\n");
+        return false;
+    }
+    const UInt64 mbPpn = (UInt64)mbAddr >> kGbPageShift;
+    volatile UInt8 *mobTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffMobTable);
+    UInt32 mbSize = kGbPageBytes;
+    UInt32 mbDepth = kSvga3dMobFmtPt64_0;
+    UInt32 mbOff = kCbMobId * kGbMobEntryBytes;
+    memcpy((void *)(mobTable + mbOff), &mbDepth, 4);
+    memcpy((void *)(mobTable + mbOff + 4), &mbSize, 4);
+    memcpy((void *)(mobTable + mbOff + 8), &mbPpn, 8);
+    __asm__ volatile ("" ::: "memory");
+    words[0] = kSvga3dCmdDefineGbMob64;
+    words[1] = 20;
+    words[2] = kCbMobId;
+    words[3] = kSvga3dMobFmtPt64_0;
+    memcpy(&words[4], &mbPpn, 8);
+    words[6] = kGbPageBytes;
+    if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": dx: cb payload MOB DEFINE_GB_MOB64 refused\n");
+        return false;
+    }
+    _cbMobReady = true;
+    IOLog(VGPU_FB_TAG ": dx: CB payload MOB %u ready (1 page PT64_0)\n", kCbMobId);
+    return true;
+}
+
 bool vgpuFramebuffer::cbInit(void) {
     _cbHeaderMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
         kernel_task, kIODirectionInOut, 64, 0x3F);
@@ -2853,8 +2916,10 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
         IOLog(VGPU_FB_TAG ": cb: payload too large (%u)\n", byteCount);
         return false;
     }
+    // MOB form: payload goes into the GB MOB, not the DMA buffer.
+    const bool mobMode = (kCbMobMode != 0) && _cbMobReady && (_cbMobVirt != nullptr);
     if (byteCount != 0) {
-        memcpy((void *)_cbDataVirt, cmds, byteCount);
+        memcpy((void *)(mobMode ? _cbMobVirt : _cbDataVirt), cmds, byteCount);
     }
     // NOTE: no padding -- zero-filled padding parses as command id 0 and the host
     // reports COMMAND_ERROR right after the real command (that was the offset-12
@@ -2876,9 +2941,15 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
     // The validator only accepts flags 0/1 (test flags,0xFFFFFFFE -> CB_HEADER_ERROR),
     // so NEVER set the DX_CONTEXT bit. dxContext is still carried in the header and
     // is what the command layer uses to pick the context for cid-less DX commands.
-    *(volatile UInt32 *)(_cbHeaderVirt + 16) = flags;   // flags (default: NO_IRQ only)
     *(volatile UInt32 *)(_cbHeaderVirt + 20) = byteCount;                 // length
-    *(volatile UInt64 *)(_cbHeaderVirt + 24) = _cbDataPA;                 // ptr.pa
+    if (mobMode) {
+        *(volatile UInt32 *)(_cbHeaderVirt + 24) = kCbMobId;              // ptr.mob.mobid
+        *(volatile UInt32 *)(_cbHeaderVirt + 28) = 0;                     // ptr.mob.mobOffset
+        flags |= 4;                                                       // SVGA_CB_FLAG_MOB
+    } else {
+        *(volatile UInt64 *)(_cbHeaderVirt + 24) = _cbDataPA;             // ptr.pa
+    }
+    *(volatile UInt32 *)(_cbHeaderVirt + 16) = flags;   // flags
     *(volatile UInt32 *)(_cbHeaderVirt + 32) = 0;                         // offset
     // SVGA_CB_FLAG_DX_CONTEXT requires dxContext to be a VALID DX context id;
     // 0 is invalid and trips the header validator (CB_HEADER_ERROR) -- the real

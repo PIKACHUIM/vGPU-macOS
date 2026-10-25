@@ -875,3 +875,84 @@ x64dbg 复读 `[0x1414930A0]` → **仍然是 0x0**（PID 16600，base 0x7ff64bc
   静态分析不受影响。
 - 本轮 kext 改动：RTV 扫描改成 (cbContext, dxContext, flags) 四组、`rtvFlags` 一路传给
   CLEAR/READBACK、`kPackedTest=0`（打包实验退役，省 queue-0 错误预算）。
+
+## 21. 10-25 下午（二）：MOB 形态 CB 落地 —— 换了一条路径，但仍未创建 DX 管理器
+
+### 21.1 实现（按 vmwgfx 逐字对齐）
+
+`vmw_cmdbuf.c:891-897`：CB **header 本身仍在普通 DMA 内存**（照旧用 PA 提交到
+`REG_COMMAND_LOW/HIGH`），只有 **payload 放进 GB MOB**，ptr 变成
+`{u32 mobid, u32 mobOffset}` 且 flags 加 `SVGA_CB_FLAG_MOB`(4)。
+
+kext 实现：`cbMobSetup()` 用 legacy FIFO 定义 MOB 6（1 页、PT64_0），
+`cbSubmitCtx()` 在 `_cbMobReady` 后把 payload 写进 MOB 页、`flags |= 4`。
+实测 header dump 已确认：
+
+```
+cb[19] ctx1 dx1 len36 hdr: ... flags=0x00000007  length=0x24  ptr={6,0}   ; NO_IRQ|DX|MOB
+cb[20] ctx0 dx1 len36 hdr: ... flags=0x00000007  ptr={6,0}
+cb[21] ctx1 dx1 len36 hdr: ... flags=0x00000006  ptr={6,0}                ; 无 NO_IRQ
+cb[22] ctx1 dx0 len36 hdr: ... flags=0x00000007  ptr={6,0}
+```
+
+**关键判据**：这 4 张 CB 的状态是 **STATUS 3（COMMAND_ERROR）而不是 4**
+—— 但补丁后的 mask 是 0xFFFFFFFC，`7 & 0xFFFFFFFC = 4 ≠ 0`，走老校验器必然返回 4。
+⇒ **MOB 形态确实走了另一条提交路径**（不动那道 flags 检查），假设前半段成立。
+
+### 21.2 但 DX 管理器仍然是 NULL
+
+x64dbg 复读 `[0x1414930A0]` = 0x0（PID 33804 / 33804→后来的实例，base 0x7ff64bc60000）。
+其创建处的第二道门也已排除：
+
+```
+[0x141493802] = 0x00100000  (≠ 0)  → 不是拦路者
+[0x1414937FC] = 0x00000001
+[0x141775B54] = 0xfdffc3e2  (bit28/29 都是 1)
+```
+
+⇒ 0x14050a077 那句仍然没被执行。要么 0x14050a000 那段也不是我们这条 MOB 路径，
+要么它前面还有别的门（例如需要 DX 上下文表里有有效记录）。
+
+### 21.3 给宿主进程下断点会冻住整个 VM（重要教训）
+
+在 `0x14050a04e / 0x14050a077 / 0x140087c90` 三个点下 INT3 之后：
+`debug_pause` 返回 success=false、`debug_run` 反复回到 paused（RIP 在系统 DLL），
+**客机网络栈直接死掉**（ping 不通），而且 `vmware-vmx.exe` 有 DACL 自我保护，
+`vmrun stop/reset` 报 "not powered on"、`Stop-Process` 无权结束 —— 只能让用户在
+VMware 窗口里手动 Power Off。
+
+结论：**以后对 vmware-vmx.exe 不要用会真正暂停进程的断点**；要么用只记录不停下的
+条件断点/日志断点，要么先把 handler 地址确定到"几乎肯定只被我们触发"的位置，
+并准备好立即 `debug_run` 恢复。冻结超过几十秒，客机就起不来了。
+
+### 21.4 kext 构建陷阱：weak `____chkstk_darwin` → kmutil Code=31
+
+往 `dxReadbackTest()` 里内联加局部变量后，clang 给该函数生成了栈探针，
+二进制里出现 **weak external `____chkstk_darwin`**，于是：
+
+```
+kmutil load -z -p .../vgpuFramebuffer.kext
+  Error Domain=KMErrorDomain Code=31
+  "Could not use 'com.vgpu.framebuffer' because: Has weak references but does not
+   test for them.  Test for weak references with OSKextSymbolIsResolved()."
+```
+
+后果极其隐蔽：**install.sh 仍然打印 "OK: staged and present in the collection"**（它只
+grep kext 名字，不看版本），auxKC 时间戳不变，**下一次启动跑的还是旧代码**——我为此
+白跑了两轮（15:44 / 15:50 那两次的 "no payload MOB log" 就是这个原因）。
+
+修法：把新增块抽成独立成员函数 `cbMobSetup()`，让 `dxReadbackTest()` 的栈帧回到阈值
+以下，weak 引用消失。
+**排查口诀**：`nm -m <.kext binary> | grep -i weak` 必须为空；不为空就别 install。
+另：`ls -la /Library/KernelCollections/AuxiliaryKernelExtensions.kc` 的 mtime 是判断
+"新代码到底进没进 auxKC" 的唯一可靠依据。
+
+### 21.5 下一步
+
+1. 重新找创建点：`0x14050a000` 那段多半不是 guest CB 路径。应改为从
+   **"谁在 CB 处理时调用 0x140603b30 且拿到 header 指针"** 入手，或直接在
+   `0x14050a077` 上**一次性断点 + 立即恢复**，看它到底会不会命中。
+2. 或者反向：从 DX 渲染 handler 的失败点（0x14055be80 的 `test rbx,rbx`）往上找
+   是否有别的"惰性创建"入口（例如 `SVGA_3D_CMD_DX_DEFINE_CONTEXT` 的 handler 0x14055b900
+   是否本该同时建管理器）。
+3. 每条实验都必须先过 §21.4 的两道自检（weak 符号为空 + auxKC mtime 更新）。
