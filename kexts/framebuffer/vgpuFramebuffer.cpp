@@ -2217,20 +2217,50 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
                 // No cid in the body, so the context has to come from the CB
                 // routing. Sweep the two candidates (queue 1 like vm3dmp, queue 0
                 // like our working context commands) and dxContext on/off.
+                // ---- PRIME: give the host a chance to create the DX context ----
+                // 2026-10-26. Every DX render handler bails on the null check
+                // `mov rbx,[0x1414930A0]; test rbx,rbx; je fail` (RTV handler
+                // 0x14055be80), and the ONLY writer of that global is 0x14050a077,
+                // inside the CB-completion fragment at 0x140509fe8 gated on
+                // `test r8b,2` (header->flags & SVGA_CB_FLAG_DX_CONTEXT). Its value
+                // comes from lookup-or-create by header->dxContext (+0x24) via
+                // 0x140a17350 -> 0x140a15b90 -> 0x1404cde70, which returns false (and
+                // therefore stores NULL) unless the DXCONTEXT cotable slot for that id
+                // resolves -- i.e. `entry[0] == cid` and its mobid reads back.
+                //
+                // Our earlier flags=2/3 probes all carried dxContext = 0, and no DX
+                // context 0 was ever defined, so any such CB could only store NULL.
+                // Untested until now: an EMPTY CB with the DX bit AND dxContext = cid.
+                // Empty payload cannot raise COMMAND_ERROR, so it cannot wedge the
+                // engine; if the lazy create is real the RTV below finds a live context.
+                {
+                    const UInt32 pc = 1;    // cid of the DX chain (otable slot {1,3})
+                    bool okPrime = cbSubmitCtx(nullptr, 0, 1, pc, 3);
+                    IOLog(VGPU_FB_TAG ": dx: PRIME (q1 dx%u flags3 len0) -> %s\n",
+                          pc, okPrime ? "COMPLETED" : "failed");
+                    if (!okPrime) {
+                        okPrime = cbSubmitCtx(nullptr, 0, 0x3F, pc, 3);
+                        IOLog(VGPU_FB_TAG ": dx: PRIME (q63 dx%u flags3 len0) -> %s\n",
+                              pc, okPrime ? "COMPLETED" : "failed");
+                    }
+                }
+
                 const UInt32 rtvId = 1;
                 bool okRtv = false;
                 UInt32 rtvQ = 0, rtvDx = 0, rtvFlags = 1;
                 // 2026-10-25 (host patched): the CB header validator now lets flags
-                // bit1 through, so DX_CONTEXT can finally be expressed. The DX
-                // manager object [0x1414930A0] -- whose null check blocked every
-                // render command -- is created lazily by the FIRST CB carrying that
-                // bit (vmware-vmx!0x14050a04e `test r8b,2` -> 0x14050a077). Queue 0
-                // wedges after ~4-5 failures, so the likeliest variants go first.
+                // bit1 through, so DX_CONTEXT can finally be expressed.
+                // 2026-10-26: the scanner below is nearly useless as a matrix -- the
+                // FIRST DX command that returns COMMAND_ERROR wedges the whole command
+                // engine, so every later cell just times out (measured: cb[19] error ->
+                // cb[20..23] never completed). Only t=0 carries real information, so it
+                // must be the cell with the best prior. After the PRIME above the
+                // context should exist, so lead with the non-wedging device queue.
                 struct { UInt32 q; UInt32 dx; UInt32 flags; } rv[4] = {
-                    { 1, 1, 3 },   // vm3dmp-exact: ctx 1, NO_IRQ|DX_CONTEXT, dx = cid
-                    { 0, 1, 3 },   // same payload on context 0
-                    { 1, 1, 2 },   // DX_CONTEXT only (no NO_IRQ)
-                    { 1, 0, 3 },   // flag set, dxContext id left 0
+                    { 1, 1, 3 },     // vm3dmp-exact: ctx 1, NO_IRQ|DX_CONTEXT, dx = cid
+                    { 1, 0, 3 },     // flag set, dxContext id left 0
+                    { 0x3F, 1, 3 },  // device queue: header validator rejects dx!=0 here
+                    { 1, 1, 2 },     // DX_CONTEXT only (no NO_IRQ)
                 };
                 for (UInt32 t = 0; t < 4 && !okRtv; t++) {
                     UInt32 q = rv[t].q;

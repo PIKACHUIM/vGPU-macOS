@@ -956,3 +956,142 @@ grep kext 名字，不看版本），auxKC 时间戳不变，**下一次启动�
    是否有别的"惰性创建"入口（例如 `SVGA_3D_CMD_DX_DEFINE_CONTEXT` 的 handler 0x14055b900
    是否本该同时建管理器）。
 3. 每条实验都必须先过 §21.4 的两道自检（weak 符号为空 + auxKC mtime 更新）。
+
+## 22. 10-26 夜：创建点的唯一性、它与调度器的连接方式，以及三条被证伪的假设
+
+### 22.1 先把"唯一写入点"钉死（工具修正）
+
+以前的 xref 扫描是**线性反汇编**，`.text` 里夹着跳转表，一乱就整段失步，所以只找到过一两条。
+正确的做法是**按 `.pdata`（42880 个 `RUNTIME_FUNCTION`）逐函数反汇编**（`scratch/refscan3.py`），
+这样每个函数的指令边界都是对的。重扫 `0x1414930A0` 得到 **98 条引用**：
+
+- 97 条是读（`mov rbx/rdi/rsi/rbp,[0x1414930A0]`，紧接着 `test r?b,?b; je bail`）；
+- **1 条是写**：`0x14050a077  mov qword ptr [rip+0xf89022], rax`；
+- 另 1 条是开机时的 16 字节清零（`0x1404cc013  movdqu [rip+0xfc7085], xmm0`，属于 BSS 初始化）。
+
+⇒ 结论不变（唯一写入点），但现在有了可信的扫描工具，后续任何"还有别的写入点吗"都不必再猜。
+
+### 22.2 创建函数的真身与它的**唯一调用者**
+
+`0x14050a077` 落在 pdata 片段 `0x140509fe8..0x14050a194` 里；它不是一个独立函数，而是大函数的一截
+（其它片段：`0x140509f20`、`0x14050a194`、`0x14050a20d`、`0x14050a4c1`）。核心序列：
+
+```
+0x140509ff4  mov [0x1414939xx], esi          ; 存一个索引
+0x14050a002  mov edx, 0x40                   ; 64 = sizeof(SVGACBHeader)
+0x14050a010  call 0x140603b30                ; 取一个 CB header（第 5 参数是 out 指针）
+0x14050a015  rax = [rbp-0x30]
+0x14050a019  xmm2 = [rax+0x10]               ; {flags, length, ptr.lo, ptr.hi}
+0x14050a024  movd r8d, xmm2                  ; r8d = flags
+0x14050a04e  test r8b, 2                     ; ← DX_CONTEXT
+0x14050a052  je 0x14050a20d
+0x14050a058  cmp dword ptr [0x1414937FC], 0  ; 门 1，实测 = 1，放行
+0x14050a065  movdqa xmm0, xmm1 ; psrldq 4    ; xmm1 = [rax+0x20] = {offset, dxContext, ...}
+0x14050a06e  movd ecx, xmm0                  ; ecx = header->dxContext (+0x24)
+0x14050a072  call 0x140a17350                ; lookup-or-create(dxContext)
+0x14050a077  mov [0x1414930A0], rax          ; ← 唯一写入，可能写 NULL
+0x14050a07e  test rax, rax ; je 0x14050a222  ; 拿不到就放弃这批命令
+```
+
+**调用者只有一个**：`0x1404c7a2b  call 0x140509f20`，位于函数 `0x1404c7950..0x1404c7a71`。它的判据是
+**时间片/抢占**，而不是"CB 完成"：
+
+```
+0x1404c796a  call 0x140508750                 ; 取当前 tick 相关状态
+0x1404c7979  cmp byte [dev+0x81d], 0 ; je out ; 设备处于某模式（非 0 才继续）
+0x1404c7987  ... [dev+0xd10] 与若干全局计数器比较（"跑够久了没有"）
+0x1404c7a14  ecx = [dev+0x9bc]                ; ← 关键字段
+0x1404c7a21  test ecx, ecx ; je out
+0x1404c7a25  cmp byte [dev+0x71], 0 ; jne out
+0x1404c7a2b  call 0x140509f20                 ; ← 只有这里会创建 DX 设备
+```
+
+`dev = [0x1414931C0]`（SVGA 设备对象；`[dev+0xf4]` 是能力 dword，bit28 = DX context 可用）。
+
+### 22.3 lookup 的失败路径（这是"写了 NULL"的现实可能）
+
+`0x140a17350(cid)`：哈希表 `0x141492EB0`（大小 `[0x141492ED0]`），命中就直接返回；
+**未命中 → `jmp 0x140a15b90`**，而它开头的分支允许失败：
+
+```
+0x140a15b90  ... call 0x140156e50(cid, &buf)   ; = 0x1404cde70
+0x140a15bbd  test al, al
+0x140a15bbf  jne  0x140a15bc8                  ; 成功才继续创建
+0x140a15bc1  xor  eax, eax                     ; ← 失败返回 NULL
+```
+
+`0x1404cde70(cid, out)` 的判据逐条如下（全部可核对）：
+
+1. `cid` 必须 <= 0xFFFF；
+2. `0x1404ca6b0(type=5, cid, 1, 0, &buf)` —— 查 **DXCONTEXT cotable（type 5，8 字节条目）**；
+3. `entry[0]` **必须等于 cid**（不是 mobid！`cmp edi, ebx; jne FAIL`）；
+4. 用 `entry[1]`（条目第二 dword）当 mobid，`0x1404c9fb0(mobid, off=0, out, 0x2000)` 读回 8 KiB。
+
+⇒ 所以 `[0x1414930A0]` 为 NULL 有**两种**可能，而只读全局是分不出来的：
+(a) 那段代码根本没执行；**(b) 执行了，但 `0x1404cde70` 失败，于是写了 NULL。**
+
+### 22.4 DX handler 的 null 门（复核，确认无误）
+
+`0x14055be80`（DEFINE_RTV）：
+
+```
+0x14055be99  call 0x140508bb0(&arg, 4, &arg)   ; 取 rtvId
+0x14055bea8  cmp eax, 4 ; jne fail
+0x14055beb1  mov rbx, [0x1414930A0]
+0x14055beb8  test rbx, rbx ; je fail            ; ← 就是这个门
+0x14055bec3  call 0x140a1e9c0 / 0x1404d1940     ; RTV cotable（type 0）
+```
+
+### 22.5 客机实测：**第一个 DX 错误就会楔死整条命令引擎**
+
+本轮把完整体验日志（`log show --start … | grep vgpu-fb`）逐条对过，得到一个此前判断错的事实：
+
+```
+cb[19] ctx1 dx1 flags7 (DEFINE_RTV)  -> STATUS 3 (COMMAND_ERROR, errorOffset 0)
+cb[20] ctx0 dx1 flags7               -> 超时（status 一直 0）
+cb[21] ctx1 dx1 flags6               -> 超时
+cb[22] ctx1 dx0 flags7               -> 超时
+cb[23] ctx0 dx0 flags5 (CLEAR)       -> 超时
+之后的 DEFINE_GB_CONTEXT             -> refused
+```
+
+**不是"队列 0 失败 4~5 次才楔死"，而是首个 DX 命令返回 COMMAND_ERROR 之后，后续所有 CB 都不再被处理。**
+⇒ 那条"四组扫描 matrix"实际上只有第一组是真数据，后面三组都是超时噪声。**以后一条 DX 错误 = 一次重启的预算。**
+
+同一轮里被**接受**的（全部 `dxContext=0`，且都不带 DX 渲染语义）：
+
+| 命令 | 结果 |
+|---|---|
+| DC cmd 3 `{body 1}` | ACCEPTED（`word[slot1+0xae0]=1`） |
+| START_STOP `{1,1,0}` | ACCEPTED；`{1,1,1..3}` refused（context 只允许 0） |
+| DX_DEFINE_CONTEXT `{cid 1}` (1143) | ACCEPTED，otable 条目 `{1,3}` |
+| DX_BIND_CONTEXT `{cid 1, mob 3, 0}` (1145) | ACCEPTED |
+| DX_SET_COTABLE `{cid1, mob5, type0, 4096}` (1207) | ACCEPTED |
+| DX_SET_SHADER_IFACE | ACCEPTED |
+| DEFINE_RTV (1187) | **COMMAND_ERROR** |
+
+### 22.6 本轮证伪的三条假设
+
+1. **`.vmx` 的 DX 开关是门。❌** 加了 `svga.enableDXContext/enableDX/DX2/DX3/enableCmdBuffer2`
+   （全部被接受，能正常开机），`SVGA3dClamp` 三个值一字未变
+   （`BC67Level 9(9,9)`、`BaseCapsLevel 9(9,9)`、`ClampLevel` renderer 7 / guest 10(7,10)），
+   DXCONTEXT devcap 仍为 1。**结论：这些键不是拦路者，别再当候选。**
+   顺带：`svga.loghw`、`svga.forceTraces` 在本机**没有任何额外输出**（应是 debug 构建才生效）。
+2. **空 DX CB 的"完成"会惰性创建 DX 设备。❌** 新增 PRIME 探测（空载荷 + `flags=3` + `dxContext=1`，
+   分别发在 ctx1 与 ctx63）：CB 本身 COMPLETED，但随后 RTV 仍然 COMMAND_ERROR。
+   ⇒ 创建不在"普通完成"路径上。
+3. **`dxContext≠0` 只是命令层的事。❌** 头部校验层也管它，而且**跟 cbContext 绑定**：
+   同样 `flags=3 dx=1`，`ctx1` 过校验（走到 STATUS 3），`ctx63` 直接 **STATUS 4 (CB_HEADER_ERROR)**。
+   ⇒ 以后所有带 dx 的 CB 必须发在 ctx1（vm3dmp 的 1/2），别发 0x3f。
+
+### 22.7 下一步（按性价比排序）
+
+1. **抢占路径**：既然 `0x140509f20` 只被"时间片/抢占"那条链调用，那就主动制造一次抢占 ——
+   发一个带 DX_CONTEXT 的 CB（载荷放**不会失败**的命令），紧接着发 `SVGA_CMD_PREEMPT`（cmd 2）
+   或 DC 的 PREEMPT（cmd 2/4），观察 `[0x1414930A0]`。这是唯一还没试过的入口。
+2. **反过来验证 (b) 假设**：让 kext 把 DXCONTEXT cotable 的条目改成 `{cid, mobid}` 的**另一种排列**
+   （`{1,3}` vs `{3,1}` 之外，还要试 `entry[1]` 指到一个**真能读**的 8 KiB MOB），
+   确认 `0x1404cde70` 的第 3、4 步能不能过。注意 `0x1404c9fb0` 要 0x2000 字节。
+3. 若要继续动态调试：**不要用 INT3**。宁可把 `0x14050a04e` 的
+   `41 f6 c0 02`（`test r8b,2`）就地改成 `41 80 c8 02`（`or r8b,2`，**同长度 2 字节**，
+   file offset 对应 `0x14050a050`/`0x14050a051`），让每个 CB 都当 DX CB 处理，然后只看客机日志判断。

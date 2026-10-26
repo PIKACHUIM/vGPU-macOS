@@ -48,6 +48,21 @@ if [ ! -x "$BUNDLE/Contents/MacOS/$NAME" ]; then
 fi
 echo "executable present: $(ls -l "$BUNDLE/Contents/MacOS/$NAME" | awk '{print $5}') bytes"
 
+# Weak references are fatal for an auxiliary kernel collection: kmutil rejects the kext
+# with Code=31 ("Has weak references but does not test for them") -- yet staging still
+# succeeds and the OLD binary keeps booting, because the auxKC is rebuilt from whatever
+# was accepted last time. That silent failure cost two boot cycles on 2026-10-25 (clang
+# emitted a weak ____chkstk_darwin after a stack frame grew). Refuse to install, so a
+# stale auxKC can never masquerade as new code.
+WEAK=$(nm -m "$BUNDLE/Contents/MacOS/$NAME" 2>/dev/null | grep -ci weak || true)
+if [ "$WEAK" != "0" ]; then
+    echo "FATAL: $WEAK weak reference(s) in the binary; kmutil will fail with Code=31" >&2
+    nm -m "$BUNDLE/Contents/MacOS/$NAME" 2>/dev/null | grep -i weak | head >&2
+    echo "shrink the offending stack frame (e.g. move locals into a helper function)" >&2
+    exit 1
+fi
+echo "weak references: 0 (kmutil will accept the kext)"
+
 echo "--- 2. install ---"
 rm -rf "$DEST"
 cp -R "$BUNDLE" "$DEST"

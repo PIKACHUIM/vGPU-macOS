@@ -58,7 +58,36 @@
   file offset `0x87293` `FE → FC`（mask 0xFFFFFFFE → 0xFFFFFFFC，只放行 bit1）。见 §19.5。
 - 实验版开关：`kFbStage=2 / kGbStage=4 / kDxTest=1 / kCbDump=1 / kFlagsProbe=1`，`kProbeEveryS=0`。
 
+## 2026-10-26 更新（补丁已生效，但创建点走的是另一条路径）
+
+- **1 字节宿主补丁已在位并验证有效**：`vmware-vmx.exe` file offset `0x87293` 现在是 `FC`
+  （备份 `vmware-vmx.exe.bak-dxflag`）。客机实测 `probe: flags 2/3 … -> COMPLETED`，
+  说明 header validator 已放行 `DX_CONTEXT`。
+- **★ 但 DX 管理器指针仍为 NULL，而且原因被重新表述**（详见 `cb-findings` §22）：
+  唯一写入点 `0x14050a077` 所在的片段 `0x140509fe8` **只有一个调用者** `0x1404c7a2b`，
+  它的判据是**时间片/抢占**（`[dev+0x81d]`、`[dev+0x9bc]`、`[dev+0x71]` + 若干计数器），
+  **不是"CB 完成"**。所以"带 DX flag 的 CB 一完成就会建管理器"这个假设是错的。
+- **NULL 有两种可能，只读全局分不出来**：`0x140a17350(dxContext)` 未命中时走
+  `0x140a15b90` → `0x1404cde70`，后者一旦失败就返回 NULL（于是 0x14050a077 写了 NULL）。
+  `0x1404cde70` 的判据：cid<=0xFFFF → 查 DXCONTEXT cotable(type5) → `entry[0]==cid`
+  → 用 `entry[1]` 当 mobid 读回 0x2000 字节。
+- **实测新事实：第一个 DX 命令报 COMMAND_ERROR 之后，整条命令引擎就不再处理任何 CB**
+  （不是"队列 0 失败 4~5 次才楔死"）。⇒ 旧的"四组扫描 matrix"只有第一组是真数据。
+- **头部校验层也管 dxContext，且与 cbContext 绑定**：同样 `flags=3, dx=1`，
+  `ctx1` 过校验（STATUS 3），`ctx63` 直接 STATUS 4。⇒ 带 dx 的 CB 一律发 ctx1/2。
+- **已证伪**：`.vmx` 的 `svga.enableDXContext/enableDX/DX2/DX3/enableCmdBuffer2` 不是门
+  （全部被接受、能开机，`SVGA3dClamp` 与 devcap 一字未变）；`svga.loghw`/`svga.forceTraces`
+  在本机无输出；空 DX CB 的完成不会惰性创建管理器。
+- 本轮 kext 变更：新增 `PRIME` 探测（空载荷 + DX flag + dxContext=cid）；RTV 扫描顺序改为
+  `(ctx1,dx=cid)` 优先；`install.sh` 增加 **weak 符号硬检查**（kmutil Code=31 的静默失败）。
+- 实验版开关：`kFbStage=2 / kGbStage=4 / kDxTest=1 / kCbDump=1 / kCbMobMode=1`，`kProbeEveryS=0`。
+
 ## 当前开放问题
+
+### P0（新）：如何让宿主走到 `0x1404c7a2b` 那条（抢占）路径
+- 那是唯一会创建/刷新 DX 管理器的地方。候选：主动制造一次抢占
+  （带 DX flag 的 CB + 紧随 `SVGA_CMD_PREEMPT` / DC PREEMPT），或让 CB 跑到时间片阈值。
+- 注意预算：**一条 DX 错误 = 一次重启**，所以每次实验只放一条 DX 命令。
 
 ### P1：context-0 CB 里的 SVGA3D 命令解析失败（CB → 3D 执行的最后一关）
 - 现象：DEFINE_GB_MOB64（context-0 CB 第一条）`COMMAND_ERROR at offset 0`。
