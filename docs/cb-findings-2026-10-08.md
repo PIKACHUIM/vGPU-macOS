@@ -1095,3 +1095,67 @@ cb[23] ctx0 dx0 flags5 (CLEAR)       -> 超时
 3. 若要继续动态调试：**不要用 INT3**。宁可把 `0x14050a04e` 的
    `41 f6 c0 02`（`test r8b,2`）就地改成 `41 80 c8 02`（`or r8b,2`，**同长度 2 字节**，
    file offset 对应 `0x14050a050`/`0x14050a051`），让每个 CB 都当 DX CB 处理，然后只看客机日志判断。
+
+## 23. 10-27：抢占 tick 的入口结构，以及"拖长 CB"也被证伪
+
+### 23.1 那条链是**周期性 tick**，不是一个可订阅的事件
+
+用 `tools/rev/vmx-callers.py` 一直往上追，链条只有一条，而且顶部没有直接调用者：
+
+```
+0x1404c5ee0   ← 0 callers（tick 回调/定时器，函数体里有 inc dword [0xf2d48c] 计数）
+  └─ `[dev+0xb4] != 0` 才继续
+  └─ call 0x1404c7950                        ; 抢占判定
+        ├─ `[dev+0x81d] != 0`
+        ├─ 若干计数器比较（"跑够久了没有"，[dev+0xd10] 等）
+        ├─ `[dev+0x9bc] != 0`
+        ├─ `[dev+0x71] == 0`
+        └─ call 0x140509f20                  ; ← 唯一会写 [0x1414930A0] 的代码在这
+```
+
+另一处同款判据（`0x1404d7498/0x1404d74b0`）也是同一组条件，说明这是**"宿主正在执行客人 CB、且还没让出去"**
+的通用让出（yield/preempt）判定，不是 DX 专属。
+
+`[dev+0x9bc]` 的位布局线索：`0x14028048b  test dword ptr [rbp+0x9bc], 0x3f00` ——
+**掩码 0x3f00 = bits 8..13，正好 6 位，就是 cbContext（0..63）的宽度**。所以这个字段只在
+「某个 cbContext 的命令正被宿主执行」时非零。同一函数的写法
+`eax = (x & 0xfe0f00e4) | 0xf00e4; mov [rbp+0x9bc], eax` 会把 bits 8..13 清掉 —— 那是**收尾/复位**路径。
+
+### 23.2 新实验：把宿主按在 in-flight 里，等 tick 抓到（❌ 证伪）
+
+推论：既然 tick 只在 CB 执行期间才有机会命中，而我们的 CB 只有几微秒，就把它**拖长**。
+做法（kext 里的 `SPIN` 段）：用一条**已知被接受且幂等**的命令做填充 ——
+`DX_SET_COTABLE`（1207）重复 170 次（6 dwords/条 = 4080 B，刚好卡在 4096 B 的载荷 MOB 之内），
+每张 CB 带回 `flags=3 + dxContext=cid`，连续发 40 张。
+
+实测（本次 boot）：
+
+```
+vgpu-fb: dx: SPIN 40 long DX CBs (q1 dx1) -> all COMPLETED
+vgpu-fb: dx: PRIME (q1 dx1 flags3 len0)     -> COMPLETED
+vgpu-fb: dx: DEFINE_RTV q1 dx1 flags3       -> refused      (COMMAND_ERROR)
+```
+
+40 张 × 1020 dwords = **40800 条命令都在 DX_CONTEXT 语义下跑过**，管理器依然没建起来。
+⇒ 「把 DX CB 拖长让 tick 命中」也不成立。结合 §22.6 的结论，可以确认：
+
+> **只要走 `REG_COMMAND_LOW/HIGH` 的单张 CB 提交，不管 flags/dxContext/MOB/长度怎么组合，
+> 宿主都不会创建 DX 管理器。** 剩下能改的只有 `[dev+0xb4]`、`[dev+0x81d]`、`[dev+0x71]`
+> 这三个"外部状态"，它们不由 CB 内容决定。
+
+### 23.3 顺手修掉的一个真实越界
+
+`cbSubmitCtx()` 原来只按 `kCbDataBytes`（64 KiB，DMA 形态的上限）检查载荷，
+但 MOB 形态的载荷区 `_cbMobMem` 只有 **1 页（4096 B）**。任何 >4 KiB 的载荷都会
+`memcpy` 越过一个物理连续的 1 页分配。已加上 `mobMode && byteCount > kGbPageBytes` 的硬检查
+（正是写 SPIN 这个"大载荷"调用者时才暴露的）。
+
+### 23.4 现在的判断：还剩下的两条路
+
+1. **HP command queue / `SVGA_CAP2_HP_CMD_QUEUE`（caps2 bit7，本机已是 1）**
+   —— 如果 DX CB 必须经由"队列 + 环"提交（而不是单张 CB 触发寄存器），
+   那么 `[dev+0x9bc]` 之类的状态由队列驱动，逻辑才自洽。这条路要先解出队列的寄存器/命令接口。
+2. **从 vm3dmp.sys 里抠"第一帧之前它还发了什么"**
+   —— 它在**同一台宿主**上是能跑 DX 的，所以它的初始化序列必然足够。
+   重点不是我们已对齐的 DEFINE_CONTEXT/BIND/COTABLE，而是**我们没发的那些**（例如全部 cotable 类型、
+   以及任何与"上下文激活"相关的命令）。这是纯静态工作，不需要重启预算。

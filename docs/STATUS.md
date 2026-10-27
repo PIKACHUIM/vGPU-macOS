@@ -84,10 +84,14 @@
 
 ## 当前开放问题
 
-### P0（新）：如何让宿主走到 `0x1404c7a2b` 那条（抢占）路径
-- 那是唯一会创建/刷新 DX 管理器的地方。候选：主动制造一次抢占
-  （带 DX flag 的 CB + 紧随 `SVGA_CMD_PREEMPT` / DC PREEMPT），或让 CB 跑到时间片阈值。
-- 注意预算：**一条 DX 错误 = 一次重启**，所以每次实验只放一条 DX 命令。
+### P0：DX 管理器在"单张 CB 提交"这条路上根本拿不到（2026-10-27 已定论）
+- 那条唯一写入链挂在**周期 tick**（`0x1404c5ee0` 无调用者）上，
+  条件 `[dev+0xb4]`、`[dev+0x81d]`、`[dev+0x9bc]`（bits 8-13 = 6 位 cbContext）、`[dev+0x71]`。
+- 实测证伪：40 张长 DX CB（共 40800 条带 DX_CONTEXT 语义的命令）全部 COMPLETED，
+  管理器仍未创建。⇒ **flags/dxContext/MOB/长度任意组合都不会建。**
+- 剩下两条路（`cb-findings` §23.4）：①解 `SVGA_CAP2_HP_CMD_QUEUE` 的队列提交接口；
+  ②从 vm3dmp.sys 抠"第一帧之前我们还缺的那些命令/cotable"。②是纯静态工作，零重启成本，优先。
+- 预算提醒：**一条 DX 错误 = 一次重启**，每次实验只放一条 DX 命令。
 
 ### P1：context-0 CB 里的 SVGA3D 命令解析失败（CB → 3D 执行的最后一关）
 - 现象：DEFINE_GB_MOB64（context-0 CB 第一条）`COMMAND_ERROR at offset 0`。

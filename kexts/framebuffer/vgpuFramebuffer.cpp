@@ -2211,12 +2211,52 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
                           oki ? "ACCEPTED" : "refused");
                 }
 
-                // ---- render target view over the 256x256 X8R8G8B8 surface ----
-                // SVGA3dCmdDXDefineRenderTargetView {rtvId, sid, format,
-                //   resourceDimension, desc{mipSlice, firstArraySlice, arraySize}}
-                // No cid in the body, so the context has to come from the CB
-                // routing. Sweep the two candidates (queue 1 like vm3dmp, queue 0
-                // like our working context commands) and dxContext on/off.
+                // ---- SPIN: keep the host inside a DX-flagged CB long enough to be caught
+                // 2026-10-27. The only writer of the DX manager (0x14050a077) is reached
+                // from 0x1404c7a2b, which sits in a PERIODIC TICK (0x1404c5ee0, no direct
+                // callers, has a tick counter) and only runs its preemption branch while
+                // `[dev+0x9bc] & 0x3f00` is nonzero AND `[dev+0x71] == 0`. `[dev+0x9bc]`
+                // is set from a packed word whose bits 8..13 are six bits wide -- exactly
+                // a cbContext (0..63) -- so it is nonzero only while the host is executing
+                // a guest CB. Our CBs are a few microseconds long, so no tick ever lands
+                // inside one. Hence: submit DX-flagged CBs whose payload is a long run of a
+                // known-accepted, idempotent command, to give the tick many chances.
+                // Filler = DX_SET_COTABLE with the values that were already ACCEPTED
+                // (6 dwords each, 170 reps = 4080 B, just under the 4096 B payload MOB).
+                {
+                    IOBufferMemoryDescriptor *spinMem =
+                        IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+                            kernel_task, kIODirectionInOut, kGbPageBytes, 0xFFFULL);
+                    if (spinMem == nullptr) {
+                        IOLog(VGPU_FB_TAG ": dx: SPIN buffer alloc failed\n");
+                    } else {
+                        UInt32 *sp = (UInt32 *)spinMem->map()->getVirtualAddress();
+                        const UInt32 rep = 170;
+                        for (UInt32 r = 0; r < rep; r++) {
+                            sp[r * 6 + 0] = kSvga3dCmdDxSetCotable;
+                            sp[r * 6 + 1] = 16;
+                            sp[r * 6 + 2] = cid;
+                            sp[r * 6 + 3] = kCotableMobId;
+                            sp[r * 6 + 4] = 0;
+                            sp[r * 6 + 5] = kGbPageBytes;
+                        }
+                        __asm__ volatile ("" ::: "memory");
+                        UInt32 okSpin = 0;
+                        bool spinBad = false;
+                        for (UInt32 n = 0; n < 40; n++) {
+                            if (!cbSubmitCtx(sp, rep * 6, 1, cid, 3)) {
+                                spinBad = true;
+                                break;
+                            }
+                            okSpin++;
+                        }
+                        IOLog(VGPU_FB_TAG ": dx: SPIN %u long DX CBs (q1 dx%u%s) -> %s\n",
+                              okSpin, cid, spinBad ? ", stopped early" : "",
+                              spinBad ? "one refused" : "all COMPLETED");
+                        spinMem->release();
+                    }
+                }
+
                 // ---- PRIME: give the host a chance to create the DX context ----
                 // 2026-10-26. Every DX render handler bails on the null check
                 // `mov rbx,[0x1414930A0]; test rbx,rbx; je fail` (RTV handler
@@ -2948,6 +2988,15 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
     }
     // MOB form: payload goes into the GB MOB, not the DMA buffer.
     const bool mobMode = (kCbMobMode != 0) && _cbMobReady && (_cbMobVirt != nullptr);
+    // The payload MOB is ONE page (kGbPageBytes); the 64 KiB bound above only covers the
+    // DMA form. Without this check a >4 KiB payload memcpy'd into the MOB silently walks
+    // past a physically-contiguous 1-page allocation (2026-10-27, found while writing the
+    // SPIN probe, which is exactly the kind of caller that would have tripped it).
+    if (mobMode && byteCount > kGbPageBytes) {
+        IOLog(VGPU_FB_TAG ": cb: payload %u exceeds the %u-byte CB payload MOB\n",
+              byteCount, kGbPageBytes);
+        return false;
+    }
     if (byteCount != 0) {
         memcpy((void *)(mobMode ? _cbMobVirt : _cbDataVirt), cmds, byteCount);
     }
