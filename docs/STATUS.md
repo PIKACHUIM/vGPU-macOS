@@ -135,19 +135,25 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 
 ## 当前开放问题
 
-### P0：像素通路 —— 只剩"跨路径引用"这一个未隔离变量
-§35.5 观察到：`DEFINE_RTV` 是整个模板里唯一一条**引用既有资源并要求宿主查其属性**
-的命令，而它引用的 sid 3 是唯一由 **legacy FIFO** `DEFINE_GB_SURFACE` 创建、
-却被 **DX 路径**引用的对象。
+### P0：像素通路 —— 回到 2D 路径（§35.5 的设想已作废）
+§35.5 曾提出"用 `SVGA_3D_CMD_DX_DEFINE_GB_SURFACE` 重建 sid"来隔离"跨路径引用"。
+**这条实验在动手前被 §36 证伪，作废：**
 
-- 下一轮实验（零重启成本地改代码，一次启动取结果）：
-  **改用 `SVGA_3D_CMD_DX_DEFINE_GB_SURFACE` 在同一个 cid 上重建 sid**，再用它做
-  `DEFINE_RTV`。这是唯一还没被隔离的变量。
-- 若仍 STATUS 3 ⇒ 跨路径引用也被排除，`DEFINE_RTV` 的封锁确认为宿主硬限制，
-  **转 2D 出像素路径**（`cb-findings` §31.5-3）：GB surface +
-  `SVGA_3D_CMD_SURFACE_DMA` / blit，绕开整个 DX 命令族，直接把内容写进
-  VRAM 的 framebuffer 偏移（`fb offset 0x0`，1024x768 pitch 4096）。
-- 预算提醒：**一条 DX 错误 = 一次重启**，每次实验只放一条 DX 命令。
+- `svga3d_cmd.h` 的 `SVGA_3D_CMD_DX_MIN(1143)…DX_MAX(1227)` 区间里
+  **根本没有 DX 前缀的 surface 定义命令**；GB surface 只有 V1/V2/V3/V4 四态，
+  且我们的标志位（最高 `1<<24`）完全落在 V1 的 32 位空间内。
+- vmwgfx 把 `DEFINE_GB_SURFACE` / `_V2` / `_V4` 全标为 `vmw_cmd_invalid` ——
+  它本来就不经 CB，走 legacy FIFO。而 M6 那版**屏幕完整实时渲染**的代码
+  正是这么做的。⇒ "legacy 定义、DX 引用"不是异常，是已验证的正常路径。
+
+**真正的下一步：把 2D 通路打开，而不是继续找 DX 的变量。**
+
+- 2D 出像素通路 = M6 已经验证过的东西，代码仍在：
+  `memcpy(VRAM → surface MOB)` → `SURFACE_DMA(1044)` → `UPDATE_GB_IMAGE(1101)`
+  → `UPDATE_GB_SCREENTARGET`，30 Hz；surface 带 `SCREENTARGET(1<<16)`、MOB 用 `PT64_2`。
+- 当前 `kGbStage = 4`，STDU 关闭（启动日志里没有 `stdu:` 行）。提到 5 即可恢复。
+- 待确认：恢复后显示是否正常、像素是否正确；若 M6 之后引入的问题复现，再逐项定位。
+- 预算提醒：**一条 DX 错误 = 一次重启**；DX 主线已判定不可达，不要再往里投实验。
 
 ### P0-旧：`DEFINE_RTV` 的 COMMAND_ERROR（已由 §35 判定，保留作历史）
 - 已排除：CB header 合法性、命令通道、MOB 校验、desc 排列、`format`/`dim`、

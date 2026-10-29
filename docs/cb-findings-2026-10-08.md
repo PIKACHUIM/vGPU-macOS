@@ -2229,3 +2229,70 @@ view 描述是否合法。sid 3 是走**legacy FIFO** `DEFINE_GB_SURFACE` 建的
 **改用 `SVGA_3D_CMD_DX_DEFINE_GB_SURFACE`（DX 路径）在同一个 cid 上重建 sid**，
 再用这个 sid 做 `DEFINE_RTV`。如果仍然 STATUS 3，跨路径引用也被排除，
 `DEFINE_RTV` 的封锁就真的是宿主侧的硬限制。
+
+---
+
+## §36 §35.5 的"下一轮"在动手前被证伪 —— 2D 路径早已存在且已验证
+
+§35.5 提出的下一个动作是"改用 `SVGA_3D_CMD_DX_DEFINE_GB_SURFACE` 重建 sid"。
+在动手之前先按惯例核对上游定义，结果这条路从一开始就不存在：
+
+### 36.1 不存在 `SVGA_3D_CMD_DX_DEFINE_GB_SURFACE` 这个命令
+
+从 `svga3d_cmd.h` 逐条核过 `SVGA_3D_CMD_DX_MIN(1143) … DX_MAX(1227)` 的整个区间，
+**没有任何一条 DX 前缀的 surface 定义命令**。GB surface 的定义只有四种形态：
+
+| 命令 | ID | 载荷 | vmwgfx 表中的条目 |
+|---|---|---|---|
+| `DEFINE_GB_SURFACE` | 1097 | 8 dword（surfaceFlags 为 **32 位**） | `vmw_cmd_invalid` |
+| `DEFINE_GB_SURFACE_V2` | 1134 | + arraySize, pad | `vmw_cmd_invalid` |
+| `DEFINE_GB_SURFACE_V3` | 1239 | surfaceFlags 为 **64 位**，+ MS pattern/quality | — |
+| `DEFINE_GB_SURFACE_V4` | 1267 | V3 + bufferByteStride | `vmw_cmd_invalid` |
+
+`svga3d_cmd.h` 里 `SVGA3D_SURFACE_FLAG_MAX = 1<<44`，我们用的最高位是
+`BIND_RENDER_TARGET = 1<<24`，远在 32 位标志空间的范围内 —— 也就是说
+**V1（32 位 surfaceFlags）和我们发送的内容是兼容的，不存在"必须升级到 V3/V4"的问题**。
+
+所以 §35.5 那条实验设计是错的，作废。教训：**在写"下一轮做什么"之前先核对协议定义，
+不要凭"应该有这么一个命令"的直觉**。这次是一个 curl 就否掉了一次烧启动的实验。
+
+### 36.2 `DEFINE_GB_SURFACE` 本来就不经 CB —— 它走 legacy FIFO
+
+这一点更重要，它把 §35 的"跨路径引用"从"可疑"变成了"正常"：
+
+- vmwgfx 在 `vmwgfx_execbuf.c` 的命令表里把 `DEFINE_GB_SURFACE` / `_V2` / `_V4`
+  全部标为 `vmw_cmd_invalid`，意思是**这个驱动自己从不发送它**（表的语义见
+  `VMW_CMD_DEF(_cmd,_func,_user_allow,_gb_disable,_gb_enable)`）。
+- 反过来看我们自己的代码：M6 里程碑（10-06，`b89c619`）**屏幕完整实时渲染**
+  的那一版，surface 就是走 legacy FIFO 的 `DEFINE_GB_SURFACE` 定义的
+  （`gb: GB SURFACE 3 defined (256x256 X8R8G8B8 on MOB 1)`），而
+  `SURFACE_DMA` / `UPDATE_GB_IMAGE` / 屏靶绑定同样走 legacy FIFO，全部工作正常。
+
+⇒ **"legacy 定义的 surface 被后续命令引用"本身不是异常，是被验证过的正常路径。**
+§35.5 把这一点列为"唯一还没隔离的变量"，方向就是错的。
+`DEFINE_RTV` 的失败应当归因于 DX 命令族本身（DX 管理器未创建），
+而不是它引用的 sid 的出身。
+
+### 36.3 因此 2D 出像素路径不是"将来要做"，是"已经做过"
+
+`STATUS.md` M6 写得很清楚，而且这版代码里还留着完整实现：
+
+- 呈现循环 30 Hz：`memcpy(VRAM → surface MOB)` →
+  `SURFACE_DMA(1044)` guest→host → `UPDATE_GB_IMAGE(1101)` →
+  `UPDATE_GB_SCREENTARGET`；
+- surface 必须带 `SVGA3D_SURFACE_SCREENTARGET (1<<16)`，MOB 用 `PT64_2`；
+- 当前 `kGbStage = 4`，**STDU 通路是关闭状态**（本次启动日志里没有 `stdu:` 行，
+  只有 `DXCONTEXT otable base set` / `DX context state MOB 3 ready`）。
+  要恢复它只需把 `kGbStage` 提到 5。
+
+`kDxTest` 里那段 `SURFACE_DMA` 上传 → 下载 → 校验像素的往返测试
+（`DMA ROUND TRIP VERIFIED`）也是现成的，它测的正是 2D 数据通路的正确性。
+
+### 36.4 结论修正
+
+- §35 关于"`DEFINE_RTV` 在本宿主上无法成功"的判定**不变**，仍然成立。
+- §35.5 引出的"下一轮实验"**作废**，它基于一个不存在的命令和一个错误的前提。
+- 下一步不再是"找 DX 的另一个变量"，而是**确认 2D 通路的状态**：
+  把 `kGbStage` 提到 5 恢复 STDU，观察显示是否恢复、像素是否正确。
+  这是把项目从"研究 DX"拨回"产出可见像素"的那个动作 —— 而且它花费的是
+  一次改开关 + 一次重启，不是又一轮猜谜。
