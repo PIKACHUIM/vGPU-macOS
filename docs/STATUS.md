@@ -155,6 +155,19 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 - 待确认：恢复后显示是否正常、像素是否正确；若 M6 之后引入的问题复现，再逐项定位。
 - 预算提醒：**一条 DX 错误 = 一次重启**；DX 主线已判定不可达，不要再往里投实验。
 
+**进展（10-29 22:40 boot，`cb-findings` §36.5）：STDU 已恢复，通路健康，但呈现是黑的。**
+- `stdu: screen target 0 (1024x768) bound to surface 2 on MOB 2 -- STDU present path is UP`
+- `present tick 1 (next 1644 stop 1644)` → `present tick 300 (next 48288 stop 48288)`
+  —— 每帧 `SURFACE_DMA` / `UPDATE_GB_IMAGE` / `UPDATE_GB_SCREENTARGET` 都被宿主消费，
+  **FIFO 没有楔死**（这是此前没有的证据：呈现循环本身是健康的）。
+- VNC 截图 1024x768，采样 12288 点，**distinct colors = 1，全 (0,0,0)**。
+- 拓扑 35–40 在 CONFIG_DONE 前后各写一遍，`kGuestDriverId` 在 CONFIG_DONE 前写，
+  M6 四要素齐备 —— 所以不是"少写了哪一步"。
+
+⇒ 命令通道、数据搬运、屏靶绑定全部正常，卡的是**内容的来源**。下一步改成确定性实验：
+**主动往 surface 写已知像素，看屏上能不能出现**，而不是等宿主往 VRAM 投递内容
+（guest 侧没有窗口系统在画图时，VRAM 本来就是黑的，黑屏可能是"正确"的）。
+
 ### P0-旧：`DEFINE_RTV` 的 COMMAND_ERROR（已由 §35 判定，保留作历史）
 - 已排除：CB header 合法性、命令通道、MOB 校验、desc 排列、`format`/`dim`、
   COTable 尺寸、surfaceFlags、队列选择。

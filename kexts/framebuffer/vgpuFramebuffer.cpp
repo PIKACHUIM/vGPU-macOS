@@ -277,14 +277,25 @@ enum {
 static const UInt32 kFbStage = 2;
 
 // kGbStage gates the GB object stack (see gbBringUp); 5 adds the STDU present path.
-static const UInt32 kGbStage = 4;
+//
+// 10-29 22:5x (§36.4): raised 4 -> 5. The DX main line is closed (§35: DEFINE_RTV
+// cannot succeed on this host, every variable excluded), so there is nothing left for
+// stage 4 to serve -- it was only ever the stepping stone to stage 5. The 2D path that
+// stage 5 opens is the one that already worked: M6 (10-06, b89c619) rendered the screen
+// live with exactly this code. Note kDxTest must stay 0 while this is 5 -- see below.
+static const UInt32 kGbStage = 5;
 
 // kDxTest runs the DX clear/readback round-trip experiment after the present path is up.
 // Measured 2026-10-06: with the test present, the host aborts FIFO processing at
 // DEFINE_GB_SCREENTARGET (deterministically, next/stop frozen mid-stream) even though the
 // identical byte stream passed in earlier boots and the test itself runs only afterwards.
 // Root cause unknown -- bisect with this switch next session.
-static const UInt32 kDxTest = 1;
+//
+// 10-29: switched OFF. DEFINE_RTV is dead (§35), so what was left of this test was the
+// SURFACE_DMA round trip -- and that path is already proven by M6's live display. Running
+// it alongside STDU also re-arms the exact hang described above. Turn it back on only to
+// bisect that hang, never together with kGbStage = 5 on a boot we care about.
+static const UInt32 kDxTest = 0;
 
 // Dump every CB header+payload to the log (bisect instrumentation).
 static const UInt32 kCbDump = 1;

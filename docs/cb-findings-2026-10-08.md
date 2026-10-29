@@ -2296,3 +2296,53 @@ view 描述是否合法。sid 3 是走**legacy FIFO** `DEFINE_GB_SURFACE` 建的
   把 `kGbStage` 提到 5 恢复 STDU，观察显示是否恢复、像素是否正确。
   这是把项目从"研究 DX"拨回"产出可见像素"的那个动作 —— 而且它花费的是
   一次改开关 + 一次重启，不是又一轮猜谜。
+
+### 36.5 STDU 已恢复并跑起来，但呈现是黑的（10-29 22:40 boot）
+
+`kGbStage = 4 → 5`、`kDxTest = 1 → 0`，重启后日志：
+
+```
+vgpu-fb: gb: GB SURFACE 1 defined (256x256 X8R8G8B8 on MOB 1) -- GB object model is UP
+vgpu-fb: stdu: backing store 3145728 bytes at pt ppn 154848 (PT64_2)
+vgpu-fb: stdu: screen target 0 (1024x768) bound to surface 2 on MOB 2 -- STDU present path is UP
+vgpu-fb: present: STDU re-present started (33 ms)
+vgpu-fb: present tick 1 (next 1644 stop 1644)
+vgpu-fb: present tick 300 (next 48288 stop 48288)
+```
+
+判读：
+
+- **STDU 通路建立成功**：背衬 3 MB 用 `PT64_2`，屏靶 0 绑定到 surface 2，
+  30 Hz 循环在跑。
+- **FIFO 健康**：tick 1 → 300 期间 `next_cmd == stop` 一路推进（1644 → 48288），
+  说明 `SURFACE_DMA` / `UPDATE_GB_IMAGE` / `UPDATE_GB_SCREENTARGET` 三条命令
+  **每帧都被宿主消费了，没有楔死**。
+- **但屏幕是黑的**：VNC 截图 1024x768，采样 12288 个点，**distinct colors = 1，
+  全是 (0,0,0)**。
+- 拓扑寄存器（35–40）在 CONFIG_DONE 前后各写了一遍，M6 四要素齐备；
+  `kGuestDriverId` 也在 CONFIG_DONE 前写了 WDDM。
+
+也就是说：**命令通道、数据搬运、屏靶绑定全部正常，唯独"内容"没有出现在屏上。**
+这与 `STATUS.md` P3 记的"fresh-MKS 冻结 / 呈现不出内容"是同一个老问题，
+不是本轮改动引入的回归 —— 但这次拿到了一条此前没有的证据：
+**呈现循环本身是健康的，问题在内容来源（VRAM 那一份）或屏靶的取用侧。**
+
+下一步该查的是"VRAM 里到底有没有内容"，而不是继续动 STDU 命令序列：
+如果宿主根本没有在往 `SVGA_REG_FB_START` 写东西（guest 侧无窗口系统画图，
+framebuffer 自身就是黑的），那黑屏就是**正确**的 —— 真正要验证的是
+"我们主动往 surface 写像素，屏上能不能看见"，这是一个确定性的实验，不依赖宿主投递内容。
+
+### 36.6 build.sh 的标记改成了条件式
+
+`kDxTest = 0` 会让整个 DX 模板块不可达，旧的固定标记集必然 FATAL。
+处理方式不是删标记（删了等于让退役的实验下次悄悄复活），而是
+**让标记集跟着它所属的开关走**：`build.sh` 用
+`grep -qE 'kDxTest[[:space:]]*=[[:space:]]*1'` 读源码里同一个开关，
+为 1 时才要求 DX 模板的五个标记 + 三个 verdict 字面量；STDU 的两个标记
+则改为**始终必检**，因为它们对应的是现在要出货的路径。实测输出：
+
+```
+kDxTest = 0 -> DX template retired, markers not required
+present: STDU re-present started
+present: screen target 0 (%ux%u) bound to surface %u
+```

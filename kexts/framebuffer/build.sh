@@ -88,12 +88,31 @@ nm -u "$BUNDLE/Contents/MacOS/$NAME" 2>/dev/null | wc -l
 #
 # So: every experiment that owns an IOLog banner declares that banner here, and a build
 # without it fails. Add the marker when you add the experiment -- not after it misleads you.
+#
+# 10-29 22:5x (§36.4): the DX experiment is retired and kDxTest is now 0, which makes the
+# whole dxReadbackTest template unreachable. Rather than delete the markers -- that is how
+# a retired experiment comes back to life unnoticed -- they are CONDITIONAL on the switch
+# that owns them. The switch and the marker set are read from the same source file, so a
+# build that flips kDxTest back to 1 without restoring the template still fails here.
 echo "--- reachability markers ---"
-MARKERS="TEMPLATE only mode
+SWITCHES="$HERE/$NAME.cpp"
+
+# STDU / 2D present path: always required, because it is the path we now ship.
+MARKERS="STDU re-present started
+screen target 0 (%ux%u) bound to surface %u"
+
+# DX template experiment: required only while kDxTest is on.
+if grep -qE 'kDxTest[[:space:]]*=[[:space:]]*1' "$SWITCHES"; then
+    echo "kDxTest = 1 -> DX template markers are required"
+    MARKERS="$MARKERS
+TEMPLATE only mode
 TEMPLATE entered
 SPLIT DX_DEFINE_CONTEXT
 dx: RTV fmt2 A8R8G8B8/t2d
 DX MANAGER ALIVE (q%u"
+else
+    echo "kDxTest = 0 -> DX template retired, markers not required"
+fi
 MISSING=0
 OLDIFS=$IFS
 IFS='
@@ -113,18 +132,20 @@ done
 # can NOT see is the branch it selects, so both verdict literals are checked:
 # if the optimizer dropped the "still refused" arm (or the whole call), the
 # build fails here instead of costing a boot cycle to discover from the log.
-STOP="TEMPLATE verdict -> %s"
-VERDICTS="still refused
+if grep -qE 'kDxTest[[:space:]]*=[[:space:]]*1' "$SWITCHES"; then
+    STOP="TEMPLATE verdict -> %s"
+    VERDICTS="still refused
 DX manager still absent
 DX MANAGER ALIVE"
-for m in "$STOP" $VERDICTS; do
-    if grep -aq -- "$m" "$BUNDLE/Contents/MacOS/$NAME"; then
-        echo "present: $m"
-    else
-        echo "MISSING: $m" >&2
-        MISSING=$((MISSING + 1))
-    fi
-done
+    for m in "$STOP" $VERDICTS; do
+        if grep -aq -- "$m" "$BUNDLE/Contents/MacOS/$NAME"; then
+            echo "present: $m"
+        else
+            echo "MISSING: $m" >&2
+            MISSING=$((MISSING + 1))
+        fi
+    done
+fi
 IFS=$OLDIFS
 if [ "$MISSING" != "0" ]; then
     echo "FATAL: $MISSING reachability marker(s) absent -- refusing to ship this binary" >&2
