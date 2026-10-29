@@ -106,18 +106,59 @@
 **本轮学到的实验纪律**：一条 COMMAND_ERROR 之后同一队列只剩超时，所以
 **任何诊断性重发必须排在被判定那一笔之前**；在失败之后拆分探测 = 白烧一次启动。
 
+## 2026-10-29 晚更新（`DEFINE_RTV` 的变量已穷尽，判定宿主侧硬限制）
+
+详见 `cb-findings` §34 / §35。§33 起连续三轮把此前的中间结论逐一撤回，
+最终形态是：
+
+**`cbContext` 不是"哪条队列运这个 CB"，而是"这个 DX context 绑在哪条队列上"。**
+队列 1 是唯一能承载 DX 的队列；`DEFINE_CONTEXT` 只有在 cid 与队列匹配时才
+ACCEPTED（cid 1 在队列 1 上成功，同样的命令在 3/4/5 上首次发包即 STATUS 4）。
+由此推论：**一次启动 = 一个新 cid = 一次 `DEFINE_RTV` 的机会。**
+
+STATUS 3 / 4 的分工：
+- STATUS 4 = 该 cbContext 从未承载过 DX context（header 层，还没看命令体）；
+- STATUS 3 + offset 0 = 队列有资格，但命令针对的 cid 在当前状态下不允许做这件事。
+
+**§35（10-29 22:23）：最后一个干净格子也判负。**
+cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED 之后，
+唯一的 `DEFINE_RTV` 只改 `format` 为 `2 (A8R8G8B8)`，仍得
+`STATUS 3 (errorOffset 0)`，`hdr[5]=0x24` 说明 36 字节载荷被完整收下才判错。
+
+变量表（均在"cid 在队列 1、DEFINE_CONTEXT 刚 ACCEPTED"前提下排除）：
+`format` 0/1/2、`resourceDimension` 0/1/3、`cbContext` 1..5/0x3f、
+`validSizeInBytes` 0/128/4096、`surfaceFlags` 有无 `BIND_RENDER_TARGET`、
+字段顺序/`cmdSize`/`desc`、单发 vs 批量、`dxContext` 字段。
+
+⇒ **`DEFINE_RTV` 在本宿主上无法成功**，§29 起的这条主线判定不可达。
+`cb-findings` §30.2 / §31.3 / §32.2 三条中间结论已撤回，不要引用。
+
 ## 当前开放问题
 
-### P0：`DEFINE_RTV` 的 COMMAND_ERROR（2026-10-29 收窄后）
-- 已排除：CB header 合法性、命令通道、MOB 校验、desc 排列（arraySize/cid/queue 全部穷尽）。
-- 根因定位：`0x1414930A0`（DX 管理器）从未被创建。唯一创建点 `0x14050a077` 被
-  `[dev+0x9bc] != 0 && [dev+0x71] == 0` 门控，且**只有时间片/抢占链会调用**。
-- 下一步优先级：
-  1. **HP command queue（`SVGA_CAP2_HP_CMD_QUEUE` = caps2 bit7 = 1 已置）**——唯一还没试过的入口。
-     需先解出队列 MMIO 寄存器组、环描述符格式、doorbell 语义。
-  2. **静态扫 `[dev+0x9bc]` / `[dev+0x71]` / `[dev+0x81d]` 的全部写入点**（零重启成本）。
-  3. 从 vm3dmp.sys 抠"第一帧之前我们还缺的那些命令/cotable"。
+### P0：像素通路 —— 只剩"跨路径引用"这一个未隔离变量
+§35.5 观察到：`DEFINE_RTV` 是整个模板里唯一一条**引用既有资源并要求宿主查其属性**
+的命令，而它引用的 sid 3 是唯一由 **legacy FIFO** `DEFINE_GB_SURFACE` 创建、
+却被 **DX 路径**引用的对象。
+
+- 下一轮实验（零重启成本地改代码，一次启动取结果）：
+  **改用 `SVGA_3D_CMD_DX_DEFINE_GB_SURFACE` 在同一个 cid 上重建 sid**，再用它做
+  `DEFINE_RTV`。这是唯一还没被隔离的变量。
+- 若仍 STATUS 3 ⇒ 跨路径引用也被排除，`DEFINE_RTV` 的封锁确认为宿主硬限制，
+  **转 2D 出像素路径**（`cb-findings` §31.5-3）：GB surface +
+  `SVGA_3D_CMD_SURFACE_DMA` / blit，绕开整个 DX 命令族，直接把内容写进
+  VRAM 的 framebuffer 偏移（`fb offset 0x0`，1024x768 pitch 4096）。
 - 预算提醒：**一条 DX 错误 = 一次重启**，每次实验只放一条 DX 命令。
+
+### P0-旧：`DEFINE_RTV` 的 COMMAND_ERROR（已由 §35 判定，保留作历史）
+- 已排除：CB header 合法性、命令通道、MOB 校验、desc 排列、`format`/`dim`、
+  COTable 尺寸、surfaceFlags、队列选择。
+- 曾定位到：`0x1414930A0`（DX 管理器）从未被创建，唯一创建点 `0x14050a077`
+  被 `[dev+0x9bc] != 0 && [dev+0x71] == 0` 门控，且只有时间片/抢占链会调用。
+  注意：这条逆向结论**与 §35 的实测不冲突**——管理器没建起来，`DEFINE_RTV`
+  自然被拒；而所有"从 guest 侧触发管理器创建"的尝试（HP queue、CB 形态、
+  抢占时机）都没有成功。逆向结论保留，但它不再是"下一个动作"，因为从
+  guest 侧够不到那个门控。
+
 
 ### P1：~~context-0 CB 里的 SVGA3D 命令解析失败~~（10-29 已解决）
 - 原现象：DEFINE_GB_MOB64（context-0 CB 第一条）`COMMAND_ERROR at offset 0`。
@@ -125,7 +166,8 @@
   改成 `dxContext=0 + flags=1 + PA` 后，DEFINE/BIND/SET_COTABLE 全部 ACCEPTED（§26）。
 
 ### P2：DX 激活之外的验证
-- CLEAR → SURFACE_DMA(READ_HOST_VRAM) → 客体校验品红。现在只差 `DEFINE_RTV` 过。
+- CLEAR → SURFACE_DMA(READ_HOST_VRAM) → 客体校验品红。DX 路径已判定不可达（§35），
+  改走 P0 的 2D 路径做同样的验证。
 
 ### P3：STDU 显示的 fresh-MKS 冻结
 - 拓扑写位置矩阵已完整测绘（fresh MKS 上 topo 写在 CONFIG_DONE 后任何位置都会楔死宿主）。

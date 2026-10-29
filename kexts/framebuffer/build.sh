@@ -91,8 +91,9 @@ nm -u "$BUNDLE/Contents/MacOS/$NAME" 2>/dev/null | wc -l
 echo "--- reachability markers ---"
 MARKERS="TEMPLATE only mode
 TEMPLATE entered
-TEMPLATE DEFINE+BIND+12 COTABLES
-SPLIT DX_DEFINE_CONTEXT"
+SPLIT DX_DEFINE_CONTEXT
+dx: RTV fmt2 A8R8G8B8/t2d
+DX MANAGER ALIVE (q%u"
 MISSING=0
 OLDIFS=$IFS
 IFS='
@@ -105,17 +106,25 @@ for m in $MARKERS; do
         MISSING=$((MISSING + 1))
     fi
 done
-# Stop banner: the last line of the experiment. Checked separately because the
-# string is built by concatenation in the source ("TEMPLATE verdict ->"), so a
-# plain substring grep cannot see it -- same reason the 10-28 run had to be read
-# out of the log instead of trusted from the build.
-STOP="DX manager still absent"
-if grep -aq -- "$STOP" "$BUNDLE/Contents/MacOS/$NAME"; then
-    echo "present: TEMPLATE verdict (stop banner)"
-else
-    echo "MISSING: TEMPLATE verdict stop banner" >&2
-    MISSING=$((MISSING + 1))
-fi
+# Stop banner: the last line of the experiment.
+#
+# The message argument of IOLog is a format string, so "TEMPLATE verdict -> %s"
+# is stored verbatim in the binary -- a substring grep does see it. What a grep
+# can NOT see is the branch it selects, so both verdict literals are checked:
+# if the optimizer dropped the "still refused" arm (or the whole call), the
+# build fails here instead of costing a boot cycle to discover from the log.
+STOP="TEMPLATE verdict -> %s"
+VERDICTS="still refused
+DX manager still absent
+DX MANAGER ALIVE"
+for m in "$STOP" $VERDICTS; do
+    if grep -aq -- "$m" "$BUNDLE/Contents/MacOS/$NAME"; then
+        echo "present: $m"
+    else
+        echo "MISSING: $m" >&2
+        MISSING=$((MISSING + 1))
+    fi
+done
 IFS=$OLDIFS
 if [ "$MISSING" != "0" ]; then
     echo "FATAL: $MISSING reachability marker(s) absent -- refusing to ship this binary" >&2

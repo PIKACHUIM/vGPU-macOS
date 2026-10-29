@@ -190,7 +190,15 @@ enum {
     kSvga3dCmdSurfaceDestroy       = 1041,
     kSvga3dCmdDestroyGbMob         = 1094,
     kSvga3dCmdDxBindContext        = 1145,
-    kSvga3dCmdDxSetShaderIface     = 1277,   // 0x4fd: {cid, ifaceMobid, prependOffset} -- vm3dmp sends it right after BIND_CONTEXT
+    // 10-29 21:5x: this used to be 1277. Per svga3d_cmd.h the neighbours are
+    //   SVGA_3D_CMD_DX_SET_SHADER_IFACE  = 1274
+    //   SVGA_3D_CMD_DX_BIND_STREAMOUTPUT = 1275
+    //   SVGA_3D_CMD_SURFACE_STRETCHBLT_NON_MS_TO_MS = 1276
+    //   SVGA_3D_CMD_DX_BIND_SHADER_IFACE = 1277   <-- what we were actually sending
+    // so our STATUS 3 on "SET_SHADER_IFACE" was simply the wrong command: BIND expects
+    // {cid, shaderType, shaderId}, we sent {cid, stateMobId, 0x2000}. Keep the correct
+    // id here; the send site is still a runner (not a gate) because 3D caps are 0.
+    kSvga3dCmdDxSetShaderIface     = 1274,   // 0x4fa: {cid, ifaceMobid, prependOffset}
     kSvga3dCmdDxSetCotable         = 1207,
     kSvga3dCmdDxDefineRenderTargetView = 1187,
     kSvga3dCmdDxSetRenderTargets   = 1161,
@@ -383,6 +391,11 @@ static const UInt32 kCtxMobId = 3;
 
 // MOB id of the DX render-target-view COTABLE (one 4 KiB page, PT64_0).
 static const UInt32 kCotableMobId = 5;
+
+// SVGA3D_INVALID_ID as seen on the wire: an "unbind this COTable" request is
+// expressed as mobid = SVGA3D_INVALID_ID together with validSizeInBytes = 0
+// (exactly what vmwgfx's vmw_cotable_scrub() does).
+static const UInt32 SVGA3D_INVALID_ID_U32 = 0xFFFFFFFFu;
 
 // ---- Command buffer (CB) submission --------------------------------------
 // On vGPU10 hosts the DX command set is accepted but NOT executed when
@@ -2040,19 +2053,40 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
           stateMobId, ctxStateBytes);
 
     // COTable per type (0..11, vm3dmp 0x140011178 drives the entry counts).
-    struct { UInt32 type; UInt32 mob; UInt32 valid; } tc[12] = {
-        { 0,  kCotableMobId, 0 },      // RTVIEW: the only one this test uses
-        { 1,  0xFFFFFFFFu, 0 },        // DepthStencilView
-        { 2,  0xFFFFFFFFu, 0 },        // SRV
-        { 3,  0xFFFFFFFFu, 0 },        // UAV
-        { 4,  0xFFFFFFFFu, 0 },        // VB
-        { 5,  0xFFFFFFFFu, 0 },        // IB
-        { 6,  0xFFFFFFFFu, 0 },        // SO
-        { 7,  0xFFFFFFFFu, 0 },        // StreamOut
-        { 8,  0xFFFFFFFFu, 0 },        // BlendState
-        { 9,  0xFFFFFFFFu, 0 },        // DepthStencilState
-        { 10, 0xFFFFFFFFu, 0 },        // RasterizerState
-        { 11, 0xFFFFFFFFu, 0 },        // ElementLayout
+    //
+    // 10-29 21:5x -- THE BUG THAT COST THREE BOOTS. The 4th field of
+    // SVGA3dCmdDXSetCOTable is *validSizeInBytes*, NOT a 0/1 "valid" flag:
+    //
+    //   typedef struct SVGA3dCmdDXSetCOTable {
+    //       uint32 cid;
+    //       uint32 mobid;
+    //       SVGACOTableType type;
+    //       uint32 validSizeInBytes;     // ★ here
+    //   } SVGA3dCmdDXSetCOTable;
+    //
+    // We were sending 0 for every table. A zero-byte COTable is a legal request
+    // (it is exactly how vmwgfx's vmw_cotable_scrub() *unbinds* a table:
+    // `cmd1->body.mobid = SVGA3D_INVALID_ID; cmd1->body.validSizeInBytes = 0;`),
+    // so SET_COTABLE came back ACCEPTED and looked like it had worked -- while the
+    // RTVIEW table stayed 0 bytes wide. DEFINE_RTV then had nowhere to allocate
+    // slot 1 and returned COMMAND_ERROR with errorOffset 0, which is why every
+    // payload permutation we tried failed identically: the payload was never the
+    // problem. Valid size must not exceed the MOB's own size, and our RTVIEW MOB
+    // is one 4 KiB page, so 4096 is both legal and the whole table.
+    const UInt32 kCotableValidBytes = kGbPageBytes;   // 4096, == the MOB we defined
+    struct { UInt32 type; UInt32 mob; UInt32 validSize; } tc[12] = {
+        { 0,  kCotableMobId, kCotableValidBytes },   // RTVIEW: the only one we back
+        { 1,  SVGA3D_INVALID_ID_U32, 0 },  // DepthStencilView
+        { 2,  SVGA3D_INVALID_ID_U32, 0 },  // SRV
+        { 3,  SVGA3D_INVALID_ID_U32, 0 },  // UAV
+        { 4,  SVGA3D_INVALID_ID_U32, 0 },  // VB
+        { 5,  SVGA3D_INVALID_ID_U32, 0 },  // IB
+        { 6,  SVGA3D_INVALID_ID_U32, 0 },  // SO
+        { 7,  SVGA3D_INVALID_ID_U32, 0 },  // StreamOut
+        { 8,  SVGA3D_INVALID_ID_U32, 0 },  // BlendState
+        { 9,  SVGA3D_INVALID_ID_U32, 0 },  // DepthStencilState
+        { 10, SVGA3D_INVALID_ID_U32, 0 },  // RasterizerState
+        { 11, SVGA3D_INVALID_ID_U32, 0 },  // ElementLayout
     };
     // 8 dwords of DEFINE+BIND plus 12 cotables at 6 dwords each = 80. The array used to
     // be tpl[64], so the last two cotables (and n itself, on this frame) were written
@@ -2064,20 +2098,13 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
     // The batch deliberately DROPS the leading DEFINE+BIND (8 dwords): STEP 1 below has
     // just sent both as single-command CBs. Re-sending them would be the only thing in
     // this CB whose effect we cannot attribute -- a second DX_DEFINE_CONTEXT for a cid
-    // that already exists may itself be the COMMAND_ERROR we are chasing. So the batch
-    // starts at SET_COTABLE and is 72 dwords.
-    const UInt32 kTplDwords = 12 * 6;
-    UInt32 tpl[kTplDwords]; UInt32 n = 0;
-    for (UInt32 i = 0; i < 12; i++) {
-        tpl[n++] = kSvga3dCmdDxSetCotable; tpl[n++] = 16; tpl[n++] = tcid;
-        tpl[n++] = tc[i].mob; tpl[n++] = tc[i].type; tpl[n++] = tc[i].valid;
-    }
-    if (n != kTplDwords) {
-        // Cheap guard against the arithmetic drifting away from the array again.
-        IOLog(VGPU_FB_TAG ": dx: TEMPLATE size mismatch: built %u, reserved %u\n",
-              n, kTplDwords);
-        return false;
-    }
+    // that already exists may itself be the COMMAND_ERROR we are chasing.
+    //
+    // 10-29 22:0x (§32): even that reduced batch turned out to be the poison -- see
+    // STEP 2 below, which is now retired. The 12-entry table above still describes
+    // what the host should be told; STEP 1 sends the only member that matters (RTVIEW)
+    // on its own, and STEP 3a re-binds the others on fresh cids.
+    (void)tc;
     (void)trtv;
     // 10-28 23:14: the template finally ran, and this exact CB was NOT refused -- it
     // never COMPLETED. hdr[4] read back 7 = NO_IRQ|DX_CONTEXT|MOB, and vm3dmp.sys
@@ -2105,7 +2132,7 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
     IOLog(VGPU_FB_TAG ": dx: SPLIT DX_BIND_CONTEXT {cid %u mob %u} -> %s\n",
           tcid, stateMobId, okBind ? "ACCEPTED" : "refused");
     one[0] = kSvga3dCmdDxSetCotable; one[1] = 16; one[2] = tcid;
-    one[3] = tc[0].mob; one[4] = tc[0].type; one[5] = tc[0].valid;
+    one[3] = tc[0].mob; one[4] = tc[0].type; one[5] = tc[0].validSize;
     bool okCot = okBind && cbSubmitCtx(one, 6, tcid, 0, 1);
     IOLog(VGPU_FB_TAG ": dx: SPLIT DX_SET_COTABLE {cid %u mob %u type %u} -> %s\n",
           tcid, tc[0].mob, tc[0].type, okCot ? "ACCEPTED" : "refused");
@@ -2115,32 +2142,62 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
         return false;
     }
 
-    // ---- STEP 2: the same sequence packed into one CB, as vm3dmp does ----------
-    bool okTpl = cbSubmitCtx(tpl, n, tcid, 0, 2);
-    IOLog(VGPU_FB_TAG ": dx: TEMPLATE DEFINE+BIND+12 COTABLES (%u dwords, q%u dx0) -> %s\n",
-          n, tcid, okTpl ? "submitted" : "refused");
-    if (okTpl) {
-        // Empty plain CB on the device queue as a barrier. Its payload is zero words,
-        // so it carries no command; only the header, and it is synchronous (NO_IRQ).
+    // ---- STEP 2: RETIRED 10-29 22:0x (§32). ---------------------------------
+    //
+    // This used to send DEFINE+BIND plus all 12 SET_COTABLEs as one 72-dword CB, as
+    // vm3dmp does. It always came back COMPLETED -- and everything submitted AFTER it
+    // failed with STATUS 3 / offset 0, including SET_COTABLE itself, on EVERY
+    // cbContext (q1, q2, 0x3f). That is the single strongest signal we have: the batch
+    // is the only step that hands the host eleven `mob = 0xFFFFFFFF` bindings for one
+    // DX context, and a COMPLETED batch can still leave the context permanently
+    // unusable -- a status a second command on the same context cannot recover from.
+    //
+    // STEP 1 above already sends the same three commands one-per-CB and has never
+    // failed once in four boots, so the batch adds no information and only poisons the
+    // state the later probes are trying to measure. Drop it. Keep the barrier: it tells
+    // us the host drained everything STEP 1 sent before we start measuring.
+    bool okTpl = true;
+    {
         bool okSync = cbSubmitCtx(sync, 0, 0, 0, 1);
         IOLog(VGPU_FB_TAG ": dx: TEMPLATE sync CB (q0 flags1) -> %s\n",
               okSync ? "COMPLETED" : "did not complete");
         okTpl = okSync;
     }
     if (okTpl) {
-        // ---- RTV first: this is the actual verdict, and it has to be measured while
-        // the engine is still healthy. 10-29 20:35: SET_SHADER_IFACE came back
-        // STATUS 3 (the first COMMAND_ERROR we have ever seen -- not a header error),
-        // and per §22.1 that alone is enough to stop the queue. Sending the RTV after
-        // it told us nothing but "timeout". SET_SHADER_IFACE is gated on a device
-        // capability ([device+0x18ac]) and 3D caps read back all-zero on this host,
-        // so it is very likely simply unsupported here -- a runner, not a gate.
-        UInt32 rtv[9] = { kSvga3dCmdDxDefineRenderTargetView, 28,
-                          trtv, surfId, kSvga3dSurfaceFormatX8R8G8B8,
-                          kSvga3dResourceTexture2D, 0, 0, 1 };
-        bool okRtv = cbSubmitCtx(rtv, 9, tcid, 0, 2);
-        IOLog(VGPU_FB_TAG ": dx: TEMPLATE DEFINE_RTV {rtv %u, sid %u} NULL-TEST -> %s\n",
-              trtv, surfId, okRtv ? "*** DX MANAGER ALIVE ***" : "still refused");
+        // ---- STEP 3: one shot, format = A8R8G8B8 (§34.4). -----------------------
+        // §34 established that cbContext is not "which queue carries this CB" but
+        // "which queue this DX context is bound to", and that queue 1 is the only queue
+        // that ever carried a DX context. So every earlier sweep -- the four-format
+        // enumeration (§30), the validSize sweep (§31), the surfaceFlags redefine and
+        // the per-variant (cid, queue) pairs (§32/§33) -- was varying a field on a
+        // context that can never hold a DX context (STATUS 4 at DEFINE_CONTEXT), or on
+        // cid 1 after cid 1 had ALREADY failed one DEFINE_RTV in this same boot.
+        //
+        // All of them are retired. What is left is the cleanest cell of the matrix we
+        // have never tested: the cid STEP 1 just DEFINE'd on queue 1 (tcid), a fresh
+        // SET_COTABLE from STEP 1, and a DEFINE_RTV payload identical to STEP 1's
+        // except ONE field -- format, from X8R8G8B8 (1) to A8R8G8B8 (2). A8R8G8B8 is
+        // what real D3D9/GL swap chains, and vm3dmp's own template, present.
+        // Everything else is pinned: dim = 3 (texture2d), desc = {0,0,1}, cmdSize 28,
+        // dxContext 0, flags 2.
+        //
+        // ACCEPTED => X8R8G8B8 was not a legal RTV format; the blocker was the enum,
+        //             and the DX path stays open.
+        // refused  => format is not the blocker. DEFINE_RTV cannot succeed on this host
+        //             at all; freeze that in STATUS.md and fall back to the 2D path
+        //             (GB surface + SVGA_3D_CMD_SURFACE_DMA / blit, §31.5-3).
+        UInt32 rtv2[9] = { kSvga3dCmdDxDefineRenderTargetView, 28,
+                           trtv, surfId, 2 /* A8R8G8B8 */, 3 /* texture2d */, 0, 0, 1 };
+        bool okRtv = cbSubmitCtx(rtv2, 9, tcid, 0, 2);
+        UInt32 rtvQ = tcid;
+        IOLog(VGPU_FB_TAG ": dx: RTV fmt2 A8R8G8B8/t2d {rtv %u sid %u q%u} -> %s\n",
+              trtv, surfId, tcid, okRtv ? "ACCEPTED" : "refused");
+        if (okRtv) {
+            IOLog(VGPU_FB_TAG ": dx: *** DX MANAGER ALIVE (q%u, fmt2 A8R8G8B8/t2d) ***\n",
+                  tcid);
+        }
+        IOLog(VGPU_FB_TAG ": dx: TEMPLATE verdict -> %s\n",
+              okRtv ? "*** DX MANAGER ALIVE ***" : "still refused");
         if (!okRtv) {
             IOLog(VGPU_FB_TAG ": dx: TEMPLATE stopping (RTV refused; engine state unknown)\n");
             return false;
@@ -2149,15 +2206,15 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
             // SET_SHADER_IFACE is its own CB in the driver, on a capability bit. Sent
             // last on purpose: if it errors it must not take the RTV verdict with it.
             UInt32 si[5] = { kSvga3dCmdDxSetShaderIface, 12, tcid, stateMobId, 0x2000 };
-            bool okSi = cbSubmitCtx(si, 5, tcid, 0, 2);
+            bool okSi = cbSubmitCtx(si, 5, rtvQ, 0, 2);
             IOLog(VGPU_FB_TAG ": dx: TEMPLATE SET_SHADER_IFACE (q%u) -> %s\n",
-                  tcid, okSi ? "submitted" : "refused");
+                  rtvQ, okSi ? "submitted" : "refused");
         }
         if (okRtv) {
             UInt32 clr[8] = { kSvga3dCmdDxClearRenderTargetView, 20, trtv, 0, 0, 0, 0 };
             { float g[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
               memcpy(&clr[3], g, 16); }
-            bool okClr = cbSubmitCtx(clr, 7, tcid, 0, 2);
+            bool okClr = cbSubmitCtx(clr, 7, rtvQ, 0, 2);
             if (okClr) {
                 okClr = cbSubmitCtx(sync, 0, 0, 0, 1);
             }
@@ -2165,7 +2222,7 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
                   okClr ? "ACCEPTED" : "refused");
             if (okClr) {
                 UInt32 rb[4] = { kSvga3dCmdDxReadbackSubResource, 8, surfId, 0 };
-                bool okRb = cbSubmitCtx(rb, 4, tcid, 0, 2);
+                bool okRb = cbSubmitCtx(rb, 4, rtvQ, 0, 2);
                 if (okRb) {
                     okRb = cbSubmitCtx(sync, 0, 0, 0, 1);
                 }

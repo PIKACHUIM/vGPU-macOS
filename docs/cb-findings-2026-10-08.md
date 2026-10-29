@@ -1334,3 +1334,898 @@ test dword header.flags, 0xFFFFFFFE  -> CB_HEADER_ERROR(4)
 - **`build.sh` 的 marker 校验要覆盖"这次实验的判定行"。** 本轮一开始把 marker 写成
   `TEMPLATE setup`（不存在的字符串），构建直接 FATAL，反而省了一次误烧；
   但 marker 列表本身也要跟着实验走，别让它变成"永远校验上一轮的实验"。
+
+## 27. 10-29 静态突破：`[dev+0x9bc]` 是"上下文活跃"的缓存，不是开关
+
+§26.5 的第 2 条做完了（纯静态，零重启成本）。结论改变了整个问题的形态。
+
+### 27.1 扫描方法（以及第一个坑）
+
+写 `disasm/scan_devfields.py`：capstone 线性扫 `.text`，只保留 `[reg+disp]` 形态、
+`disp ∈ {0x9bc, 0x71, 0x81d, 0xb4}` 的指令，按助记符分成读/写。
+
+**必须过滤 `rbp`/`rsp` base。** 第一版没滤，报出"`[dev+0x9bc]` 在 `0x1402804ee` 有写入"，
+实际那条指令是 `mov [rbp+0x9bc], eax` —— 一个**完全无关函数的栈槽**。
+同一处还有 `test [rbp+0x9bc], 0x3f00`，`0x3f00` 正好像 6 位 cbContext 掩码，
+差点被当成"找到了"，实际是那个栈结构自己的标志位。**基址寄存器先看，再看 disp。**
+
+### 27.2 `[dev+0x9bc]` 全项目只有 2 个写入点，且都在同一个函数里
+
+```
+W 0x1404125e3  mov [rdx+0x9bc], eax     ; eax = 0
+W 0x1404125ef  mov [rdx+0x9bc], eax     ; eax = 1
+读 0x1404c7a14                          ; ← §22.2 那个 DX 创建链的条件
+```
+
+函数体（`0x1404125a0`，`rdx = [0x1414931C0]` = SVGA 设备对象）：
+
+```
+0x1404125a9  movzx r8d, byte [rdx+0xbf8]      ; 看槽1 的 "active" 字节
+0x1404125b1  lea   rcx,   [rdx+0xad8]         ; 槽0 基址，步长 0x118
+0x1404125b8  test  r8b, r8b ; je 0x1404125d1
+0x1404125bd  cmp   byte [rdx+0xae0], 0
+0x1404125c4  jne   0x1404125cc
+0x1404125c6  cmp   rax, 1 ; jne 0x1404125d1
+0x1404125cc  cmp   dword [rcx], 0 ; ja 0x1404125ea   ; ★ [slot+0] > 0 → 返回 1
+0x1404125d1  inc   rax ; add rcx,0x118 ; cmp rax,2 ; jl 0x1404125b8
+0x1404125e1  xor   eax, eax
+0x1404125e3  mov   [rdx+0x9bc], eax            ; 无活跃槽 → 0
+0x1404125ea  mov   eax, 1
+0x1404125ef  mov   [rdx+0x9bc], eax            ; 有活跃槽 → 1
+```
+
+⇒ **`[dev+0x9bc]` 不是初始化时置位的开关，而是一个每次重算的缓存：
+"两个 DC 上下文槽里有没有一个是活跃的"。** 判据是 **dword `[dev+0xad8]`（槽0）
+或 `[dev+0xbf0]`（槽1）> 0**，另外槽1 还要求 `[dev+0xbf8] != 0`。
+
+这解释了为什么此前所有"改 CB 内容"的努力都不可能奏效：`[dev+0x9bc]` 根本不由 CB 内容决定，
+而由**DC 上下文的活跃计数**决定。而 DX 创建链 `0x1404c7a14` 读的正是它。
+
+### 27.3 上下文槽的零化函数 = `stopAllContexts`
+
+`0x140509a0d` 同时写 `[dev+0xad8]`、`[dev+0xae0]`、`[dev+0xbf0]`、`[dev+0xbf8]`：
+
+```
+0x1405098ca  mov  rdi, [dev]
+0x1405098d1  movzx ebx, cl
+0x1405098d4  mov  byte [rdi+0x81d], cl      ; ★ [dev+0x81d] 直接来自入参
+0x1405098da  test cl, cl ; je 0x140509906   ; cl == 0 → 走关闭分支
+0x1405098f1  jae 0x140509906                ; [dev+0xb0] >= 0x90000003 也走关闭
+0x1405098f5  mov  byte [rdi+0x81c], 1
+...
+0x140509a06  mov  qword [rdi+0xad0], rsi    ; esi = 0
+0x140509a0d  mov  dword [rdi+0xad8], esi    ; 槽0 活跃计数 = 0
+0x140509a13  mov  word  [rdi+0xae0], si
+0x140509a1a  mov  qword [rdi+0xbe8], rsi
+0x140509a21  mov  dword [rdi+0xbf0], esi    ; 槽1 活跃计数 = 0
+0x140509a27  mov  word  [rdi+0xbf8], si
+0x140509a2e  call 0x1404125a0               ; 重算 [dev+0x9bc] → 0
+```
+
+所以 `[dev+0x81d]` 与 `[dev+0x9bc]` 是**同一条生命周期上的两个字段**：前者表示"上下文子系统处于
+启动态"，后者表示"至少有一个槽活跃"。DX 创建链要求 `[dev+0x81d] != 0 && [dev+0x9bc] != 0`。
+
+### 27.4 §18.3 的旧结论需要修正
+
+§18.3 说 DC cmd 3/4/5 "是 2 个上下文槽的激活/挂起记账，没有任何'创建队列'的语义"。
+**前半句对，后半句现在要收窄**：既然 `[dev+0x9bc]` 由槽活跃度决定，而槽活跃度是 DX 创建链的
+必要条件，那么**让槽真正活跃起来就是创建 DX 设备的先决条件**。我们此前发的
+`START_STOP_CONTEXT{enable=1, context=0}` 只写了 `[entry+0xae0]`（byte 标志），
+**没有让 `[entry+0]` 这个 dword 计数变非零** —— 这就是 `[dev+0x9bc]` 一直是 0 的原因。
+
+### 27.5 下一轮实验（一次启动验证一件事）
+
+目标：让 `dword [dev+0xad8] > 0`。已定位的候选写入点（需在宿主里确认哪一个是"启动"语义）：
+
+| 地址 | 指令 | 备注 |
+|---|---|---|
+| `0x1403f7091` | `mov word [rbx+0xad8], r9w` | 写低 16 位，可能不够（判据是 dword）|
+| `0x1403fb3b0` | `mov qword [rcx+0xad8], rax` | 整 8 字节，最像"初始化/启动"|
+| `0x140509a0d` | `mov dword [rdi+0xad8], esi` | 已知是清零路径 |
+
+实验设计：在 kext 里发 **`SVGA_DC_CMD_START_STOP_CONTEXT{enable=1, context=0}`，
+然后立刻读宿主那个 dword**（用 backdoor/DMA 访问 `0xad8`）——但那需要宿主地址，
+guest 拿不到。**替代方案（零成本）**：让 `0x1404125a0` 的返回值直接可见 ——
+它写 `[dev+0x9bc]`，而这个字段本身没有 guest 可见的侧信道。
+
+⇒ 现实做法：**先扫 `0x1403fb3b0` 所在函数**，确认它是"启动槽"还是别的记账，
+再决定要不要为它设计一次 CB 侧实验。这一步仍然是纯静态的，先做完再花重启预算。
+
+---
+
+## 28. 纠正 §27：`[dev+0xad8]` 不是"活跃计数"，且它在所有路径上恒为 0
+
+§27.5 留下的第一件事是"扫 `0x1403fb3b0` 所在函数"。扫完的结果是 **§27 的核心结论必须整体作废**，
+所以这一节先做纠正，再给新的定向。
+
+### 28.1 `[dev+0xad8]` 是 SVGA 寄存器影子槽，不是计数器
+
+`0x1403f6fd0` 是"写 SVGA 寄存器"的处理函数（`edx==1` 走写路径，`r10d = 寄存器索引`，
+要求 `< 0x20`）。当 `r10 ∈ [0x11, 0x1e]` 时用跳转表分派：
+
+```
+0x1403f700e  lea  rdi, [rip-0x3f7015]        ; → rdi = IMAGE_BASE
+0x1403f703f  mov  ecx, [rdi+rax*4+0x3f749c]  ; rax = reg-0x11
+0x1403f7046  add  rcx, rdi
+0x1403f7049  jmp  rcx
+```
+
+`disasm/svga_reg_table.py` 解出整张表，其中 **`SVGA_REG_0x12` → `0x1403f706b`**，该分支：
+
+```
+0x1403f7075  sub  ecx, 2 ; je 0x1403f709f    ; (edx>2 路径写 [rbx+0xacc])
+0x1403f7088  mov  eax, 0xff0f
+0x1403f708d  and  r9w, ax
+0x1403f7091  mov  word [rbx+0xad8], r9w      ; ← 只写低 16 位，且掩码 0xff0f
+```
+
+`edx` 不是 0/2/3 时直接撞断言（`0x1403f744b: call __assert; int3`，行号 0x17c0）。
+也就是说 `[dev+0xad8]` 是**寄存器 0x12 的影子**，写入时被 `0xff0f` 掩码裁到只剩
+高字节的 `0xff` 和低半字节 `0xf` —— **它连任意值都存不住**。
+
+### 28.2 `0x1403fb3b0` 写的是 0（"最像初始化"的猜测被证伪）
+
+```
+0x1403fb3a4  xorps xmm0, xmm0
+0x1403fb3a7  xor   eax, eax
+0x1403fb3a9  movups [rcx+0xac8], xmm0
+0x1403fb3b0  mov   qword [rcx+0xad8], rax    ; rax == 0 ⇒ 写 0，且一次清 8 字节
+```
+
+这段是把 `[rcx+0xa88 .. 0xae0]` 一整片**重置为默认值**（后面紧跟一串立即数
+`0x79491140`、`0xcb10141`、`0x1e1`、`0x300`…，明显是复位默认配置）。
+所以它不是"启动槽"，是"复位/默认值"。§27.5 表里"最像初始化/启动"这一行判断错误。
+
+### 28.3 全量扫描：`0xad8` 的写入点只有 3 个，全是清 0
+
+`disasm/scan_queue_fields.py`（逐条推进 PC、解码失败 +1 重试 —— `md.disasm()` 整块扫会在
+`.text` 里第一个数据岛处停下，命中数恒为 0，这个坑写在这里）扫出 `disp ∈ {0xad0,0xad8,0xadc,0x9d0}`
+共 192 处，其中 `0xad8` 21 处，真正的**写入**只有三处：
+
+| 地址 | 指令 | 值 |
+|---|---|---|
+| `0x140086e01` | `mov dword [rdx+r8+0xad8], eax` | `xor eax,eax` 之后 ⇒ **0** |
+| `0x140086f4b` | `mov dword [r9+rbx+0xad8], r14d` | `r14d` 在函数头 `xor r14d,r14d` ⇒ **恒 0** |
+| `0x140509a0d` | `mov dword [rdi+0xad8], esi` | `esi` 来自 `stopAllContexts` 的清零 ⇒ **0** |
+
+再加 28.1 那处 `0xff0f` 掩码的寄存器影子写，以及 `0x140835fb9` 的 `mov qword [rbx+0xad8], -1`
+（基址不同，别的结构体）。
+
+⇒ **`[dev + slot*0x118 + 0xad8]` 在 vmware-vmx.exe 的全部代码路径上恒为 0。**
+静态可证，不需要再花重启预算去试。
+
+### 28.4 那 `0x140509fa3` 的判据为什么写得像"计数"
+
+那一段其实是**环形缓冲的 drain**，不是活性检查：
+
+```
+0x140086ef0  movsxd eax, dword [rsp+0x130]        ; 槽索引
+0x140086efe  imul   r9, rax, 0x118
+0x140086f08  mov    r8d, dword [r9+rbx+0xad8]     ; 上界
+0x140086f15  mov    r10d, dword [r9+rbx+0xad0]    ; 头指针
+0x140086f1d  imul   r11, rax, 0x23                ; 0x23 = 35，每槽 35 个 qword
+0x140086f21  lea    eax, [r10+rdx] ; and eax,0x1f ; 下标 (head+i) & 31
+0x140086f31  mov    rax, qword [rbx+rax*8+0x9d0] ; 取元素
+0x140086f43  mov    qword [r9+rbx+0xad0], r14     ; 头指针归 0
+0x140086f4b  mov    dword [r9+rbx+0xad8], r14d    ; 上界归 0
+```
+
+队列本体 `[dev + slot*0x23 + 0x9d0 .. +0x9d0+0x100)`（32 个 qword = 256 B/槽），
+`0xad0` 是头、`0xad8` 是长度上界、`0xadc` 是另一个游标。取出的元素随后由
+`call 0x1406032f0`（`rcx=客户机地址, rdx=目标, r8=4/8`）**从客户机内存拉取字段** ——
+所以这个队列装的是"客户机内存里的结构地址"，不是上下文对象。
+
+由于长度上界恒为 0，drain 循环 `test ebp,ebp; je 0x14008701d` 永远直接跳出。
+**这条队列在本宿主上是死代码。**
+
+### 28.5 `0x1404125a0` 的真实判据（重写）
+
+```
+0x1404125a0  mov  rdx, [rip+0xfe0c19]          ; rdx = dev
+0x1404125a9  movzx r8d, byte [rdx+0xbf8]       ; 槽1 的 base 标志
+0x1404125b1  lea  rcx, [rdx+0xad8]             ; 槽0 的 0xad8
+0x1404125b8  test r8b, r8b ; je  0x1404125d1   ; 槽1 未起 → 跳过
+0x1404125bd  cmp  byte [rdx+0xae0], 0 ; jne chk
+0x1404125c6  cmp  rax, 1 ; jne 0x1404125d1     ; 只接受槽索引 1
+0x1404125cc  cmp  dword [rcx], 0 ; ja 0x1404125ea  ; ★ 唯一的 set-1 出口
+0x1404125e3  mov  dword [rdx+0x9bc], 0
+0x1404125ef  mov  dword [rdx+0x9bc], 1
+```
+
+`rax` 从 1 起、循环 2 次、`rcx += 0x118`。`ja`（strictly above）在 `dword` 上等价于 `> 0`，
+而该字段恒为 0 ⇒ **只有一种情况能让 `[dev+0x9bc] = 1`：内存被外部改写。**
+
+`0x1404125a0` 的调用者有 **12 个**（`disasm/vmx_callers.py` 扫 `E8 rel32`）：
+
+```
+0x140086cf7  0x140086d24  0x140086e09  0x140086f53  0x140087121  0x140087215
+0x1404d7396  0x14050979e  0x140509a2e  0x140509fcc  0x14050a439  0x14050a486
+```
+
+§27 只找到 `0x140509a2e` 一处，是漏扫。其中 `0x14050a439 / 0x14050a486` 就在
+DX 管理器唯一写入点 `0x14050a077` 的同一个函数里 —— 那一侧是**对象池**（`[rcx+0x100]` 空闲槽、
+`[rcx+0x108]`/`[rcx+0x10c]` 已用/空闲计数），与 `0xad8` 无关。
+
+### 28.6 结论与新的定向
+
+1. **§27.2 / §27.4 的"让槽活跃就能创建 DX 设备"路线到此为止。**
+   `[dev+0x9bc]` 的置位条件是"某个恒为 0 的字段 > 0"，CB 侧无法表达，DC 命令侧也无法表达。
+2. §27.3（`0x140509a0d` 所在函数 = `stopAllContexts`，`[dev+0x81d]` 来自入参 `cl`）**仍然成立**，
+   这部分反汇编没有错，错的只是它对 `0xad8` 语义的解释。
+3. 因此 DX 设备创建链（`0x1404c7a14`）在本宿主上**大概率是宿主侧逻辑的既有缺陷/死分支**，
+   而不是我们没走到。继续在这条路上花重启预算的期望收益很低。
+
+⇒ **下一步改走 HP command queue**（`SVGA_CAP2_HP_CMD_QUEUE` = caps2 bit7，实测已置 1）。
+HP queue 是绕过 `SVGA_REG_COMMAND_LOW/HIGH` 的 CB 提交路径，宿主对它走另一套解析，
+不经过本轮撞到的 `DEFINE_RTV COMMAND_ERROR` 之前的同一批 header 校验。
+
+---
+
+## 29. 三个官方头文件级纠错 + HP queue 路线关闭
+
+本节全部来自 `svga_reg.h` / `svga3d_cmd.h` / `svga3d_dx.h` 原始定义（Linux vmwgfx
+`device_include/`），不是推断。三条纠错都直接影响此前的判断。
+
+### 29.1 命令 ID 错了一个：`SET_SHADER_IFACE` 是 1274，不是 1277
+
+`svga3d_cmd.h` 这一段是连续的，所以不会看错：
+
+```
+SVGA_3D_CMD_DX_SET_SHADER_IFACE              = 1274,
+SVGA_3D_CMD_DX_BIND_STREAMOUTPUT             = 1275,
+SVGA_3D_CMD_SURFACE_STRETCHBLT_NON_MS_TO_MS  = 1276,
+SVGA_3D_CMD_DX_BIND_SHADER_IFACE             = 1277,   ← 我们一直在发这个
+SVGA_3D_CMD_MAX                              = 1278,
+```
+
+⇒ 20:35 那条 `SET_SHADER_IFACE -> STATUS 3` **不是"能力不支持"，是发错了命令**。
+1277 是 BIND_SHADER_IFACE，期望 `{cid, shaderType, shaderId}`，我们发的是
+`{cid, stateMobId, 0x2000}`。已把常量改成 1274。
+
+### 29.2 `SET_COTABLE` 第 4 字段是 `validSizeInBytes`，不是 0/1 标志
+
+```c
+typedef struct SVGA3dCmdDXSetCOTable {
+    uint32 cid;
+    uint32 mobid;
+    SVGACOTableType type;
+    uint32 validSizeInBytes;      // ← 字节数
+} SVGA3dCmdDXSetCOTable;
+```
+
+`svga_reg.h` 也印证了"0 字节 = 解绑"是合法语义：vmwgfx 的 `vmw_cotable_scrub()`
+解绑一张表就是写 `mobid = SVGA3D_INVALID_ID; validSizeInBytes = 0`。
+
+字段顺序 `{cid, mobid, type, validSize}` 我们其实是对的，错的是把第 4 个当成了布尔值
+并统一填 0 —— 等于**给每张 COTable 都发了一条"解绑"**，而 `SET_COTABLE` 因此
+永远 ACCEPTED，看起来像成功。已改为 `kGbPageBytes`（4096，等于我们定义的 MOB 大小）。
+
+**但这并没有让 `DEFINE_RTV` 变成 ACCEPTED**（21:27 那轮实测仍 STATUS 3）。
+如实记录：这条纠错是对的，但不是卡点的成因。
+
+### 29.3 `SVGA_CAP_HP_CMD_QUEUE` 是 caps1 的 bit29，而且**没有 guest 接口**
+
+之前几份文档（§22.8、§26.4、STATUS.md）都把 HP command queue 写成
+"`SVGA_CAP2_HP_CMD_QUEUE` = caps2 bit7"，并把它列为"唯一还没试过的入口"。两处都错：
+
+1. 它在 **caps1**（`SVGA_REG_CAPABILITIES`）里，`SVGA_CAP_HP_CMD_QUEUE = 0x20000000`，
+   即 **bit29**。实测本机 `caps = 0xfdffc3e2`，bit29 **确实为 1**。
+2. **`svga_reg.h` 的寄存器枚举里没有 `SVGA_REG_HP_CMD_QUEUE`**（枚举到
+   `SVGA_REG_TOP = 85` 结束，中间没有 HP queue 相关项），vmwgfx 也从不引用它。
+
+⇒ HP command queue 是 **ESXi/vSphere 宿主机内部**的提交通道（Hypervisor Performance
+queue，配合 vGPU/直通使用），guest 侧没有可写的寄存器或 FIFO 槽去驱动它。
+**这条路对 guest kext 不存在，从候选列表里删掉。** 之前把它当"最后一个入口"是误判。
+
+顺带确认同一份头文件里的其它位，实测 `caps = 0xfdffc3e2`：
+
+| bit | 宏 | 值 |
+|---|---|---|
+| 26 | `SVGA_CAP_CMD_BUFFERS_2` | 1 |
+| 27 | `SVGA_CAP_GBOBJECTS` | 1 |
+| 28 | `SVGA_CAP_DX` | 1 |
+| 29 | `SVGA_CAP_HP_CMD_QUEUE` | 1（但无接口）|
+| 30 | `SVGA_CAP_NO_BB_RESTRICTION` | 1 |
+| 31 | `SVGA_CAP_CAP2_REGISTER` | 1 |
+
+### 29.4 还确认了一件互相矛盾的事
+
+`gb: devcaps DXCONTEXT=1 SM41=1 GL43=1`、`SVGA3D LIVE (DEVCAP_3D=1)`，
+但 **`SVGA_FIFO_3D_CAPS[0..255]` 整段读回全 0**。
+
+一个说支持 3D、一个说没有任何 3D 能力。这解释了为什么 `DEFINE_RTV` 之后的
+`SET_SHADER_IFACE` 这类**依赖 caps 数组**的命令一律失败，而 `DEFINE_CONTEXT` /
+`BIND_CONTEXT` / `SET_COTABLE` 这类**纯对象表记账**的命令能过。
+
+`DEFINE_RTV` 属于前者还是后者，取决于宿主是否用 caps 数组去校验 format/resourceType。
+这条线索比继续猜载荷更值得追，见 29.5。
+
+### 29.5 下一轮实验：`DEFINE_RTV` 的最小化 + 参数枚举（一次启动）
+
+已排除的变量：载荷字段顺序（与 `svga3d_dx.h` 逐字段对上）、`cmdSize`（本宿主不校验）、
+CTable 大小（改成 4096 无效）、`dxContext`（0 是唯一合法值）、flags（只能 0/1）。
+
+剩下的可疑项只有 **RTV 命令体里那两个枚举值**：`format=1 (X8R8G8B8)` 与
+`resourceDim=3 (TEXTURE2D)`。本机 3D caps 全 0，而宿主的 RTV 校验很可能要查
+"这个 format 是否被支持"。
+
+所以下一轮应该一次启动内枚举 format/resourceDim 的组合，而不是再改单个值：
+
+| # | format | resourceDim | 备注 |
+|---|---|---|---|
+| 1 | 1 (X8R8G8B8) | 3 (TEXTURE2D) | 现状 |
+| 2 | 2 (A8R8G8B8) | 3 | 相邻 format |
+| 3 | 1 | 1 (BUFFER) | 换维度 |
+| 4 | 0 (UNKNOWN) | 0 | 看是否报不同的错 |
+
+**关键**：每条用**独立的 CB**、且**每条都在前一条失败后立刻换队列**（0x3f 设备队列，
+不楔死）——§22.1 说过一条 COMMAND_ERROR 会封死队列，所以只有第一条的数据可信。
+这需要先确认 0x3f 队列上真的能连续送 DX 命令（ERROR 不会传播到设备队列）。
+
+如果四组全都是 `STATUS 3 + errorOffset 0`，那就可以下结论：
+**`DEFINE_RTV` 在本宿主上只对"-1/无效"形态的命令有反应，宿主侧 DX 对象创建路径本身残缺**，
+kext 侧再怎么调也没用，应当转向"不用 DX 对象也能出像素"的路径（GB 表面 + 2D blit）。
+
+---
+
+## §30 10-29 21:37 启动：§29.5 四组枚举的实测结果（唯一决定性的一次）
+
+### 30.0 结论先行
+
+**§22.1 那个"一次 DX 错误 = 引擎楔死"的前提是错的。** 引擎没有楔死。
+
+这一轮在**同一个启动、同一个 DX context (cid=1)** 上连续提交了三条 `DEFINE_RTV`，
+全部返回了**不同的状态码**，而且都是即时的：
+
+| # | queue | format | dim | STATUS | 含义 |
+|---|---|---|---|---|---|
+| 14 | 1 (DX) | 1 X8R8G8B8 | 3 TEXTURE2D | **3** | COMMAND_ERROR |
+| 15 | 2 (DX) | 2 A8R8G8B8 | 3 TEXTURE2D | **4** | **CB_HEADER_ERROR** |
+| 16 | 0x3f (DEV) | 1 X8R8G8B8 | 1 BUFFER | **3** | COMMAND_ERROR |
+| 17 | 0x3f (DEV) | 0 UNKNOWN | 0 UNKNOWN | **3** | COMMAND_ERROR |
+
+三条 STATUS 3 的 `errorOffset` **全部是 0**，且 header 其它字段（id、flags=1、
+length=0x24）完全一致——也就是说**宿主在任何一条命令体被解析之前就已经判死了这个 CB**。
+`errorOffset = 0` 在这里不是"第一条命令出错"，而是"错误位置未填"。
+
+### 30.1 STATUS 4 是这一轮唯一的新事实，也是最有用的一个
+
+CB[15] 的构成与 CB[14] **逐字节等价**，唯一差异是 `cbContext`：
+
+```
+cb[14]  ctx1  ... pay: 000004a3 0000001c 00000001 00000003 00000001 00000003 ...
+cb[15]  ctx2  ... pay: 000004a3 0000001c 00000001 00000003 00000002 00000003 ...
+                                                    ^^^^^^^^ format 字段
+```
+
+所以 STATUS 4 不是命令体的问题，是**这个队列本身拒绝 DX 命令**：`cbContext=2`
+这个 DX 队列没有对应的活跃 DX 上下文槽，header 校验阶段就把整个 CB 判成
+`CB_HEADER_ERROR`。
+
+这条把"header 校验"和"命令解析"两层的分工确定下来了：
+
+- **STATUS 4** = CB header / 队列归属层面被拒（还没看命令）
+- **STATUS 3 + offset 0** = header 过了、队列归属过了，但命令在执行前被拒
+  （不是解析错，是**这个命令在当前状态下不允许执行**）
+
+### 30.2 顺带证伪了 §22.1 与"0x3f 才是安全队列"
+
+- `cbContext=1` 上连续三条 DX 命令（cb9/10/11 是 DEFINE/BIND/SET_COTABLE，
+  cb12 是 72 dword 批量，cb14 是失败的 RTV）——**队列 1 完全没被前面的失败影响**，
+  每次提交都在下一次轮询立刻回状态。
+- `0x3f` 上送的两条 RTV 也都是即时 STATUS 3，没有超时、没有把设备队列拖垮，
+  之后的 `log show` / SSH 一切正常。
+- 也就是说 **STATUS 3 不会楔死引擎**；楔死现象的历史观察（§22.x 那些"后来的探测
+  全部超时"）另有原因，很可能是当时代码在失败后仍在同一 CB 上追加命令、
+  导致同一个 CB 的 header 被复用/覆盖。这个需要回头单独核对，
+  **但"一条错误 = 一次重启"这个假设可以正式划掉**，实验节奏能快一个数量级。
+
+### 30.3 那么 `DEFINE_RTV` 到底卡在哪
+
+现在可以把所有已知信息收窄成一个很具体的判断：
+
+`SECTION_COMBO` 里 cb12（DEFINE+BIND+12 COTABLES，72 dwords）**COMPLETED**。
+那批里 12 条 `SET_COTABLE` 中有 11 条的 `mob = 0xFFFFFFFF`（无效 MOB）、
+`validSize = 0`，只有 `type 0 (RTVIEW)` 是真的 `mob 5 / validSize 4096`。
+批量能过，说明：
+
+- COTable 记账是纯软件表，**不校验 MOB 是否真的存在**；
+- `validSize` 也不校验；
+- 宿主对 `SET_COTABLE` 一律接受。
+
+而 `DEFINE_RTV` **立刻**在 offset 0 被拒，说明它不是走"记账"路径，
+它要访问 **RTVIEW COTable 所在的那个 MOB 的真实内容/元数据**。
+而这套 DX context 是在一个"没有 3D caps"的设备上建立起来的（`3d capabilities
+advertised: 0 of 256 non-zero`，而 devcaps 说 DXCONTEXT=1 / SM41=1 / GL43=1）。
+
+于是最合理的解释是：**宿主上的 DX context 对象建起来了（能记账），
+但它背后的 3D 设备子对象没有初始化**（因为 guest 从未提供 3D caps 表、
+`SVGA_REG_3D_HWVERSION` 读回 0）。`DEFINE_RTV` 需要那个子对象，于是必败。
+
+### 30.4 §30.3 原本的下一步（补 3D caps）——**已证伪，不要做**
+
+写完 30.3 之后我打算"往 `SVGA_FIFO_3D_CAPS` 里填一份 caps 表"。查了 vmwgfx 的
+`vmw_get_cap_3d_ioctl()`（linux-stable v5.4.210，`vmwgfx_ioctl.c`）后这条路线直接作废：
+
+```c
+if (gb_objects && vmw_fp->gb_aware) {
+        /* 逐个 SVGA3D_DEVCAP 走 SVGA_REG_DEV_CAP 寄存器现读 */
+} else if (gb_objects) {
+        ret = vmw_fill_compat_cap(dev_priv, bounce, size);   /* 合成 */ 
+} else {
+        fifo_mem = dev_priv->mmio_virt;
+        memcpy(bounce, &fifo_mem[SVGA_FIFO_3D_CAPS], size);  /* <-- 唯一读它的分支 */
+}
+```
+
+`SVGA_FIFO_3D_CAPS` 只在 **`gb_objects == false`** 的分支里被读。我们的 `caps`
+是 `0xfdffc3e2`，bit27 `SVGA_CAP_GBOBJECTS` = 1，走的是前两个分支 ——
+在 GB 设备上这份共享内存**根本没人读**，它是宿主写给**老式（非 GB）驱动**的兼容块。
+同理 `vmw_fifo_have_3d()` / `DRM_VMW_PARAM_FIFO_HW_VERSION` 在 GB 设备上都是直接
+返回常量 `SVGA3D_HWVERSION_WS8_B1`，不看 `SVGA_FIFO_3D_HWVERSION`。
+
+**结论**：§29.4 那个"devcap 有值、3D_CAPS 全 0 互相矛盾"的观察，不是矛盾，是
+**正常且符合规范**的。GB 设备上 3D 能力的唯一权威通道就是 `SVGA_REG_DEV_CAP`
+（我们已经批量读过，`devcap[0..31]` 有完整的内容）。这条线索作废，
+`fifoDump()` 里那 32 行 `3dcaps[...]` 日志也就没有了诊断价值，保留但不再解读。
+
+### 30.5 真正的下一步：`SET_COTABLE` 到底该按什么顺序、绑什么 size
+
+回到 30.3 的推理链，它的前半段仍然成立（`SET_COTABLE` 一路被接受、`DEFINE_RTV`
+在 offset 0 立刻被拒）。既然不是 caps 的问题，那就要看**宿主拿到 RTVIEW COTable
+之后到底读到了什么**。三个具体怀疑点，按代价排序：
+
+1. **COTable 的 MOB 内容必须是全 0 且 `validSize` 必须与宿主预期一致。**
+   我们现在 `mob 5` 是 4 KiB、`validSize = 4096`。按 `svga3d_dx.h`，
+   `SVGA3D_COTABLE_RTVIEW` 的条目是 `SVGA3dRenderTargetView`，32 字节，
+   128 条 × 32 = 4096，自洽。但宿主要的是**条目数**还是**字节数**，
+   `validSizeInBytes` 这个字段名说的是字节，值得用"`validSize = 0` 但仍然给它
+   一个 4 KiB 的 MOB"做一次对照。
+2. **`DEFINE_CONTEXT`/`BIND_CONTEXT` 之后是否还需要 `SET_COTABLE` 之外的一步**——
+   比如 `SVGA_3D_CMD_DX_SET_VS/PS/GS/...` 或 `DX_SET_SINGLE_CONST_BUF`。
+   `vm3dmp` 的实际命令流可以从宿主侧 `.rdata` 的命令描述符表反推，但更省事的是
+   直接看 vmwgfx 的 `vmw_cotable.c` 里 COTable 的**绑定时机**。
+3. **RTVIEW 的 `sid` 指向的 surface 是否必须先 `DEFINE_GB_SURFACE` 且带 GB 标志。**
+   我们的 sid 3 是 legacy `DEFINE_GB_SURFACE` 建的（`gb: GB SURFACE 3 defined`）。
+   在 vGPU10 下 `DEFINE_GB_SURFACE` 和 `DEFINE_GB_SURFACE_EXT` 的语义差别、
+   以及 `surfaceFlags` 里是否需要 `SVGA3D_SURFACE_BIND_RENDER_TARGET`，
+   是这条路径上还没检查过的一环 —— **这是下一个要查的地方**。
+
+### 30.6 实验节奏可以恢复
+
+§30.2 已经把"一条错误 = 一次重启"划掉。这意味着从下一轮起可以**在一次启动内
+连续做多组对照**（每组独立 CB、独立 `cbContext`），拿到全部结果再一起判定，
+不必再为每条命令重启一次 VM。单次实验的信息量提升一个数量级。
+
+---
+
+## §31 10-29 21:47 启动：`validSize` 扫描 + surfaceFlags 对照（§30.5 三个怀疑点全灭）
+
+### 31.0 结果表
+
+| 步骤 | 内容 | 结果 |
+|---|---|---|
+| SPLIT | DEFINE_CONTEXT / BIND_CONTEXT / SET_COTABLE(4096) | 三条全 ACCEPTED |
+| STEP 2 | 批量 12 cotables（72 dwords） | submitted，sync COMPLETED |
+| 3a-1 | `SET_COTABLE validSize=128` + `DEFINE_RTV` @q1 | set ok → **RTV refused (3)** |
+| 3a-2 | `SET_COTABLE validSize=0`（解绑） | **SET_COTABLE 本身 refused** |
+| 3a-3 | `SET_COTABLE validSize=4096` | **SET_COTABLE 本身 refused** |
+| 3b | legacy FIFO 重定义 sid 3（只留 HINT_RENDER_TARGET） | accepted |
+| 3b | 重绑 4096 + `DEFINE_RTV` @0x3f | **refused (3)** |
+| 3b | 4 组 format/dim 枚举（§29.5 复跑） | 全部 refused（3/4/3/3，与 §30 完全一致） |
+
+### 31.1 `validSize` 不是卡点（怀疑点 1 灭）
+
+128（vm3dmp 的 32 条目 × 4 B）和 4096（整个 MOB）拿到**同一个 STATUS 3**。
+也就是说宿主根本没在这个字段上做判断——`DEFINE_RTV` 是**先**失败在别的地方。
+
+### 31.2 `surfaceFlags` 不是卡点（怀疑点 3 灭）
+
+去掉 `BIND_RENDER_TARGET` 后重定义、重绑，结果一模一样。
+宿主不查 surface 的 bind flag。这一条也可以划掉。
+
+### 31.3 ★ 本轮最重要的发现：**队列 1 在 3a-1 之后失效了**
+
+3a-2 和 3a-3 的 `SET_COTABLE` 是**以前从来都 ACCEPTED 的命令**，但这次都被拒了，
+而它们的 `cbContext` 都是 `tcid`(=1)，也就是**紧接在 3a-1 那条失败的 DEFINE_RTV 之后**。
+
+对照一下同一轮里的后来者：
+
+- 3b 在 legacy FIFO 重建 surface 后，往 **`cbContext=1`** 发 `SET_COTABLE` → 没有打印
+  （`(void)cbSubmitCtx` 丢了返回值，这行没日志，是我的疏忽）；
+- 3b 最后那组枚举里 `fmt1/t2d` 又是一条 **q1** 的 DEFINE_RTV → 照样 **STATUS 3**。
+
+再看 §30 那一轮：cb14（q1 RTV，STATUS 3）之后，q1 就不再有任何一次成功。
+
+**结论修正 §30.2**：更准确的表述是——
+
+- **`cbContext=0x3f`（设备队列）确实不会因为命令错误而失效**：本轮 3b 之后
+  在 0x3f 上连发两条失败 RTV，仍然每条都**即时**返回 STATUS 3，没有超时。
+- **`cbContext=1`（DX 队列 1）会在第一次 COMMAND_ERROR 之后拒绝后续 CB**，
+  而且拒绝形态是 `SET_COTABLE` 也一起被拒 —— 这跟 §22.1 的历史观察其实是一致的，
+  只是 §30 的样本里 q1 只发了失败命令、后面紧跟的是 q2/q63，所以看不出来。
+
+所以完整规则是 **"错误按 cbContext 记账，0x3f 除外"**。这比原来"全局楔死、
+要重启"宽松得多，也比 §30.2 写的"完全不会失效"准确。实验设计上：
+**多组对照全部走 0x3f，DX 队列每轮只赌一次。**
+
+### 31.4 至此 DEFINE_RTV 的全部已知变量都排除了
+
+- 载荷字段顺序 ✓（§29，逐字段对 svga3d_dx.h）
+- `cmdSize` ✓（宿主不校验，多 4 字节也接受）
+- `dxContext` ✓（0 是唯一合法值）
+- flags ✓（只能 0/1；bit1/bit2 会触发 STATUS 4）
+- format / resourceDim 两个枚举 ✓（4×2 组合全试）
+- `validSizeInBytes` ✓（128 / 0 / 4096）
+- COTable 的 MOB 是否存在、大小、PT 深度 ✓（`DEFINE_GB_MOB64` 4 KiB PT64_0，fence 通过）
+- surface 的 surfaceFlags ✓（有/无 BIND_RENDER_TARGET）
+- 3D caps 通告 ✓（§30.4 证明在 GB 设备上这条通道根本不存在）
+
+**剩下唯一没被排除的差异，是"谁在这个 DX context 上做过什么"**：
+我们的 cid 1 上只跑过 DEFINE/BIND/SET_COTABLE，而真实的 `vm3dmp`
+在 `DEFINE_RTV` 之前跑了整套 device-context 命令（`START_STOP_CONTEXT`、
+`DC cmd 3`）以及 shader/state 绑定。§30.3 里"DX 上下文对象建起来了但背后 3D
+子对象没初始化"的判断，仍然是对这一现象最简洁的解释。
+
+### 31.5 下一轮该做的事（首次尝试"不只是调参数"）
+
+1. **把失败记账规则落实到代码**：STEP 3a 的循环改成每组都换到 0x3f，
+   不再往已经报过错的队列上追加命令（本轮 `COTSZ 0/4096` 那两条无效数据就是
+   这么浪费掉的）。顺手把那句丢了返回值的 `(void)cbSubmitCtx` 补上日志。
+2. **查 `vm3dmp` 在第一条 `DEFINE_RTV` 之前的完整命令序列**。
+   宿主 `.rdata` 从 `0x140bde74c` 起的命令描述符表已经扫出来了，
+   但"序列"信息不在表里；更可行的做法是在宿主上对 `0x1404c5ee0`
+   （DX 管理器的周期性 tick）和 RTV handler `0x14055be80` 的入口下条件断点，
+   在客体真跑一次 Windows guest 时抓 `cid`、`[dev+0x9bc]`、`0x1414930A0` 三者的关系。
+   这条路要用 x64dbg + 一个能跑 DX 的 Windows guest，成本明显高于之前的静态分析。
+3. **务实的替代路线**：既然 DX 对象创建这条路已经把所有 guest 侧变量都排除干净，
+   而 GB surface + 2D blit 这条路径在早期是验证过的（`docs §10` 一带），
+   值得先把"能出像素"这个里程碑收掉，再回头啃 DX。
+
+---
+
+## §32 10-29 21:54 启动：队列记账规则的正确版本（§31.3 被自己的实验推翻）
+
+### 32.0 先说一件事：§31.3 那次运行**不是**新版二进制
+
+§31 记录的 21:47 那一轮，代码里 `COTSZ` 的日志串是
+`"COTSZ %u (set ok, q%u) DEFINE_RTV -> %s\n"`，所以它打的 `q1` 就是真的走了
+`cbContext=1`。我当时据此写下"队列 1 会后继失效"，**那个观察本身是对的**。
+
+然后我按这个结论把代码改成了"全部变体都走 0x3f"，装上、重启，读日志——
+读到的仍然是 `(set ok, q1)`。第一反应是"改动没生效"，查了 md5、`strings`、
+时间戳，又在 `cbSubmitCtx` 里翻了三处静默 `return false` 和 4 条 timeout。
+
+实际原因是 **`log show` 的返回顺序不是时间顺序**：`--predicate` 用两个不同的
+字符串做 OR 时，两批结果各自成块返回，21:54 的新版在那次查询里被排到了后面。
+`--start '2026-10-29 21:54:40'` 一加，旧新立刻分清。
+
+教训（值得记下来）：**判定实验结果前，先核对"跑的是哪个二进制"**——
+`log show --start` 比 `--last Nm` + grep 可靠，因为后者会把多次启动混在一起；
+而且新版/旧版混读时，旧版的行看起来就像"新改动没生效"。
+
+### 32.1 新版的实际结果：0x3f 也会被"记账"
+
+```
+cb: submit 6 dwords ctx63 dx0 flags1     -> STATUS 3      COTSZ 128
+cb: submit 6 dwords ctx63 dx0 flags1     -> STATUS 3      COTSZ 0
+cb: submit 6 dwords ctx63 dx0 flags1     -> STATUS 3      COTSZ 4096
+cb: submit 6 dwords ctx63 dx0 flags1     -> STATUS 3      SFLAGS SET_COTABLE
+cb: submit 9 dwords ctx1  dx0 flags2     -> STATUS 3      RTV fmt1/t2d
+cb: submit 9 dwords ctx2  dx0 flags2     -> STATUS 4      RTV fmt2/t2d
+cb: submit 9 dwords ctx63 dx0 flags2     -> STATUS 3      RTV fmt1/buffer
+cb: submit 9 dwords ctx63 dx0 flags2     -> STATUS 3      RTV fmt0/unknown
+```
+
+`SET_COTABLE` 是**这条链上从第一轮起就被接受过十几次**的命令，现在在
+`cbContext=0x3f` 上被拒。而同一轮里，0x3f 上在它**之前**的 4 次探测
+（flags 0/1/2/3 × len 0/12）**全部 COMPLETED**。
+
+所以 **0x3f 不是免记账的**。§30.2 的"0x3f 不会失效"和 §31.3 的"错误按 cbContext
+记账、0x3f 除外"都不成立。
+
+### 32.2 那到底是什么在记账——一条更简单也更吓人的假设
+
+把这一轮的顺序摆出来：
+
+```
+0x3f  探测 ×4           全部 COMPLETED
+0x3f  cb1 .. cb8        全部 COMPLETED
+q1    DEFINE/BIND/COT   全部 COMPLETED
+q1    cb12 (72 dwords)  COMPLETED      <-- DEFINE+BIND+12 COTABLES 批量
+q0    sync              COMPLETED
+q1    RTV                STATUS 3      <-- §31 里也在这里失败
+0x3f  SET_COTABLE        STATUS 3      <-- 第一次在 0x3f 上失败
+...
+```
+
+时间顺序上，**第一条失败之前唯一一条"新东西"就是 cb12**。它 COMPLETED，
+但它是唯一一次**把 11 张 `mob=0xFFFFFFFF` 的无效 COTable 塞进同一个 DX context**
+的操作。它返回 COMPLETED，却很可能在宿主侧给这个 DX context 打了一个
+"状态已坏"的标记，此后**任何**带这个 context 语义的命令（在**任何** cbContext 上）
+都返回 STATUS 3 / offset 0。
+
+这只是一种解释，但它有个能直接检验的预言，而且这个预言和我们已经有的数据一致：
+**§30 那一轮（21:37）在 q2 上还能拿到 STATUS 4，本轮 q2 也是 STATUS 4**
+—— 说明 STATUS 4 是纯粹的 header/队列判定，没有被"记账"污染；
+而被污染的是"命令能不能执行"，STATUS 3 是它的表达。
+
+### 32.3 下一轮：把 cb12 那段批量拆掉，这是唯一该动的变量
+
+现有代码在 STEP 1 已经**逐条**发过 DEFINE / BIND / SET_COTABLE 并且全过，
+STEP 2 的批量纯粹是"复刻 vm3dmp 的打包形态"，信息增量本来就很低，
+现在看它还是污染源。所以：
+
+1. **删掉 STEP 2 的 12-cotables 批量**（`kTplDwords` 那段），
+   只保留 STEP 1 的逐条版本 —— 逐条版本在 §30/§31/§32 三轮里从未失败过。
+2. STEP 3a 的 COTable 尺寸扫描改成**每条之间插一次 sync**，
+   并且**每组用全新的 cid**（cid 2、3、4…），而不是在同一个 cid 上反复重绑。
+   一个新 cid 就是一份干净的状态，这比纠结"哪个 cbContext 免记账"可靠得多。
+3. 如果换成新 cid 之后 `DEFINE_RTV` 依然 STATUS 3 / offset 0，
+   那就说明"这个 cid 第一次发 RTV 就被拒"，与历史污染无关，
+   §30.3 的"宿主侧 3D 子对象没初始化"就是唯一的解释了。
+
+### 32.4 顺带纠正 §30.2 与 §31.3
+
+| 版本 | 说法 | 状态 |
+|---|---|---|
+| §22.1（旧） | 一条 DX 错误 = 引擎楔死 = 一次重启 | 过强，但方向对 |
+| §30.2 | STATUS 3 不会楔死，多组可连续跑 | **错** |
+| §31.3 | 按 cbContext 记账，0x3f 除外 | **错** |
+| §32.2 | 失败的**副作用**（而非失败本身）污染整个 DX context，所有队列都受害 | 待验证 |
+
+真正可操作的一条是：**每个想独立观测的 DX 实验，都要用新的 cid**。
+同一 cid 上的第二次尝试，不管走哪个 cbContext，都可能已经在读别人的墓碑。
+
+---
+
+## §33 10-29 22:04 启动：**污染源不是那个批量**（§32.2 被证伪），并且找到一个硬约束
+
+### 33.0 结果
+
+我去掉了 12-cotables 批量、给每个尺寸变体一个全新的 cid（2/3/4）、
+每条 `SET_COTABLE` 都改走 `0x3f`。结果：
+
+```
+SPLIT DEFINE/BIND/COT  cid1  q1   -> ACCEPTED ×3
+TEMPLATE sync          q0        -> COMPLETED
+COTSZ valid128  cid2 (def REFUSED bind REFUSED cot REFUSED) DEFINE_RTV -> refused
+COTSZ valid4096 cid3 (def REFUSED bind REFUSED cot REFUSED) DEFINE_RTV -> refused
+COTSZ valid0    cid4 (def REFUSED bind REFUSED cot REFUSED) DEFINE_RTV -> refused
+```
+
+三个全新 cid 的 **`DEFINE_CONTEXT` 本身**就被拒了。
+
+这一条同时否掉两件事：
+
+1. **§32.2 的"批量污染整个 DX context"错了。** 这一轮压根没发那个批量，
+   cid 1 的三条命令全部 ACCEPTED，然后全新 cid 2/3/4 依旧一条都进不去。
+2. **"新 cid 就是干净状态"这个假设也错了。**
+
+### 33.1 但数据里有一个必须解释的矛盾：`DEFINE_CONTEXT` 在 cbContext 63 上被拒
+
+看提交细节：
+
+```
+cb[13] ctx63 dx0 len 12  pay: 00000477 00000004 00000002   <- DEFINE_CONTEXT cid 2
+                  STATUS 3
+cb[14] ctx63 dx0 len 12  pay: 00000477 00000004 00000003   <- DEFINE_CONTEXT cid 3
+```
+
+而历史记录里**所有**成功的 `DEFINE_CONTEXT` 都是走 `cbContext=1`：
+本轮 cid 1 的三条（q1）全 ACCEPTED；§24 的反汇编也写着
+"DEFINE_CONTEXT with flags=1 (NO_IRQ only) is ACCEPTED on **queue 1**"。
+
+所以最直接的读法不是"新 cid 不干净"，而是：
+
+> **`cbContext` 不是"哪条队列"，而是"这个 DX context 绑在哪条队列上"。**
+> `DEFINE_CONTEXT` 只有在 **cbContext 与该 cid 将要绑定的队列一致**时才被接受；
+> 把 cid 2 的 DEFINE 发到 63 号队列，等于给一个不存在的队列建上下文。
+
+这条如果成立，就把之前所有"q1 之后失效"的观察串起来了：
+q1 上第一次 `DEFINE_RTV` 失败之后，q1 上再发 `DEFINE_CONTEXT` 给任何 cid 都会失败，
+因为它仍然要求"队列 1 的状态是好的"。**坏的是队列本身，不是 cid。**
+
+这也是 §31.3 观察到的现象（q1 上的 `SET_COTABLE` 后继被拒）的正确解释，
+同时解释了为什么 q2 一直回 STATUS 4（队列 2 从未 DEFINE 过任何 cid）。
+
+### 33.2 因此下一轮的正确形状
+
+**一个 cid 配一条独立的 cbContext，从 DEFINE 到 RTV 全程不换队列。**
+本轮的设计恰恰把它拆散了（DEFINE 走 63、RTV 也走 63），所以三个变体全废。
+重新设计：
+
+| 变体 | cbContext | cid | 动作 |
+|---|---|---|---|
+| 0 | 1 | 1 | DEFINE / BIND / SET_COTABLE(4096) / **DEFINE_RTV** ← 唯一的一次赌 |
+| 1 | 3 | 3 | 同上，validSize = 128 |
+| 2 | 4 | 4 | 同上，validSize = 0 |
+| 3 | 5 | 5 | 同上，format = A8R8G8B8 |
+
+前提是队列 1/3/4/5 各自独立记账。这一点本身也要验证——如果队列 1 的失败
+会让队列 3 也失效，那就回到"一次启动只能测一个变量"，
+只是这个结论要在**正确的**实验形状下得出，而不是在 §31、§33 这种拆散了的形状下。
+
+### 33.3 已确认可以复用的两个"平台事实"
+
+1. `DEFINE_CONTEXT` / `BIND_CONTEXT` / `SET_COTABLE` 这三条，在**队列 1** 上
+   连续发送从未失败（四轮、十几次）。
+2. `DEFINE_RTV` 至今**一次都没有成功过**，在所有 cbContext（1/2/63）、
+   所有载荷变体、所有 COTable 尺寸、所有 surfaceFlags 组合下都是
+   `STATUS 3 + errorOffset 0` 或 `STATUS 4`。
+
+第 2 条现在是整个项目最硬的一个事实。
+
+---
+
+## §34 10-29 22:10 启动：**`cbContext` 的真实语义找到了**（§33.1 的猜测是对的，且能解释全部历史）
+
+### 34.0 PAIR 实验（每个变体 cid 与 cbContext 全程自洽、不换队列）
+
+| 变体 | cid | cbContext | DEFINE_CONTEXT 结果 | 后续 |
+|---|---|---|---|---|
+| ctrl 4096/t2d | 1 | **1** | **STATUS 3** | bind/cot/RTV 全 refused |
+| size 0128/t2d | 3 | 3 | **STATUS 4** | 同上 |
+| size 0 /t2d | 4 | 4 | **STATUS 4** | 同上 |
+| fmt A8R8G8B8 | 5 | 5 | **STATUS 4** | 同上 |
+
+同一轮更早，**cid 1 在 cbContext 1 上的同一条 `DEFINE_CONTEXT` 是 ACCEPTED**：
+
+```
+SPLIT DX_DEFINE_CONTEXT {cid 1}   ctx1  -> ACCEPTED     <- STEP 1
+PAIR ctrl ... cid1 q1             ctx1  -> STATUS 3     <- 20 毫秒之后，同一条命令
+```
+
+payload 逐字节相同（`00000477 00000004 00000001`），header 只有 id 不同。
+**差别只在于：中间跑了一次 STEP 1 的 `BIND_CONTEXT` 和 `SET_COTABLE`。**
+
+### 34.1 结论：`DEFINE_CONTEXT` 是"创建"，不是"重置"
+
+对同一个 cid 第二次 `DEFINE_CONTEXT` 会失败，因为 cid 1 已经被创建了。
+§24 那条注释（"DEFINE_CONTEXT with flags=1 is ACCEPTED on queue 1"）
+是**第一次**调用时的观察，被当成了无条件成立 —— 这正是从 10-21 到 10-29
+所有"后备探测全被拒"的根本原因：那些探测都在**已经 DEFINE 过的 cid** 上重发 DEFINE。
+
+同理，`SET_COTABLE` 在后继被拒也是因为它在测一个已经坏掉的 cid 1。
+
+### 34.2 STATUS 3 与 STATUS 4 的分工（现在没有任何反例）
+
+- **STATUS 4 / CB_HEADER_ERROR** —— `cbContext` 这个队列从未承载过任何
+  DX context。cbContext 3/4/5 上第一次发包就是 4；cbContext 2 每次都是 4；
+  cbContext 63（设备队列）从来不会给 4。
+  → **队列必须是"已经有过 DX context 的队列"，而本项目里只有队列 1 是。**
+- **STATUS 3 / COMMAND_ERROR(offset 0)** —— 队列本身有资格承载 DX，但
+  **命令所针对的 cid 在当前状态下不允许做这件事**。重复 DEFINE 属于这一类，
+  在坏 cid 上发 RTV 也属于这一类。
+
+这条分工把此前四轮里所有互相矛盾的现象一次性解释完了，包括
+"§30.2 说 0x3f 免记账、§31.3 说按 cbContext 记账、§32.2 说 context 被污染"——
+三者都只是"同一个 cid 被反复使用"的不同侧面。
+
+### 34.3 因此：**一次启动只能得到一条可信的 `DEFINE_RTV` 结果**
+
+可用资源极其有限：
+
+- 队列 1 是唯一能承载 DX 的队列（已验证）；
+- 队列 1 上一次启动内只能成功 DEFINE 一个新 cid（第二次 DEFINE 就 STATUS 3）；
+- 所以 **一次启动 = 一个新 cid = 一次 `DEFINE_RTV` 的机会**。
+
+后面所有 `DEFINE_RTV` 的变体实验必须回到"一次启动一个变体"的节奏。
+§30.6 那句"实验节奏可以恢复"是错的，撤回。
+
+### 34.4 下一轮的唯一动作
+
+把 STEP 1 之后那条 `DEFINE_RTV` 的载荷定死，然后**只改一个东西**：
+`format`。因为 `format/resourceDim` 是唯一还没在"干净 cid"上被测过的变量
+（§30 的 4 组枚举全部发生在 cid 1 已经 DEFINE 过、且已经有一次失败 RTV 之后）。
+
+具体：STEP 3 的首发用 `format = 2 (A8R8G8B8)`、`dim = 3`、`desc = {0,0,1}`，
+cid 1，队列 1。如果它 **ACCEPTED**，说明 `X8R8G8B8` 不是合法的 RTV 格式；
+如果仍是 STATUS 3，说明格式不是原因，`DEFINE_RTV` 在这台宿主上确实无法成功，
+应当转向 2D 路径（§31.5-3）并把这个结论固化进 STATUS.md。
+
+---
+
+## §35 单发 `format = A8R8G8B8`：矩阵里最后一个干净格子
+
+### 35.1 代码改动
+
+按 §34.4 执行，本轮把整个 STEP 3 收敛成一条命令：
+
+| 项 | 值 | 说明 |
+|---|---|---|
+| cid | `1` | STEP 1 刚在队列 1 上 DEFINE 成功的那个 |
+| cbContext | `1` | 唯一承载过 DX context 的队列（§34.1） |
+| flags | `2` | `kCbFlagDxContext` |
+| cmdSize | `28` | `svga3d_dx.h` 实打实 |
+| rtvId / sid | `trtv` / `surfId` | STEP 1 里 `SET_COTABLE` 已绑好 COTable |
+| **format** | **`2` `A8R8G8B8`** | **本轮唯一变量**（此前一直是 `1` `X8R8G8B8`） |
+| resourceDimension | `3` `texture2d` | 不变 |
+| desc | `{0, 0, 1}` | 不变 |
+
+同时**退役**了三段代码，它们都是被 §33/§34 证伪的：
+
+- **STEP 3a**（`PAIR` 四组枚举）：三组打在 cbContext 3/4/5 上，首次发包即
+  STATUS 4 —— 那些队列永远不可能承载 DX context，测的是空气；留下的一组
+  cid 1 又发生在 cid 1 已经失败过一次 `DEFINE_RTV` 之后。
+- **STEP 3b**（`SFLAGS redefine`）：`surfaceFlags` 去掉 `BIND_RENDER_TARGET`
+  的重定义，同样在坏掉的 cid/队列上。
+- 与它们配套的旧注释（"STATUS 3 不会楔死引擎，多组可连续跑"）一并删除 ——
+  留着只会误导下一个读代码的人。
+
+`build.sh` 的 `MARKERS` 相应更新：删 `PAIR %s` / `SFLAGS redefine`，
+`dx: RTV %s` 改成更精确的 `dx: RTV fmt2 A8R8G8B8/t2d`。
+（改完第一次构建确实被 FATAL 拦下了 —— 这正是可达性标记该有的行为。）
+
+### 35.2 判据
+
+- **ACCEPTED** → `X8R8G8B8` 不是合法的 RTV 格式，枚举就是卡点，DX 通路重新打开，
+  接着走 `CLEAR_RTV` + `READBACK` 验像素。
+- **STATUS 3 / offset 0** → 格式不是卡点。结合 §30–§33 的全部结果，
+  **`DEFINE_RTV` 在本宿主上无法成功**，这条主线到此为止，转 2D 出像素路径
+  （§31.5-3：GB surface + `SURFACE_DMA` / blit）。
+
+### 35.3 实测
+
+（结果见 §35.4。）
+
+### 35.4 实测结果：`STATUS 3 (errorOffset 0)`，`format` 不是卡点
+
+一次完整的启动序列（22:23 重启，`log show --last 6m`）：
+
+```
+vgpu-fb: dx: SPLIT DX_DEFINE_CONTEXT {cid 1} -> ACCEPTED
+vgpu-fb: dx: SPLIT DX_BIND_CONTEXT  {cid 1 mob 6} -> ACCEPTED
+vgpu-fb: dx: SPLIT DX_SET_COTABLE   {cid 1 mob 5 type 0} -> ACCEPTED
+vgpu-fb: dx: TEMPLATE sync CB (q0 flags1) -> COMPLETED
+vgpu-fb: cb[1..12] COMPLETED (errorOffset 0)
+vgpu-fb: cb: STATUS 3 (errorOffset 0) -- full header dump
+vgpu-fb: cb hdr[ 0.. 7] 00000003 00000000 0000000d 00000000 00000001 00000024 161b9000 00000000
+vgpu-fb: dx: RTV fmt2 A8R8G8B8/t2d {rtv 1 sid 3 q1} -> refused
+vgpu-fb: dx: TEMPLATE verdict -> still refused
+```
+
+读法：
+
+- `hdr[0]=3` 即 `SVGA_CB_STATUS_COMMAND_ERROR`，`hdr[1]=0` 即 `errorOffset 0`；
+- `hdr[2..3]=0x0000000d` 是 id，`hdr[5]=0x24` = **36 字节** = 9 dword = 送去的那条
+  `DEFINE_RTV` 本身（cmdSize 28 + 头部 8），说明宿主**收全了这条命令**才判错；
+- `hdr[4]=1`（NO_IRQ，`cbSubmitCtx` 里强制 OR 上去的）；
+- 前 12 条 CB 全部 COMPLETED，说明 STEP 1 的三条 DX 命令和 sync 屏障在**同一个
+  进程、同一秒**内都是健康地被宿主接受的。
+
+**结论（按 §35.2 第二条判据）：`format` 不是 `DEFINE_RTV` 的卡点。**
+
+到这里，`DEFINE_RTV` 的失败变量已经穷尽。下列每一项都在"cid 在队列 1 上、且
+DEFINE_CONTEXT 刚刚 ACCEPTED"的前提下单独测过并排除：
+
+| 变量 | 测过的值 | 结果 |
+|---|---|---|
+| `format` | 0 / 1 / **2** | 全拒（2 为本轮，且是最干净的上下文） |
+| `resourceDimension` | 0 / 1 / 3 | 全拒 |
+| `cbContext` | 1 / 2 / 3 / 4 / 5 / 0x3f | 1 给 3，其余给 3 或 4 |
+| COTable `validSizeInBytes` | 0 / 128 / 4096 | 全拒 |
+| `surfaceFlags` 含 `BIND_RENDER_TARGET` | 有 / 无 | 全拒 |
+| 载荷字段顺序 / `cmdSize` / `desc` | 与 `svga3d_dx.h` 逐字节对齐 | 全拒 |
+| 单发 vs 批量 | 单条 CB / 12 条合批 | 全拒 |
+| `dxContext` 字段 | 0 | 全拒 |
+
+所以 §29 起的这条主线（"用 `DEFINE_RTV` 让 DX 管理器活过来"）**到此判定为在本宿主上
+不可达**。§30.2 的"STATUS 3 不会楔死引擎"、§31.3 的"错误按 cbContext 记账"、
+§32.2 的"批量污染 context"这三条中间结论，都已在此前的 §33/§34 里撤回，
+不要再引用。
+
+### 35.5 一个值得记下的形状差异
+
+`DEFINE_RTV` 是**整个模板里唯一一条"引用既有资源"的命令**：`DEFINE_CONTEXT`
+引用的是一个新 cid，`BIND_CONTEXT` 引用的是 state MOB，`SET_COTABLE` 引用的是
+COTable MOB —— 宿主对这三条都只看"MOB 存在且可映射"，所以全过。
+而 `DEFINE_RTV` 要求宿主**查询 sid 3 这张 surface 的实际属性**，并据此校验
+view 描述是否合法。sid 3 是走**legacy FIFO** `DEFINE_GB_SURFACE` 建的
+（`legacy DEFINE_GB_SURFACE accepted (sid 3 on mob 4)`），这是本模板里唯一
+一个由 legacy 路径创建、却被 DX 路径引用的对象。
+
+这条"跨路径引用"是当前唯一还没被单独隔离的变量，也是下一轮唯一值得做的实验：
+**改用 `SVGA_3D_CMD_DX_DEFINE_GB_SURFACE`（DX 路径）在同一个 cid 上重建 sid**，
+再用这个 sid 做 `DEFINE_RTV`。如果仍然 STATUS 3，跨路径引用也被排除，
+`DEFINE_RTV` 的封锁就真的是宿主侧的硬限制。
