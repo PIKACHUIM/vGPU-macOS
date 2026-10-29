@@ -297,6 +297,16 @@ static const UInt32 kGbStage = 5;
 // bisect that hang, never together with kGbStage = 5 on a boot we care about.
 static const UInt32 kDxTest = 0;
 
+// kStduPaint overlays a known pattern (red border, green top half, blue bottom half) on
+// the surface every present tick, ON TOP of the VRAM->surface copy.
+//
+// Purpose (§36.5): the STDU path is up and the FIFO advances 300 ticks without wedging,
+// yet the screen is pure black. That is consistent with two OPPOSITE conclusions -- the
+// present path is broken, or the present path is fine and VRAM is simply black because
+// nothing on this guest is drawing into it. Our own pixels settle it in one boot.
+// Switch it off once there is real content to show; it would otherwise cover it up.
+static const UInt32 kStduPaint = 1;
+
 // Dump every CB header+payload to the log (bisect instrumentation).
 static const UInt32 kCbDump = 1;
 
@@ -559,6 +569,7 @@ private:
 
     // STDU present state.
     bool _stduActive = false;
+    UInt8 _paintLogged = 0;         // kStduPaint logs once, on the first painted frame
     IOBufferMemoryDescriptor *_stduMem = nullptr;   // 3 MB surface backing store
     void                    *_stduVirt = nullptr;
     UInt64                   _stduPhys = 0;
@@ -1158,6 +1169,51 @@ void vgpuFramebuffer::presentTick(void) {
         // next tick's DMA supersedes anything stale.
         if (_vramVirt != nullptr && _stduVirt != nullptr) {
             memcpy(_stduVirt, _vramVirt, kStduBytes);
+        }
+
+        // 10-29 22:5x (§36.5 verification): paint a known pattern over the copy.
+        //
+        // The STDU path is up and its FIFO never wedges, yet the screen is pure black --
+        // 12288 sampled points, one distinct colour. That leaves two very different
+        // explanations, and no amount of staring at the command sequence separates them:
+        //
+        //   (a) the present path is broken -- our pixels never reach the screen, or
+        //   (b) the present path is fine, but VRAM itself is black, because no window
+        //       server is drawing into the framebuffer on this guest.
+        //
+        // (b) would mean the black screen is CORRECT, and we have been treating a working
+        // path as a broken one. So stop waiting for the host to put something in VRAM and
+        // supply the content ourselves: green top half, blue bottom half, red 32-pixel
+        // border. If that shows up on the VNC capture, the path works end to end and the
+        // open question becomes "what should be in VRAM", not "why is presentation dead".
+        //
+        // Gated by kStduPaint so it can be switched off the moment a real content source
+        // exists -- painting over the framebuffer every tick would then hide it.
+        if (kStduPaint && _stduVirt != nullptr) {
+            volatile UInt32 *px = (volatile UInt32 *)_stduVirt;
+            const UInt32 w = kStduWidth, h = kStduHeight;
+            const UInt32 green = 0xFF00FF00, blue = 0xFF0000FF, red = 0xFFFF0000;
+            for (UInt32 y = 0; y < h; y++) {
+                const bool edgeRow = (y < 32) || (y >= h - 32);
+                UInt32 *row = (UInt32 *)px + (IOByteCount)y * w;
+                if (edgeRow) {
+                    for (UInt32 x = 0; x < w; x++) row[x] = red;
+                } else {
+                    const UInt32 mid = (y < h / 2) ? green : blue;
+                    for (UInt32 x = 0; x < w; x++)
+                        row[x] = (x < 32 || x >= w - 32) ? red : mid;
+                }
+            }
+            __asm__ volatile ("" ::: "memory");
+            // Log once, from the first painted frame: proves the loop ran and shows the
+            // buffer's physical backing, so a black capture can't be blamed on the wrong
+            // buffer. kStduPaint + this line is also what build.sh greps for.
+            if (_paintLogged == 0) {
+                _paintLogged = 1;
+                IOLog(VGPU_FB_TAG ": present: STDU paint armed (red border, green top, "
+                      "blue bottom) first=0x%08x mid=0x%08x\n",
+                      px[0], px[(IOByteCount)(h / 2 + h / 4) * w + w / 2]);
+            }
         }
 
         // Belt and braces: SURFACE_DMA (guest mobid 2 -> host surface sid 2) now that the

@@ -99,7 +99,8 @@ SWITCHES="$HERE/$NAME.cpp"
 
 # STDU / 2D present path: always required, because it is the path we now ship.
 MARKERS="STDU re-present started
-screen target 0 (%ux%u) bound to surface %u"
+screen target 0 (%ux%u) bound to surface %u
+STDU paint armed (red border, green top"
 
 # DX template experiment: required only while kDxTest is on.
 if grep -qE 'kDxTest[[:space:]]*=[[:space:]]*1' "$SWITCHES"; then

@@ -2346,3 +2346,56 @@ kDxTest = 0 -> DX template retired, markers not required
 present: STDU re-present started
 present: screen target 0 (%ux%u) bound to surface %u
 ```
+
+### 36.7 决定性实验：我们自己的像素也上不了屏（10-29 22:47 boot）
+
+§36.5 留下两个相反的假设，靠观察分不开：
+
+- (a) 呈现通路坏了 —— 我们的像素到不了屏幕；
+- (b) 呈现通路好着 —— 只是 VRAM 本身就是黑的（guest 侧没有窗口系统在画）。
+
+于是加 `kStduPaint`：每个 present tick 在 `memcpy(VRAM → _stduVirt)` **之后**
+再覆盖一层已知图案（红边 32 px、上半绿、下半蓝），**完全绕开 VRAM**，
+内容由我们自己提供。首帧打印一次，证明填充真的跑了：
+
+```
+present: STDU paint armed (red border, green top, blue bottom) first=0xffff0000 mid=0xff0000ff
+present tick 1 (next 1644 stop 1644)
+present tick 2 (next 1800 stop 1800)
+present tick 3 (next 1956 stop 1956)
+```
+
+`first=0xffff0000`（红边）、`mid=0xff0000ff`（下半蓝）—— 缓冲区里的内容
+**与设计完全一致**，填充路径没有问题。
+
+然后 VNC 截图（1024×768，采样 12288 点）：
+
+```
+distinct: 1
+  (0, 0, 0) 12288
+```
+
+**仍然是纯黑，一个彩色像素都没有。**
+
+### 36.8 结论
+
+**(b) 被证伪，(a) 成立：呈现通路是坏的。**
+
+这一条把 P3 从"猜测"变成了"定位"：
+
+- 不再是"VRAM 里没东西所以黑屏"——内容由我们自己供给了，还是不显示；
+- 不再是"命令没被消费"——`next_cmd == stop` 一路推进到 188688，宿主每帧都在取；
+- 所以问题在**命令被取走之后到屏上出现之间**：要么 DMA 拿到的 MOB 内容
+  不是我们写的那份（PT64_2 的映射对不上），要么屏靶绑的 surface 2 与
+  我们 DMA 的目标不是同一个对象，要么 MKS 在 fresh-MKS 上没有把屏靶
+  接到显示输出（P3 记录的"fresh-MKS 冻结"）。
+
+下一轮该做的实验，按成本从低到高：
+
+1. **回读验证 DMA 的目标**：`SURFACE_DMA` 用 `READ_HOST_VRAM` 把 surface 2
+   读回 `_stduVirt`，比对是否为我们画的图案。这一步就能区分
+   "DMA 没写进去" 与 "写进去了但屏靶不显示"。
+2. 若回读也是黑的 ⇒ `guest.ptr.gmrId = _stduMobId` 这一路的 MOB 映射有问题
+   （M6 当年用的是同一份代码，但那是**长寿 MKS**）。
+3. 若回读正确 ⇒ 问题在屏靶/显示侧，回到 P3 的 fresh-MKS 拓扑问题，
+   届时 `UPDATE_GB_SCREENTARGET` 的 rect/绑定时序是主要嫌疑。
