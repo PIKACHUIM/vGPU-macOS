@@ -82,24 +82,50 @@
   `(ctx1,dx=cid)` 优先；`install.sh` 增加 **weak 符号硬检查**（kmutil Code=31 的静默失败）。
 - 实验版开关：`kFbStage=2 / kGbStage=4 / kDxTest=1 / kCbDump=1 / kCbMobMode=1`，`kProbeEveryS=0`。
 
+## 2026-10-29 更新（CB 命令通道打通，卡点收敛到 `DEFINE_RTV` 一条）
+
+详见 `cb-findings` §25 / §26。三条硬结论：
+
+1. **唯一合法的 CB 形态 = `dxContext=0` + PA 形态 + `flags=NO_IRQ(1)`。**
+   `dxContext != 0` 一律 STATUS 4（`CB_HEADER_ERROR`），与 MOB/PA、bit1、载荷全部无关
+   （四组启动数据交叉验证）。`SVGA_CB_FLAG_DX_CONTEXT`(bit1) 和 `SVGA_CB_FLAG_MOB`(bit2)
+   都会被 `test flags,0xFFFFFFFE` 拒，已在 `cbSubmitCtx()` 内集中剥离前者。
+2. **CB 命令通道已打通**：`DX_DEFINE_CONTEXT` / `DX_BIND_CONTEXT` / `DX_SET_COTABLE`
+   三条 ACCEPTED，13 条命令打包 72 dwords 的 CB 也 `submitted` + sync CB COMPLETED。
+   **这是自 §22 以来第一次进入命令解析层。**
+3. **唯一稳定失败的 DX 命令是 `DEFINE_RTV`**，形态 `STATUS 3 (COMMAND_ERROR)`、
+   `errorOffset 0`，两次独立启动复现。根因与 `dxContext` 的 STATUS 4 相同：
+   宿主侧 DX 设备对象（`0x1414930A0`）从未创建，而全部 97 条渲染命令都在它的 NULL 检查上退出。
+
+本轮修掉的真缺陷（都不是宿主问题）：
+- 模板块因裸 `return;` 在运行期不可达 + 编译期被优化掉（10-28 遗留）。
+- `tpl[80]` 写进 `tpl[64]`（栈越界，`n` 却已统计成 80，日志完全看不出来）。
+- `cbSubmitCtx()` 三个静默 `return false`（header/pci/payload 三条路径都不打日志），
+  以及新增的入口状态 dump（`mobMode/ready/virt/hdr/pci/dataVirt`）。
+
+**本轮学到的实验纪律**：一条 COMMAND_ERROR 之后同一队列只剩超时，所以
+**任何诊断性重发必须排在被判定那一笔之前**；在失败之后拆分探测 = 白烧一次启动。
+
 ## 当前开放问题
 
-### P0：DX 管理器在"单张 CB 提交"这条路上根本拿不到（2026-10-27 已定论）
-- 那条唯一写入链挂在**周期 tick**（`0x1404c5ee0` 无调用者）上，
-  条件 `[dev+0xb4]`、`[dev+0x81d]`、`[dev+0x9bc]`（bits 8-13 = 6 位 cbContext）、`[dev+0x71]`。
-- 实测证伪：40 张长 DX CB（共 40800 条带 DX_CONTEXT 语义的命令）全部 COMPLETED，
-  管理器仍未创建。⇒ **flags/dxContext/MOB/长度任意组合都不会建。**
-- 剩下两条路（`cb-findings` §23.4）：①解 `SVGA_CAP2_HP_CMD_QUEUE` 的队列提交接口；
-  ②从 vm3dmp.sys 抠"第一帧之前我们还缺的那些命令/cotable"。②是纯静态工作，零重启成本，优先。
+### P0：`DEFINE_RTV` 的 COMMAND_ERROR（2026-10-29 收窄后）
+- 已排除：CB header 合法性、命令通道、MOB 校验、desc 排列（arraySize/cid/queue 全部穷尽）。
+- 根因定位：`0x1414930A0`（DX 管理器）从未被创建。唯一创建点 `0x14050a077` 被
+  `[dev+0x9bc] != 0 && [dev+0x71] == 0` 门控，且**只有时间片/抢占链会调用**。
+- 下一步优先级：
+  1. **HP command queue（`SVGA_CAP2_HP_CMD_QUEUE` = caps2 bit7 = 1 已置）**——唯一还没试过的入口。
+     需先解出队列 MMIO 寄存器组、环描述符格式、doorbell 语义。
+  2. **静态扫 `[dev+0x9bc]` / `[dev+0x71]` / `[dev+0x81d]` 的全部写入点**（零重启成本）。
+  3. 从 vm3dmp.sys 抠"第一帧之前我们还缺的那些命令/cotable"。
 - 预算提醒：**一条 DX 错误 = 一次重启**，每次实验只放一条 DX 命令。
 
-### P1：context-0 CB 里的 SVGA3D 命令解析失败（CB → 3D 执行的最后一关）
-- 现象：DEFINE_GB_MOB64（context-0 CB 第一条）`COMMAND_ERROR at offset 0`。
-- 已试：字节流与 legacy FIFO 相同格式（SVGA3dCmdHeader+body）。
-- 待查：header 附加 flags/字段（8 字节对齐？）、context-0 CB 前导命令、payload 构造差异。
+### P1：~~context-0 CB 里的 SVGA3D 命令解析失败~~（10-29 已解决）
+- 原现象：DEFINE_GB_MOB64（context-0 CB 第一条）`COMMAND_ERROR at offset 0`。
+- 实际原因：header 不合法（`dxContext != 0` 或 flags 非 bit0），命令从未被解析。
+  改成 `dxContext=0 + flags=1 + PA` 后，DEFINE/BIND/SET_COTABLE 全部 ACCEPTED（§26）。
 
 ### P2：DX 激活之外的验证
-- CLEAR → SURFACE_DMA(READ_HOST_VRAM) → 客体校验品红。P1 解决后即可跑通。
+- CLEAR → SURFACE_DMA(READ_HOST_VRAM) → 客体校验品红。现在只差 `DEFINE_RTV` 过。
 
 ### P3：STDU 显示的 fresh-MKS 冻结
 - 拓扑写位置矩阵已完整测绘（fresh MKS 上 topo 写在 CONFIG_DONE 后任何位置都会楔死宿主）。
@@ -113,6 +139,14 @@
 | `kFbStage=0`（出货默认） | 只读 kext，MKS legacy 呈现，显示正常 |
 | `kFbStage=2 + kGbStage=4 + kDxTest=1` | DX/CB 实验（headless，SSH 活） |
 | `kFbStage=2 + kGbStage=5` | STDU 显示实验（fresh MKS 有冻结风险） |
+
+10-29 新增的三个独立开关（一次只动一个）：
+
+| 开关 | 值 | 含义 |
+|---|---|---|
+| `kDxTemplateOnly` | 1 | 跳过整条 legacy GB/DX 链，模板在干净引擎上首发 |
+| `kCbMobMode` | 0 | 0 = PA 形态（**本宿主唯一可用**）；1 = MOB 形态（header 必拒） |
+| `kCbKeepDxContext` | 0 | 0 = 剥掉 bit1（**唯一可用**）；1 = 保留（header 必拒） |
 
 部署窗口注意：DX 实验版下 SSH 间歇死亡——硬复位后前 2 分钟抢 put+build+install。
 

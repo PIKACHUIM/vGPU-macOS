@@ -80,4 +80,46 @@ fi
 echo "--- undefined symbol count (resolved at load) ---"
 nm -u "$BUNDLE/Contents/MacOS/$NAME" 2>/dev/null | wc -l
 
+# Optimization silently deletes unreachable code, and the code it deletes looks exactly
+# like code that was never written. On 2026-10-27 a bare `return` earlier in
+# dxReadbackTest made the whole kDxVm3dmpTemplate block unreachable: the build succeeded,
+# the kext loaded, and the boot quietly ran a different experiment (docs §24). Two boot
+# cycles were spent reading logs for code that was not in the binary at all.
+#
+# So: every experiment that owns an IOLog banner declares that banner here, and a build
+# without it fails. Add the marker when you add the experiment -- not after it misleads you.
+echo "--- reachability markers ---"
+MARKERS="TEMPLATE only mode
+TEMPLATE entered
+TEMPLATE DEFINE+BIND+12 COTABLES
+SPLIT DX_DEFINE_CONTEXT"
+MISSING=0
+OLDIFS=$IFS
+IFS='
+'
+for m in $MARKERS; do
+    if grep -aq -- "$m" "$BUNDLE/Contents/MacOS/$NAME"; then
+        echo "present: $m"
+    else
+        echo "MISSING: $m (unreachable or written out by the optimizer)" >&2
+        MISSING=$((MISSING + 1))
+    fi
+done
+# Stop banner: the last line of the experiment. Checked separately because the
+# string is built by concatenation in the source ("TEMPLATE verdict ->"), so a
+# plain substring grep cannot see it -- same reason the 10-28 run had to be read
+# out of the log instead of trusted from the build.
+STOP="DX manager still absent"
+if grep -aq -- "$STOP" "$BUNDLE/Contents/MacOS/$NAME"; then
+    echo "present: TEMPLATE verdict (stop banner)"
+else
+    echo "MISSING: TEMPLATE verdict stop banner" >&2
+    MISSING=$((MISSING + 1))
+fi
+IFS=$OLDIFS
+if [ "$MISSING" != "0" ]; then
+    echo "FATAL: $MISSING reachability marker(s) absent -- refusing to ship this binary" >&2
+    exit 1
+fi
+
 echo "BUNDLE=$BUNDLE"

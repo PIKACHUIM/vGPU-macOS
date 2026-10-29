@@ -299,14 +299,56 @@ static const UInt32 kFlagsProbe = 1;
 // by default now that the real blocker (DX manager never created) is known.
 static const UInt32 kPackedTest = 0;
 
+// 2026-10-27: run the vm3dmp create-context template instead of the old
+// DEFINE/BIND/COTABLE scanner (see the kDxVm3dmpTemplate block in
+// dxReadbackTest). The scanner is kept for reference but is skipped while
+// this is 1; the template ends the boot with exactly ONE DX render command.
+static const UInt32 kDxVm3dmpTemplate = 1;
+// 10-28 23:28: the template DID run, but only after the legacy GB/DX chain ahead of it
+// had already wedged the command engine: cb[63] (DEFINE_RTV q1 dx1 flags2) hit the 1.3 s
+// timeout with status still 0, and cb[64]/cb[65] never completed either -- the queue
+// stops answering after the FIRST DX error (documented in Â§22), so every command the
+// template sent was already dead on arrival. This switch skips the whole legacy chain so
+// the template runs on a pristine engine. One boot = one clean experiment.
+static const UInt32 kDxTemplateOnly = 1;
+
 // 2026-10-25: submit command buffers in MOB form (SVGA_CB_FLAG_MOB). vmwgfx's
 // primary path is MOB-based (vmw_cmdbuf.c:892-896): the CB header itself keeps a
 // normal DMA address and is still submitted through SVGA_REG_COMMAND_LOW/HIGH,
 // but ptr becomes {u32 mobid, u32 mobOffset} pointing at a GB MOB and flags gets
 // bit2. The host's DX manager object (0x1414930A0) -- whose null check rejects
 // every render command -- is only created on that form.
-static const UInt32 kCbMobMode = 1;
+// 10-29 20:17: MOB form + dxContext=1 + flags(=NO_IRQ|MOB after stripping DX_CONTEXT)
+// came back STATUS 4, errorOffset 0. That is the *header* validator, docs §18.4:
+//
+//     test dword header.flags, 0xFFFFFFFE  -> CB_HEADER_ERROR(4)
+//
+// i.e. bit0 is the only bit that may be set, and MOB is bit2. MOB form cannot be
+// expressed on this host at all -- not because of DX, because of the validator. The
+// earlier "vm3dmp uses the MOB form" note in the comment above was an inference from
+// vmw_cmdbuf.c (Linux), not from this host's behaviour; vm3dmp on THIS host must be
+// using the PA form, since it renders fine and this validator is the only one there is.
+// So: PA form, dxContext in the header, flags = NO_IRQ. One clean variable.
+static const UInt32 kCbMobMode = 0;
 static const UInt32 kCbMobId = 6;      // GB MOB id holding CB payloads
+
+// SVGA_CB_FLAG_DX_CONTEXT. Present in the UAPI, rejected by the validator we talk to
+// (docs §15). Declared here so cbSubmitCtx can strip the bit centrally instead of
+// trusting every caller to remember not to set it -- the 10-29 template did set it,
+// and the host answered without ever looking at the payload.
+static const UInt32 kCbFlagDxContext = 2;
+
+// 10-29 20:29: which branch of the host's CB handler a DX batch takes is decided by
+// bit1 alone (0x14050a04e test r8b,2). With the bit set the host runs
+// lookup-or-create(dxContext) and -- if that succeeds -- creates the DX manager object
+// at 0x1414930A0 that every render command null-checks. With the bit clear it takes the
+// plain command-stream branch, where DX command ids have no handler.
+//
+// Both settings have now been observed to fail, but for different reasons that the log
+// distinguishes: bit set → STATUS 4 at the header layer; bit clear → the payload reaches
+// the command parser and fails per-command. Keep it as a named switch so each boot says
+// which of the two it is testing.
+static const UInt32 kCbKeepDxContext = 0;
 
 // Delay before the DX test runs (seconds after kext bring-up). Gives SSH/logd time
 // to be fully live so results survive an MKS wedge.
@@ -466,6 +508,8 @@ private:
     bool fenceAck(volatile UInt32 *fifo, UInt32 *seq);
     void gbBringUp(volatile UInt32 *fifo);
     void stduBringUp(volatile UInt32 *fifo);
+    bool dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId, UInt32 dxW, UInt32 dxH);
+    bool dxTemplateSetupSurface(volatile UInt32 *fifo, UInt32 surfId, UInt32 mobId, UInt32 dxW, UInt32 dxH);
     void dxReadbackTest(volatile UInt32 *fifo);
 
     void presentSetup(volatile UInt32 *fifo);
@@ -1923,86 +1967,274 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
 // READBACK_GB_SURFACE, verify the pixels in guest memory. Deliberately independent of the
 // display objects so a DX failure cannot take the display down.
 //
-void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
-    if (!cbInit()) {
-        return;
+// =====================================================================
+// dxVm3dmpTemplate: build the DX context the way vm3dmp.sys does, then submit
+// ONE render command. Split out of dxReadbackTest because keeping both the GB
+// experiment and this one in a single frame made clang emit a weak
+// ____chkstk_darwin reference, and kmutil rejects a kext with weak refs (Code=31).
+//
+// The disassembly this follows (imagebase 0x140000000):
+//   CreateDXContext 0x140010c78 -- DEFINE and BIND go into ONE CB (helper
+//   0x1400095d8(dev, pre=1, ctx=cid, ...) -> 0x14001a76c appends to the CB whose
+//   cbContext IS the DX context id), the 11..12 SET_COTABLE calls for the unused
+//   types are in that same CB, and every bind carries validSize=0.
+// Returns true when the single DEFINE_RTV was accepted, i.e. the host really did
+// create the DX manager for us.
+// =====================================================================
+bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
+                                      UInt32 dxW, UInt32 dxH) {
+    // First statement on purpose: if this line is missing from the log the function was
+    // never entered, which is a completely different bug from "it bailed out early".
+    IOLog(VGPU_FB_TAG ": dx: TEMPLATE entered (sid %u %ux%u)\n", surfId, dxW, dxH);
+    UInt32 words[24];
+    const UInt32 tcid = 1;
+    const UInt32 trtv = 1;
+    const UInt32 stateMobId = 6;
+    const UInt32 ctxStateBytes = 12288;     // sizeof(SVGADXContextMobFormat)
+    _ctxStateMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+        kernel_task, kIODirectionInOut, ctxStateBytes, 0xFFFULL);
+    _ctxStatePtMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+        kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous,
+        kGbPageBytes, 0xFFFULL);
+    if (_ctxStateMem == nullptr || _ctxStatePtMem == nullptr) {
+        IOLog(VGPU_FB_TAG ": dx: template state MOB alloc failed\n");
+        return false;
     }
-    // Bootstrap the CB mechanism itself (device context 0x3f).
+    bzero((void *)_ctxStateMem->map()->getVirtualAddress(), ctxStateBytes);
+    volatile UInt64 *spt = (volatile UInt64 *)_ctxStatePtMem->map()->getVirtualAddress();
+    IOByteCount smLen = 0;
+    IOVirtualAddress smPt = _ctxStatePtMem->getPhysicalSegment(0, &smLen);
+    if (smPt == 0) {
+        IOLog(VGPU_FB_TAG ": dx: template state PT page not resolvable\n");
+        return false;
+    }
+    for (UInt32 i = 0; i < ctxStateBytes / kGbPageBytes; i++) {
+        IOVirtualAddress addr = _ctxStateMem->getPhysicalSegment(
+            (IOByteCount)i * kGbPageBytes, &smLen);
+        if (addr == 0) {
+            IOLog(VGPU_FB_TAG ": dx: template state MOB page %u not resolvable\n", i);
+            return false;
+        }
+        spt[i] = (UInt64)addr >> kGbPageShift;
+    }
+    __asm__ volatile ("" ::: "memory");
+    const UInt64 smPtPpn = (UInt64)smPt >> kGbPageShift;
     {
-        UInt32 dc[3] = { 1, 1, 0 };      // id=START_STOP_CONTEXT, enable=1, context=0
-        if (!cbSubmitCtx(dc, 3, 0x3F, 0)) {
-            IOLog(VGPU_FB_TAG ": cb: device-context START_STOP failed\n");
-            return;
+        volatile UInt8 *dxTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffDxCtxTable);
+        volatile UInt8 *dxEntry = dxTable + (IOByteCount)tcid * kGbDxCtxEntryBytes;
+        memcpy((void *)(dxEntry + 0), &tcid, 4);
+        memcpy((void *)(dxEntry + 4), &stateMobId, 4);
+        __asm__ volatile ("" ::: "memory");
+    }
+    words[0] = kSvga3dCmdDefineGbMob64;
+    words[1] = 20;
+    words[2] = stateMobId;
+    words[3] = kSvga3dMobFmtPt64_1;
+    memcpy(&words[4], &smPtPpn, 8);
+    words[6] = ctxStateBytes;
+    if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": dx: template state MOB define refused\n");
+        return false;
+    }
+    IOLog(VGPU_FB_TAG ": dx: template state MOB %u defined (%u B PT64_1)\n",
+          stateMobId, ctxStateBytes);
+
+    // COTable per type (0..11, vm3dmp 0x140011178 drives the entry counts).
+    struct { UInt32 type; UInt32 mob; UInt32 valid; } tc[12] = {
+        { 0,  kCotableMobId, 0 },      // RTVIEW: the only one this test uses
+        { 1,  0xFFFFFFFFu, 0 },        // DepthStencilView
+        { 2,  0xFFFFFFFFu, 0 },        // SRV
+        { 3,  0xFFFFFFFFu, 0 },        // UAV
+        { 4,  0xFFFFFFFFu, 0 },        // VB
+        { 5,  0xFFFFFFFFu, 0 },        // IB
+        { 6,  0xFFFFFFFFu, 0 },        // SO
+        { 7,  0xFFFFFFFFu, 0 },        // StreamOut
+        { 8,  0xFFFFFFFFu, 0 },        // BlendState
+        { 9,  0xFFFFFFFFu, 0 },        // DepthStencilState
+        { 10, 0xFFFFFFFFu, 0 },        // RasterizerState
+        { 11, 0xFFFFFFFFu, 0 },        // ElementLayout
+    };
+    // 8 dwords of DEFINE+BIND plus 12 cotables at 6 dwords each = 80. The array used to
+    // be tpl[64], so the last two cotables (and n itself, on this frame) were written
+    // past the end -- the log still said "80 dwords" because n had already counted them,
+    // and the payload the host saw was whatever the neighbouring stack slots held. Size
+    // it from the same arithmetic that fills it, and assert the bound.
+    // 8 dwords of DEFINE+BIND plus 12 cotables at 6 dwords each = 80.
+    //
+    // The batch deliberately DROPS the leading DEFINE+BIND (8 dwords): STEP 1 below has
+    // just sent both as single-command CBs. Re-sending them would be the only thing in
+    // this CB whose effect we cannot attribute -- a second DX_DEFINE_CONTEXT for a cid
+    // that already exists may itself be the COMMAND_ERROR we are chasing. So the batch
+    // starts at SET_COTABLE and is 72 dwords.
+    const UInt32 kTplDwords = 12 * 6;
+    UInt32 tpl[kTplDwords]; UInt32 n = 0;
+    for (UInt32 i = 0; i < 12; i++) {
+        tpl[n++] = kSvga3dCmdDxSetCotable; tpl[n++] = 16; tpl[n++] = tcid;
+        tpl[n++] = tc[i].mob; tpl[n++] = tc[i].type; tpl[n++] = tc[i].valid;
+    }
+    if (n != kTplDwords) {
+        // Cheap guard against the arithmetic drifting away from the array again.
+        IOLog(VGPU_FB_TAG ": dx: TEMPLATE size mismatch: built %u, reserved %u\n",
+              n, kTplDwords);
+        return false;
+    }
+    (void)trtv;
+    // 10-28 23:14: the template finally ran, and this exact CB was NOT refused -- it
+    // never COMPLETED. hdr[4] read back 7 = NO_IRQ|DX_CONTEXT|MOB, and vm3dmp.sys
+    // never sets NO_IRQ on DX streams (only DX_CONTEXT), so with NO_IRQ the host has
+    // no reason to write status = COMPLETED into guest memory and our poll spins out
+    // (0x140013a51 is the builder that sets DX_CONTEXT alone). Fire-and-forget the DX
+    // CB the way the driver does, then SYNC with one plain (NO_IRQ) CB on the device
+    // queue: completion of the plain stream means the DX pipeline took everything
+    // before it -- that is how the driver learns its DX work was accepted.
+    UInt32 sync[3] = { 0 };
+    // ---- STEP 1: one command per CB, on a pristine engine (docs §25.5) ----------
+    // This has to come FIRST. A diagnostic re-send after a failed batch is worthless:
+    // the first header/command error stops the queue from answering at all (§22.1), so
+    // every probe after it just times out -- exactly what the 20:28 boot produced.
+    // Sending each command in its own CB up front also tells us WHICH command fails,
+    // which the 13-commands-in-one-CB shape never could (errorOffset was always 0).
+    UInt32 one[6];
+    one[0] = kSvga3dCmdDxDefineContext; one[1] = 4; one[2] = tcid;
+    bool okDef = cbSubmitCtx(one, 3, tcid, 0, 1);
+    IOLog(VGPU_FB_TAG ": dx: SPLIT DX_DEFINE_CONTEXT {cid %u} -> %s\n",
+          tcid, okDef ? "ACCEPTED" : "refused");
+    one[0] = kSvga3dCmdDxBindContext; one[1] = 12; one[2] = tcid;
+    one[3] = stateMobId; one[4] = 0;
+    bool okBind = okDef && cbSubmitCtx(one, 5, tcid, 0, 1);
+    IOLog(VGPU_FB_TAG ": dx: SPLIT DX_BIND_CONTEXT {cid %u mob %u} -> %s\n",
+          tcid, stateMobId, okBind ? "ACCEPTED" : "refused");
+    one[0] = kSvga3dCmdDxSetCotable; one[1] = 16; one[2] = tcid;
+    one[3] = tc[0].mob; one[4] = tc[0].type; one[5] = tc[0].valid;
+    bool okCot = okBind && cbSubmitCtx(one, 6, tcid, 0, 1);
+    IOLog(VGPU_FB_TAG ": dx: SPLIT DX_SET_COTABLE {cid %u mob %u type %u} -> %s\n",
+          tcid, tc[0].mob, tc[0].type, okCot ? "ACCEPTED" : "refused");
+    if (!okDef || !okBind || !okCot) {
+        // Stop here: the batch below would only measure the wedged queue.
+        IOLog(VGPU_FB_TAG ": dx: TEMPLATE skipped (split step failed; engine state unknown)\n");
+        return false;
+    }
+
+    // ---- STEP 2: the same sequence packed into one CB, as vm3dmp does ----------
+    bool okTpl = cbSubmitCtx(tpl, n, tcid, 0, 2);
+    IOLog(VGPU_FB_TAG ": dx: TEMPLATE DEFINE+BIND+12 COTABLES (%u dwords, q%u dx0) -> %s\n",
+          n, tcid, okTpl ? "submitted" : "refused");
+    if (okTpl) {
+        // Empty plain CB on the device queue as a barrier. Its payload is zero words,
+        // so it carries no command; only the header, and it is synchronous (NO_IRQ).
+        bool okSync = cbSubmitCtx(sync, 0, 0, 0, 1);
+        IOLog(VGPU_FB_TAG ": dx: TEMPLATE sync CB (q0 flags1) -> %s\n",
+              okSync ? "COMPLETED" : "did not complete");
+        okTpl = okSync;
+    }
+    if (okTpl) {
+        // ---- RTV first: this is the actual verdict, and it has to be measured while
+        // the engine is still healthy. 10-29 20:35: SET_SHADER_IFACE came back
+        // STATUS 3 (the first COMMAND_ERROR we have ever seen -- not a header error),
+        // and per §22.1 that alone is enough to stop the queue. Sending the RTV after
+        // it told us nothing but "timeout". SET_SHADER_IFACE is gated on a device
+        // capability ([device+0x18ac]) and 3D caps read back all-zero on this host,
+        // so it is very likely simply unsupported here -- a runner, not a gate.
+        UInt32 rtv[9] = { kSvga3dCmdDxDefineRenderTargetView, 28,
+                          trtv, surfId, kSvga3dSurfaceFormatX8R8G8B8,
+                          kSvga3dResourceTexture2D, 0, 0, 1 };
+        bool okRtv = cbSubmitCtx(rtv, 9, tcid, 0, 2);
+        IOLog(VGPU_FB_TAG ": dx: TEMPLATE DEFINE_RTV {rtv %u, sid %u} NULL-TEST -> %s\n",
+              trtv, surfId, okRtv ? "*** DX MANAGER ALIVE ***" : "still refused");
+        if (!okRtv) {
+            IOLog(VGPU_FB_TAG ": dx: TEMPLATE stopping (RTV refused; engine state unknown)\n");
+            return false;
         }
-        IOLog(VGPU_FB_TAG ": cb: CB mechanism started (device context)\n");
-        // DC cmd 3 {cid}: vm3dmp sends this device command (8-byte body, gated on a
-        // devcap bit) around DX context lifetime -- plausibly "register DX context".
-        // Sent on the device queue (0x3f) BEFORE any DX CB.
         {
-            const UInt32 dcCid = 1;   // cid of the DX chain below (declared later)
-            UInt32 dc3[2] = { 3, dcCid };
-            bool okdc = cbSubmitCtx(dc3, 2, 0x3F, 0);
-            IOLog(VGPU_FB_TAG ": dx: DC cmd 3 {cid %u} -> %s\n",
-                  dcCid, okdc ? "ACCEPTED" : "refused");
-            // START_STOP sweep on the (non-wedging) device queue. The bootstrap
-            // above proves {cmd 1, 1, 0} works, and {cmd 1, 1, 1} does not -- so
-            // the last dword selects the queue/context and id 1 is not servable
-            // yet. Sweep 0..3 to see which ids exist after DC cmd 3.
-            for (UInt32 q = 0; q < 4; q++) {
-                UInt32 startQ[3] = { 1, 1, q };
-                bool okq = cbSubmitCtx(startQ, 3, 0x3F, 0);
-                IOLog(VGPU_FB_TAG ": dx: START_STOP {enable 1, id %u} post-cmd3 -> %s\n",
-                      q, okq ? "ACCEPTED" : "refused");
+            // SET_SHADER_IFACE is its own CB in the driver, on a capability bit. Sent
+            // last on purpose: if it errors it must not take the RTV verdict with it.
+            UInt32 si[5] = { kSvga3dCmdDxSetShaderIface, 12, tcid, stateMobId, 0x2000 };
+            bool okSi = cbSubmitCtx(si, 5, tcid, 0, 2);
+            IOLog(VGPU_FB_TAG ": dx: TEMPLATE SET_SHADER_IFACE (q%u) -> %s\n",
+                  tcid, okSi ? "submitted" : "refused");
+        }
+        if (okRtv) {
+            UInt32 clr[8] = { kSvga3dCmdDxClearRenderTargetView, 20, trtv, 0, 0, 0, 0 };
+            { float g[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
+              memcpy(&clr[3], g, 16); }
+            bool okClr = cbSubmitCtx(clr, 7, tcid, 0, 2);
+            if (okClr) {
+                okClr = cbSubmitCtx(sync, 0, 0, 0, 1);
             }
+            IOLog(VGPU_FB_TAG ": dx: TEMPLATE CLEAR_RTV -> %s\n",
+                  okClr ? "ACCEPTED" : "refused");
+            if (okClr) {
+                UInt32 rb[4] = { kSvga3dCmdDxReadbackSubResource, 8, surfId, 0 };
+                bool okRb = cbSubmitCtx(rb, 4, tcid, 0, 2);
+                if (okRb) {
+                    okRb = cbSubmitCtx(sync, 0, 0, 0, 1);
+                }
+                IOLog(VGPU_FB_TAG ": dx: TEMPLATE READBACK -> %s\n",
+                      okRb ? "ACCEPTED" : "refused");
+                __asm__ volatile ("" ::: "memory");
+                if (okRb) {
+                    UInt32 px = *(volatile UInt32 *)_dxVirt;
+                    UInt32 mid = *(volatile UInt32 *)((char *)_dxVirt +
+                                  (IOByteCount)(dxW * (dxH / 2) + dxW / 2) * 4);
+                    IOLog(VGPU_FB_TAG ": dx: TEMPLATE pixels first=0x%08x mid=0x%08x "
+                          "(want 0xff00ff00)\n", px, mid);
+                }
+            }
+            return true;
         }
     }
-    const UInt32 cid = 1;           // matches the prewritten DXCONTEXT otable slot {1,3}
-    const UInt32 rtvId = 0;
-    const UInt32 invalidId = 0xFFFFFFFF;
-    const UInt32 surfId = 3;
-    const UInt32 mobId = 4;
-    const UInt32 dxW = 256, dxH = 256;
+    return false;
+}
+
+// =====================================================================
+// dxTemplateSetupSurface: everything the template needs BEFORE the first DX
+// command -- the 256x256 surface (mob 4, PT64_1), the RTVIEW COTable mob, the
+// MOB-form CB payload page, the surface OTable entry and DEFINE_GB_SURFACE.
+// Split out of dxReadbackTest (10-28) because kDxTemplateOnly must run the
+// template on a PRISTINE command engine: any earlier DX error wedges the queue
+// (docs 22), so this uses the legacy FIFO path only, which is proven working.
+// Returns false if any step failed; caller must not submit DX then.
+// =====================================================================
+bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
+                                             const UInt32 surfId, const UInt32 mobId,
+                                             const UInt32 dxW, const UInt32 dxH) {
     const UInt32 dxBytes = dxW * dxH * 4;
     const UInt32 dxPages = dxBytes / kGbPageBytes;
-    const UInt32 expected = 0xFFFF00FF;
     UInt32 words[24];
-
-    // ---- GB objects via LEGACY FIFO (the only path this MKS accepts for GB) ----
-
     // Surface backing store: 64 pages + PT page (PT64_1).
     _dxMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
-        kernel_task, kIODirectionInOut, dxBytes, 0xFFFULL);
+    kernel_task, kIODirectionInOut, dxBytes, 0xFFFULL);
     _surfPtMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
-        kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous, kGbPageBytes, 0xFFFULL);
+    kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous, kGbPageBytes, 0xFFFULL);
     if (_dxMem == nullptr || _surfPtMem == nullptr) {
-        IOLog(VGPU_FB_TAG ": dx: surface memory alloc failed\n");
-        return;
+    IOLog(VGPU_FB_TAG ": dx: surface memory alloc failed\n");
+    return false;
     }
     bzero((void *)_dxMem->map()->getVirtualAddress(), dxBytes);
     _dxVirt = (void *)_dxMem->map()->getVirtualAddress();
     {
-        // Discriminator fill: the GB-context CLEAR uses WHITE; if readback returns
-        // magenta, CLEAR did not render (or readback is a no-op); if white, the
-        // legacy-pipeline render path works end to end.
-        volatile UInt32 *fill = (volatile UInt32 *)_dxVirt;
-        for (UInt32 i = 0; i < dxW * dxH; i++) {
-            fill[i] = 0xFFFF00FF;
-        }
+    // Discriminator fill: the GB-context CLEAR uses WHITE; if readback returns
+    // magenta, CLEAR did not render (or readback is a no-op); if white, the
+    // legacy-pipeline render path works end to end.
+    volatile UInt32 *fill = (volatile UInt32 *)_dxVirt;
+    for (UInt32 i = 0; i < dxW * dxH; i++) {
+        fill[i] = 0xFFFF00FF;
+    }
     }
     volatile UInt64 *pt = (volatile UInt64 *)_surfPtMem->map()->getVirtualAddress();
     IOByteCount segLen = 0;
     IOVirtualAddress ptAddr = _surfPtMem->getPhysicalSegment(0, &segLen);
     if (ptAddr == 0) {
-        IOLog(VGPU_FB_TAG ": dx: surface PT page not resolvable\n");
-        return;
+    IOLog(VGPU_FB_TAG ": dx: surface PT page not resolvable\n");
+    return false;
     }
     for (UInt32 i = 0; i < dxPages; i++) {
-        IOVirtualAddress addr = _dxMem->getPhysicalSegment((IOByteCount)i * kGbPageBytes, &segLen);
-        if (addr == 0 || segLen < kGbPageBytes) {
-            IOLog(VGPU_FB_TAG ": dx: surface page %u not resolvable\n", i);
-            return;
-        }
-        pt[i] = (UInt64)addr >> kGbPageShift;
+    IOVirtualAddress addr = _dxMem->getPhysicalSegment((IOByteCount)i * kGbPageBytes, &segLen);
+    if (addr == 0 || segLen < kGbPageBytes) {
+        IOLog(VGPU_FB_TAG ": dx: surface page %u not resolvable\n", i);
+        return false;
+    }
+    pt[i] = (UInt64)addr >> kGbPageShift;
     }
     __asm__ volatile ("" ::: "memory");
     const UInt64 ptPpn = (UInt64)ptAddr >> kGbPageShift;
@@ -2022,24 +2254,24 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     memcpy(&words[4], &ptPpn, 8);
     words[6] = dxBytes;
     if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
-        IOLog(VGPU_FB_TAG ": dx: legacy DEFINE_GB_MOB64 refused\n");
-        return;
+    IOLog(VGPU_FB_TAG ": dx: legacy DEFINE_GB_MOB64 refused\n");
+    return false;
     }
 
     // COTABLE mob for RTVIEW: EXACT per-type size (vm3dmp 10.3/12.4 both):
     // RTVIEW = 32 entries * 4 B = 128 B -> one 4 KiB page, PT64_0. LEGACY define.
     _cotableMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
-        kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous, kGbPageBytes, 0xFFFULL);
+    kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous, kGbPageBytes, 0xFFFULL);
     if (_cotableMem == nullptr) {
-        IOLog(VGPU_FB_TAG ": dx: cotable mob alloc failed\n");
-        return;
+    IOLog(VGPU_FB_TAG ": dx: cotable mob alloc failed\n");
+    return false;
     }
     bzero((void *)_cotableMem->map()->getVirtualAddress(), kGbPageBytes);
     IOByteCount ctLen = 0;
     IOVirtualAddress ctAddr = _cotableMem->getPhysicalSegment(0, &ctLen);
     if (ctAddr == 0) {
-        IOLog(VGPU_FB_TAG ": dx: cotable page not resolvable\n");
-        return;
+    IOLog(VGPU_FB_TAG ": dx: cotable page not resolvable\n");
+    return false;
     }
     const UInt64 ctPpn = (UInt64)ctAddr >> kGbPageShift;
     UInt32 ctEntryOff = kCotableMobId * kGbMobEntryBytes;
@@ -2056,8 +2288,8 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     memcpy(&words[4], &ctPpn, 8);
     words[6] = kGbPageBytes;
     if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
-        IOLog(VGPU_FB_TAG ": dx: legacy cotable DEFINE_GB_MOB64 refused\n");
-        return;
+    IOLog(VGPU_FB_TAG ": dx: legacy cotable DEFINE_GB_MOB64 refused\n");
+    return false;
     }
     IOLog(VGPU_FB_TAG ": dx: legacy cotable MOB %u defined (4 KiB PT64_0)\n", kCotableMobId);
 
@@ -2117,11 +2349,76 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     words[10] = dxH;
     words[11] = 1;
     if (!fifoSubmitWords(fifo, words, 12) || !fenceAck(fifo, &_fenceSeq)) {
-        IOLog(VGPU_FB_TAG ": dx: legacy DEFINE_GB_SURFACE refused\n");
-        return;
+    IOLog(VGPU_FB_TAG ": dx: legacy DEFINE_GB_SURFACE refused\n");
+    return false;
     }
     IOLog(VGPU_FB_TAG ": dx: legacy DEFINE_GB_SURFACE accepted (sid %u on mob %u)\n",
-          surfId, mobId);
+      surfId, mobId);
+    return true;
+}
+void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
+    if (!cbInit()) {
+        return;
+    }
+    // Template-only mode: the CB mechanism is the ONLY thing brought up before the
+    // template runs. Every other DX/GB probe in this function ends with the engine
+    // wedged (one error = one dead queue), so a template submitted after any of them
+    // could never be told apart from "the engine was already dead".
+    if (kDxTemplateOnly) {
+        const UInt32 tSurf = 3, tMob = 4, tW = 256, tH = 256;
+        if (!dxTemplateSetupSurface(fifo, tSurf, tMob, tW, tH)) {
+            IOLog(VGPU_FB_TAG ": dx: TEMPLATE only mode aborted (surface setup failed)\n");
+            return;
+        }
+        bool alive = dxVm3dmpTemplate(fifo, tSurf, tW, tH);
+        IOLog(VGPU_FB_TAG ": dx: TEMPLATE only mode -> %s\n",
+              alive ? "*** DX MANAGER ALIVE ***" : "DX manager still absent");
+        return;
+    }
+    // Bootstrap the CB mechanism itself (device context 0x3f).
+    {
+        UInt32 dc[3] = { 1, 1, 0 };      // id=START_STOP_CONTEXT, enable=1, context=0
+        if (!cbSubmitCtx(dc, 3, 0x3F, 0)) {
+            IOLog(VGPU_FB_TAG ": cb: device-context START_STOP failed\n");
+            return;
+        }
+        IOLog(VGPU_FB_TAG ": cb: CB mechanism started (device context)\n");
+        // DC cmd 3 {cid}: vm3dmp sends this device command (8-byte body, gated on a
+        // devcap bit) around DX context lifetime -- plausibly "register DX context".
+        // Sent on the device queue (0x3f) BEFORE any DX CB.
+        {
+            const UInt32 dcCid = 1;   // cid of the DX chain below (declared later)
+            UInt32 dc3[2] = { 3, dcCid };
+            bool okdc = cbSubmitCtx(dc3, 2, 0x3F, 0);
+            IOLog(VGPU_FB_TAG ": dx: DC cmd 3 {cid %u} -> %s\n",
+                  dcCid, okdc ? "ACCEPTED" : "refused");
+            // START_STOP sweep on the (non-wedging) device queue. The bootstrap
+            // above proves {cmd 1, 1, 0} works, and {cmd 1, 1, 1} does not -- so
+            // the last dword selects the queue/context and id 1 is not servable
+            // yet. Sweep 0..3 to see which ids exist after DC cmd 3.
+            for (UInt32 q = 0; q < 4; q++) {
+                UInt32 startQ[3] = { 1, 1, q };
+                bool okq = cbSubmitCtx(startQ, 3, 0x3F, 0);
+                IOLog(VGPU_FB_TAG ": dx: START_STOP {enable 1, id %u} post-cmd3 -> %s\n",
+                      q, okq ? "ACCEPTED" : "refused");
+            }
+        }
+    }
+    const UInt32 cid = 1;           // matches the prewritten DXCONTEXT otable slot {1,3}
+    const UInt32 rtvId = 0;
+    const UInt32 invalidId = 0xFFFFFFFF;
+    const UInt32 surfId = 3;
+    const UInt32 mobId = 4;
+    const UInt32 dxW = 256, dxH = 256;
+    const UInt32 dxBytes = dxW * dxH * 4;
+    const UInt32 dxPages = dxBytes / kGbPageBytes;
+    const UInt32 expected = 0xFFFF00FF;
+    UInt32 words[24];
+
+    // ---- GB objects via LEGACY FIFO (the only path this MKS accepts for GB) ----
+    if (!dxTemplateSetupSurface(fifo, surfId, mobId, dxW, dxH)) {
+        return;
+    }
 
     // ---- DX CONTEXT chain (10-21: otable entry stride is 8 B, not 16) -------
     // Live/static host facts:
@@ -2452,7 +2749,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         words[2] = gcid;
         if (!GBC_SUBMIT(words, 3)) {
             IOLog(VGPU_FB_TAG ": gbc: DEFINE_GB_CONTEXT refused\n");
-            return;
+            goto gbFailed;
         }
         IOLog(VGPU_FB_TAG ": gbc: DEFINE_GB_CONTEXT accepted\n");
 
@@ -2465,7 +2762,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         words[6] = gctxBytes;
         if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
             IOLog(VGPU_FB_TAG ": gbc: context MOB define refused\n");
-            return;
+            goto gbFailed;
         }
 
         // BIND_GB_CONTEXT {cid, mobid, validContents}
@@ -2476,7 +2773,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         words[4] = 0;
         if (!GBC_SUBMIT(words, 5)) {
             IOLog(VGPU_FB_TAG ": gbc: BIND_GB_CONTEXT refused\n");
-            return;
+            goto gbFailed;
         }
         IOLog(VGPU_FB_TAG ": gbc: BIND_GB_CONTEXT accepted (mob %u, %u B)\n", gctxMob, gctxBytes);
 
@@ -2490,7 +2787,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         words[6] = 0;
         if (!GBC_SUBMIT(words, 7)) {
             IOLog(VGPU_FB_TAG ": gbc: SETRENDERTARGET refused\n");
-            return;
+            goto gbFailed;
         }
         IOLog(VGPU_FB_TAG ": gbc: SETRENDERTARGET accepted (sid %u)\n", surfId);
 
@@ -2507,7 +2804,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         words[6] = dxH;                 // rect.h
         if (!GBC_SUBMIT(words, 7)) {
             IOLog(VGPU_FB_TAG ": gbc: SETVIEWPORT refused\n");
-            return;
+            goto gbFailed;
         }
         IOLog(VGPU_FB_TAG ": gbc: SETVIEWPORT accepted\n");
 
@@ -2523,7 +2820,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         words[6] = 0;
         if (!GBC_SUBMIT(words, 7)) {
             IOLog(VGPU_FB_TAG ": gbc: CLEAR refused\n");
-            return;
+            goto gbFailed;
         }
         IOLog(VGPU_FB_TAG ": gbc: CLEAR accepted\n");
 
@@ -2535,7 +2832,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         words[4] = 0;
         if (!GBC_SUBMIT(words, 5)) {
             IOLog(VGPU_FB_TAG ": gbc: READBACK_GB_IMAGE refused\n");
-            return;
+            goto gbFailed;
         }
         __asm__ volatile ("" ::: "memory");
         volatile UInt32 *px = (volatile UInt32 *)_dxVirt;
@@ -2568,10 +2865,59 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         } else {
             IOLog(VGPU_FB_TAG ": gbc: readback mismatch\n");
         }
-        return;   // GB path is this boot's answer; skip the DX chain
+        // This bare block always reaches here. Every early exit above (and this one) is
+        // written as `if (kDxVm3dmpTemplate) goto gbFailed; return;` so the template below
+        // stays reachable in the compiler's view (docs §24: an unconditional return here
+        // let clang drop the whole template block, and the 10-27 22:26 install silently
+        // ran the legacy chain instead).
+        if (!kDxVm3dmpTemplate) {
+            return;   // GB path is this boot's answer; skip the DX chain
+        }
+    }
+    // Anchor: keeps the legacy GB chain live in the binary even when a mode flag
+    // short-circuits the whole block, so build.sh's reachability check keeps
+    // guarding the chain that the *next* experiment will turn back on. Without
+    // it, flipping one flag turns 300 lines into "never written" and the marker
+    // check starts failing for a reason that has nothing to do with this change.
+    IOLog(VGPU_FB_TAG ": gbc: chain block reached (surf %u mob %u %ux%u, next=%u)\n",
+          surfId, mobId, dxW, dxH, (UInt32)kDxVm3dmpTemplate);
+
+gbFailed:
+    if (!kDxVm3dmpTemplate) {
+        return;
+    }
+    IOLog(VGPU_FB_TAG ": gbc: chain stopped early; continuing to the DX template\n");
+
+    // =====================================================================
+    // kDxVm3dmpTemplate: assemble the DX context the way vm3dmp.sys builds it,
+    // then submit ONE render command. Every earlier attempt differed from the
+    // driver in the same three ways below, so the first version of this block
+    // is the template almost verbatim (disassembly: CreateDXContext 0x140010c78,
+    // context ctor 0x1400109c0..0x140010a8e, COTable bind 0x1400113e8).
+    //   A. DEFINE+BIND share ONE CB, and that same CB is also the preemptible
+    //      ("pre") batch: helper 0x1400095d8(dev, pre=1, ctx=cid, words, n,
+    //      tok, prio=2, ...) -> 0x14001a76c appends it to the CB whose context
+    //      index is `cid` (cbContext == DX context id, not the default 1).
+    //   B. SET_COTABLE carries mobid=0xFFFFFFFF for every type the context does
+    //      NOT use (11 or 12 of them), and those binds happen INSIDE the
+    //      DEFINE+BIND CB: COTable size is read at context creation
+    //      (0x1400113e8(dev, cid, type, mobid, valid, doBind)), not later.
+    //   C. No VALID CONTENTS (validSize=0 everywhere) and header.dxContext = 0.
+    // The context state MOB is declared here (the legacy chain below owns the
+    // same mobid but never runs while this switch is on).
+    // Only ONE DX command closes the sequence, per the one-error-one-reboot rule.
+    // =====================================================================
+    if (kDxVm3dmpTemplate) {
+        bool alive = dxVm3dmpTemplate(fifo, surfId, dxW, dxH);
+        IOLog(VGPU_FB_TAG ": dx: TEMPLATE verdict -> %s\n",
+              alive ? "*** DX MANAGER ALIVE ***" : "DX manager still absent");
+        return;
     }
 
     // ---- DX chain via the CB (vm3dmp semantics: flags=3, header dxContext=0) ----
+    // Unreachable while the template block above is enabled; it submits several
+    // DX commands and every error costs a reboot. (The template block returns on its
+    // own; no extra guard is needed here, and one was the source of the §24 dead code.)
 
     // DXCONTEXT OTable entry {cid, mobid}: ABSENT in the 14:04 boots where BIND was
     // accepted; present (added 80ba752) in every boot where BIND was refused. The
@@ -2982,12 +3328,32 @@ bool vgpuFramebuffer::cbInit(void) {
 bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 cbContext,
                                   UInt32 dxContext, UInt32 flags) {
     const UInt32 byteCount = wordCount * sizeof(UInt32);
+    // Every early exit below used to be silent, and a silent `false` is indistinguishable
+    // from "the host said no" at the call site. The 10-29 template run printed
+    // "-> refused" with NO status/timeout line, so the CB was never even submitted; the
+    // only exits that can do that are these three. Name them.
+    if (_cbHeaderVirt == nullptr) {
+        IOLog(VGPU_FB_TAG ": cb: no header allocation (%u dwords)\n", wordCount);
+        return false;
+    }
+    if (_pci == nullptr) {
+        IOLog(VGPU_FB_TAG ": cb: no PCI device yet (%u dwords)\n", wordCount);
+        return false;
+    }
     if (byteCount > kCbDataBytes) {
         IOLog(VGPU_FB_TAG ": cb: payload too large (%u)\n", byteCount);
         return false;
     }
     // MOB form: payload goes into the GB MOB, not the DMA buffer.
     const bool mobMode = (kCbMobMode != 0) && _cbMobReady && (_cbMobVirt != nullptr);
+    if (kCbDump) {
+        IOLog(VGPU_FB_TAG ": cb: submit %u dwords ctx%u dx%u flags%u mob=%d "
+              "(mobMode=%u ready=%u virt=%p hdr=%p pci=%p dataVirt=%p)\n",
+              wordCount, cbContext, dxContext, flags, kCbMobMode,
+              mobMode ? 1u : 0u, _cbMobReady ? 1u : 0u,
+              (void *)_cbMobVirt, (void *)_cbHeaderVirt, (void *)_pci,
+              (void *)_cbDataVirt);
+    }
     // The payload MOB is ONE page (kGbPageBytes); the 64 KiB bound above only covers the
     // DMA form. Without this check a >4 KiB payload memcpy'd into the MOB silently walks
     // past a physically-contiguous 1-page allocation (2026-10-27, found while writing the
@@ -3010,16 +3376,40 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
     h[0] = 0;
     h[1] = 0;
     *(volatile UInt64 *)(_cbHeaderVirt + 8) = _cbId++;                    // id
-    // NO_IRQ always; DX_CONTEXT only for DX-command payloads.
-    // vm3dmp semantics: DX streams carry ONLY SVGA_CB_FLAG_DX_CONTEXT (2), never
-    // NO_IRQ; plain streams carry only NO_IRQ (1). Header dxContext is always 0.
-    // 10-13 vm3dmp-exact: DX streams carry flags=3 (NO_IRQ|DX_CONTEXT) -- the
-    // builder at 0x140013a51 sets NO_IRQ and DX_CONTEXT together; the 10-12
-    // "flags=2" fix was based on a misread. DX CBs also go on cbContext=1/2,
-    // never 0 (see cbSubmitDx).
-    // The validator only accepts flags 0/1 (test flags,0xFFFFFFFE -> CB_HEADER_ERROR),
-    // so NEVER set the DX_CONTEXT bit. dxContext is still carried in the header and
-    // is what the command layer uses to pick the context for cid-less DX commands.
+    // ---- flags: what three weeks of rejected headers actually taught us ----
+    // (docs §15 / §22, re-read on 10-29 after the template died at 0 ms)
+    //
+    //   * The header validator only accepts flags 0/1. Anything with bit1
+    //     (SVGA_CB_FLAG_DX_CONTEXT) is answered with STATUS 4 / CB_HEADER_ERROR, no
+    //     matter what cbContext, dxContext, PREPEND or MOB form goes with it (§15, §14).
+    //     The 10-12/10-13 "flags=2 is what vm3dmp does" note was a misread of the
+    //     builder at 0x140013a51 and cost two weeks.
+    //   * Therefore EVERY CB we send -- DX payload included -- goes out with NO_IRQ
+    //     only. Callers pass 2/3 for intent; the bit is stripped here, in one place,
+    //     so a future experiment cannot silently reintroduce the header error.
+    //   * dxContext STILL matters: it lives in the header and the command layer reads
+    //     it to pick the DX context for cid-less commands. §22.6: same cbContext but
+    //     dxContext 1 vs 0 changes whether the batch reaches STATUS 3 at all.
+    //
+    // 10-29 20:17 (MOB form, flags=5 → stripped to 1) and 20:22 (PA form, flags=1,
+    // dxContext=1): BOTH came back STATUS 4 with a clean, minimal header. So the
+    // rejection is not about MOB, not about bit1, not about the payload -- it is the
+    // `dxContext != 0` path itself. Per §22.2 that path is:
+    //
+    //     0x14050a04e  test r8b, 2        ; DX_CONTEXT present?
+    //     0x14050a052  je 0x14050a20d     ; no  -> plain command-stream branch
+    //     0x14050a058  cmp [0x1414937FC], 0
+    //     0x14050a072  call 0x140a17350   ; lookup-or-create(dxContext)
+    //     0x14050a07e  test rax,rax ; je → give up on the batch
+    //
+    // If the lookup cannot resolve dxContext (because no DX device was ever created
+    // -- see [dev+0x9bc] / [dev+0x71] / [dev+0x81d] in §22.2), the header layer fails
+    // the batch. That matches every STATUS 4 we have: dxContext was non-zero and no
+    // DX device existed. kCbKeepDxContext selects which branch the batch takes.
+    if (!kCbKeepDxContext) {
+        flags &= ~kCbFlagDxContext;
+    }
+    flags |= 1u;             // NO_IRQ -- the only guaranteed-safe bit
     *(volatile UInt32 *)(_cbHeaderVirt + 20) = byteCount;                 // length
     if (mobMode) {
         *(volatile UInt32 *)(_cbHeaderVirt + 24) = kCbMobId;              // ptr.mob.mobid

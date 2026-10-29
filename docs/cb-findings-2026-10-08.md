@@ -1159,3 +1159,178 @@ vgpu-fb: dx: DEFINE_RTV q1 dx1 flags3       -> refused      (COMMAND_ERROR)
    —— 它在**同一台宿主**上是能跑 DX 的，所以它的初始化序列必然足够。
    重点不是我们已对齐的 DEFINE_CONTEXT/BIND/COTABLE，而是**我们没发的那些**（例如全部 cotable 类型、
    以及任何与"上下文激活"相关的命令）。这是纯静态工作，不需要重启预算。
+
+## 25. 10-29：DX 管理器缺席的判决点收窄到 `dxContext != 0` 这一条路径
+
+本轮把"模板之所以从未成功"的所有混淆变量逐层剥掉，最后只剩一个。
+
+### 25.1 先修掉的三个真实缺陷（都不是宿主的问题）
+
+1. **模板从未执行**（10-28 遗留）：`gbc: DEFINE_GB_CONTEXT refused` 分支是裸 `return;`，
+   模板块在运行期不可达、在编译期也被优化掉。改成 `goto gbFailed;` + 标签页。
+   `build.sh` 的 reachability marker 机制就是为这类事故加的，这次它生效了。
+2. **`tpl[80]` 写进 `tpl[64]`**：模板要发 8 + 12×6 = 80 dwords，数组只有 64。
+   越界覆盖了同帧的 `sync[3]` / `okTpl` / 返回地址以上区域。日志照样打印"80 dwords"
+   （`n` 已经数完了），而宿主看到的部分内容来自相邻栈槽。现在数组尺寸由同一段算式推导，
+   并在填充后断言 `n == kTplDwords`。
+3. **`cbSubmitCtx()` 三个静默 `return false`**：`_cbHeaderVirt == nullptr`、
+   `_pci == nullptr`、`byteCount > kCbDataBytes` 三条路径都不打日志，
+   调用点只能看到 "refused"。全部补上日志，并在 dump 里打一行入口状态
+   （`mobMode/ready/virt/hdr/pci/dataVirt`）。**"refused 但没有任何后续日志"这个中间态
+   从此不存在**，这一点是本节后面所有推理的基础。
+
+### 25.2 flags 的真实规则（复核 §18.4，结论不变）
+
+```
+test dword header.flags, 0xFFFFFFFE  -> CB_HEADER_ERROR(4)
+```
+
+除 bit0 外任何位非零即拒。因此：
+
+- `SVGA_CB_FLAG_DX_CONTEXT`(bit1) **不能**出现在 header 里 → 已改成在 `cbSubmitCtx()`
+  内集中剥离（`kCbKeepDxContext` 开关控制），调用方传 2/3 也不会再踩。
+- `SVGA_CB_FLAG_MOB`(bit2) 同样不能出现 → **MOB 形态在本宿主根本无法表达**。
+  之前那条"vm3dmp 用 MOB 形态"的注释是从 Linux `vmw_cmdbuf.c` 推断的，
+  不是本宿主行为；vm3dmp 在**这台**宿主上必然走 PA 形态（它渲染正常，而这是唯一的校验器）。
+- `len == 0` 在 flags 检查**之前**返回 COMPLETED（§18.4 表格已证），
+  所以"空 CB 能过"不代表 header 合法。
+
+### 25.3 三次启动的判决矩阵（每次一个变量）
+
+| boot | 形态 | flags 实测 | dxContext | 结果 |
+|---|---|---|---|---|
+| 20:04 | MOB，`tpl[64]` 越界 | 6 | 0 | STATUS 4（0 ms 返回）|
+| 20:17 | MOB | 5 = NO_IRQ\|MOB | 1 | **STATUS 4** |
+| 20:22 | PA | 1 = NO_IRQ | 1 | **STATUS 4** |
+| 20:28 | PA | 1 = NO_IRQ | 1 | **STATUS 4** |
+
+三次 STATUS 4 的共同点只有一个：**`dxContext != 0`**。MOB/PA、bit1 有无、载荷内容、
+载荷长度全都变了，拒绝方式一模一样（`errorOffset 0`，立即返回，不轮询）。
+
+对照 §18.4 的判定实验表：`ctx63` + `flags∈{0,1}` + `dxContext=0` + `len=12` 是 **COMPLETED**。
+⇒ **`dxContext=0` 从未被 header 拒过，`dxContext≠0` 从未被接受过。**
+
+### 25.4 机制解释（与 §22.2 的反汇编一致）
+
+```
+0x14050a04e  test r8b, 2          ; bit1 决定分支
+0x14050a052  je 0x14050a20d       ; bit1 清 → 普通命令流分支
+0x14050a058  cmp [0x1414937FC], 0
+0x14050a072  call 0x140a17350     ; lookup-or-create(dxContext)
+0x14050a077  mov [0x1414930A0], rax
+0x14050a07e  test rax, rax ; je → 放弃整批
+```
+
+把 bit1 剥掉之后，这一批走的是 `0x14050a20d`（普通命令流）。**但 header 层仍然以 STATUS 4 拒绝**，
+说明还有一条**先于** `0x14050a04e` 的检查读到了 `header->dxContext`，并且对 `dxContext != 0`
+且**找不到对应 DX 设备**的情形直接判 header 错。这与 §22.2 的 `lookup-or-create` 是同一件事，
+只是它在更早的地方被调用了。
+
+结论：**`dxContext` 不是"提示字段"，而是要求一个已存在的 DX 设备对象。**
+没有设备 → 任何非零值都是 header 错误。这解释了 §22 的"被接受清单全是 `dxContext=0`"。
+
+### 25.5 拆分诊断踩到的坑（记下来，别再犯）
+
+`STATUS 4` 之后我把同一条 CB 拆成三条单命令 CB 重发，想定位是哪条命令被拒。结果三条全部
+**414 ms 超时**、`status` 一直为 0 —— 因为 §22.1 的规律在这里又生效了：
+
+> **首次 header/命令错误之后，后续所有 CB 都不再被处理。**
+
+所以"在失败之后再做拆分探测"是无效实验，白花一次启动预算。规则更新：
+**任何诊断性重发都必须排在"被判定的那一笔"之前，或者单独一次启动。**
+
+### 25.6 下一步（唯一没有被试过、且不与已实锤规则冲突的组合）
+
+已实锤：`dxContext=0` 能过 header；`dxContext≠0` 必挂（没有 DX 设备时）。
+
+⇒ 下一轮实验：**`dxContext=0` + 不设 bit1 + PA 形态**，载荷用 §22 的"已被接受"命令序列
+（`DX_DEFINE_CONTEXT` → `DX_BIND_CONTEXT` → `DX_SET_COTABLE`），**逐条单发、每条自带日志**，
+确认它们在"干净引擎 + 目前唯一合法的 header 形态"下能否全部 ACCEPTED。
+
+- 若全部 ACCEPTED：说明命令层是通的，DX 管理器缺席完全由宿主侧
+  `[dev+0x9bc]`/`[dev+0x71]`/`[dev+0x81d]` 决定 → 转 §23.4 的两条路（HP queue / vm3dmp 静态）。
+- 若某条 COMMAND_ERROR：得到第一个**命令级**（而非 header 级）的真实错误码，那是新的信息。
+
+`kCbKeepDxContext`、`kCbMobMode`、模板的 `dxContext` 参数都已是独立开关，
+下一轮只需改这三个值 + 把拆分诊断移到批量提交**之前**。
+
+## 26. 10-29 深夜：CB 命令通道打通，卡点精确到 `DEFINE_RTV` 一条
+
+§25.6 的实验做完了，结果是本项目自 §20 以来最干净的一组数据。
+
+### 26.1 两次启动的日志（可复现）
+
+```
+20:35  SPLIT DX_DEFINE_CONTEXT {cid 1}            -> ACCEPTED     cb[9] COMPLETED
+       SPLIT DX_BIND_CONTEXT {cid 1 mob 6}        -> ACCEPTED
+       SPLIT DX_SET_COTABLE {cid 1 mob 5 type 0}  -> ACCEPTED
+       TEMPLATE DEFINE+BIND+12 COTABLES (72 dw)   -> submitted
+       TEMPLATE sync CB (q0 flags1)               -> COMPLETED
+       TEMPLATE SET_SHADER_IFACE (q1)             -> STATUS 3      ← 首次命令级错误
+       TEMPLATE DEFINE_RTV                        -> timeout       （队列已封）
+
+20:40  （同上三条 ACCEPTED + 批量 submitted + sync COMPLETED）
+       TEMPLATE DEFINE_RTV {rtv 1, sid 3}         -> STATUS 3      ← 复现
+```
+
+两次都通过了 header 校验，`cb[9]` 这次是 `len 12, flags 1, ptr=PA, dxContext=0`，**COMPLETED**。
+
+### 26.2 由此确立的三条事实
+
+1. **`dxContext = 0` + PA 形态 + flags=NO_IRQ 是本宿主唯一合法的 CB 形态。**
+   这一形态下 `DX_DEFINE_CONTEXT` / `DX_BIND_CONTEXT` / `DX_SET_COTABLE` 三条**全部 ACCEPTED**，
+   且 13 条命令打包成 72 dwords 的一张 CB 也 **submitted**（+ 后续 sync CB COMPLETED）。
+   ⇒ **CB 命令通道（header + 解析 + DX 命令分派）已经打通。** 这是自 §22 以来第一次。
+2. **`dxContext != 0` 一律 STATUS 4**，与 MOB/PA、bit1、载荷无关（§25.3 四组数据）。
+   ⇒ `dxContext` 字段要求一个已存在的 DX 设备对象，而该对象从未被创建。
+3. **`DEFINE_RTV` 是本宿主上唯一稳定失败的 DX 命令**，且失败形态是 **STATUS 3
+   (COMMAND_ERROR)**，`errorOffset 0`。20:35 与 20:40 两次独立启动复现，
+   与 §22.7 表格（`DEFINE_RTV (1187) → COMMAND_ERROR`）一致。
+
+### 26.3 `SET_SHADER_IFACE` 曾被误判
+
+20:35 的 boot 里 `SET_SHADER_IFACE` 回 STATUS 3，看上去像"它坏了导致 RTV 超时"。
+20:40 把 RTV 提到它前面之后，**`SET_SHADER_IFACE` 根本没机会执行，RTV 自己就 STATUS 3**。
+⇒ 之前那次是"两条命令都错"，不是"前者害了后者"。顺带确认 §22.1 的规律依然成立：
+**一条 COMMAND_ERROR 之后，同一队列上的后续 CB 只剩超时。**
+
+（`SET_SHADER_IFACE` 由 `[device+0x18ac]` 能力位门控，本机 3D caps 全 0，
+所以它在本机很可能本身就是 unsupported。已把它移到 RTV 之后，作为"跑分项"而非"门槛项"。）
+
+### 26.4 卡点的性质变了
+
+现在的判断不再是"CB 通道不通"，而是"**`DEFINE_RTV` 需要的前置状态没建立**"。
+按 §8 反汇编，RTV 的 handler 链路是：
+
+```
+0x1404CFD60(cid): cid≤0xFFFF + otable(type5) 条目存在 + entry.cid == cid
+0x1404CA530(..., 0x2000)  MOB 校验
+```
+
+而 §22.7 的第三条怀疑是 `0x1414930A0`（DX 管理器）为空——97 个渲染命令都在 `je bail` 上退出，
+`DEFINE_RTV` 正是其中之一。而该对象唯一的创建点在 `0x14050a077`，
+被 `[dev+0x9bc] != 0 && [dev+0x71] == 0` 门控，且**只有时间片/抢占那条链会调用**。
+
+⇒ **`DEFINE_RTV` 的 COMMAND_ERROR 与 `dxContext` 的 STATUS 4 是同一个根因的两个症状：
+宿主侧的 DX 设备从未被创建。** 而创建它需要宿主内部状态，不是 guest 能通过 CB 内容触发的。
+
+### 26.5 下一步（优先级已重排）
+
+1. **HP command queue（§23.4 第 1 条）现在是最优先。**
+   既然单张 CB 路径已被证明"能跑命令但触发不了 DX 设备创建"，而 HP queue 的提交路径不同
+   （`SVGA_CAP2_HP_CMD_QUEUE` = caps2 bit7 = 1 已置），它是唯一还没试过的"入口"。
+   需要先解出：queue 的 MMIO 寄存器组、环描述符格式、doorbell 语义。
+   起点：`vmware-vmx.exe` 里搜 `SVGA_REG_QUEUE` 相关字符串与 `0x14050xxxx` 段内对
+   `[dev+0x9bc]` 的写入点（98 条引用里除去 97 条读，剩下那条写就是 `0x14050a077`；
+   但 `[dev+0x9bc]` 自己的写入点还没扫过）。
+2. **扫 `[dev+0x9bc]` / `[dev+0x71]` / `[dev+0x81d]` 的全部写入点**（纯静态，不占重启预算）。
+   如果 `[dev+0x9bc]` 只在某个我们没走过的初始化函数里被写成非零，那个函数就是答案。
+3. 暂时不动的：`DEFINE_RTV` 的 desc 各种排列（§22.7 已穷尽 arraySize / cid / queue）。
+
+### 26.6 工程侧的两条规则（本轮付了学费）
+
+- **诊断性提交必须排在被判定那一笔之前。** 20:28 那次在 STATUS 4 之后才拆分重发，
+  三条全部 414 ms 超时，等于白烧一次启动（§25.5）。
+- **`build.sh` 的 marker 校验要覆盖"这次实验的判定行"。** 本轮一开始把 marker 写成
+  `TEMPLATE setup`（不存在的字符串），构建直接 FATAL，反而省了一次误烧；
+  但 marker 列表本身也要跟着实验走，别让它变成"永远校验上一轮的实验"。
