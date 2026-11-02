@@ -68,6 +68,19 @@ KMOD_EXPLICIT_DECL(com.vgpu.framebuffer, "1.0.0", vgpuFramebufferKmodStart, vgpu
 // drops the device back to legacy mode if the host does not recognise the value, so the
 // version is left alone. Every register read below is meaningful in every revision.
 //
+//
+// Every index below was read off this host's own driver (vm3dmp.sys 9.17.11.0003) or off a
+// live probe of the register window -- NOT inferred from the upstream svga_reg.h. The header
+// this tree was originally written against has a different layout: it skips a block of indices
+// after BITS_PER_PIXEL, so assuming 0,1,2,3... puts everything above 7 at the wrong port.
+// docs/svga-register-map.md is the authority; §40 and §41 of cb-findings record how it was
+// established. The two mistakes that cost the most were:
+//
+//   - 0x14 is SVGA_REG_RESET, not CONFIG_DONE. Writing 0 to it resets the device, which drops
+//     every mode the host had established (including the legacy auto-scanout). The register was
+//     labelled CONFIG_DONE here for eight rounds and written on every stage>=1 boot (§42).
+//   - 0x16 is the SYNC status the host polls, not SYNC itself; SYNC is write-only at 0x15.
+//
 enum {
     kSvgaRegId           = 0x00,
     kSvgaRegEnable       = 0x01,
@@ -85,8 +98,20 @@ enum {
     kSvgaRegCapabilities = 0x11,
     kSvgaRegMemStart     = 0x12,
     kSvgaRegMemSize      = 0x13,
-    kSvgaRegConfigDone   = 0x14,   // 20: guest sets 1 when the FIFO is configured
+    kSvgaRegReset        = 0x14,   // 20: write 0 resets the device. Never write this.
+    kSvgaRegSync         = 0x15,   // 21: write 1 = flush, 2 = flush and wait
+    kSvgaRegBusy         = 0x16,   // 22: host polls this to zero after a flush-and-wait
+    kSvgaRegConfigDone   = 0x19,   // 25: guest sets 1 when the FIFO is configured
     kSvgaRegMemRegs      = 0x1E,   // 30: number of FIFO registers the host expects
+    // 0x35/0x36 submit a command to the 3D queue. The host's driver loads the *high* half
+    // first (index 0x36, value = PA >> 32) and then the low half (index 0x35, value = PA | flags).
+    // These were previously written as 53/54 the other way round, and the actual submit used
+    // 48/49, which the host driver never touches at all -- so every command this driver ever
+    // sent went to a register the host does not read. See tools/rev/reg-indices.py.
+    kSvgaRegCommandLow   = 0x35,   // 53: command PA, low 32 bits, OR flags/context in low bits
+    kSvgaRegCommandHigh  = 0x36,   // 54: command PA, high 32 bits
+    kSvgaRegDisplayBase  = 0x20,   // 32: display block enable
+    kSvgaRegDisplayMax   = 0x21,   // 33: display block size; writing 0 masks its interrupts
     kSvgaRegDevCap       = 0x34,   // 52: write a SVGA3D_DEVCAP index, read its value
 };
 
@@ -472,7 +497,13 @@ static const UInt32 kCbPrepend = 1;
 // 80ba752 (19:43) -- exactly the boundary where BIND_CONTEXT flipped from accepted
 // (14:04 boots: neither present, verified against the persisted guest log) to
 // refused (every boot since). 0 = skip both, restoring the proven 14:04 config.
-static const UInt32 kGuestDriverId = 1;
+//
+// Now 0 on evidence, not just on that correlation: enumerating every register index
+// vm3dmp.sys writes (tools/rev/reg-indices.py) shows it never touches 61-64. The comment
+// that used to sit on the call site -- "vm3dmp writes exactly this at init" -- was an
+// assumption inherited from the same wrong header, i.e. the same class of mistake as 0x14.
+// Turning it off also removes 4 writes to registers this host has no reason to implement.
+static const UInt32 kGuestDriverId = 0;
 
 // GB-context render commands transport: 1 = plain CB (vmwgfx-style on GBOBJECTS
 // devices), 0 = legacy FIFO (accepted-but-inert, see 10-10 findings).
@@ -1060,6 +1091,10 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
             return;
         }
 
+        // Clear the configured flag while the FIFO words are being replaced, then set it once
+        // the stream is coherent. This used to write 0x14 -- which is RESET, not CONFIG_DONE --
+        // so every stage>=1 boot reset the device here and threw away the host's display state.
+        // That is what §38 was actually measuring; see §42 in cb-findings.
         svgaWriteRegister(_svgaPortBase, kSvgaRegConfigDone, 0);
         fifo[kSvgaFifoMin]     = regBytes;
         fifo[kSvgaFifoMax]     = fifoBytes;
@@ -1067,44 +1102,34 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
         fifo[kSvgaFifoStop]    = regBytes;
         __asm__ volatile ("" ::: "memory");
 
-        // Display topology BEFORE taking the FIFO: a real driver declares its displays
-        // through these registers before creating screen targets, and writing them while
-        // the MKS is processing our FIFO wedges its command processing (2026-10-07
-        // matrix). Deselect the window afterwards, like vmwgfx does.
-        svgaWriteRegister(_svgaPortBase, 35, 0);                  // SVGA_REG_DISPLAY_ID
-        svgaWriteRegister(_svgaPortBase, 36, 1);                  // SVGA_REG_DISPLAY_IS_PRIMARY
-        svgaWriteRegister(_svgaPortBase, 37, 0);                  // SVGA_REG_DISPLAY_POSITION_X
-        svgaWriteRegister(_svgaPortBase, 38, 0);                  // SVGA_REG_DISPLAY_POSITION_Y
-        svgaWriteRegister(_svgaPortBase, 39, _deviceWidth);       // SVGA_REG_DISPLAY_WIDTH
-        svgaWriteRegister(_svgaPortBase, 40, _deviceHeight);      // SVGA_REG_DISPLAY_HEIGHT
-        svgaWriteRegister(_svgaPortBase, 35, 0xFFFFFFFF);         // SVGA_ID_INVALID: deselect
-
-        // Guest driver identity BEFORE CONFIG_DONE: real drivers (vm3dmp) announce the
-        // WDDM driver class during init, before any command. If the MKS snapshots the
-        // announced-driver state when CONFIG_DONE flips (or when the first command
-        // arrives), a late write (inside the delayed test) is too late -- which is
-        // exactly what the 10-10 23:39 boot showed (driver-id written at test time:
-        // commands accepted, nothing rendered). Gated by kGuestDriverId.
-        if (kGuestDriverId) {
-            svgaWriteRegister(_svgaPortBase, 61, 1);           // SVGA_REG_GUEST_DRIVER_ID = WDDM
-            svgaWriteRegister(_svgaPortBase, 62, 0x1801560);   // SVGA_REG_GUEST_DRIVER_VERSION1
-            svgaWriteRegister(_svgaPortBase, 63, 0x90011);     // SVGA_REG_GUEST_DRIVER_VERSION2
-            svgaWriteRegister(_svgaPortBase, 64, 0xb0003);     // SVGA_REG_GUEST_DRIVER_VERSION3
-            IOLog(VGPU_FB_TAG ": fifo: GUEST_DRIVER_ID=WDDM + versions announced BEFORE CONFIG_DONE\n");
+        // Display topology and the guest driver id are NOT written here any more.
+        //
+        // Both used the register numbers from the same upstream header that gave us the wrong
+        // 0x14, and both have now been checked against the host's own driver. Enumerating every
+        // index vm3dmp.sys ever writes (tools/rev/reg-indices.py) yields exactly eight:
+        //
+        //   0x01 ENABLE   0x02 WIDTH   0x14 RESET   0x15 SYNC
+        //   0x16 BUSY     0x21 DISPLAY_MAX        0x35/0x36 COMMAND_HIGH/LOW
+        //
+        // There is no write to 0x23..0x40 anywhere in the driver, so "35/36/37/38/39/40" are not
+        // the display topology registers -- 0x35 and 0x36 are SVGA_REG_COMMAND_HIGH/LOW, the
+        // command-queue doorbell. Writing 0xFFFFFFFF to them (which this code did twice per boot,
+        // labelled "SVGA_ID_INVALID: deselect") was writing a bogus command header into the queue
+        // the host was about to start consuming. That is a far better candidate for the FIFO
+        // aborts recorded in §39 than any command payload we ever sent.
+        //
+        // The guest driver id block at 61..64 is likewise never written by the driver, so there
+        // is no evidence this host reads it at all. It stays behind its switch so an experiment
+        // can re-test it, but it is no longer part of the default path.
+        if (kFbStage >= 6) {
+            svgaWriteRegister(_svgaPortBase, 61, 1);           // unverified: see note above
+            svgaWriteRegister(_svgaPortBase, 62, 0x1801560);
+            svgaWriteRegister(_svgaPortBase, 63, 0x90011);
+            svgaWriteRegister(_svgaPortBase, 64, 0xb0003);
+            IOLog(VGPU_FB_TAG ": fifo: GUEST_DRIVER_ID written (unverified register block)\n");
         }
 
         svgaWriteRegister(_svgaPortBase, kSvgaRegConfigDone, 1);
-
-        // Re-publish the topology right AFTER taking the FIFO: the 10-06 23:39 success
-        // suggests this is what keeps/revives the display source once the guest owns the
-        // FIFO -- possibly without needing any GB screen-target objects at all.
-        svgaWriteRegister(_svgaPortBase, 35, 0);                  // SVGA_REG_DISPLAY_ID
-        svgaWriteRegister(_svgaPortBase, 36, 1);                  // SVGA_REG_DISPLAY_IS_PRIMARY
-        svgaWriteRegister(_svgaPortBase, 37, 0);                  // SVGA_REG_DISPLAY_POSITION_X
-        svgaWriteRegister(_svgaPortBase, 38, 0);                  // SVGA_REG_DISPLAY_POSITION_Y
-        svgaWriteRegister(_svgaPortBase, 39, _deviceWidth);       // SVGA_REG_DISPLAY_WIDTH
-        svgaWriteRegister(_svgaPortBase, 40, _deviceHeight);      // SVGA_REG_DISPLAY_HEIGHT
-        svgaWriteRegister(_svgaPortBase, 35, 0xFFFFFFFF);         // SVGA_ID_INVALID: deselect
         IOLog(VGPU_FB_TAG ": FIFO configured: regs %u bytes (%u dwords), data %u..%u, CONFIG_DONE=1\n",
               regBytes, kSvgaFifoExtendedMandatoryRegs, regBytes, fifoBytes);
         fifoDump(fifo, "after ");
@@ -4857,11 +4882,10 @@ bool vgpuFramebuffer::cbInit(void) {
     IOLog(VGPU_FB_TAG ": cb: header @ %llx, data @ %llx\n",
           (unsigned long long)_cbHeaderPA, (unsigned long long)_cbDataPA);
 
-    // Guest driver identity (vm3dmp writes exactly this at init): announce the WDDM
-    // driver class + version triple. PRIME HYPOTHESIS 10-10: the MKS enables its 3D
-    // render pipeline only after the guest announces a driver via GUEST_DRIVER_ID --
-    // the 10-10 gbc test (driver-id OFF) showed every GB command accepted but nothing
-    // rendered. Single variable for this boot.
+    // Guest driver identity. NOTE: the original comment here claimed "vm3dmp writes exactly
+    // this at init" -- it does not, and never did. The host driver writes no register above
+    // 0x36 at all (tools/rev/reg-indices.py). Left off; the switch exists only so the
+    // hypothesis can be re-tested deliberately.
     UInt16 port = _svgaPortBase;
     if (kGuestDriverId) {
         svgaWriteRegister(port, 61, 1);           // SVGA_REG_GUEST_DRIVER_ID = WDDM
@@ -4895,8 +4919,8 @@ bool vgpuFramebuffer::cbInit(void) {
         return true;
     }
     UInt64 ppPA = (UInt64)ppAddr;
-    svgaWriteRegister(port, 54, (UInt32)(ppPA >> 32));
-    svgaWriteRegister(port, 53, (UInt32)(ppPA & 0xFFFFFFFFu) | 0u);
+    svgaWriteRegister(port, kSvgaRegCommandHigh, (UInt32)(ppPA >> 32));
+    svgaWriteRegister(port, kSvgaRegCommandLow, (UInt32)(ppPA & 0xFFFFFFFFu) | 0u);
     IOLog(VGPU_FB_TAG ": cb: PREPEND registered @ %llx (ctx 0)\n",
           (unsigned long long)ppPA);
     }  // kCbPrepend
@@ -5060,12 +5084,13 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
         IOVirtualAddress ppAddr = _cbPrependMem->getPhysicalSegment(0, &ppLen);
         if (ppAddr != 0) {
             UInt64 ppPA = (UInt64)ppAddr;
-            svgaWriteRegister(port, 54, (UInt32)(ppPA >> 32));
-            svgaWriteRegister(port, 53, (UInt32)(ppPA & 0xFFFFFFFFu) | (cbContext & 0x3F));
+            svgaWriteRegister(port, kSvgaRegCommandHigh, (UInt32)(ppPA >> 32));
+            svgaWriteRegister(port, kSvgaRegCommandLow,
+                              (UInt32)(ppPA & 0xFFFFFFFFu) | (cbContext & 0x3F));
         }
     }
-    svgaWriteRegister(port, 49, (UInt32)(_cbHeaderPA >> 32));   // SVGA_REG_COMMAND_HIGH
-    svgaWriteRegister(port, 48,
+    svgaWriteRegister(port, kSvgaRegCommandHigh, (UInt32)(_cbHeaderPA >> 32));
+    svgaWriteRegister(port, kSvgaRegCommandLow,
                       (UInt32)(_cbHeaderPA & 0xFFFFFFFFu) | (cbContext & 0x3F));
 
     // Poll for completion (NO_IRQ): status changes from 0 (NONE).

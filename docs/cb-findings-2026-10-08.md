@@ -3772,3 +3772,206 @@ guest 没有办法指定它（本节没有尝试写；下一节要做的 modeset
 3. **4 MB `gfbSize` 仍是硬上限**：`VRAM_SIZE = 0x400000`，`MAX = 1176x885`。
    1920×1080 需要 `1920*1080*4 = 8.29 MB`，超了一倍。这个限制与 modeset 正交，
    modeset 做完也只能在 1176×885 以内切换。
+
+---
+
+## §41 probe 的寄存器**语义**也修完了：三个标签全错，且显示块从未被宿主使用
+
+§40 修的是**编号**（读哪个口），这一节修的是**含义**（读到的数是什么）。
+两者是同一场误诊的两半：编号错的时候读数全是垃圾，编号对了之后才发现其中三个
+读数的**名字**也一直是错的 —— 那些错误标签来自同一份上游 `svga_reg.h` 的推断。
+
+### 41.1 证据来源换了：不再"看头文件"，改为反汇编 VMware 自己的 Windows 驱动
+
+`vm3dmp.sys`（VMware SVGA miniport，9.17.11.0003）里有三个寄存器访问器，是同一份
+SVGA 协议的官方实现：
+
+| 函数 | 作用 | 指令序列 |
+|---|---|---|
+| `0x140016a30` | 写 | `out dx,eax`（索引）→ `inc dx; out dx,eax`（值） |
+| `0x140015f54` | 读 | `out dx,eax`（索引）→ `in eax,dx`（在 `portBase+1`） |
+| `0x140015fe0` | 写后回读 | `out dx,eax`（索引）→ `inc dx; in eax,dx` |
+
+拿这三个访问器回溯调用点，就能给每个立即数配上**行为**，而不再靠命名猜测。
+
+### 41.2 三个被推翻的标签
+
+**(a) `0x14` 是 `RESET`，不是 `CONFIG_DONE`。**
+`VM3DCtrlResetDevice`(`0x1400124f0`) 的序列是：
+
+```asm
+0x14001255b: mov eax, 1
+0x14001255b: out dx, eax            ; ENABLE = 1
+0x14001256a: mov eax, 0x14
+0x14001256f: out dx, eax            ; 写索引 0x14
+            (随后写值 0)
+```
+
+`ENABLE` 先置 1，再动 `0x14`，随后把两个环指针置 `-1`。一个"配置完成"标志不会在
+使能之后被清零，也不会顺手清环指针 —— 只有"重置设备"讲得通。所以 `0x14` 是 `RESET`。
+
+**(b) `0x15` 是 `SYNC`（只写），`0x16` 是它的状态位 `BUSY`。**
+
+```asm
+0x140013d9b: mov eax, 0x15
+0x140013da3: out dx, eax            ; 索引 = SYNC
+0x140013da4: mov eax, 2
+0x140013dad: out dx, eax            ; 值 = 2  → flush and wait
+...
+0x140013de9: mov edx, 0x16
+0x140013df1: call 0x140015fe0       ; 回读 0x16
+0x140013df6: test eax, eax
+0x140013df8: jne 0x140013de9        ; 非零就继续等
+```
+
+写 `1` 立即返回（flush），写 `2` 后再轮询 `read(0x16)` 到零（flush and wait）。
+所以 `0x16` 是 `BUSY`，不是 `SYNC` —— 它是**轮询用的状态**，写它没有意义。
+
+**(c) display 块从 `0x20` 起，不是 `0x22`。**
+模式设置函数 `0x14001b1e8`：
+
+```asm
+0x14001b20a: lea edx, [r8+0x20]     ; 0x20 —— 块使能
+0x14001b216: mov edx, 2             ; WIDTH
+0x14001b226: mov edx, 3             ; HEIGHT
+0x14001b236: mov edx, 7             ; BITS_PER_PIXEL
+0x14001b248: mov edx, 0x20          ; 0x20 —— 收尾再写一次
+```
+
+首尾都是 `0x20`，说明它是**该块的使能/门控位**，`0x21` 是这个块的大小。
+`0x14001444e` 里 `write(0x21, 0)` 然后立刻屏蔽中断（`out dx,eax` 于 `portBase+8`），
+证实写 `0` 的语义是"屏蔽并静默"。
+
+### 41.3 修好语义之后，mode 0 的新快照（每次重启一致）
+
+```
+RESET            [20/0x14] = 0x00000000 (0)
+SYNC             [21/0x15] = 0x00000000 (0)
+BUSY             [22/0x16] = 0x00000000 (0)
+CONFIG_DONE      [25/0x19] = 0x00000000 (0)
+MEM_SIZE_ACTUAL  [27/0x1b] = 0x00000000 (0)
+DISPLAY_BASE     [32/0x20] = 0x00000000 (0)
+DISPLAY_MAX      [33/0x21] = 0x00000000 (0)
+```
+
+几何两行自检仍然 `CONSISTENT`，其余读数与 §40.2 完全一致，说明改的只是标签，没动读数。
+
+### 41.4 这组值说明了什么（真正的新信息）
+
+- **`DISPLAY_BASE = 0` 和 `DISPLAY_MAX = 0` 是重要结论，不是"没读对"**：guest 侧
+  `0x20`/`0x21` 都是 0，意味着宿主**从未通过 display 块驱动显示**。宿主的显示链路走
+  SWBScreen（`SWBScreen: Screen 1 Defined` 那条日志），即 FIFO 命令 + surface 呈现，
+  寄存器窗口里的 display 块在这台宿主上根本没被启用。
+  ⇒ **沿 display 块做 modeset 这条线不用再试了**，它在这个配置下是死的。
+- **`CONFIG_DONE = 0`**：FIFO 尚未被 guest 配置好。这正是下一步要做的事
+  （分配 FIFO + 环缓冲 + 写 `MIN`/`MAX`/`NEXT_CMD`/`STOP`/`CONFIG_DONE`），
+  只有它变成 1，3D 命令通路才算通了。
+- **`MEM_SIZE_ACTUAL = 0`**：guest 从未请求过额外的命令缓冲，256 KB 的 `MEM_SIZE`
+  是宿主给的默认值。这也解释了 §39 里为什么各种 3D 命令都撞 FIFO 中止 ——
+  那个 256 KB 区域里还没有我们的环。
+
+### 41.5 工具坑：`--sudo` 编译会把 `build/` 变成 root 所有
+
+`cycle.sh` 里同时包含"编译"和"装到 `/Library/Extensions`"，而装需要 root。
+用 `--sudo` 整体跑一次之后，`build/vgpuProbe.kext` 归 root 所有，下一次普通用户编译
+在 `rm -rf build` 处 `Permission denied`，`buildx.sh` 静默失败（`set -eu` 下 `rm`
+的失败被 `tail` 吞掉）。表现是"编译成功但产物是上一轮的"，非常容易误判。
+
+修法：编译与安装分开 —— 编译永远用普通用户，只有 `cp`/`chown`/`kmutil` 走 root。
+`probe-cycle.py` 本来就是这个结构，别再用 `cycle.sh` 做自动化。
+
+### 41.6 下一步
+
+1. **修 `vgpuFramebuffer.cpp` 里同源的三个错标**（`CONFIG_DONE=0x14` 应为 `RESET`；
+   补 `SYNC=0x15`、`BUSY=0x16`、`CONFIG_DONE=0x19`、`DISPLAY_BASE=0x20`、
+   `DISPLAY_MAX=0x21`）。这个被误标的 `0x14` 如果哪天被当成"写 1 表示配置完成"去写，
+   就是一次**设备复位**。
+2. **guest 侧 modeset**：只写 `WIDTH`/`HEIGHT`/`BPP`，然后回读 pitch 与几何（§40.6.2）。
+   display 块这条路按 41.4 排除。
+3. **FIFO 配置**：让 `CONFIG_DONE` 从 0 变 1。这是 3D 通路真正的前置条件，
+   比 modeset 更靠底层。
+
+---
+
+## §42 回填：§38.21–§38.22 那条「`CONFIG_DONE` 是黑屏元凶」的因果链**是误诊**
+
+§41 定下 `0x14 = RESET` 之后，必须回头改一条历史结论 —— 这是本次审计里最重要的发现，
+因为它把过去几轮的方向判断全推翻了一半。
+
+### 42.1 当时实际写下去的是什么
+
+`vgpuFramebuffer.cpp` 里 `kSvgaRegConfigDone` 一直被定义成 `0x14`，并在
+`probeFifo()` 里被写两次：
+
+```cpp
+svgaWriteRegister(_svgaPortBase, kSvgaRegConfigDone, 0);   // 行 1063
+svgaWriteRegister(_svgaPortBase, kSvgaRegConfigDone, 1);   // 行 1096
+```
+
+按 §41 的反汇编结论，`0x14` 是 `RESET`，写 `0` 才是"复位"，写 `1` 无定义。
+所以 `kFbStage >= 1` 的每一次启动，我们都在**把 SVGA 设备复位一次**（1063 行的写 0）。
+
+而真正的 `CONFIG_DONE` 是 `0x19` —— **我们从来没有写过它**。
+`CONFIG_DONE` 在这台机器上的实际值一直就是 §41.3 快照里的那个 **0**。
+
+### 42.2 于是 §38.22 的对照表要重读
+
+| 启动 | kext | 当时以为写了 `CONFIG_DONE` | 实际写了 | 画面 |
+|---|---|---|---|---|
+| `vmware-2.log` 20:29 | stage 2+ | 是 | **复位了一次** | 黑 |
+| `vmware-1.log` 20:33 | stage 5 | 是 | **复位了一次** | 黑 |
+| `vmware-0.log` 20:42 | stage 0 | 否 | 什么都没写 | 桌面 |
+| `vmware.log` 20:49 | 无 | — | — | 桌面 |
+
+相关性**依然成立**（"stage≥1 ⇒ 黑"），但归因错了。真实的触发点不是
+"MKS 看到 `CONFIG_DONE` 就切 ScreenTarget 呈现模型"，而是
+**"guest 把设备复位了，宿主把它已建立的显示状态（包括 legacy 自动扫描输出）一并丢掉"**。
+这也解释了当时那条怎么都解释不顺的观测：
+
+> `SVGA_CMD_UPDATE` (acked!) does not restore it.
+
+如果只是"呈现模型切走了"，UPDATE 命令到达的是新的呈现模型，至少该有点反应；
+但设备被复位后，`WIDTH/HEIGHT/PITCH/FB_OFFSET` 全部回到宿主默认值，我们发 UPDATE
+时描述的是**一块已经不对应当前扫描参数的帧缓冲**，宿主自然什么都没做。
+
+### 42.3 `ScreenTarget(1024x512)` 这个证据也换了个解释
+
+当时记录的是 `Screen type changed to ScreenTarget (1024x512)`，并把它当作
+"MKS 因为 `CONFIG_DONE` 切模型" 的直接证据。但注意那个 **512**：
+1024×512 不是我们要求的任何尺寸，也不是 `MAX_HEIGHT`（885）。
+它是 **`VRAM_SIZE / pitch` 的一半** —— 复位后宿主用默认 pitch 重新描述一块 4 MB
+VRAM 能容纳的扫描区域，宽 1024 保持不变，高被 512 这个"安全值"截断。
+
+即：那不是"切换到 ScreenTarget 呈现模型"，而是"复位后宿主按默认参数重建 Screen 1"。
+两种解释都能产出同一行日志，当时的证据不足以区分 —— 而现在有了寄存器语义，就能区分了。
+
+### 42.4 这次误诊的代价与教训
+
+代价很直接：**§38 之后的所有工作都建立在一个错误的因果关系上**。
+如果当时就知道 `0x14 = RESET`，那么第一个该做的实验不是"关掉 `CONFIG_DONE`"，
+而是"**永远不要碰 `0x14`**，然后看 stage 1 能不能稳定" —— 这个实验从来没人做过。
+
+教训和 §40 是同一条，只是换了一层：
+
+> §40：**编号**不能从上游头文件推断，要读驱动。
+> §42：**语义**也不能从上游头文件推断，要读驱动。
+
+两次错的都是"上游 `svga_reg.h` 的布局可以照着猜"。而这份头文件在本宿主上是
+**版本不匹配**的 —— VMware 自己的 Windows 驱动用的是另一套编号和语义。
+
+### 42.5 已经做的修正
+
+`kexts/framebuffer/vgpuFramebuffer.cpp` 的寄存器常量已改正：
+
+```cpp
+kSvgaRegReset        = 0x14,   // write 0 resets the device; never write this
+kSvgaRegSync         = 0x15,   // write 1 = flush, 2 = flush and wait
+kSvgaRegBusy         = 0x16,   // polled to zero after a flush-and-wait
+kSvgaRegConfigDone   = 0x19,   // the real FIFO-configured flag
+kSvgaRegDisplayBase  = 0x20,
+kSvgaRegDisplayMax   = 0x21,
+```
+
+并把 1063 行那次 `write(0x14, 0)` 改成了 `write(0x19, 0)` —— 那才是"取消配置"。
+这一改的含义是：**下一次 `kFbStage >= 1` 的启动不再复位设备**，
+是 §38 以来第一次可以干净地观察"MKS 面对一个真的配好 FIFO 的 guest"的行为。

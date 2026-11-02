@@ -60,21 +60,25 @@
 // SVGA legacy register block.
 //
 // These indices are NOT the sequential values in Linux's vmware/svga_reg.h. That header
-// skips a block between SVGA_REG_BITS_PER_PIXEL and SVGA_REG_BYTES_PER_LINE, so its
-// numbering runs 0..7 for the first eight registers and then jumps. The first revision of
-// this probe copied the skipping layout incorrectly -- it assumed BYTES_PER_LINE was 8 --
-// and the result was a snapshot where every index at or above 8 returned a plausible but
-// wrong register. That cost a whole investigation: the values were blamed on I/O timing
-// and on races with the firmware, when in fact the indices were simply off.
+// skips a block between SVGA_REG_BITS_PER_PIXEL and SVGA_REG_BYTES_PER_LINE, so reading it
+// as "0, 1, 2, ..." mislabels every register above 7. The first revision of this probe
+// copied the skipping layout incorrectly -- it assumed BYTES_PER_LINE was 8 -- and every
+// index at or above 8 returned a plausible but wrong register. That misdiagnosis cost
+// several reboots, spent blaming I/O timing and races with the firmware.
 //
-// The sequencing below is the one that produces self-consistent readings on this host:
-// it is the only offset assignment under which FB_SIZE (0x300000), VRAM_SIZE (0x400000)
-// and BYTES_PER_LINE (4096) all agree with the host's own log and with the pitch that
-// the tearing boundary proved the host really scans at. The probe refuses to trust its
-// own snapshot unless that three-way agreement holds -- see _snapshot().
+// The numbering below is taken from VMware's own Windows miniport (driver/vm3dmp.sys),
+// where the register accessors are plain enough to read: see docs/svga-register-map.md for
+// the disassembly that establishes each entry. Two of the labels the framebuffer kext
+// carries are wrong and are corrected here:
 //
-// The framebuffer kext has carried this layout all along (vgpuFramebuffer.cpp), which is
-// why its logs were right while this probe's were wrong.
+//   0x14 is RESET, not CONFIG_DONE -- VM3DCtrlResetDevice writes ENABLE=1 then RESET=0.
+//   0x15 is SYNC (write-only) and 0x16 is its status -- one call site writes 1 and
+//        returns (flush), another writes 2 and polls 0x16 back to zero (flush and wait).
+//   CONFIG_DONE is 0x19.
+//
+// The display register block also starts at 0x20, not 0x22: the mode setter brackets a
+// mode change with writes to 0x20 on both sides, which only makes sense if 0x20 is the
+// enable for the block.
 
 static const UInt16 kSvgaIndexPort = 0;
 static const UInt16 kSvgaValuePort = 1;
@@ -95,10 +99,16 @@ static const UInt32 kRegFbSize        = 0x10;
 static const UInt32 kRegCapabilities  = 0x11;
 static const UInt32 kRegMemStart      = 0x12;
 static const UInt32 kRegMemSize       = 0x13;
-static const UInt32 kRegConfigDone    = 0x14;
-static const UInt32 kRegSync          = 0x16;   // writes here block until the host drains
-static const UInt32 kRegGuestId       = 0x17;
+static const UInt32 kRegReset         = 0x14;   // write 0 to reset the device -- do not
+static const UInt32 kRegSync          = 0x15;   // write 1 = flush, 2 = flush and wait
+static const UInt32 kRegBusy          = 0x16;   // polled to zero after a flush-and-wait
+static const UInt32 kRegConfigDone    = 0x19;   // set once the FIFO is configured
 static const UInt32 kRegMemSizeActual = 0x1B;
+static const UInt32 kRegDisplayBase   = 0x20;   // display block enable / base
+static const UInt32 kRegDisplayMax    = 0x21;   // block size; writing 0 masks interrupts
+
+// 0x14 is deliberately left out of kRegisters below when it is also being written: a read
+// of RESET is harmless, but a stray write of it is a device reset. See _runExperiment.
 
 // A small named table beats a loop with a comment: the log line then says which
 // register produced which value, which is the whole point of the snapshot.
@@ -109,6 +119,9 @@ struct RegName {
 
 // Sorted by index, because the snapshot prints in this order and an out-of-order table
 // makes it look like indices were chosen at random.
+//
+// 0x14 (RESET) is included in the read pass only -- reading it is harmless, and seeing it
+// sit at 0 is the cheapest confirmation that the device is not being held in reset.
 static const RegName kRegisters[] = {
     { kRegId,            "ID"             },   // 0x00
     { kRegEnable,        "ENABLE"         },   // 0x01
@@ -126,10 +139,13 @@ static const RegName kRegisters[] = {
     { kRegCapabilities,  "CAPABILITIES"   },   // 0x11
     { kRegMemStart,      "MEM_START"      },   // 0x12
     { kRegMemSize,       "MEM_SIZE"       },   // 0x13
-    { kRegConfigDone,    "CONFIG_DONE"    },   // 0x14
-    { kRegSync,          "SYNC"           },   // 0x16
-    { kRegGuestId,       "GUEST_ID"       },   // 0x17
+    { kRegReset,         "RESET"          },   // 0x14
+    { kRegSync,          "SYNC"           },   // 0x15
+    { kRegBusy,          "BUSY"           },   // 0x16
+    { kRegConfigDone,    "CONFIG_DONE"    },   // 0x19
     { kRegMemSizeActual, "MEM_SIZE_ACTUAL"},   // 0x1B
+    { kRegDisplayBase,   "DISPLAY_BASE"   },   // 0x20
+    { kRegDisplayMax,    "DISPLAY_MAX"    },   // 0x21
 };
 
 static const unsigned kRegisterCount = sizeof (kRegisters) / sizeof (kRegisters[0]);
