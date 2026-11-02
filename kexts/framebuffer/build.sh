@@ -102,6 +102,46 @@ MARKERS="STDU re-present started
 screen target 0 (%ux%u) bound to surface %u
 STDU paint armed (red border, green top"
 
+# §38.12: while kStduFlat is 1 the whole page-table arm is compiled out (the early return
+# in stduBringUp is a constant fold), so its markers are legitimately absent. Require the
+# flat arm's markers instead -- that keeps the reachability guard meaningful in both modes
+# rather than just deleting the check.
+if grep -qE 'kStduFlat[[:space:]]*=[[:space:]]*1' "$SWITCHES"; then
+    echo "kStduFlat = 1 -> flat-MOB markers are required, page-table markers retired"
+    MARKERS="$MARKERS
+flat: MOB %u defined (PT64_0, base ppn %llu, %u bytes)
+flat: surface %u defined %ux%u on mob %u, bound and updated
+flat: screen target 0 (%ux%u) bound to surface %u
+flat: present armed (%ux%u panel, 4 KiB MOB"
+else
+    echo "kStduFlat = 0 -> page-table markers are required"
+    MARKERS="$MARKERS
+surface %u bound to mob %u (BIND_GB_SURFACE)
+UPDATE_GB_SURFACE accepted (sid %u)
+UPDATE_GB_SURFACE refused (sid %u)
+pt: VERDICT %s
+UPDATE_GB_MOB_MAPPING refused"
+fi
+
+# The readback probe rides on SURFACE_DMA, so it is only in the binary when kStduDma is 1.
+if grep -qE 'kStduDma[[:space:]]*=[[:space:]]*1' "$SWITCHES"; then
+    echo "kStduDma = 1 -> readback markers are required"
+    MARKERS="$MARKERS
+rb: VERDICT %s"
+else
+    echo "kStduDma = 0 -> present loop is M6-shaped, readback markers not required"
+fi
+
+# §38.19: the GuestRpc heartbeat keeps the host from expiring the Tools timer and tearing
+# down the legacy screen. Required only while the switch is on.
+if grep -qE 'kEnableRpcHeartbeat[[:space:]]*=[[:space:]]*1' "$SWITCHES"; then
+    echo "kEnableRpcHeartbeat = 1 -> heartbeat markers are required"
+    MARKERS="$MARKERS
+rpc: heartbeat #"
+else
+    echo "kEnableRpcHeartbeat = 0 -> heartbeat retired, marker not required"
+fi
+
 # DX template experiment: required only while kDxTest is on.
 if grep -qE 'kDxTest[[:space:]]*=[[:space:]]*1' "$SWITCHES"; then
     echo "kDxTest = 1 -> DX template markers are required"

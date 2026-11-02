@@ -175,7 +175,12 @@ static const UInt32 kSvgaScreenIsPrimary = 1 << 1;
 enum {
     kSvga3dCmdSetOtableBase64 = 1115,
     kSvga3dCmdDefineGbMob64   = 1135,
+    kSvga3dCmdUpdateGbMobMapping = 1096,  // {mobid}: tell the host to re-read the PT
     kSvga3dCmdDefineGbSurface = 1097,
+    kSvga3dCmdBindGbSurface      = 1099,   // SVGA3dCmdBindGBSurface {sid, mobid}
+    kSvga3dCmdUpdateGbSurface    = 1102,   // SVGA3dCmdUpdateGBSurface {sid}: re-read the MOB
+    kSvga3dCmdUpdateGbImage      = 1101,   // {sid, box}: re-read a sub-box of the MOB
+    kSvga3dCmdGbScreenDma        = 1131,   // {screenId, dead, destMobID, destPitch, mapMob}
     kSvga3dCmdDefineGbContext    = 1107,
     kSvga3dCmdBindGbContext      = 1109,
     kSvga3dCmdReadbackGbImage    = 1103,
@@ -274,7 +279,7 @@ enum {
 //   4 = init + fence + full-screen UPDATE probe
 //   5 = init + fence + legacy screen-object present path (DEFINE_SCREEN, DEFINE_GMRFB over
 //       the framebuffer, BLIT_GMRFB_TO_SCREEN) + the periodic present timer
-static const UInt32 kFbStage = 2;
+static const UInt32 kFbStage = 0;   // §38.21: no CONFIG_DONE at all -- does the host stay in legacy mode?
 
 // kGbStage gates the GB object stack (see gbBringUp); 5 adds the STDU present path.
 //
@@ -306,6 +311,76 @@ static const UInt32 kDxTest = 0;
 // nothing on this guest is drawing into it. Our own pixels settle it in one boot.
 // Switch it off once there is real content to show; it would otherwise cover it up.
 static const UInt32 kStduPaint = 1;
+
+// kStduReadback asks the host to hand surface 2 back to us (§36.8 step 1).
+//
+// §36.7 proved the buffer we DMA from holds the right pattern and the screen is
+// still black, so the fault lies between "host consumed the command" and "a pixel
+// appears". This test splits that interval in two: once, after the first painted
+// frame, submit SURFACE_DMA with transfer = SVGA3D_READBACK (0) into a SEPARATE
+// buffer and compare it against the pattern.
+//
+//   match    -> the DMA target really is our surface/MOB, so the break is on the
+//               screen-target/display side (P3, fresh-MKS topology).
+//   mismatch -> the host's notion of what sid 2 / mobid 2 points at differs from
+//               ours, i.e. the mapping is the problem.
+//
+// Read-back goes into its own allocation on purpose: reading back into _stduVirt
+// would let a broken DMA "succeed" by simply leaving the pattern we already
+// wrote there.
+//
+// §38e: off. §37's "SURFACE_DMA is a no-op" verdict turned out to be a measurement
+// artifact (§38g: the transfer field was 0, which is not a valid SVGA3dTransferType --
+// READ_HOST_VRAM is 2), so the present loop is put back to the shape that has a defined
+// transfer value, and the read-back probe is re-enabled to settle it in one boot.
+static const UInt32 kStduReadback = 1;
+
+// kStduPt1 picks the MOB page-table depth for the STDU backing store (§38).
+//
+// 1 = PT64_1: ONE level, one 4 KiB page holding 512 entries, covering 512 * 4 KiB = 2 MiB.
+// 2 = PT64_2: TWO levels, a root page naming the second-level pages, 768 entries over
+//             2 second-level pages.
+//
+// Why this is a switch: PT64_1 is the shape the DX experiment used, and on this host
+// that shape demonstrably works -- `dx: DMA ROUND TRIP VERIFIED -- magenta survived
+// upload+download` proves the host can resolve an MOB through a one-level table and
+// move bytes in both directions. PT64_2 has never been observed working here. §38
+// rebuilt the two-level table correctly (root -> L1page[i/512][i%512], guest-side
+// probe walking the same path the device does), and readback is STILL all zero.
+//
+// So the remaining variable is the depth itself. 768 pages do not fit in one level
+// (512 max), so PT64_1 has to be tried at a size that does: the odd 256 rows are
+// dropped and the surface becomes 1024x512 (exactly 512 pages, 2 MiB).
+static const UInt32 kStduPt1 = 1;
+
+// Height actually used by the STDU surface. 512 when kStduPt1 == 1 so that the page
+// count fits a single-level table; otherwise the full inherited mode. The literals are
+// spelled out because kStduWidth/kStduHeight are declared further down (§352 vs §525);
+// keep them in sync with those.
+static const UInt32 kStduSurfWidth  = 1024;
+static const UInt32 kStduSurfHeight = (kStduPt1 == 1) ? 512 : 768;
+static const UInt32 kStduSurfPages  = kStduSurfWidth * kStduSurfHeight * 4 / 4096;
+
+// kStduDma = 0 removes SURFACE_DMA from the present loop (§37).
+//
+// §37.3 proved the DMA moves nothing: a READBACK into a zeroed 3 MB scratch buffer
+// returned 0/768 sampled words nonzero, i.e. the engine never touched the memory.
+// M6 (b89c619) shipped a live display with UPDATE_GB_IMAGE as the documented content
+// path, so the DMA is not required -- and an unanswered DMA may be worse than useless,
+// if it leaves the host's surface marked busy and it skips the proxy update too.
+// This switch makes the loop M6-shaped so the two can be told apart.
+//
+// §38e: now off. §37 already answered the question (§37.3 measured the engine moving
+// nothing), and while it was on, the extra 21-dword DMA per frame was the only thing
+// pushing ~90 bytes/tick of traffic to a rate that walked the ring into the FIFO_MAX
+// wrap window every ~4 minutes. M6's shape is what we actually want to ship.
+//
+// §38g: back on. §37.3 was measuring transfer == 0, an undefined SVGA3dTransferType
+// (READ_HOST_VRAM is 2), so "the engine moves nothing" was never established. Keeping
+// the upload in the loop also gives the read-back probe something to read: without a
+// WRITE_HOST_VRAM first, the host's copy of the surface is whatever it was at BIND.
+// The §38d FIFO wrap deadlock that this switch used to expose is fixed independently.
+static const UInt32 kStduDma = 1;
 
 // Dump every CB header+payload to the log (bisect instrumentation).
 static const UInt32 kCbDump = 1;
@@ -407,6 +482,71 @@ static const UInt32 kOtablePrewrite = 0;
 // STDU object teardown before the defines (see the bisect note in stduBringUp).
 static const UInt32 kStduTeardown = 0;
 
+// kStduVramControl -- the isolation experiment for §38h.
+//
+// The STDU path is provably correct on the guest side: the page table resolves every
+// entry (pt: VERDICT), the screen target is defined and bound, the host's own log shows
+// "Screen type changed to ScreenTarget" and a 1024x512 topology, and the FIFO drains
+// every command with no host-side error. The one thing we cannot see from inside the
+// guest is whether the host ever reads the memory we named.
+//
+// So stop asking the GB path and ask the *display* path instead: write the identical
+// pattern straight into the legacy framebuffer aperture (BAR1, which the host has always
+// been able to read -- M6 presented out of it) on every tick. Two outcomes, and both are
+// informative:
+//
+//   VNC shows the pattern -> the display/VNC encoding chain is fine, and the fault is
+//                            isolated to the host reading our GB surface.
+//   VNC stays black      -> nothing we write reaches the screen through the screen
+//                            target at all; look at the screen-target present step
+//                            itself (UPDATE_GB_SCREENTARGET semantics / stid binding).
+//
+// This is a diagnostic, not a present path: it corrupts the framebuffer the guest's own
+// console would otherwise use, so it goes back to 0 once it has answered. (It answered in
+// §38.9: with ScreenTarget active the legacy UPDATE is ignored, so writing BAR1 changes
+// nothing on screen -- keep it off.)
+static const UInt32 kStduVramControl = 0;
+
+// ---------------------------------------------------------------------------
+// kStduFlat -- the §38.12 isolation experiment.
+//
+// Everything we know about the STDU path points at exactly one remaining place: the host
+// never sees the content of the surface we bind to the screen target. Two very different
+// faults produce that symptom and NOTHING tried so far separates them, because the current
+// path exercises both at once:
+//
+//   (1) the host cannot resolve our MOB page table (PT64_1 / PPN64 entries / the memory
+//       those PPNs name), so it reads zeros forever, or
+//   (2) the page table is fine but the present chain never actually samples the surface
+//       (wrong command to refresh the proxy, wrong stid, wrong rect...).
+//
+// kStduFlat removes (1) from the picture completely. A MOB whose whole payload fits in ONE
+// 4 KiB page is defined as PT64_0, where the MOB's "page table" *is* the data page -- the
+// host dereferences no page table at all, it takes basePpn straight from the otable entry.
+// mksSandbox shows the host accepts a PT64_0 MOB (the DX-context MOB is one), so this half
+// costs nothing to prove.
+//
+// With (1) gone, the content the host reads is whatever bytes we put in that page. If the
+// screen still does not change, the fault is (2) and it is no longer hidden behind an
+// unverifiable page table.
+//
+// A single page cannot describe a display, so the experiment presents a *tile*: the
+// 1024x512 panel shows 32 columns of a 32-pixel-wide stripe pattern, and the 4096 bytes of
+// MOB payload are exactly one row-pair (1024 px * 4 = 4096 = pitch 4096 * 1 row). Colour
+// depends on the tick, so any working present path shows a flickering colour field rather
+// than a still image.
+static const UInt32 kStduFlat = 1;
+
+// §38.13: the scratch MOB the flat readback writes into. Same numbering habit as the
+// older probe (mobid 2 is the surface, +100 keeps the diagnostics out of the way).
+static const UInt32 kFlatRbMobId = 102;
+
+// §38.14: GB_SCREEN_DMA needs a full 1024x512 destination, i.e. 512 pages -- this is the
+// one experiment here that genuinely needs a multi-page MOB, so it keeps PT64_1 and a
+// second, independently allocated backing store. Its own mobid, its own pages: nothing it
+// finds can be confused with the single-page present arm.
+static const UInt32 kFlatSdMobId = 103;
+
 // MOB id of the DX context state block.
 static const UInt32 kCtxMobId = 3;
 
@@ -431,10 +571,34 @@ static const UInt32 kCbDataBytes = 64 * 1024;
 // is bounded and dirty-tracking can replace this later.
 static const UInt32 kPresentIntervalMs = 33;
 
+//
+// kEnableRpcHeartbeat -- §38.19. Keep the host's Tools heartbeat alive from the kext.
+//
+// Why this exists: the host expires its heartbeat timer 20-25 s after the last GuestRpc
+// it saw, and on expiry it declares the guest display dead, destroys the legacy
+// RegisterMode screen and falls back to a 1024x512 screen target. Our kext loads *after*
+// that switch (measured: switch at 04:04:35.9, kext start at 04:04:37.3), so we inherit a
+// dead target and the screen stays black no matter how correct our 3D commands are.
+//
+// The heartbeat is one zero-length BDOOR_CMD_MESSAGE per kRpcHeartbeatTicks present ticks
+// (~5 s at 33 ms/tick, against a 20 s host timeout -- 4x margin for a stalled timer).
+//
+// Two things this does NOT do: it does not make the host switch back to RegisterMode
+// (that is measured, see §38.19), and it does not install any Tools component. It only
+// removes the host's reason to give up on us in the first place -- so it must be running
+// *before* the first timeout, which means the real fix is load timing (see §38.19).
+static const UInt32 kEnableRpcHeartbeat  = 1;
+// Absolute-time cadence, not a tick count. Measured: 150 ticks looked like "5 s" on paper but
+// the heartbeat log showed #1 at 04:14:25 and #2 at 04:15:00 -- 35 s apart, because
+// presentTick does not actually fire every 33 ms on this host (the present path itself costs
+// time). The host expires at 20 s, so a tick-derived interval blew straight through it.
+// 2 s against a 20 s timeout is a 10x margin and still costs nothing.
+static const UInt64 kRpcHeartbeatNs      = 2ULL * 1000000000ULL;
+
 // One 4 KiB page of PPN64 entries describes up to 512 pages = 2 MiB.
 static const IOByteCount kGbPageBytes        = 4096;
 static const UInt32     kGbPageShift         = 12;
-static const UInt32     kGbDataPages         = 4;    // 16 KiB data MOB
+static const UInt32     kGbDataPages         = 4;    // 16 KiB data MOB -> needs PT64_1
 static const UInt32     kGbMobTableEntries   = 1024; // 16 KiB
 static const UInt32     kGbSurfaceTableEnts  = 64;   // 64 * 72 = 4608 bytes
 
@@ -468,9 +632,19 @@ static const UInt32     kGbDxCtxEntryBytes   = 8;   // {u32 cid; u32 mobid}; hos
 // the surface data straight out of guest RAM.
 //
 static const UInt32     kStduWidth           = 1024;
+// The inherited display is 1024x768, but the STDU surface height is kStduSurfHeight
+// (declared near the top of the file): 512 under kStduPt1 so 512 pages fit one PT level.
+// kStduHeight stays as the *framebuffer* height for reference only -- do NOT use it to
+// size or describe the surface; that was the §38d bug (surface rect 768 rows on a
+// 512-row surface, and a 3 MiB bzero into a 2 MiB allocation).
 static const UInt32     kStduHeight          = 768;
-static const IOByteCount kStduBytes          = (IOByteCount)kStduWidth * kStduHeight * 4;
-static const UInt32     kStduPages           = (UInt32)(kStduBytes / kGbPageBytes); // 768
+// §38d: everything in the STDU path is sized by kStduSurfHeight (512 when kStduPt1 == 1,
+// 768 otherwise), which is declared up top so the page count can depend on it. These two
+// used to be derived from kStduHeight instead -- so with kStduPt1 == 1 kStduPages said 768
+// while the MOB and its page table only ever held 512, and stduReadbackProbe() bzero'd
+// 3 MiB into a 2 MiB allocation (a heap overwrite past the scratch buffer).
+static const IOByteCount kStduBytes          = (IOByteCount)kStduWidth * kStduSurfHeight * 4;
+static const UInt32     kStduPages           = (UInt32)(kStduBytes / kGbPageBytes); // kStduSurfPages
 static const UInt32     kStduL1Pages         = (kStduPages + 511) / 512;            // 2
 static const UInt32     kGbStEntryBytes      = 64;   // SVGAOTableScreenTargetEntry
 static const UInt32     kGbStTableEnts       = 64;   // 64 * 64 = 4096 bytes
@@ -497,6 +671,59 @@ static inline UInt32 vgpuIn32(UInt16 port) {
 
 static inline void vgpuOut32(UInt16 port, UInt32 value) {
     __asm__ volatile ("outl %0, %1" : : "a" (value), "Nd" (port));
+}
+
+//
+// GuestRpc backdoor -- §38.19.
+//
+// This VM has never had VMware Tools installed, and that single fact is what has been
+// keeping the screen black. Here is the chain, read straight out of vmware.log:
+//
+//   20:04:09.773  Tools: Adding Tools inactivity timer.
+//   20:04:10.190  Tools: Running status rpc handler: 0 => 1      <- firmware sends one RPC
+//   20:04:10.190  Tools: Removing Tools inactivity timer.
+//   20:04:35.136  Tools: Tools heartbeat timeout.                <- 25 s with no RPC
+//   20:04:35.136  Tools: Running status rpc handler: 1 => 0
+//   20:04:35.756  Guest display topology changed: numDisplays 0
+//   20:04:35.902  Screen type changed to ScreenTarget            <- host gives up on legacy
+//
+// The host treats "no Tools heartbeat" as "this guest has no live display" and tears
+// down the legacy RegisterMode screen, falling back to a 1024x512 screen target of its
+// own making. Everything we then draw lands on an abandoned target and never reaches
+// the encoder -- which is exactly the black screen §37/§38 spent so long chasing.
+//
+// The fix does not need VMware Tools at all. `Tools: Running status` is driven by
+// GuestRpc, and GuestRpc is a plain I/O-port hypercall: the host only needs to *see*
+// RPC traffic from the guest on a regular cadence to keep the display alive. We already
+// own the I/O aperture for the SVGA registers, so we can send that traffic ourselves.
+//
+// The low-bandwidth backdoor ABI (backdoor_def.h / asm/vmware.h):
+//   eax = BDOOR_MAGIC 0x564D5868 ("VMXh")
+//   ecx = command      (BDOOR_CMD_MESSAGE = 30)
+//   ebx = arg1         (RPCI message length -- 0 for a bare heartbeat)
+//   edx = port         0x5658
+//   `inl (%dx), %eax` performs the call; eax comes back with the status.
+//
+// A zero-length message is the cheapest possible "I am alive" and is what we want: we
+// are not trying to talk RPCI properly (that needs a shared page and a real message
+// protocol), only to keep the host's heartbeat timer from expiring.
+//
+static const UInt32 kBdoorMagic  = 0x564D5868;   // "VMXh"
+static const UInt16 kBdoorPort   = 0x5658;
+static const UInt32 kBdoorCmdMsg = 30;           // BDOOR_CMD_MESSAGE
+
+// Returns the host's status word (eax). A non-zero value means the host accepted the call;
+// on a non-VMware host the `inl` would fault, so callers gate this on kEnableRpcHeartbeat.
+static inline UInt32 vmwareBackdoor(UInt32 cmd, UInt32 arg1, UInt32 arg2) {
+    UInt32 eax = kBdoorMagic;
+    UInt32 ebx = arg1;
+    UInt32 ecx = cmd;
+    UInt32 edx = (UInt32)kBdoorPort;
+    __asm__ volatile ("inl %%dx, %%eax"
+                      : "+a" (eax), "+b" (ebx), "+c" (ecx), "+d" (edx)
+                      :
+                      : "memory");
+    return eax;
 }
 
 static UInt32 svgaReadRegister(UInt16 portBase, UInt32 index) {
@@ -542,9 +769,13 @@ private:
     bool fenceAck(volatile UInt32 *fifo, UInt32 *seq);
     void gbBringUp(volatile UInt32 *fifo);
     void stduBringUp(volatile UInt32 *fifo);
+    void stduFlatBringUp(volatile UInt32 *fifo);   // §38.12
+    void stduFlatReadback(volatile UInt32 *fifo);  // §38.13
+    void stduScreenDma(volatile UInt32 *fifo);     // §38.14
     bool dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId, UInt32 dxW, UInt32 dxH);
     bool dxTemplateSetupSurface(volatile UInt32 *fifo, UInt32 surfId, UInt32 mobId, UInt32 dxW, UInt32 dxH);
     void dxReadbackTest(volatile UInt32 *fifo);
+    void stduReadbackProbe(void);
 
     void presentSetup(volatile UInt32 *fifo);
     void presentTick(void);
@@ -552,6 +783,12 @@ private:
     void schedulePresent(void);
     thread_call_t _presentCall = nullptr;
     UInt32 _presentTicks = 0;
+    // §38.19 GuestRpc heartbeat: its own thread_call, independent of the present timer.
+    bool         startRpcHeartbeat(void);
+    static void  rpcTickC(thread_call_param_t param0, thread_call_param_t param1);
+    thread_call_t _rpcCall = nullptr;
+    UInt32 _rpcSent = 0;
+    UInt64 _rpcLastSentAbs = 0;     // kept for diagnostics only
     // Delayed DX test: runs on its own thread_call N seconds after bring-up so the
     // guest is fully booted (SSH + logd flushing) before anything can wedge the MKS.
     static void dxTestC(thread_call_param_t param0, thread_call_param_t param1);
@@ -573,14 +810,36 @@ private:
     IOBufferMemoryDescriptor *_stduMem = nullptr;   // 3 MB surface backing store
     void                    *_stduVirt = nullptr;
     UInt64                   _stduPhys = 0;
+    bool                     _stduPrepared = false;  // prepare() succeeded -> must complete()
     IOBufferMemoryDescriptor *_stduPtMem = nullptr; // 16 KiB contiguous: root + 2 L1 PT pages
     void                    *_stduPtVirt = nullptr;
     UInt64                   _stduPtPhys = 0;
+    bool                     _stduPtPrepared = false;
     IOMemoryMap             *_vramMap = nullptr;     // kernel mapping of the framebuffer
     void                    *_vramVirt = nullptr;
     UInt32                   _surfaceId = 1;
     UInt32                   _stduMobId = 2;
     UInt32                   _stduStid = 0;
+    // §38.12 kStduFlat: the whole surface payload is ONE 4 KiB page, so the MOB is PT64_0
+    // and the host dereferences no page table to find it.
+    UInt32                   _flatRbMobId = kFlatRbMobId;
+    // §38.14: SCREEN_DMA destination -- a real 1024x512 PT64_1 MOB, kept separate from the
+    // single-page present arm so nothing depends on the flat surface geometry.
+    IOBufferMemoryDescriptor *_sdMem = nullptr;
+    void                    *_sdVirt = nullptr;
+    bool                     _sdPrepared = false;
+    IOBufferMemoryDescriptor *_sdPtMem = nullptr;
+    void                    *_sdPtVirt = nullptr;
+    bool                     _sdPtPrepared = false;
+    UInt32                   _flatSdMobId = kFlatSdMobId;
+    // §38.13: the readback target for the flat arm -- its own PT64_0 MOB, so a zero there
+    // means the host genuinely wrote nothing, not that we read our own page back.
+    IOBufferMemoryDescriptor *_flatRbMem = nullptr;
+    void                    *_flatRbVirt = nullptr;
+    bool                     _flatRbPrepared = false;
+    IOBufferMemoryDescriptor *_flatMem = nullptr;
+    void                    *_flatVirt = nullptr;
+    bool                     _flatPrepared = false;
     IOBufferMemoryDescriptor *_ctxPage = nullptr;   // DX context state MOB (64 KiB)
     UInt32                   _ctxMobId = 3;
     IOBufferMemoryDescriptor *_dxMem = nullptr;     // DX test surface memory
@@ -951,6 +1210,219 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
 // can shrink it later. Single-producer (the timer) after start() completes, so no lock is
 // needed beyond the reserve protocol itself.
 //
+// ---------------------------------------------------------------------------
+// stduReadbackProbe -- §36.8 step 1: does the host agree with us about what
+// surface 2 / mobid 2 contain?
+//
+// Runs exactly once, on present tick 4, so the pattern painted on tick 1..3 has
+// been DMA'd to the host several times before we ask for it back. The read-back
+// goes into its own scratch allocation; reading into _stduVirt would be
+// self-confirming, because a DMA the host silently dropped would leave our own
+// pattern sitting there and look like a pass.
+//
+// Verdicts, both logged with pixel evidence:
+//   MATCH    -> the DMA target is our surface; look at the screen-target path.
+//   MISMATCH -> surface 2 / mobid 2 on the host is not what we think it is.
+// ---------------------------------------------------------------------------
+void vgpuFramebuffer::stduReadbackProbe(void) {
+    if (_presentFifo == nullptr) {
+        IOLog(VGPU_FB_TAG ": rb: no FIFO\n");
+        return;
+    }
+    IOBufferMemoryDescriptor *mem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+        kernel_task, kIODirectionInOut, kStduBytes, 0xFFFULL);
+    if (mem == nullptr) {
+        IOLog(VGPU_FB_TAG ": rb: allocation failed\n");
+        return;
+    }
+    if (mem->prepare(kIODirectionInOut) != kIOReturnSuccess) {
+        IOLog(VGPU_FB_TAG ": rb: prepare failed\n");
+        mem->release();
+        return;
+    }
+    UInt8 *virt = (UInt8 *)mem->getBytesNoCopy();
+    bzero(virt, kStduBytes);        // any surviving zero = the host never wrote here
+
+    // Physical pages of the scratch buffer become its own MOB, so the read-back
+    // has a place to land that is unambiguously not the source MOB.
+    //
+    // Page tables get their own allocation: 768 pages need a 6 KiB L1 table, and the
+    // GB working buffer only has 4 KiB pages to spare next to the tables already in
+    // use. ROOT = 1 page, L1 = 2 pages (768 * 8 = 6144 B).
+    //
+    // §38: the two L1 pages are NOT one contiguous run. The device walks them through
+    // root[0] and root[1], so entry[i] lives at L1page[i / 512][i % 512]. This probe had
+    // the same flat-layout bug as the STDU table and would have measured a bogus MOB.
+    const UInt32 rbEntsPerPage = (UInt32)(kGbPageBytes / 8);   // 512
+    // §38b: the scratch MOB follows the same depth switch as the source MOB, so a
+    // one-level (PT64_1) run keeps ROOT itself as the leaf table and 512 pages fit.
+    const UInt32 rbPtPages = (kStduPt1 == 1)
+                             ? 1
+                             : ((kStduPages + rbEntsPerPage - 1) / rbEntsPerPage + 1);
+    const UInt32 rbMobId = _stduMobId + 100;
+    IOBufferMemoryDescriptor *ptMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+        kernel_task, kIODirectionInOut, 3 * kGbPageBytes, 0xFFFULL);
+    if (ptMem == nullptr) {
+        IOLog(VGPU_FB_TAG ": rb: PT allocation failed\n");
+        mem->complete(kIODirectionInOut);
+        mem->release();
+        return;
+    }
+    volatile UInt8 *ptVirt = (volatile UInt8 *)ptMem->map()->getVirtualAddress();
+    bzero((void *)ptVirt, 3 * kGbPageBytes);
+    UInt64 ptPpn[3] = { 0, 0, 0 };
+    bool ptOk = true;
+    for (UInt32 p = 0; p < 3; p++) {
+        IOByteCount len = 0;
+        IOVirtualAddress addr = ptMem->getPhysicalSegment((IOByteCount)p * kGbPageBytes, &len);
+        if (addr == 0 || len < kGbPageBytes) {
+            ptOk = false;
+            break;
+        }
+        ptPpn[p] = (UInt64)addr >> kGbPageShift;
+    }
+    if (ptOk) {
+        volatile UInt64 *root = (volatile UInt64 *)ptVirt;
+        root[0] = ptPpn[1];
+        root[1] = ptPpn[2];
+        for (UInt32 i = 0; i < kStduPages; i++) {
+            IOByteCount len = 0;
+            IOVirtualAddress addr = mem->getPhysicalSegment((IOByteCount)i * kGbPageBytes, &len);
+            if (addr == 0 || len < kGbPageBytes) {
+                ptOk = false;
+                break;
+            }
+            const UInt32 lvl = i / rbEntsPerPage;
+            const UInt32 idx = i % rbEntsPerPage;
+            volatile UInt64 *l1 = (volatile UInt64 *)(ptVirt +
+                                                    (IOByteCount)(lvl + 1) * kGbPageBytes);
+            l1[idx] = (UInt64)addr >> kGbPageShift;
+        }
+    }
+    __asm__ volatile ("" ::: "memory");
+    if (!ptOk) {
+        IOLog(VGPU_FB_TAG ": rb: page-table pages not resolvable\n");
+        ptMem->release();
+        mem->complete(kIODirectionInOut);
+        mem->release();
+        return;
+    }
+    const UInt64 rbRootPpn = ptPpn[0];
+
+    // MOB otable entry must be written BEFORE the DEFINE: the host snapshots it.
+    volatile UInt8 *mobTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffMobTable);
+    const UInt32 rbEntryOff = rbMobId * kGbMobEntryBytes;
+    const UInt32 mobDepth = (kStduPt1 == 1) ? kSvga3dMobFmtPt64_1
+                                          : kSvga3dMobFmtPt64_2;
+    const UInt32 rbBytes = (UInt32)((IOByteCount)kStduWidth * kStduSurfHeight * 4);
+    memcpy((void *)(mobTable + rbEntryOff), &mobDepth, 4);
+    memcpy((void *)(mobTable + rbEntryOff + 4), &rbBytes, 4);
+    memcpy((void *)(mobTable + rbEntryOff + 8), &rbRootPpn, 8);
+    __asm__ volatile ("" ::: "memory");
+
+    UInt32 def[7];
+    def[0] = kSvga3dCmdDefineGbMob64;
+    def[1] = 20;
+    def[2] = rbMobId;
+    def[3] = mobDepth;
+    UInt64 rootCopy = rbRootPpn;
+    memcpy(&def[4], &rootCopy, 8);
+    def[6] = rbBytes;
+    fifoSubmitWords(_presentFifo, def, 7);
+    if (!fenceAck(_presentFifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": rb: DEFINE_GB_MOB64 for mob %u refused\n", rbMobId);
+        mem->complete(kIODirectionInOut);
+        mem->release();
+        ptMem->release();
+        return;
+    }
+
+    // The DMA is bracketed by fences -- fenceAck() submits its own FENCE pair -- so the
+    // compare below runs strictly after the host has finished writing our scratch buffer.
+    //
+    // §38g: the transfer field was 0 here, which is NOT a defined value. svga3d_types.h:
+    //
+    //     typedef enum { SVGA3D_WRITE_HOST_VRAM = 1,
+    //                    SVGA3D_READ_HOST_VRAM  = 2 } SVGA3dTransferType;
+    //
+    // so §37 ("READBACK into a zeroed buffer left every sampled word zero, therefore
+    // SURFACE_DMA is a no-op on this host") was measuring a malformed command, not a
+    // missing capability. The host's own verifier keys off exactly this field --
+    // vmwgfx_execbuf.c:vmw_cmd_dma does
+    //     dirty = (transfer == SVGA3D_WRITE_HOST_VRAM) ? VMW_RES_DIRTY_SET : 0;
+    // and the xorg driver does use SURFACE_DMA against screen targets on this same
+    // device class. This run answers the question §37 thought it had answered: if the
+    // scratch buffer comes back with our pixels, the host resolves mobid 2 to our memory
+    // and the fault is purely in the update/present step; if it comes back zero, the MOB
+    // mapping really is not landing on our pages.
+    UInt32 dma[21];
+    dma[0] = 1044;                  // SVGA_3D_CMD_SURFACE_DMA
+    dma[1] = 28 + 36 + 12;
+    dma[2] = rbMobId;               // guest.ptr.gmrId -- scratch MOB, not the source
+    dma[3] = 0;                     // guest.ptr.offset
+    dma[4] = kStduWidth * 4;        // guest.pitch
+    dma[5] = _surfaceId;            // host.sid = 2, the surface the screen target shows
+    dma[6] = 0;                     // host.face
+    dma[7] = 0;                     // host.mipmap
+    dma[8] = 2;                     // transfer = SVGA3D_READ_HOST_VRAM
+    dma[9] = 0;  dma[10] = 0;  dma[11] = 0;
+    dma[12] = kStduWidth;  dma[13] = kStduSurfHeight;  dma[14] = 1;
+    dma[15] = 0; dma[16] = 0; dma[17] = 0;
+    dma[18] = 12;
+    dma[19] = (UInt32)((IOByteCount)kStduWidth * kStduSurfHeight * 4);
+    dma[20] = 0;
+    fifoSubmitWords(_presentFifo, dma, 21);
+
+    if (!fenceAck(_presentFifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": rb: post-fence timed out -- host never finished the readback\n");
+        mem->complete(kIODirectionInOut);
+        mem->release();
+        ptMem->release();
+        return;
+    }
+
+    // Compare against the pattern the present loop paints, sampled at the same
+    // coordinates the paint logger reports: a border pixel and a bottom-half pixel.
+    const UInt32 *src = (const UInt32 *)_stduVirt;
+    const UInt32 *dst = (const UInt32 *)virt;
+    const UInt32 w = kStduWidth, h = kStduSurfHeight;
+    const UInt32 probeIdx[4] = {
+        0,                                  // red border corner
+        (UInt32)(h / 4) * w + w / 2,        // green top half
+        (UInt32)(h / 2 + h / 4) * w + w / 2, // blue bottom half
+        (UInt32)(h - 1) * w + (w - 1),      // red border far corner
+    };
+    UInt32 same = 0;
+    for (UInt32 i = 0; i < 4; i++) {
+        if (dst[probeIdx[i]] == src[probeIdx[i]]) {
+            same++;
+        }
+        IOLog(VGPU_FB_TAG ": rb: px[%u] src 0x%08x rb 0x%08x %s\n", i,
+              src[probeIdx[i]], dst[probeIdx[i]],
+              dst[probeIdx[i]] == src[probeIdx[i]] ? "same" : "DIFF");
+    }
+    // Also count how many of the sampled pixels the host wrote at all: an all-zero
+    // scratch buffer means the read-back never touched memory, which is a different
+    // failure from "wrote the wrong thing".
+    UInt32 nonZero = 0;
+    for (UInt32 y = 0; y < h; y += 32) {
+        const UInt32 *row = dst + (IOByteCount)y * w;
+        for (UInt32 x = 0; x < w; x += 32) {
+            if (row[x] != 0) {
+                nonZero++;
+            }
+        }
+    }
+    IOLog(VGPU_FB_TAG ": rb: VERDICT %s (4/4 sampled px identical, %u/768 nonzero)\n",
+          (same == 4) ? "*** MATCH: DMA target is our surface ***"
+                      : "*** MISMATCH: host's surface 2 is not our buffer ***",
+          nonZero);
+
+    mem->complete(kIODirectionInOut);
+    mem->release();
+    ptMem->release();
+}
+
 void vgpuFramebuffer::presentSetup(volatile UInt32 *fifo) {
     if (!_deviceModeValid) {
         return;
@@ -1042,6 +1514,64 @@ void vgpuFramebuffer::presentTickC(thread_call_param_t param0, thread_call_param
         self->presentTick();
         self->schedulePresent();
     }
+}
+
+//
+// §38.19: the heartbeat gets its own thread_call, deliberately NOT piggy-backed on the
+// present timer. Measured reason: the present timer stalls. Its log showed
+//
+//   04:25:05.722  heartbeat #1  tick 1
+//   04:25:07.745  heartbeat #2  tick 60     <- 2 s, correct
+//   04:25:38.662  heartbeat #3  tick 61     <- 31 s later, tick advanced by ONE
+//
+// so presentTick() can go half a minute without being entered at all (thread_call_enter_delayed
+// returns FALSE when the call is already pending, and the present body itself is far from
+// free). A heartbeat that rides on it inherits that stall and blows the host's 20 s timeout.
+// One thread_call for the heartbeat, re-armed from inside its own callback, is independent of
+// whatever the present path is doing.
+//
+void vgpuFramebuffer::rpcTickC(thread_call_param_t param0, thread_call_param_t param1) {
+    (void)param1;
+    vgpuFramebuffer *self = (vgpuFramebuffer *)param0;
+    if (self == nullptr) {
+        return;
+    }
+    self->_rpcSent++;
+    const UInt32 status = vmwareBackdoor(kBdoorCmdMsg, 0, 0);
+    if (self->_rpcSent <= 3 || self->_rpcSent % 30 == 0) {
+        IOLog(VGPU_FB_TAG ": rpc: heartbeat #%u -> status 0x%x\n", self->_rpcSent, status);
+    }
+    // Re-arm from the callback: one live thread_call at a time, no queue build-up.
+    if (self->_rpcCall != nullptr) {
+        UInt64 now = 0, delta = 0;
+        clock_get_uptime(&now);
+        nanoseconds_to_absolutetime(kRpcHeartbeatNs, &delta);
+        thread_call_enter_delayed(self->_rpcCall, now + delta);
+    }
+}
+
+// Start the heartbeat thread_call. Called as early as we can in start(), independently of
+// whether the present path ever comes up -- the host must not be left to expire while we are
+// still deciding how to draw.
+bool vgpuFramebuffer::startRpcHeartbeat(void) {
+    if (!kEnableRpcHeartbeat) {
+        return false;
+    }
+    if (_rpcCall != nullptr) {
+        return true;                    // already running
+    }
+    _rpcCall = thread_call_allocate(&vgpuFramebuffer::rpcTickC, (thread_call_param_t)this);
+    if (_rpcCall == nullptr) {
+        IOLog(VGPU_FB_TAG ": rpc: could not allocate the heartbeat thread_call\n");
+        return false;
+    }
+    UInt64 now = 0, delta = 0;
+    clock_get_uptime(&now);
+    nanoseconds_to_absolutetime(kRpcHeartbeatNs, &delta);
+    thread_call_enter_delayed(_rpcCall, now + delta);
+    IOLog(VGPU_FB_TAG ": rpc: heartbeat armed (every %llu ms, host timeout is ~20 s)\n",
+          (unsigned long long)(kRpcHeartbeatNs / 1000000ULL));
+    return true;
 }
 
 // Schedule the next present tick. thread_call_enter_delayed takes an absolute mach
@@ -1140,13 +1670,22 @@ void vgpuFramebuffer::probeC2(thread_call_param_t param0, thread_call_param_t pa
 }
 
 void vgpuFramebuffer::presentTick(void) {
+    //
+    // §38.19: the heartbeat goes FIRST, before every early return below. The whole point is
+    // to keep the host from declaring us dead; a tick that bails out early on a missing FIFO
+    // or an unset mode is exactly the situation where we most need the host to keep the
+    // display alive. _presentTicks is bumped here so the cadence does not depend on whether
+    // the present path below is reachable.
+    //
+    _presentTicks++;
+    // The heartbeat is NOT here: see startRpcHeartbeat(). It rides its own thread_call
+    // because presentTick can stall for tens of seconds (measured, §38.19).
     if (_dxBusy) {
         return;                     // DX test owns the FIFO right now
     }
     if (_presentFifo == nullptr || !_deviceModeValid) {
         return;
     }
-    _presentTicks++;
     if (_presentTicks <= 3 || _presentTicks % 300 == 0) {
         IOLog(VGPU_FB_TAG ": present tick %u (next %u stop %u)\n", _presentTicks,
               _presentFifo[kSvgaFifoNextCmd], _presentFifo[kSvgaFifoStop]);
@@ -1154,6 +1693,85 @@ void vgpuFramebuffer::presentTick(void) {
     if (_stduActive && kDxTest && _presentTicks == 600) {
         IOLog(VGPU_FB_TAG ": present tick 600: running the DX round-trip test\n");
         dxReadbackTest(_presentFifo);
+    }
+    if (kStduPaint && kStduReadback && kStduDma && !kStduFlat && _stduActive &&
+        _presentTicks == 4) {
+        stduReadbackProbe();    // §36.8: once, after the paint has been DMA'd a few times
+    }
+    if (_stduActive && kStduFlat) {
+        // §38.12 flat present: the surface has exactly one data page, and it IS the MOB.
+        // Nothing to copy, nothing to DMA -- recolour the page, tell the host both that
+        // the surface contents changed (UPDATE_GB_IMAGE, which the M6 commit credits for
+        // making the host re-read the MOB) and that the screen target should be refreshed.
+        //
+        // The colour is a sawtooth over the tick counter, so consecutive frames differ:
+        // if anything on the host side is diffing pixels, this gives it something new on
+        // every single tick. The white band stays for the length of the page so a fixed
+        // feature is visible even if only one frame ever gets picked up.
+        volatile UInt32 *px = (volatile UInt32 *)_flatVirt;
+        if (px != nullptr) {
+            const UInt32 phase = (UInt32)(_presentTicks & 7);
+            const UInt32 bar = 0xFFFFFFFFu;
+            UInt32 base = 0xFF000000u;
+            switch (phase) {
+                case 0: base |= 0x00FF0000u; break;   // red
+                case 1: base |= 0x0000FF00u; break;   // green
+                case 2: base |= 0x000000FFu; break;   // blue
+                case 3: base |= 0x00FFFF00u; break;   // yellow
+                case 4: base |= 0x00FF00FFu; break;   // magenta
+                case 5: base |= 0x0000FFFFu; break;   // cyan
+                case 6: base |= 0x00FF8000u; break;   // orange
+                default: base = bar; break;           // white
+            }
+            const UInt32 n = (UInt32)(kGbPageBytes / 4);
+            const UInt32 bandStart = (UInt32)((_presentTicks * 16) % (n - 128));
+            for (UInt32 i = 0; i < n; i++) {
+                px[i] = ((i >= bandStart) && (i < bandStart + 128)) ? bar : base;
+            }
+            __asm__ volatile ("" ::: "memory");
+            (void)_flatMem->performOperation(kIOMemoryIncoherentIOFlush, 0, kGbPageBytes);
+
+            UInt32 img[17];
+            img[0] = kSvga3dCmdUpdateGbImage;
+            img[1] = 52;
+            img[2] = _surfaceId;
+            img[3] = 0; img[4] = 0; img[5] = 0;                 // box.x/y/z
+            img[6] = kStduWidth;                                // box.w
+            img[7] = 1;                                         // box.h
+            img[8] = 1;                                         // box.d
+            img[9] = 0; img[10] = 0; img[11] = 0;               // box.srcx/y/z
+            img[12] = 0; img[13] = 0; img[14] = 0;              // box.dstx/y/z
+            img[15] = 0;
+            img[16] = 0;                                        // trailing pad / align
+            fifoSubmitWords(_presentFifo, img, 17);
+
+            UInt32 upd[7];
+            upd[0] = kSvga3dCmdUpdateGbScreenTarget;
+            upd[1] = 20;
+            upd[2] = _stduStid;
+            upd[3] = 0;
+            upd[4] = 0;
+            upd[5] = kStduWidth;
+            upd[6] = kStduSurfHeight;
+            fifoSubmitWords(_presentFifo, upd, 7);
+
+            if (_paintLogged == 0) {
+                _paintLogged = 1;
+                IOLog(VGPU_FB_TAG ": flat: present armed (%ux%u panel, 4 KiB MOB, "
+                      "colour 0x%08x) first word 0x%08x\n",
+                      kStduWidth, kStduSurfHeight, base, px[0]);
+            }
+        }
+        // §38.13: once, after the present loop has been running long enough for the host
+        // to be well past its first update.
+        if (_presentTicks == 20) {
+            stduFlatReadback(_presentFifo);
+        }
+        // §38.14: a couple of seconds later, ask the host for what it is displaying.
+        if (_presentTicks == 60) {
+            stduScreenDma(_presentFifo);
+        }
+        return;
     }
     if (_stduActive) {
         // STDU present, two steps per tick:
@@ -1168,7 +1786,7 @@ void vgpuFramebuffer::presentTick(void) {
         // No fences -- FIFO order guarantees the UPDATE sees the completed DMA, and the
         // next tick's DMA supersedes anything stale.
         if (_vramVirt != nullptr && _stduVirt != nullptr) {
-            memcpy(_stduVirt, _vramVirt, kStduBytes);
+            memcpy(_stduVirt, _vramVirt, (IOByteCount)kStduWidth * kStduSurfHeight * 4);
         }
 
         // 10-29 22:5x (§36.5 verification): paint a known pattern over the copy.
@@ -1191,8 +1809,9 @@ void vgpuFramebuffer::presentTick(void) {
         // exists -- painting over the framebuffer every tick would then hide it.
         if (kStduPaint && _stduVirt != nullptr) {
             volatile UInt32 *px = (volatile UInt32 *)_stduVirt;
-            const UInt32 w = kStduWidth, h = kStduHeight;
+            const UInt32 w = kStduWidth, h = kStduSurfHeight;
             const UInt32 green = 0xFF00FF00, blue = 0xFF0000FF, red = 0xFFFF0000;
+            const UInt32 white = 0xFFFFFFFF;
             for (UInt32 y = 0; y < h; y++) {
                 const bool edgeRow = (y < 32) || (y >= h - 32);
                 UInt32 *row = (UInt32 *)px + (IOByteCount)y * w;
@@ -1204,6 +1823,24 @@ void vgpuFramebuffer::presentTick(void) {
                         row[x] = (x < 32 || x >= w - 32) ? red : mid;
                 }
             }
+
+            // §38.11: a 128x128 white block that walks left to right, one step per tick.
+            //
+            // The alternating half-rect above only changes *which* dwords the update names.
+            // If the host instead diffs the pixels it was told about against what it last
+            // encoded, a static pattern still diffs to nothing no matter how the rect moves.
+            // Moving the block changes the pixel content itself on every frame, so either
+            // kind of change-detection now has something to see. Position is a plain
+            // function of _presentTicks, so the VNC capture can be matched against the tick
+            // value in the log and the two cannot drift apart.
+            const UInt32 blockSize = 128;
+            const UInt32 travel = w - blockSize;
+            const UInt32 blockX = (UInt32)((_presentTicks * 8) % travel);
+            const UInt32 blockY = (h - blockSize) / 2;
+            for (UInt32 y = blockY; y < blockY + blockSize; y++) {
+                UInt32 *row = (UInt32 *)px + (IOByteCount)y * w;
+                for (UInt32 x = blockX; x < blockX + blockSize; x++) row[x] = white;
+            }
             __asm__ volatile ("" ::: "memory");
             // Log once, from the first painted frame: proves the loop ran and shows the
             // buffer's physical backing, so a black capture can't be blamed on the wrong
@@ -1211,15 +1848,40 @@ void vgpuFramebuffer::presentTick(void) {
             if (_paintLogged == 0) {
                 _paintLogged = 1;
                 IOLog(VGPU_FB_TAG ": present: STDU paint armed (red border, green top, "
-                      "blue bottom) first=0x%08x mid=0x%08x\n",
+                      "blue bottom, walking white block) first=0x%08x mid=0x%08x\n",
                       px[0], px[(IOByteCount)(h / 2 + h / 4) * w + w / 2]);
             }
         }
 
-        // Belt and braces: SURFACE_DMA (guest mobid 2 -> host surface sid 2) now that the
-        // MOB page tables are PT64_2, followed by UPDATE_GB_IMAGE (re-read the MOB), and
-        // then the screen-target update below. Any one of these being the effective
-        // content path should light the display up.
+        // §38h control arm: the same pattern straight into the legacy frame buffer, plus
+        // the legacy SVGA_CMD_UPDATE that has always made it to the screen. See the
+        // kStduVramControl comment for what each outcome means.
+        if (kStduVramControl && _vramVirt != nullptr && kStduPaint) {
+            memcpy(_vramVirt, _stduVirt, (IOByteCount)kStduWidth * kStduSurfHeight * 4);
+            // SVGA_CMD_UPDATE has no header: it IS the four dwords {x, y, width, height}.
+            UInt32 upd0[5];
+            upd0[0] = kSvgaCmdUpdate;
+            upd0[1] = 0;
+            upd0[2] = 0;
+            upd0[3] = kStduWidth;
+            upd0[4] = kStduSurfHeight;
+            fifoSubmitWords(_presentFifo, upd0, 5);
+        }
+
+        // §37: SURFACE_DMA is a proven no-op on this host. §37.3 measured it directly --
+        // READBACK into a zeroed scratch buffer left all 768 sampled words zero, so the
+        // DMA engine never touched memory in either direction. M6 (b89c619) got a live
+        // display anyway, and its commit is explicit about which command did the work:
+        //
+        //   "UPDATE_GB_IMAGE (1101) after writing the surface's MOB: the host keeps an
+        //    internal copy of surface contents; a direct MOB write is invisible until it
+        //    is told to re-read (vmwgfx's vmw_kms_update_proxy does exactly this)."
+        //
+        // So kStduDma = 0 makes the present loop the M6 shape exactly: write the MOB,
+        // UPDATE_GB_IMAGE, UPDATE_GB_SCREENTARGET. If the display lights up, the DMA was
+        // not just useless but actively harmful -- an unanswered DMA may be what made the
+        // host treat the surface as busy and skip the proxy update as well.
+        if (kStduDma) {
         UInt32 dma[21];
         dma[0] = 1044;                  // SVGA_3D_CMD_SURFACE_DMA
         dma[1] = 28 + 36 + 12;          // body + one CopyBox + suffix
@@ -1230,45 +1892,55 @@ void vgpuFramebuffer::presentTick(void) {
         dma[6] = 0;                     // host.face
         dma[7] = 0;                     // host.mipmap
         dma[8] = 1;                     // transfer = SVGA3D_WRITE_HOST_VRAM
+        // The upload box follows the same half the update rect names (see §38.11 below),
+        // so every pixel still reaches the host, just in two alternating halves.
+        const UInt32 dmaHalfY = ((_presentTicks & 1) != 0) ? (kStduSurfHeight / 2) : 0;
+        const UInt32 dmaHalfH = kStduSurfHeight / 2;
         dma[9] = 0;                     // box.x
-        dma[10] = 0;                    // box.y
+        dma[10] = dmaHalfY;             // box.y
         dma[11] = 0;                    // box.z
         dma[12] = kStduWidth;           // box.w
-        dma[13] = kStduHeight;          // box.h
+        dma[13] = dmaHalfH;             // box.h
         dma[14] = 1;                    // box.d
         dma[15] = 0;                    // box.srcx
-        dma[16] = 0;                    // box.srcy
+        dma[16] = dmaHalfY;             // box.srcy
         dma[17] = 0;                    // box.srcz
         dma[18] = 12;                   // suffix.suffixSize
-        dma[19] = (UInt32)kStduBytes;   // suffix.maximumOffset
+        dma[19] = (UInt32)((IOByteCount)kStduWidth * kStduSurfHeight * 4);   // suffix.maximumOffset
         dma[20] = 0;                    // suffix.flags
         fifoSubmitWords(_presentFifo, dma, 21);
+        }
 
-        UInt32 img[11];
-        img[0] = 1101;                  // SVGA_3D_CMD_UPDATE_GB_IMAGE
-        img[1] = 36;
-        img[2] = _surfaceId;            // image.sid
-        img[3] = 0;                     // image.face
-        img[4] = 0;                     // image.mipmap
-        img[5] = 0;                     // box.x
-        img[6] = 0;                     // box.y
-        img[7] = 0;                     // box.z
-        img[8] = kStduWidth;            // box.w
-        img[9] = kStduHeight;           // box.h
-        img[10] = 1;                    // box.d
-        fifoSubmitWords(_presentFifo, img, 11);
-
+        // §38.8: the upstream STDU CPU path is exactly two steps -- write the BO memory,
+        // then ONE UPDATE_GB_SCREENTARGET. It sends neither UPDATE_GB_SURFACE (1102) nor
+        // UPDATE_GB_IMAGE (1101) per frame; the latter is not in the STDU present chain at
+        // all. Both used to be submitted here as "cheap insurance" and both were noise:
+        // they only add dwords to the ring and hide which command actually matters.
+        //
+        // §38.11: the rect now alternates between the two halves on every frame.
+        //
+        // The host's own log ends at "MVNCRegionEncoder_Create: region encoder static"
+        // and never emits a region update afterwards, which is what a host that sees no
+        // *change* would print. One hypothesis is that it diffs the update rect against
+        // what it last presented, and a byte-identical full-screen rect every 33 ms
+        // diffs to nothing. Alternating halves makes consecutive rects differ, so if the
+        // host is doing that diffing, this boot's screen shows real content.
+        const UInt32 halfH = kStduSurfHeight / 2;
+        const bool lowerHalf = (_presentTicks & 1) != 0;
         UInt32 upd[7];
         upd[0] = kSvga3dCmdUpdateGbScreenTarget;
         upd[1] = 20;
         upd[2] = _stduStid;
-        upd[3] = 0;
-        upd[4] = 0;
-        upd[5] = kStduWidth;
-        upd[6] = kStduHeight;
+        upd[3] = 0;                                   // rect.x
+        upd[4] = lowerHalf ? halfH : 0;               // rect.y
+        upd[5] = kStduWidth;                          // rect.w
+        upd[6] = halfH;                               // rect.h
         fifoSubmitWords(_presentFifo, upd, 7);
         return;
     }
+
+    // §38.12: the flat arm is the live experiment. Flip it back to 0 here (or at its
+    // definition) once it has answered; nothing below is reachable while it is 1.
 
     // Legacy screen-object present: one full-screen blit; no fence -- the FIFO order
     // guarantees a later blit wins, and skipping the wait keeps the timer cadence stable.
@@ -1357,15 +2029,59 @@ void vgpuFramebuffer::fenceTest(volatile UInt32 *fifo) {
 // order, an acknowledged fence implies every earlier command was consumed.
 //
 bool vgpuFramebuffer::fifoSubmitWords(volatile UInt32 *fifo, const UInt32 *words, UInt32 wordCount) {
+    // Free-space accounting, checked against upstream vmw_local_fifo_reserve()
+    // (drivers/gpu/drm/vmwgfx/vmwgfx_cmd.c, formerly vmwgfx_fifo.c):
+    //
+    //   next >= stop  ->  the ring has wrapped past us; free = (max - next) + (stop - min)
+    //   next <  stop  ->  free = stop - next
+    //
+    // The old code used "max - next" for the first case and dropped the (stop - min)
+    // term. That is wrong in exactly the state the ring ends up in after one full lap:
+    // next parks just below FIFO_MAX, the only contiguous run left is min..stop, and the
+    // host is happily consuming it -- but we computed free == 8 and refused every
+    // subsequent command forever. Observing it: "present tick 1800 (next 262136 stop
+    // 262136)" followed by an endless "fifo submit refused: N bytes needed, 8 free".
+    // In the second case the old code was also one term short: a command that does not
+    // fit before STOP must wrap, and what it wraps into is (max - next) + (stop - min).
     const UInt32 next = fifo[kSvgaFifoNextCmd];
-    const UInt32 stop = fifo[kSvgaFifoStop];
     const UInt32 fmax = fifo[kSvgaFifoMax];
     const UInt32 fmin = fifo[kSvgaFifoMin];
-    const UInt32 bytesFree = (next >= stop) ? (fmax - next) : (stop - next);
     const IOByteCount byteCount = (IOByteCount)wordCount * sizeof (UInt32);
-    if (byteCount > bytesFree) {
-        IOLog(VGPU_FB_TAG ": fifo submit refused: %u bytes needed, %u free\n",
-              (unsigned)byteCount, bytesFree);
+
+    // Retry loop on the "the ring really is full" path, mirroring vmw_fifo_wait():
+    // wait for the host to advance STOP rather than dropping the command. A dropped
+    // submission is far worse than a slow one -- for a multi-command sequence it leaves
+    // the remainder to be parsed as a fresh command header, which is how a black screen
+    // turns into an aborted FIFO.
+    //
+    // 3 s is the upstream timeout. In the per-frame present loop this should never be
+    // reached (a frame is ~90 bytes against a 254 KiB ring); it exists so a genuine
+    // stall degrades into a late frame instead of a dead pipeline.
+    const UInt64 spinBound = (UInt64)kPresentIntervalMs * 40;   // ~3 s at 33 ms/tick
+    UInt32 stop = fifo[kSvgaFifoStop];
+    UInt32 bytesFree = (next >= stop) ? ((fmax - next) + (stop - fmin))
+                                      : (stop - next);
+    UInt32 reNext = next;
+    for (UInt64 spins = 0; byteCount > bytesFree; spins++) {
+        if (spins >= spinBound) {
+            IOLog(VGPU_FB_TAG ": fifo submit refused: %u bytes needed, %u free "
+                  "(next %u stop %u) after wait\n",
+                  (unsigned)byteCount, bytesFree, reNext, stop);
+            return false;
+        }
+        stop = fifo[kSvgaFifoStop];
+        // The host may also have advanced NEXT_CMD past us in the meantime only if we
+        // wrapped; it never writes NEXT_CMD, so only STOP moves. Re-read NEXT_CMD anyway
+        // so the accounting stays honest if the ring was re-pointed under us.
+        reNext = fifo[kSvgaFifoNextCmd];
+        bytesFree = (reNext >= stop) ? ((fmax - reNext) + (stop - fmin))
+                                     : (stop - reNext);
+    }
+    if (reNext != next) {
+        // Someone else advanced the ring (reboot/console takeover). Do not chase it:
+        // writing at a position we did not reserve would race the host.
+        IOLog(VGPU_FB_TAG ": fifo submit refused: NEXT_CMD moved %u -> %u under us\n",
+              next, reNext);
         return false;
     }
     const UInt32 caps = fifo[kSvgaFifoCapabilities];
@@ -1381,7 +2097,13 @@ bool vgpuFramebuffer::fifoSubmitWords(volatile UInt32 *fifo, const UInt32 *words
             fifo[(next / sizeof (UInt32)) + i] = words[i];
         }
         __asm__ volatile ("" ::: "memory");
-        fifo[kSvgaFifoNextCmd] = next + byteCount;
+        // Upstream folds a NEXT_CMD that lands exactly on max back to min
+        // (vmw_fifo_commit: "if (next_cmd >= max) next_cmd -= max - min;"). Leaving it
+        // AT max is legal per the spec but makes the next reservation's
+        // (max - next) term zero, so do it the way the working driver does.
+        fifo[kSvgaFifoNextCmd] = (next + (UInt32)byteCount >= fmax)
+                                 ? (fmin + (next + (UInt32)byteCount - fmax))
+                                 : (next + (UInt32)byteCount);
         if (canReserve) {
             fifo[kSvgaFifoReserved] = 0;
         }
@@ -1403,7 +2125,7 @@ bool vgpuFramebuffer::fifoSubmitWords(volatile UInt32 *fifo, const UInt32 *words
         fifo[(fmin / sizeof (UInt32)) + i] = words[i];
     }
     __asm__ volatile ("" ::: "memory");
-    fifo[kSvgaFifoNextCmd] = fmin + byteCount;
+    fifo[kSvgaFifoNextCmd] = fmin + (UInt32)byteCount;
     return true;
 }
 
@@ -1588,7 +2310,14 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
     if (kGbStage >= 2) {
     volatile UInt8 *mobTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffMobTable);
     UInt32 mobEntryOff = dataMobId * kGbMobEntryBytes;
-    UInt32 mobDepth = kSvga3dMobFmtPt64_0;
+    // §38c: upstream vmw_mob_pt_populate() decides the depth from the page count --
+    //   if (num_data_pages == 1) pt_level = PTDEPTH_0, pt_root = data page;
+    //   else                     build a PT page, pt_root = that PT page.
+    // kGbDataPages is 4, so PT64_0 here meant the host took ppnDataPt (a page full of
+    // PPN64 values) as the first data page. Nothing crashed -- the MOB simply resolved
+    // to garbage, and every surface bound on it came back as zeroes. PT64_1 is the
+    // only legal encoding for >1 page; ptData[] is already exactly that page table.
+    UInt32 mobDepth = kSvga3dMobFmtPt64_1;
     memcpy((void *)(mobTable + mobEntryOff), &mobDepth, 4);
     memcpy((void *)(mobTable + mobEntryOff + 4), &dataBytes, 4);
     memcpy((void *)(mobTable + mobEntryOff + 8), &ppnDataPt, 8);
@@ -1598,14 +2327,14 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
     words[0] = kSvga3dCmdDefineGbMob64;
     words[1] = 20;
     words[2] = dataMobId;
-    words[3] = kSvga3dMobFmtPt64_0;
+    words[3] = kSvga3dMobFmtPt64_1;
     memcpy(&words[4], &ppnDataPt, 8);
     words[6] = dataBytes;
     if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": gb: DEFINE_GB_MOB64 refused\n");
         return;
     }
-    IOLog(VGPU_FB_TAG ": gb: data MOB %u defined (ppn %llu, %u bytes, PT64_0)\n",
+    IOLog(VGPU_FB_TAG ": gb: data MOB %u defined (pt ppn %llu, %u bytes, PT64_1)\n",
           dataMobId, (unsigned long long)ppnDataPt, dataBytes);
     }
 
@@ -1788,22 +2517,610 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
 //
 // After this the present loop re-copies and re-updates every interval.
 //
+//
+// stduFlatBringUp -- §38.12: the same screen target, backed by a MOB that needs no
+// page table at all.
+//
+// Everything in the normal path is kept identical -- same sid, same mobid, same stid,
+// same surface/STDU otable entries, same DEFINE/BIND/UPDATE sequence -- with exactly one
+// difference: the MOB is defined as PT64_0 over a single 4 KiB page, and that page holds
+// the surface's bytes directly. The host therefore resolves the surface's first (and only)
+// data page straight from the otable entry's basePpn, with no PPN64 table in between.
+//
+// Why this is the decisive experiment: the guest has proved its page table correct four
+// different ways and the host still reads zeros. The table walk is the one step we cannot
+// observe from inside the guest, and it is also the one step this arm deletes. So:
+//
+//   screen shows content -> the table walk was the fault (PPN64 encoding, page-count
+//                           rounding, PT depth...). Fix the table, not the present path.
+//   screen stays black  -> the present path itself is at fault (the host never samples
+//                           the surface we bound). Stop touching page tables.
+//
+// The surface is declared 1024x1 so the whole thing fits one page (pitch 4096). The screen
+// target stays at full panel size, so the host has one real 4096-byte row to place where a
+// 1024x512 image would go -- whatever it shows, it is showing real data from our MOB.
+//
+void vgpuFramebuffer::stduFlatBringUp(volatile UInt32 *fifo) {
+    IOLog(VGPU_FB_TAG ": flat: bring-up starting (PT64_0, one 4 KiB page, no page table)\n");
+
+    _flatMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+        kernel_task, kIODirectionInOut, kGbPageBytes, 0xFFFULL);
+    if (_flatMem == nullptr) {
+        IOLog(VGPU_FB_TAG ": flat: could not allocate the payload page\n");
+        return;
+    }
+    if (_flatMem->prepare(kIODirectionInOut) != kIOReturnSuccess) {
+        IOLog(VGPU_FB_TAG ": flat: prepare failed\n");
+        _flatMem->release();
+        _flatMem = nullptr;
+        return;
+    }
+    _flatPrepared = true;
+    _flatVirt = _flatMem->getBytesNoCopy();
+
+    IOByteCount len = 0;
+    const IOVirtualAddress phys = _flatMem->getPhysicalSegment(0, &len);
+    if (phys == 0 || len < kGbPageBytes) {
+        IOLog(VGPU_FB_TAG ": flat: payload page not resolvable\n");
+        return;
+    }
+    const UInt64 flatPpn = (UInt64)phys >> kGbPageShift;
+    const UInt32 flatBytes = (UInt32)kGbPageBytes;
+
+    // A recognisable seed pattern, so the first frame is already something other than
+    // black even before the present loop starts recolouring it.
+    {
+        UInt32 *px = (UInt32 *)_flatVirt;
+        for (UInt32 i = 0; i < (UInt32)(kGbPageBytes / 4); i++) {
+            px[i] = ((i & 32) != 0) ? 0xFFFF00FFu : 0xFF00FFFFu;   // magenta / cyan stripes
+        }
+        (void)_flatMem->performOperation(kIOMemoryIncoherentIOFlush, 0, kGbPageBytes);
+    }
+
+    UInt32 words[16];
+
+    // 1. MOB otable entry: PT64_0, size one page, basePpn = the payload page itself.
+    volatile UInt8 *mobTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffMobTable);
+    UInt32 mobEntryOff = _stduMobId * kGbMobEntryBytes;
+    UInt32 mobDepth = kSvga3dMobFmtPt64_0;
+    UInt32 mobSize = flatBytes;
+    memcpy((void *)(mobTable + mobEntryOff), &mobDepth, 4);
+    memcpy((void *)(mobTable + mobEntryOff + 4), &mobSize, 4);
+    memcpy((void *)(mobTable + mobEntryOff + 8), &flatPpn, 8);
+    __asm__ volatile ("" ::: "memory");
+
+    words[0] = kSvga3dCmdDefineGbMob64;
+    words[1] = 20;
+    words[2] = _stduMobId;
+    words[3] = mobDepth;
+    memcpy(&words[4], &flatPpn, 8);
+    words[6] = flatBytes;
+    if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": flat: DEFINE_GB_MOB64 refused\n");
+        return;
+    }
+    IOLog(VGPU_FB_TAG ": flat: MOB %u defined (PT64_0, base ppn %llu, %u bytes)\n",
+          _stduMobId, (unsigned long long)flatPpn, flatBytes);
+
+    // 2. SCREENTARGET otable base -- same two-level shape as the normal path, unchanged.
+    const UInt64 pagePpn = _gbPhys >> kGbPageShift;
+    volatile UInt64 *ptSt = (volatile UInt64 *)((char *)_gbVirt + kGbOffPtSt);
+    ptSt[0] = pagePpn + (kGbOffStTable / kGbPageBytes);
+    __asm__ volatile ("" ::: "memory");
+
+    words[0] = kSvga3dCmdSetOtableBase64;
+    words[1] = 24;
+    words[2] = kSvgaOtableScreenTarget;
+    const UInt64 ppnStPt = pagePpn + (kGbOffPtSt >> kGbPageShift);
+    memcpy(&words[3], &ppnStPt, 8);
+    words[5] = kGbStTableEnts * kGbStEntryBytes;
+    words[6] = 0;
+    words[7] = kSvga3dMobFmtPt64_0;
+    if (!fifoSubmitWords(fifo, words, 8) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": flat: SCREENTARGET otable base refused\n");
+        return;
+    }
+
+    // 3. Surface otable entry, then DEFINE_GB_SURFACE 1024x1 X8R8G8B8 on mobid 2.
+    const UInt32 flatW = kStduWidth;
+    const UInt32 flatH = (UInt32)(kGbPageBytes / 4) / flatW;   // 1
+
+    volatile UInt8 *surfTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffSurfaceTable);
+    volatile UInt8 *entry = surfTable + (IOByteCount)_surfaceId * kGbSurfaceEntryBytes;
+    UInt32 fmt = kSvga3dSurfaceFormatX8R8G8B8;
+    const UInt64 surfaceFlags = kSvga3dSurfaceHintDynamic | kSvga3dSurfaceHintTexture |
+                                kSvga3dSurfaceScreentarget;
+    UInt32 mips = 1, ms = 1, filter = 0, depth = 1;
+    UInt32 pitch = flatW * 4;
+    UInt64 zero64 = 0;
+    memcpy((void *)(entry + 0), &fmt, 4);
+    memcpy((void *)(entry + 4), &surfaceFlags, 8);
+    memcpy((void *)(entry + 12), &mips, 4);
+    memcpy((void *)(entry + 16), &ms, 4);
+    memcpy((void *)(entry + 20), &filter, 4);
+    memcpy((void *)(entry + 24), &flatW, 4);
+    memcpy((void *)(entry + 28), &flatH, 4);
+    memcpy((void *)(entry + 32), &depth, 4);
+    memcpy((void *)(entry + 36), &_stduMobId, 4);
+    memcpy((void *)(entry + 40), &mips, 4);           // arraySize
+    memcpy((void *)(entry + 44), &pitch, 4);          // mobPitch
+    memcpy((void *)(entry + 48), &zero64, 8);         // surface2Flags
+    bzero((void *)(entry + 56), 16);
+    __asm__ volatile ("" ::: "memory");
+
+    words[0] = kSvga3dCmdDefineGbSurface;
+    words[1] = 40;
+    words[2] = _surfaceId;
+    memcpy(&words[3], &surfaceFlags, 8);
+    words[5] = kSvga3dSurfaceFormatX8R8G8B8;
+    words[6] = 1;
+    words[7] = 1;
+    words[8] = 0;
+    words[9] = flatW;
+    words[10] = flatH;
+    words[11] = 1;
+    if (!fifoSubmitWords(fifo, words, 12) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": flat: DEFINE_GB_SURFACE refused\n");
+        return;
+    }
+
+    words[0] = kSvga3dCmdBindGbSurface;
+    words[1] = 8;
+    words[2] = _surfaceId;
+    words[3] = _stduMobId;
+    if (!fifoSubmitWords(fifo, words, 4) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": flat: BIND_GB_SURFACE refused\n");
+        return;
+    }
+    words[0] = kSvga3dCmdUpdateGbSurface;
+    words[1] = 4;
+    words[2] = _surfaceId;
+    if (!fifoSubmitWords(fifo, words, 3) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": flat: UPDATE_GB_SURFACE refused\n");
+        return;
+    }
+    IOLog(VGPU_FB_TAG ": flat: surface %u defined %ux%u on mob %u, bound and updated\n",
+          _surfaceId, flatW, flatH, _stduMobId);
+
+    // 4. Screen target: otable entry, DEFINE, BIND, UPDATE -- full panel size.
+    volatile UInt8 *stTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffStTable);
+    volatile UInt8 *stEntry = stTable + (IOByteCount)_stduStid * kGbStEntryBytes;
+    UInt32 zero32 = 0;
+    memcpy((void *)(stEntry + 0), &_surfaceId, 4);    // image.sid
+    memcpy((void *)(stEntry + 4), &zero64, 8);        // image.face, image.mipmap
+    memcpy((void *)(stEntry + 12), &kStduWidth, 4);
+    memcpy((void *)(stEntry + 16), &kStduSurfHeight, 4);
+    memcpy((void *)(stEntry + 20), &zero32, 4);       // xRoot
+    memcpy((void *)(stEntry + 24), &zero32, 4);       // yRoot
+    memcpy((void *)(stEntry + 28), &kSvgaStflagPrimary, 4);
+    memcpy((void *)(stEntry + 32), &zero32, 4);       // dpi
+    bzero((void *)(stEntry + 36), 28);                // pad[7]
+    __asm__ volatile ("" ::: "memory");
+
+    words[0] = kSvga3dCmdDefineGbScreenTarget;
+    words[1] = 28;
+    words[2] = _stduStid;
+    words[3] = kStduWidth;
+    words[4] = kStduSurfHeight;
+    words[5] = 0;
+    words[6] = 0;
+    words[7] = kSvgaStflagPrimary;
+    words[8] = 0;
+    if (!fifoSubmitWords(fifo, words, 9) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": flat: DEFINE_GB_SCREENTARGET refused\n");
+        return;
+    }
+
+    words[0] = kSvga3dCmdBindGbScreenTarget;
+    words[1] = 16;
+    words[2] = _stduStid;
+    words[3] = _surfaceId;
+    words[4] = 0;
+    words[5] = 0;
+    if (!fifoSubmitWords(fifo, words, 6) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": flat: BIND_GB_SCREENTARGET refused\n");
+        return;
+    }
+
+    words[0] = kSvga3dCmdUpdateGbScreenTarget;
+    words[1] = 20;
+    words[2] = _stduStid;
+    words[3] = 0;
+    words[4] = 0;
+    words[5] = kStduWidth;
+    words[6] = kStduSurfHeight;
+    if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": flat: UPDATE_GB_SCREENTARGET refused\n");
+        return;
+    }
+
+    _stduActive = true;
+    IOLog(VGPU_FB_TAG ": flat: screen target 0 (%ux%u) bound to surface %u -- "
+          "STDU present path is UP, page table NOT involved\n",
+          kStduWidth, kStduSurfHeight, _surfaceId);
+}
+
+//
+// stduFlatReadback -- §38.13: does the HOST hold our pixels, or only look at them?
+//
+// Everything up to here measures one thing: what the VNC framebuffer shows. That conflates
+// two mechanisms inside the host:
+//
+//   (a) the host's copy of the surface content -- what UPDATE_GB_SCREENTARGET makes it
+//       sample, and what READBACK_GB_IMAGE writes back to guest memory, and
+//   (b) the encode/scanout path that turns (a) into the VNC framebuffer.
+//
+// If (a) is empty, the display is empty for an honest reason and the fault is upstream of
+// the display. If (a) holds our colour and the screen is still black, then the surface
+// pipeline works completely and the fault is in the host's screen-target scanout.
+//
+// READBACK_GB_IMAGE takes SVGA3dSurfaceImageId {sid, face, mipmap} and writes the surface
+// back into the MOB it is bound to. So the check needs a second MOB: read the surface into
+// _flatRbMem (its own PT64_0 page) after pushing a known colour, then compare. A zeroed
+// destination therefore means the host wrote nothing, not that we read our own page back.
+//
+void vgpuFramebuffer::stduFlatReadback(volatile UInt32 *fifo) {
+    if (_flatVirt == nullptr) {
+        return;
+    }
+    if (_flatRbMem == nullptr) {
+        _flatRbMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+            kernel_task, kIODirectionInOut, kGbPageBytes, 0xFFFULL);
+        if (_flatRbMem == nullptr) {
+            IOLog(VGPU_FB_TAG ": flatrb: scratch allocation failed\n");
+            return;
+        }
+        if (_flatRbMem->prepare(kIODirectionInOut) != kIOReturnSuccess) {
+            IOLog(VGPU_FB_TAG ": flatrb: scratch prepare failed\n");
+            _flatRbMem->release();
+            _flatRbMem = nullptr;
+            return;
+        }
+        _flatRbPrepared = true;
+        _flatRbVirt = _flatRbMem->getBytesNoCopy();
+
+        IOByteCount len = 0;
+        const IOVirtualAddress phys = _flatRbMem->getPhysicalSegment(0, &len);
+        if (phys == 0 || len < kGbPageBytes) {
+            IOLog(VGPU_FB_TAG ": flatrb: scratch page not resolvable\n");
+            return;
+        }
+        const UInt64 rbPpn = (UInt64)phys >> kGbPageShift;
+        const UInt32 rbBytes = (UInt32)kGbPageBytes;
+
+        volatile UInt8 *mobTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffMobTable);
+        const UInt32 off = _flatRbMobId * kGbMobEntryBytes;
+        UInt32 depth = kSvga3dMobFmtPt64_0;
+        UInt32 size = rbBytes;
+        memcpy((void *)(mobTable + off), &depth, 4);
+        memcpy((void *)(mobTable + off + 4), &size, 4);
+        memcpy((void *)(mobTable + off + 8), &rbPpn, 8);
+        __asm__ volatile ("" ::: "memory");
+
+        UInt32 def[7];
+        def[0] = kSvga3dCmdDefineGbMob64;
+        def[1] = 20;
+        def[2] = _flatRbMobId;
+        def[3] = depth;
+        memcpy(&def[4], &rbPpn, 8);
+        def[6] = rbBytes;
+        if (!fifoSubmitWords(fifo, def, 7) || !fenceAck(fifo, &_fenceSeq)) {
+            IOLog(VGPU_FB_TAG ": flatrb: DEFINE_GB_MOB64 refused (mob %u)\n", _flatRbMobId);
+            return;
+        }
+        IOLog(VGPU_FB_TAG ": flatrb: scratch MOB %u ready (PT64_0, ppn %llu)\n",
+              _flatRbMobId, (unsigned long long)rbPpn);
+    }
+
+    // 1. Put a colour the screen has never shown into the surface, and push it through the
+    //    exact same two commands the present loop uses. Anything non-zero coming back can
+    //    only have come from this step.
+    const UInt32 marker = 0xFF00A5FFu;   // orange, distinct from every phase colour
+    {
+        UInt32 *px = (UInt32 *)_flatVirt;
+        const UInt32 n = (UInt32)(kGbPageBytes / 4);
+        for (UInt32 i = 0; i < n; i++) {
+            px[i] = marker;
+        }
+        (void)_flatMem->performOperation(kIOMemoryIncoherentIOFlush, 0, kGbPageBytes);
+    }
+
+    UInt32 img[17];
+    img[0] = kSvga3dCmdUpdateGbImage;
+    img[1] = 52;
+    img[2] = _surfaceId;
+    img[3] = 0; img[4] = 0; img[5] = 0;
+    img[6] = kStduWidth;
+    img[7] = 1;
+    img[8] = 1;
+    img[9] = 0; img[10] = 0; img[11] = 0;
+    img[12] = 0; img[13] = 0; img[14] = 0;
+    img[15] = 0;
+    img[16] = 0;
+    fifoSubmitWords(fifo, img, 17);
+
+    UInt32 upd[7];
+    upd[0] = kSvga3dCmdUpdateGbScreenTarget;
+    upd[1] = 20;
+    upd[2] = _stduStid;
+    upd[3] = 0; upd[4] = 0;
+    upd[5] = kStduWidth;
+    upd[6] = kStduSurfHeight;
+    fifoSubmitWords(fifo, upd, 7);
+
+    // 2. Rebind the same surface onto the scratch MOB. READBACK writes through the current
+    //    binding, so the content has to land somewhere other than the page we just wrote.
+    UInt32 bind[4];
+    bind[0] = kSvga3dCmdBindGbSurface;
+    bind[1] = 8;
+    bind[2] = _surfaceId;
+    bind[3] = _flatRbMobId;
+    if (!fifoSubmitWords(fifo, bind, 4) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": flatrb: BIND_GB_SURFACE to the scratch MOB refused\n");
+        return;
+    }
+
+    // 3. Wipe the destination, then ask for the readback, then fence so the compare runs
+    //    strictly after the host has finished writing.
+    bzero(_flatRbVirt, kGbPageBytes);
+    UInt32 rb[5];
+    rb[0] = kSvga3dCmdReadbackGbImage;
+    rb[1] = 12;                      // sizeof(SVGA3dSurfaceImageId)
+    rb[2] = _surfaceId;
+    rb[3] = 0;                       // face
+    rb[4] = 0;                       // mipmap
+    if (!fifoSubmitWords(fifo, rb, 5) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": flatrb: READBACK_GB_IMAGE refused\n");
+    }
+    // kIOMemoryIncoherentIOFlush on x86 is a plain mfence; the constant
+    // kIOMemoryIncoherentIOInvalidate does not exist in this SDK, and the flush (which
+    // orders both directions on x86) is the portable choice.
+    (void)_flatRbMem->performOperation(kIOMemoryIncoherentIOFlush, 0, kGbPageBytes);
+    __asm__ volatile ("mfence" ::: "memory");
+
+    const UInt32 *got = (const UInt32 *)_flatRbVirt;
+    UInt32 nonzero = 0, matches = 0, firstNonzero = 0, firstVal = 0;
+    const UInt32 n = (UInt32)(kGbPageBytes / 4);
+    for (UInt32 i = 0; i < n; i++) {
+        if (got[i] != 0) {
+            if (nonzero == 0) { firstNonzero = i; firstVal = got[i]; }
+            nonzero++;
+            if (got[i] == marker) {
+                matches++;
+            }
+        }
+    }
+    IOLog(VGPU_FB_TAG ": flatrb: host surface 2 -> %u/%u words nonzero, %u match the "
+          "marker 0x%08x (first nonzero @%u = 0x%08x) VERDICT %s\n",
+          nonzero, n, matches, marker, firstNonzero, firstVal,
+          (matches > (n / 2)) ? "*** host HOLDS our pixels ***"
+                              : "*** host holds nothing ***");
+
+    // §38.13b control: does READBACK work at all on this host?
+    //
+    // The verdict above is only evidence if READBACK itself is a working channel. It is
+    // cheap to check: the surface is still bound to the scratch MOB, so ask for a readback
+    // once more WITHOUT touching the source page in between. Whatever the host writes this
+    // time can only come from its own copy -- and if it writes nothing even then, the zero
+    // above says nothing about the host's surface and everything about READBACK.
+    // The source page still holds `marker`, so a working READBACK would reproduce it.
+    UInt32 rb2[5];
+    rb2[0] = kSvga3dCmdReadbackGbImage;
+    rb2[1] = 12;
+    rb2[2] = _surfaceId;
+    rb2[3] = 0;
+    rb2[4] = 0;
+    if (!fifoSubmitWords(fifo, rb2, 5) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": flatrb: control READBACK refused\n");
+    }
+    (void)_flatRbMem->performOperation(kIOMemoryIncoherentIOFlush, 0, kGbPageBytes);
+    __asm__ volatile ("mfence" ::: "memory");
+    {
+        UInt32 ctlNonzero = 0, ctlFirst = 0, ctlFirstIdx = 0;
+        for (UInt32 i = 0; i < n; i++) {
+            if (got[i] != 0) {
+                if (ctlNonzero == 0) { ctlFirstIdx = i; ctlFirst = got[i]; }
+                ctlNonzero++;
+            }
+        }
+        IOLog(VGPU_FB_TAG ": flatrb: control readback -> %u/%u words nonzero "
+              "(first @%u = 0x%08x) -- READBACK %s\n",
+              ctlNonzero, n, ctlFirstIdx, ctlFirst,
+              (ctlNonzero > 0) ? "is a live channel" : "writes nothing on this host");
+    }
+
+    // 4. Hand the surface back to the page the present loop writes, so the next tick is
+    //    not presenting through a stale binding.
+    bind[3] = _stduMobId;
+    fifoSubmitWords(fifo, bind, 4);
+    fenceAck(fifo, &_fenceSeq);
+}
+
+//
+// stduScreenDma -- §38.14: ask the host to hand the screen's content back to us.
+//
+// §38.13 established that READBACK_GB_IMAGE gives nothing: the host's copy of the surface
+// we bound is empty, so there is nothing for READBACK to write out. That left two readings,
+// and they point at completely different fixes:
+//
+//   (a) the host never sampled the surface (so its copy is empty -- READBACK is honest), or
+//   (b) the host sampled it, but READBACK is the thing that does not work here.
+//
+// GB_SCREEN_DMA (1131) separates them, because it does not go through the surface at all:
+// it asks the host to write WHAT IT IS CURRENTLY DISPLAYING for a screen into a MOB we
+// name. It is a read of the display pipeline, not of a surface.
+//
+//   non-zero content -> the host is displaying something and can push pixels into guest
+//                       memory; whatever is on screen is real, and (b) is the answer.
+//   all zero        -> the host's display for this screen is genuinely blank *and* it
+//                       writes blanks; the screen really is showing nothing, and the
+//                       question becomes why the host's screen has no content, which is
+//                       one step further upstream than anything tried so far.
+//
+void vgpuFramebuffer::stduScreenDma(volatile UInt32 *fifo) {
+    const IOByteCount sdBytes = (IOByteCount)kStduWidth * kStduSurfHeight * 4;
+    const UInt32 sdPages = (UInt32)(sdBytes / kGbPageBytes);        // 512
+
+    if (_sdMem == nullptr) {
+        _sdMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+            kernel_task, kIODirectionInOut, sdBytes, 0xFFFULL);
+        if (_sdMem == nullptr || _sdMem->prepare(kIODirectionInOut) != kIOReturnSuccess) {
+            IOLog(VGPU_FB_TAG ": sd: destination allocation failed\n");
+            return;
+        }
+        _sdPrepared = true;
+        _sdVirt = _sdMem->getBytesNoCopy();
+
+        // One page is enough for the page table: 512 entries == 512 pages (PT64_1).
+        _sdPtMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+            kernel_task, kIODirectionInOut, kGbPageBytes, 0xFFFULL);
+        if (_sdPtMem == nullptr || _sdPtMem->prepare(kIODirectionInOut) != kIOReturnSuccess) {
+            IOLog(VGPU_FB_TAG ": sd: page-table allocation failed\n");
+            return;
+        }
+        _sdPtPrepared = true;
+        _sdPtVirt = _sdPtMem->getBytesNoCopy();
+        bzero(_sdPtVirt, kGbPageBytes);
+
+        volatile UInt64 *pt = (volatile UInt64 *)_sdPtVirt;
+        for (UInt32 i = 0; i < sdPages; i++) {
+            IOByteCount len = 0;
+            const IOVirtualAddress addr =
+                _sdMem->getPhysicalSegment((IOByteCount)i * kGbPageBytes, &len);
+            if (addr == 0 || len < kGbPageBytes) {
+                IOLog(VGPU_FB_TAG ": sd: destination page %u not resolvable\n", i);
+                return;
+            }
+            pt[i] = (UInt64)addr >> kGbPageShift;
+        }
+        __asm__ volatile ("" ::: "memory");
+        (void)_sdPtMem->performOperation(kIOMemoryIncoherentIOFlush, 0, kGbPageBytes);
+
+        IOByteCount pLen = 0;
+        const IOVirtualAddress ptPhys = _sdPtMem->getPhysicalSegment(0, &pLen);
+        if (ptPhys == 0 || pLen < kGbPageBytes) {
+            IOLog(VGPU_FB_TAG ": sd: page-table page not resolvable\n");
+            return;
+        }
+        const UInt64 ptPpn = (UInt64)ptPhys >> kGbPageShift;
+
+        volatile UInt8 *mobTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffMobTable);
+        const UInt32 off = _flatSdMobId * kGbMobEntryBytes;
+        UInt32 depth = kSvga3dMobFmtPt64_1;
+        UInt32 size = (UInt32)sdBytes;
+        memcpy((void *)(mobTable + off), &depth, 4);
+        memcpy((void *)(mobTable + off + 4), &size, 4);
+        memcpy((void *)(mobTable + off + 8), &ptPpn, 8);
+        __asm__ volatile ("" ::: "memory");
+
+        UInt32 def[7];
+        def[0] = kSvga3dCmdDefineGbMob64;
+        def[1] = 20;
+        def[2] = _flatSdMobId;
+        def[3] = depth;
+        memcpy(&def[4], &ptPpn, 8);
+        def[6] = (UInt32)sdBytes;
+        if (!fifoSubmitWords(fifo, def, 7) || !fenceAck(fifo, &_fenceSeq)) {
+            IOLog(VGPU_FB_TAG ": sd: DEFINE_GB_MOB64 refused (mob %u)\n", _flatSdMobId);
+            return;
+        }
+        IOLog(VGPU_FB_TAG ": sd: destination MOB %u ready (%u pages, PT64_1, pt ppn %llu)\n",
+              _flatSdMobId, sdPages, (unsigned long long)ptPpn);
+    }
+
+    bzero(_sdVirt, sdBytes);
+    (void)_sdMem->performOperation(kIOMemoryIncoherentIOFlush, 0, sdBytes);
+
+    // SVGA3dCmdGBScreenDMA {screenId, dead, destMobID, destPitch, changeMapMobID} = 20 B.
+    // changeMapMobID = SVGA3D_INVALID_ID: we do not want the change map.
+    UInt32 sd[6];
+    sd[0] = kSvga3dCmdGbScreenDma;
+    sd[1] = 20;
+    sd[2] = _stduStid;
+    sd[3] = 0;
+    sd[4] = _flatSdMobId;
+    sd[5] = kStduWidth * 4;
+    if (!fifoSubmitWords(fifo, sd, 6) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": sd: GB_SCREEN_DMA refused\n");
+        return;
+    }
+    // The remaining two fields (changeMapMobID and the pitch of the map) follow in the
+    // next submission only if the command needed them; with INVALID_ID it does not.
+    UInt32 sd2[1];
+    sd2[0] = SVGA3D_INVALID_ID_U32;
+    fifoSubmitWords(fifo, sd2, 1);
+    fenceAck(fifo, &_fenceSeq);
+
+    (void)_sdMem->performOperation(kIOMemoryIncoherentIOFlush, 0, sdBytes);
+    __asm__ volatile ("mfence" ::: "memory");
+
+    const UInt32 *got = (const UInt32 *)_sdVirt;
+    const UInt32 n = (UInt32)(sdBytes / 4);
+    UInt32 nonzero = 0, firstVal = 0, firstIdx = 0;
+    for (UInt32 i = 0; i < n; i++) {
+        if (got[i] != 0) {
+            if (nonzero == 0) { firstIdx = i; firstVal = got[i]; }
+            nonzero++;
+        }
+    }
+    IOLog(VGPU_FB_TAG ": sd: GB_SCREEN_DMA stid 0 -> %u/%u words nonzero "
+          "(first @%u = 0x%08x) VERDICT %s\n",
+          nonzero, n, firstIdx, firstVal,
+          (nonzero > 0) ? "*** host dispenses real pixels ***"
+                        : "*** host dispenses nothing ***");
+}
+
 void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     // The 256x256 experiment surface (kGbStage>=3) owns sid 1; the STDU surface takes a
     // fresh id so no redefinition is involved.
     _surfaceId = 2;
 
-    // 1. Backing store (pages may be scattered; the MOB page tables handle that) and page
-    //    tables (three independent pages: root + two second-level).
-    _stduMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
-        kernel_task, kIODirectionInOut, kStduBytes, 0xFFFULL);
-    if (_stduMem == nullptr) {
-        IOLog(VGPU_FB_TAG ": stdu: could not allocate the %llu-byte backing store\n",
-              (unsigned long long)kStduBytes);
+    // §38.12: the flat-MOB arm replaces the whole MOB/page-table construction. It is a
+    // separate early return rather than a flag threaded through the code below, because
+    // the entire point is that none of that machinery runs.
+    if (kStduFlat) {
+        stduFlatBringUp(fifo);
         return;
     }
-    _stduVirt = (void *)_stduMem->map()->getVirtualAddress();
-    bzero(_stduVirt, kStduBytes);
+
+    // 1. Backing store (pages may be scattered; the MOB page tables handle that) and page
+    //    tables (root + up to two second-level pages; PT64_1 needs only one page total).
+    const IOByteCount stduBytes = (IOByteCount)kStduWidth * kStduSurfHeight * 4;
+    const UInt32      stduPages = kStduSurfPages;
+    const UInt32      ptPageCount = (kStduPt1 == 1) ? 1 : 3;
+
+    // §38f: prepare() + getBytesNoCopy() instead of getVirtualAddress().
+    //
+    // These buffers are handed to the DEVICE as well as written by the CPU: the PPNs
+    // returned by getPhysicalSegment() end up in MOB page tables that the host walks by
+    // DMA. Two things have to hold for that to work, and neither did before:
+    //
+    //   prepare()          pins the page list, so "physical segment N" means the same
+    //                      thing at DEFINE time as it did when we recorded the PPN;
+    //   getBytesNoCopy()   gives the descriptor's own kernel mapping. map() returns a
+    //                      *window* mapping, which is not guaranteed to alias the very
+    //                      pages getPhysicalSegment() reports -- writing through it can
+    //                      land somewhere the device never reads.
+    //
+    // That combination produces exactly the symptom we chased through §38a-e: a table
+    // the guest can walk perfectly (root[i] == what we wrote) while the host resolves
+    // zeroes. Complete everything through one mapping and the CPU/device views agree.
+    _stduMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+        kernel_task, kIODirectionInOut, stduBytes, 0xFFFULL);
+    if (_stduMem == nullptr) {
+        IOLog(VGPU_FB_TAG ": stdu: could not allocate the %llu-byte backing store\n",
+              (unsigned long long)stduBytes);
+        return;
+    }
+    if (_stduMem->prepare(kIODirectionInOut) != kIOReturnSuccess) {
+        IOLog(VGPU_FB_TAG ": stdu: backing store prepare failed\n");
+        _stduMem->release();
+        _stduMem = nullptr;
+        return;
+    }
+    _stduPrepared = true;
+    _stduVirt = _stduMem->getBytesNoCopy();
+    bzero(_stduVirt, stduBytes);
 
     _stduPtMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
         kernel_task, kIODirectionInOut, 3 * kGbPageBytes, 0xFFFULL);
@@ -1811,11 +3128,20 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
         IOLog(VGPU_FB_TAG ": stdu: could not allocate the page-table pages\n");
         return;
     }
-    _stduPtVirt = (void *)_stduPtMem->map()->getVirtualAddress();
+    if (_stduPtMem->prepare(kIODirectionInOut) != kIOReturnSuccess) {
+        IOLog(VGPU_FB_TAG ": stdu: page-table prepare failed\n");
+        _stduPtMem->release();
+        _stduPtMem = nullptr;
+        return;
+    }
+    _stduPtPrepared = true;
+    _stduPtVirt = _stduPtMem->getBytesNoCopy();
+    bzero(_stduPtVirt, 3 * kGbPageBytes);
 
     // Root page: PPNs of the two second-level pages (pages 1 and 2 of the PT allocation).
+    // PT64_1 has no root: page 0 is the leaf table itself.
     volatile UInt64 *root = (volatile UInt64 *)_stduPtVirt;
-    for (UInt32 p = 0; p < 3; p++) {
+    for (UInt32 p = 0; p < ((kStduPt1 == 1) ? 1 : 3); p++) {
         IOVirtualAddress addr = 0;
         IOByteCount len = 0;
         addr = _stduPtMem->getPhysicalSegment((IOByteCount)p * kGbPageBytes, &len);
@@ -1833,8 +3159,24 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     const UInt64 rootPpn = _stduPtPhys >> kGbPageShift;
 
     // Second-level pages: PPN of each backing-store page.
-    volatile UInt64 *l1 = (volatile UInt64 *)((char *)_stduPtVirt + kGbPageBytes);
-    for (UInt32 i = 0; i < kStduPages; i++) {
+    //
+    // §38: the table must be laid out the way the device walks it, and the walk is
+    // defined by vmwgfx (vmwgfx_mob.c:vmw_mob_pt_setup / vmw_mob_build_pt):
+    //
+    //     num_pt_pages = DIV_ROUND_UP(num_data_pages * VMW_PPN_SIZE, PAGE_SIZE)
+    //
+    // One second-level page holds PAGE_SIZE / 8 = 512 entries, so at 768 data pages we
+    // need TWO of them, and the data pages are laid out contiguously across them:
+    // L1page[n][i] describes data page n * 512 + i. The previous code wrote all 768
+    // entries starting at second-level page 0 -- 6144 bytes into a 4096-byte page, so
+    // entries 512..767 spilled over into the other second-level page and clobbered its
+    // first 256 slots. The guest-side probe below only sampled pages 0 / 384 / 767
+    // through that same wrong base, so it agreed with itself and still reported OK.
+    const UInt32 ptEntsPerPage = (UInt32)(kGbPageBytes / 8);          // 512
+    const UInt32 ptLvl1Pages  = (kStduPt1 == 1)
+                                ? 0
+                                : (stduPages + ptEntsPerPage - 1) / ptEntsPerPage;
+    for (UInt32 i = 0; i < stduPages; i++) {
         IOVirtualAddress addr = 0;
         IOByteCount len = 0;
         addr = _stduMem->getPhysicalSegment((IOByteCount)i * kGbPageBytes, &len);
@@ -1842,12 +3184,82 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
             IOLog(VGPU_FB_TAG ": stdu: backing-store page %u not resolvable\n", i);
             return;
         }
-        l1[i] = (UInt64)addr >> kGbPageShift;
+        if (kStduPt1 == 1) {
+            // Single level: page 0 IS the leaf table.
+            root[i] = (UInt64)addr >> kGbPageShift;
+        } else {
+            const UInt32 lvl = i / ptEntsPerPage;
+            const UInt32 idx = i % ptEntsPerPage;
+            volatile UInt64 *l1 = (volatile UInt64 *)((char *)_stduPtVirt +
+                                                     (IOByteCount)(lvl + 1) * kGbPageBytes);
+            l1[idx] = (UInt64)addr >> kGbPageShift;
+        }
     }
     __asm__ volatile ("" ::: "memory");
+    // §38f: make the table visible to the device before the DEFINE tells the host to
+    // walk it. A plain compiler barrier only orders the CPU's own accesses; the host
+    // reads these pages by DMA. kIOMemoryIncoherentIOFlush is exactly the "store to
+    // memory and push it through every cache level" primitive (IOMemoryDescriptor.h:
+    // "may be used for non-coherent I/O ... It is NOT required for PCI coherent
+    // operations"). It requires the descriptor to have been prepared, which is why the
+    // prepare() above matters; on x86 it is a cheap no-op.
+    (void)_stduPtMem->performOperation(kIOMemoryIncoherentIOFlush, 0, 3 * kGbPageBytes);
+    __asm__ volatile ("mfence" ::: "memory");
 
-    IOLog(VGPU_FB_TAG ": stdu: backing store %llu bytes at pt ppn %llu (PT64_2)\n",
-          (unsigned long long)kStduBytes, (unsigned long long)rootPpn);
+    const UInt32 stduMobDepth = (kStduPt1 == 1) ? kSvga3dMobFmtPt64_1
+                                                : kSvga3dMobFmtPt64_2;
+    IOLog(VGPU_FB_TAG ": stdu: backing store %llu bytes (%u pages, %ux%u) at pt ppn %llu "
+          "(PT64_%u)\n",
+          (unsigned long long)stduBytes, stduPages, kStduWidth, kStduSurfHeight,
+          (unsigned long long)rootPpn, kStduPt1);
+
+    // §38: prove the table resolves, from the guest side, before any command is
+    // submitted -- walking it the way the device does: root[lvl] -> second level page ->
+    // entry[idx], with idx = page % 512 and lvl = page / 512 (lvl is always 0 and the
+    // page itself is the leaf when kStduPt1 == 1).
+    {
+        volatile UInt64 *r = (volatile UInt64 *)_stduPtVirt;
+        const UInt32 probePages[4] = { 0, (stduPages > 1) ? 1u : 0u,
+                                       stduPages / 2, stduPages - 1 };
+        UInt32 bad = 0;
+        for (UInt32 i = 0; i < 4; i++) {
+            const UInt32 pg = probePages[i];
+            IOByteCount len = 0;
+            IOVirtualAddress want = _stduMem->getPhysicalSegment(
+                (IOByteCount)pg * kGbPageBytes, &len);
+            const UInt64 wantPpn = (UInt64)want >> kGbPageShift;
+            const UInt32 lvl = pg / ptEntsPerPage;
+            const UInt32 idx = pg % ptEntsPerPage;
+            // Map root[lvl] (a PPN) back to a virtual address by comparing against the
+            // page-table pages we actually allocated -- they are not guaranteed to be
+            // physically contiguous, so offset arithmetic on PPNs is not valid.
+            volatile UInt64 *l2 = nullptr;
+            if (kStduPt1 == 1) {
+                l2 = root;                      // the leaf table is page 0 itself
+            } else {
+                for (UInt32 p = 1; p < 3; p++) {
+                    IOVirtualAddress ptAddr = _stduPtMem->getPhysicalSegment(
+                        (IOByteCount)p * kGbPageBytes, &len);
+                    if (ptAddr != 0 && ((UInt64)ptAddr >> kGbPageShift) == r[lvl]) {
+                        l2 = (volatile UInt64 *)((char *)_stduPtVirt +
+                                                 (IOByteCount)p * kGbPageBytes);
+                        break;
+                    }
+                }
+            }
+            const UInt64 l1Ent = (l2 != nullptr) ? l2[idx] : 0;
+            const bool ok = (want != 0) && (l2 != nullptr) && (l1Ent == wantPpn);
+            if (!ok) {
+                bad++;
+            }
+            IOLog(VGPU_FB_TAG ": pt: page %u (lvl %u idx %u) want ppn %llu, got %llu %s\n",
+                  pg, lvl, idx, (unsigned long long)wantPpn, (unsigned long long)l1Ent,
+                  ok ? "OK" : "BROKEN");
+        }
+        IOLog(VGPU_FB_TAG ": pt: VERDICT %s (root[0]=%llu root[1]=%llu, %u lvl1 pages)\n",
+              (bad == 0) ? "*** page table resolves ***" : "*** page table is BROKEN ***",
+              (unsigned long long)r[0], (unsigned long long)r[1], ptLvl1Pages);
+    }
 
     UInt32 words[16];
 
@@ -1855,9 +3267,10 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     // DEFINE, so a zero entry (write-after-define) gives it an empty object.
     volatile UInt8 *mobTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffMobTable);
     UInt32 mobEntryOff = _stduMobId * kGbMobEntryBytes;
-    UInt32 mobDepth = kSvga3dMobFmtPt64_2;
+    UInt32 mobDepth = stduMobDepth;
+    UInt32 mobSize = (UInt32)stduBytes;
     memcpy((void *)(mobTable + mobEntryOff), &mobDepth, 4);
-    memcpy((void *)(mobTable + mobEntryOff + 4), &kStduBytes, 4);
+    memcpy((void *)(mobTable + mobEntryOff + 4), &mobSize, 4);
     memcpy((void *)(mobTable + mobEntryOff + 8), &rootPpn, 8);
     __asm__ volatile ("" ::: "memory");
 
@@ -1865,11 +3278,25 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     words[0] = kSvga3dCmdDefineGbMob64;
     words[1] = 20;
     words[2] = _stduMobId;
-    words[3] = kSvga3dMobFmtPt64_2;
+    words[3] = stduMobDepth;
     memcpy(&words[4], &rootPpn, 8);
-    words[6] = (UInt32)kStduBytes;
+    words[6] = (UInt32)stduBytes;
     if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": stdu: DEFINE_GB_MOB64 refused\n");
+        return;
+    }
+
+    // 2b. UPDATE_GB_MOB_MAPPING (§38): tell the host to (re)read this MOB's page tables.
+    //
+    // The guest-side probe above proves root -> L1 -> page resolves correctly, yet the
+    // host behaves as if mobid 2 maps to nothing (READBACK leaves a zeroed buffer zero).
+    // The one command that explains that gap is the notice that the mapping changed --
+    // svga3d_cmd.h describes it as exactly that, and it takes nothing but a mobid.
+    words[0] = kSvga3dCmdUpdateGbMobMapping;
+    words[1] = 4;
+    words[2] = _stduMobId;
+    if (!fifoSubmitWords(fifo, words, 3) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": stdu: UPDATE_GB_MOB_MAPPING refused\n");
         return;
     }
 
@@ -1908,7 +3335,7 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     memcpy((void *)(entry + 16), &ms, 4);
     memcpy((void *)(entry + 20), &filter, 4);
     memcpy((void *)(entry + 24), &kStduWidth, 4);
-    memcpy((void *)(entry + 28), &kStduHeight, 4);
+    memcpy((void *)(entry + 28), &kStduSurfHeight, 4);
     memcpy((void *)(entry + 32), &depth, 4);
     memcpy((void *)(entry + 36), &_stduMobId, 4);
     memcpy((void *)(entry + 40), &mips, 4);           // arraySize
@@ -1927,12 +3354,59 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     words[7] = 1;                   // multisampleCount
     words[8] = 0;                   // autogenFilter
     words[9] = kStduWidth;
-    words[10] = kStduHeight;
+    words[10] = kStduSurfHeight;
     words[11] = 1;                  // depth
     if (!fifoSubmitWords(fifo, words, 12) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": stdu: DEFINE_GB_SURFACE refused\n");
         return;
     }
+
+    // 4b. BIND_GB_SURFACE -- THE step that was missing (§37).
+    //
+    // DEFINE_GB_SURFACE only creates an empty surface object; it has no backing
+    // store until this command names one. Filling `mobid` into the surface otable
+    // entry does NOT do it -- the host learns the binding from this command.
+    //
+    // §37 found the consequence: SURFACE_DMA with transfer=WRITE_HOST_VRAM ran,
+    // fences passed, the FIFO advanced, and not one byte moved (readback into a
+    // zeroed scratch buffer came back 0/768 sampled words nonzero). A surface with
+    // no backing is exactly what a silently-dropped DMA looks like.
+    //
+    // SVGA3dCmdBindGBSurface { uint32 sid; SVGAMobId mobid; } -- 8 bytes, cmd 1099.
+    words[0] = kSvga3dCmdBindGbSurface;
+    words[1] = 8;
+    words[2] = _surfaceId;
+    words[3] = _stduMobId;
+    if (!fifoSubmitWords(fifo, words, 4) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": stdu: BIND_GB_SURFACE refused (sid %u -> mob %u)\n",
+              _surfaceId, _stduMobId);
+        return;
+    }
+    IOLog(VGPU_FB_TAG ": stdu: surface %u bound to mob %u (BIND_GB_SURFACE)\n",
+          _surfaceId, _stduMobId);
+
+    // 4c. UPDATE_GB_SURFACE (§38) -- the step that follows BIND in the reference driver.
+    //
+    // vmwgfx binds a guest-backed surface like this (vmwgfx_surface.c:vmw_gb_surface_bind):
+    //
+    //     SVGA_3D_CMD_BIND_GB_SURFACE   {sid, mobid}
+    //     SVGA_3D_CMD_UPDATE_GB_SURFACE {sid}          <- when guest_memory_dirty
+    //
+    // BIND only attaches the MOB; UPDATE_GB_SURFACE is what tells the host "the guest
+    // memory behind this surface has changed, re-read all of it". We were sending BIND
+    // and then going straight to UPDATE_GB_IMAGE at present time, so the host had a
+    // surface pointing at a MOB it had never been told to read -- which is precisely the
+    // symptom measured in §37: commands accepted, screens black, readback zero.
+    //
+    // SVGA3dCmdUpdateGBSurface { uint32 sid } -- 4 bytes, cmd 1102.
+    words[0] = kSvga3dCmdUpdateGbSurface;
+    words[1] = 4;
+    words[2] = _surfaceId;
+    if (!fifoSubmitWords(fifo, words, 3) || !fenceAck(fifo, &_fenceSeq)) {
+        IOLog(VGPU_FB_TAG ": stdu: UPDATE_GB_SURFACE refused (sid %u)\n", _surfaceId);
+        return;
+    }
+    IOLog(VGPU_FB_TAG ": stdu: UPDATE_GB_SURFACE accepted (sid %u)\n", _surfaceId);
 
     // 5. The screen target's OTable entry (its `image` field names the content surface --
     //    this is what was missing when the screen stayed black), then
@@ -1942,7 +3416,7 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     memcpy((void *)(stEntry + 0), &_surfaceId, 4);    // image.sid
     memcpy((void *)(stEntry + 4), &zero64, 8);        // image.face, image.mipmap
     memcpy((void *)(stEntry + 12), &kStduWidth, 4);
-    memcpy((void *)(stEntry + 16), &kStduHeight, 4);
+    memcpy((void *)(stEntry + 16), &kStduSurfHeight, 4);
     UInt32 zero32 = 0;
     memcpy((void *)(stEntry + 20), &zero32, 4);       // xRoot
     memcpy((void *)(stEntry + 24), &zero32, 4);       // yRoot
@@ -1983,7 +3457,7 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     words[1] = 28;
     words[2] = _stduStid;
     words[3] = kStduWidth;
-    words[4] = kStduHeight;
+    words[4] = kStduSurfHeight;
     words[5] = 0;                   // xRoot
     words[6] = 0;                   // yRoot
     words[7] = kSvgaStflagPrimary;
@@ -2006,7 +3480,7 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
         return;
     }
     _vramVirt = (void *)_vramMap->getVirtualAddress();
-    memcpy(_stduVirt, _vramVirt, kStduBytes);
+    memcpy(_stduVirt, _vramVirt, (IOByteCount)kStduWidth * kStduSurfHeight * 4);
 
     // 7. BIND then UPDATE -- the screen target shows surface sid 2 from here on.
     words[0] = kSvga3dCmdBindGbScreenTarget;
@@ -2026,7 +3500,7 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     words[3] = 0;                   // rect.x
     words[4] = 0;                   // rect.y
     words[5] = kStduWidth;
-    words[6] = kStduHeight;
+    words[6] = kStduSurfHeight;     // not kStduHeight: the surface is only 512 rows in PT64_1
     if (!fifoSubmitWords(fifo, words, 7) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": stdu: UPDATE_GB_SCREENTARGET refused\n");
         return;
@@ -2034,7 +3508,7 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
 
     _stduActive = true;
     IOLog(VGPU_FB_TAG ": stdu: screen target 0 (%ux%u) bound to surface %u on MOB %u -- "
-          "STDU present path is UP\n", kStduWidth, kStduHeight, _surfaceId, _stduMobId);
+          "STDU present path is UP\n", kStduWidth, kStduSurfHeight, _surfaceId, _stduMobId);
 
     // The DX round-trip is deferred to a present tick (~20 s after boot): running it
     // inline at IOFramebuffer start destabilises the guest later (see 2026-10-07 notes).
@@ -3678,6 +5152,21 @@ bool vgpuFramebuffer::start(IOService *provider) {
         return false;
     }
 
+    //
+    // §38.19: arm the GuestRpc heartbeat FIRST, before touching the device.
+    //
+    // The host expires its Tools heartbeat timer ~20 s after the last GuestRpc it saw, then
+    // declares the guest display dead and tears down the legacy RegisterMode screen in favour
+    // of a 1024x512 ScreenTarget of its own making. Measured load order on this box: the
+    // switch happens at boot+18 s, this start() runs at boot+19.6 s -- we have been losing
+    // that race by ~1.6 s every single boot, which is why §37/§38 never saw a lit screen.
+    //
+    // The heartbeat uses the backdoor port, which needs no SVGA FIFO, no modesetting and no
+    // aperture, so it can start right here. Everything later in start() can fail from here on
+    // and the display will still stay alive.
+    //
+    startRpcHeartbeat();
+
     IOPCIDevice *pci = OSDynamicCast(IOPCIDevice, provider);
     if (pci == nullptr) {
         IOLog(VGPU_FB_TAG ": provider is not an IOPCIDevice\n");
@@ -3755,11 +5244,19 @@ void vgpuFramebuffer::stop(IOService *provider) {
         _vramVirt = nullptr;
     }
     if (_stduPtMem != nullptr) {
+        if (_stduPtPrepared) {
+            _stduPtMem->complete(kIODirectionInOut);
+            _stduPtPrepared = false;
+        }
         _stduPtMem->release();
         _stduPtMem = nullptr;
         _stduPtVirt = nullptr;
     }
     if (_stduMem != nullptr) {
+        if (_stduPrepared) {
+            _stduMem->complete(kIODirectionInOut);
+            _stduPrepared = false;
+        }
         _stduMem->release();
         _stduMem = nullptr;
         _stduVirt = nullptr;

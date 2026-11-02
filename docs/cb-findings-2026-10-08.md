@@ -2399,3 +2399,1004 @@ distinct: 1
    （M6 当年用的是同一份代码，但那是**长寿 MKS**）。
 3. 若回读正确 ⇒ 问题在屏靶/显示侧，回到 P3 的 fresh-MKS 拓扑问题，
    届时 `UPDATE_GB_SCREENTARGET` 的 rect/绑定时序是主要嫌疑。
+
+---
+
+## §37 回读实验：宿主根本没往我们的缓冲区写一个字节
+
+### 37.1 设计
+
+§36.8 的第 1 步。`SURFACE_DMA` 有两种 transfer：
+`SVGA3D_WRITE_HOST_VRAM (1)`（guest→host，呈现用的那条）和
+`SVGA3D_READBACK (0)`（host→guest）。把前者换成后者，就能问宿主
+"**你以为 surface 2 里现在是什么**"。
+
+几个刻意的设计点：
+
+- 回读目标是一个**独立的 scratch 缓冲区**（3 MB，`kStduMobId + 100 = mobid 102`），
+  不是 `_stduVirt`。读回自己的源缓冲区是自证：宿主若静默丢弃 DMA，
+  里面仍然是我们画的图案，看起来像 PASS。
+- scratch 缓冲区先 `bzero`，所以"一个字节都没被写"与"写错了内容"
+  在结果里可区分。
+- page table 单独分配 3 页（root 1 + L1 2，768 项 × 8 B = 6144 B）。
+  GB 工作缓冲区的 4 KiB 页装不下 768 项的 L1 表，复用它会把
+  surface 1/2 已经在用的表踩坏。
+- MOB otable 条目在 `DEFINE_GB_MOB64` **之前**写入（宿主在处理 DEFINE 时快照条目，
+  这是 §26 踩过两次的坑）。
+- 回读由 `fenceAck` 夹住，比较在 fence 之后执行。
+
+### 37.2 实测（11-03 01:32 boot）
+
+```
+stdu: screen target 0 (1024x768) bound to surface 2 on MOB 2 -- STDU present path is UP
+present tick 1 (next 1644 stop 1644)
+present: STDU paint armed (red border, green top, blue bottom) first=0xffff0000 mid=0xff0000ff
+present tick 2 (next 1800 stop 1800)
+present tick 3 (next 1956 stop 1956)
+rb: px[0] src 0xffff0000 rb 0x00000000 DIFF
+rb: px[1] src 0xff00ff00 rb 0x00000000 DIFF
+rb: px[2] src 0xff0000ff rb 0x00000000 DIFF
+rb: px[3] src 0xffff0000 rb 0x00000000 DIFF
+rb: VERDICT *** MISMATCH *** (0/768 nonzero)
+```
+
+没有 `fence NOT acked`，说明 `DEFINE_GB_MOB64 mob 102` 和那条
+`SURFACE_DMA` 都被宿主收下并执行完了；之后呈现循环一路推进到
+tick 1800（`next 262136 stop 262136`），FIFO 也没被楔死。
+
+### 37.3 读法与它排除了什么
+
+关键在于 **`0/768 nonzero`**，而不只是"4 个采样点不同"：
+
+- 如果宿主写了缓冲区但内容不对（比如把别的 surface 送来），
+  nonzero 会是一个正常的大数字，采样点也会是别的颜色；
+- **全是 0 意味着那块物理内存从头到尾没有被 DMA 引擎碰过。**
+
+所以这不是"surface 2 的内容与我们以为的不同"，而是
+**`SURFACE_DMA` 在 guest→host 方向和 host→guest 方向上对 mobid 102 / sid 2
+这对组合都没有实际搬运**。
+
+结合 §36.7（同样的 `SURFACE_DMA` 用 mobid 2 写 sid 2，命令被消费、
+FIFO 推进，但屏上全黑），两条方向一致地指向同一个结论：
+
+> **这条 FIFO 上的 `SURFACE_DMA` 是被"接受"了，但没有完成任何内存搬运 ——
+> 宿主把它当作 no-op 吞掉了。**
+
+fence 能通过，说明命令流本身在推进；没有任何内存被写，说明
+`guest.ptr.gmrId` 指向的 MOB 没有被宿主解析成一张有效的页表。
+两种可能：
+
+1. **MOB otable 的 16 字节条目格式不对**，宿主读到的 root PPN 是垃圾或 0，
+   于是一次搬运都没有发生，且不报错（vmwgfx 里 gmrId 查不到时会直接
+   `return -EINVAL`，但那条路径属于 host 的另一套实现）；
+2. **`guest.ptr.gmrId` 在 GB 设备上不是 mobid**，而是需要先经过
+   `SVGA_3D_CMD_SET_MOB_VISIBILITY` / `DEFINE_MOB` 之外的某种注册。
+   M6 能出画面，说明当年这条路径是通的 —— 那么差异就在
+   **MOB 表条目格式**或 **surface 2 的 MOB 绑定方式**上。
+
+### 37.4 下一步：直接验证 MOB 表条目
+
+上面第 1 条可以用一个几乎零成本的实验定死：**把回读改成读 mobid 2
+自己**（也就是呈现用的那条 MOB），如果连它都返回全 0，那 MOB 表条目格式就是
+根因；如果它返回了正确图案，那问题只在 sid 2 的绑定侧。
+
+不过在动手前，应该先去 `vmwgfx_mob.c` 核对 `SVGAOTableMobEntry` 的真实布局 ——
+我们只在 §26 里按"depth/numPages/rootPpn"推断过，16 字节的推断从未与
+上游结构体逐字段比对过。**这正是 §36.1 的教训该用的地方：先读定义，再花启动周期。**
+
+---
+
+# §38 PT64_1 对照实验 + 上游逐字段核对：四个真 bug、一个假结论
+
+§37 结束时的问题很尖锐：`SURFACE_DMA` 两个方向都不搬字节，屏上全黑，
+而命令全被接受。§38 的任务是把它拆开。
+
+## 38.1 PT64_1 单级页表对照（完成）
+
+§38 的第一刀砍向"层级遍历"。PT64_2 需要两级、768 页；改成 **PT64_1 单级、
+1024x512、正好 512 页**，一次启动就能区分"两级表被我写错"和"层级不是卡点"。
+
+结果（`kStduPt1 = 1`）：
+
+```
+stdu: backing store 2097152 bytes (512 pages, 1024x512) at pt ppn 106980 (PT64_1)
+pt: page 0   (lvl 0 idx 0)   want ppn 106983, got 106983 OK
+pt: page 1   (lvl 0 idx 1)   want ppn 106984, got 106984 OK
+pt: page 256 (lvl 0 idx 256) want ppn 107239, got 107239 OK
+pt: page 511 (lvl 0 idx 511) want ppn 107494, got 107494 OK
+pt: VERDICT *** page table resolves ***
+```
+
+**结论：层级不是卡点。** PT64_2 时代的"页表可能有错"这条线彻底关闭。
+（PT64_1 保留为主配置：页更少、表更简单，排除一个变量。）
+
+## 38.2 宿主侧日志第一次给出正面证据（完成）
+
+这一轮查看了 `E:\Vboxs\MacOSX\MacOS-R15\vmware.log`，第一次拿到宿主对
+屏靶的**主动确认**：
+
+```
+SVGA-ScreenMgr: Screen type changed to ScreenTarget
+SWBScreen: Screen 1 Defined: xywh(0, 0, 1024, 512) flags=0x2
+MVNCEncode: MVNCEncode_ServerSetTopology - size: (1024, 512)
+MVNCEncode: Number of screens changed from 0 to 1
+MVNCEncode: screen: 0 BoundingBox: (1024x512) bytesPerLine: 4096
+MVNCRegionEncoder_Create: region encoder static. Screen 0/1 @ Resolution: 1024 x 512
+```
+
+**屏靶链路是完全激活的**：宿主切了 ScreenTarget、按我们的 1024x512 重建了
+VNC 拓扑、bytesPerLine = 4096 与我们的 pitch 一致。**"屏靶没生效"这条排除。**
+
+而 `region encoder static` 是这里最刺眼的一词：编码器认为画面静止，
+**宿主从未认为内容更新过** —— 这与"命令全接受、零报错"是同一件事的两面。
+
+## 38.3 逐字段核对上游结构体：全部一致（完成）
+
+把 `/tmp` 下的上游头文件与代码逐字段对了一遍，以下**全部正确**，不再怀疑：
+
+| 结构 / 命令 | 上游尺寸 | 我们的值 |
+|---|---|---|
+| `SVGAOTableSurfaceEntry` | 64 | 64 OK |
+| `SVGAOTableMobEntry` | 16 | 16 OK |
+| `SVGAOTableScreenTargetEntry` | 64 | 64 OK |
+| `SVGA3dCmdDefineGBScreenTarget` | 28 | 28 OK |
+| `SVGA3dCmdDefineGBSurface` (v1) | 40 | 40 OK |
+| `SVGA3dCmdBindGBScreenTarget` | 16 | 16 OK |
+| `SVGA3dCmdUpdateGBScreenTarget` | 20 | 20 OK |
+| X8R8G8B8 `pitchBytesPerBlock` | 4 | 4096 = 1024x4 OK |
+
+顺带核实了两条一直靠猜的语义：
+
+- **`mobPitch` 在整个上游驱动里只出现在结构体定义中，从来没有任何代码给它赋值**
+  （cotable 由宿主侧自己维护）。我们填 `width * 4` 无害但也无意义 —— 它不是差异点。
+- **GBOBJECTS 设备上判断 3D 就绪的唯一判据是 `SVGA3D_DEVCAP_3D != 0`**
+  （`vmwgfx_cmd.c:vmw_fifo_have_3d`），**完全不看 `SVGA_FIFO_3D_HWVERSION`**。
+  所以日志里 `3d hw version 0x0` / `3d capabilities advertised: 0 of 256`
+  是正常现象，不是问题。这条排除了"宿主认为 3D 未就绪所以命令无效"的猜想。
+
+## 38.4 真 bug 一：`dataMobId = 1` 的 MOB depth 违规（已修）
+
+上游 `vmw_mob_pt_populate()` 的规则是硬性的：
+
+```c
+if (likely(num_data_pages == 1)) {
+        mob->pt_level = VMW_MOBFMT_PTDEPTH_0;      /* base 页就是数据页 */
+        mob->pt_root_page = vmw_piter_dma_addr(&data_iter);
+} else {
+        ret = vmw_mob_pt_populate(dev_priv, mob);   /* 建页表 */
+        vmw_mob_pt_setup(mob, data_iter, num_data_pages);
+        mob->pt_level += VMW_MOBFMT_PTDEPTH_1 - SVGA3D_MOBFMT_PT_1;
+}
+```
+
+我们的 `dataMobId = 1` 是 **4 页**（`kGbDataPages = 4`），却写了 `PT64_0`，
+并且 base 指向 `ppnDataPt` —— **一张内容全是 PPN64 的页表页**。
+宿主于是把那张页当成"第一个数据页"读：不崩、不报错、fence 照过，
+surface 1 的内容就是垃圾。
+
+改成 `PT64_1` + `ptData[]`（本来就已经按页表格式填好了）：
+
+```cpp
+UInt32 mobDepth = kSvga3dMobFmtPt64_1;      // 上游：>1 页只能 PT64_1
+```
+
+这是全项目里**最后一处 MOB depth 违规**。其余（`ptSurface`/`ptOtable`/`ptSt`/
+DXCONTEXT 的 2 KiB 表）都是 <=1 页 + `PT64_0`，符合上游 `vmw_setup_otable_base()`
+的 `otable->size <= PAGE_SIZE -> PTDEPTH_0` 分支。
+
+**修完这一步，屏还是黑的** —— 说明它不是（唯一的）根因，但它确实是错的，
+而且它解释了为什么 `surface 1` 从来读不出东西。
+
+## 38.5 真 bug 二：FIFO 回绕死锁（已修，会复现）
+
+这一轮第一次看到 FIFO 彻底卡死：
+
+```
+present tick 1800 (next 262136 stop 262136)
+fifo submit refused: 84 bytes needed, 8 free      <-- 之后无限重复
+fifo submit refused: 12 bytes needed, 8 free
+fifo submit refused: 44 bytes needed, 8 free
+fifo submit refused: 28 bytes needed, 8 free
+```
+
+根因在 `fifoSubmitWords()` 的空闲量计算：
+
+```cpp
+/* 错： */
+const UInt32 bytesFree = (next >= stop) ? (fmax - next) : (stop - next);
+```
+
+上游（`vmwgfx_cmd.c:vmw_fifo_is_full` / `vmw_local_fifo_reserve`）是：
+
+```c
+return ((max - next_cmd) + (stop - min) <= bytes);     /* 满 */
+if (next_cmd >= stop) { ... (max - next_cmd) + (stop - min) ... }
+else                  { ... (next_cmd + bytes < stop) ... }
+```
+
+`next >= stop` 是**已回绕**的状态，此时空闲区由两段组成：
+`[next, max)` 和 `[min, stop)`。我们漏掉了第二段。于是 `next` 一旦冲到
+`fmax` 附近，`fmax - next` 变成个位数，我们就永远认为"没空间"并拒绝一切命令，
+**而实际上 `[min, stop)` 整段是空的**。
+
+修正后：
+
+```cpp
+const UInt32 bytesFree = (reNext >= stop) ? ((fmax - reNext) + (stop - fmin))
+                                          : (stop - reNext);
+```
+
+同时补了三处与上游对齐的行为：
+
+1. **真正满时等待** `STOP` 前进（上限约 3 s，对齐 `vmw_fifo_wait`），而不是直接丢命令。
+   丢一条多命令序列的中间一条，会让后半个命令被当成新命令头解析 —— 这是
+   "黑屏"变成"FIFO 中止"的经典路径。
+2. **`NEXT_CMD` 精确落在 `fmax` 时折回 `fmin`**（上游 `vmw_fifo_commit`：
+   `if (next_cmd >= max) next_cmd -= max - min;`）。留在 `fmax` 本身合法但让下一次
+   预算的 `(max - next)` 项归零。
+3. **检测 `NEXT_CMD` 被别人移动**（重启/控制台接管）时拒绝提交，不去追。
+
+> 这个 bug 之前一直没暴露，是因为呈现循环每帧只写约 90 字节，
+> 得跑约 4 分钟才绕一圈。§38 中 `SURFACE_DMA` 每帧 21 dword 把速度提上去，
+> 才把它逼出来。**它是真 bug，修掉之后 FIFO 才能长时间稳定。**
+
+## 38.6 真 bug 三：STDU 尺寸常量用错高度（已修，含堆越界写）
+
+`kStduBytes` 和 `kStduPages` 是从 `kStduHeight`（768）算的，而 STDU 相关的一切
+实际按 `kStduSurfHeight`（PT64_1 时 = 512）走。后果：
+
+- `kStduPages` 说是 768，而 MOB 和页表只装了 512 页 —— 页表末尾 256 项指向**不存在**的页；
+- `stduReadbackProbe()` 里 `bzero(virt, kStduBytes)` 按 3 MiB 清零一个
+  **2 MiB** 的分配 —— **越过分配边界写了 1 MiB**。这是内核堆破坏，只是没立刻崩。
+- `stduBringUp()` 里 `UPDATE_GB_SCREENTARGET` 的 rect.h 也是 768，
+  超出一个只有 512 行的 surface。
+
+全部改为 `kStduSurfHeight`。`kStduHeight` 只保留为注释里的历史值，禁止再用。
+
+## 38.7 真 bug 四：`SVGA3dTransferType` 用了未定义值 0（§37 结论作废）
+
+这是我这一轮最想记下来的错误。`svga3d_types.h`：
+
+```c
+typedef enum {
+        SVGA3D_WRITE_HOST_VRAM = 1,     /* guest -> host */
+        SVGA3D_READ_HOST_VRAM  = 2,     /* host -> guest (readback) */
+} SVGA3dTransferType;
+```
+
+**没有 0。** 而 `stduReadbackProbe()` 里写的是：
+
+```cpp
+dma[8] = 0;     /* "transfer = SVGA3D_READBACK"  <-- 这个枚举值不存在 */
+```
+
+§37 的整个结论 —— "READBACK 进清零缓冲区，768 个采样点全 0，所以
+`SURFACE_DMA` 在本宿主是 no-op" —— **测的是一条畸形命令**。
+
+更直接的旁证在宿主校验器里（`vmwgfx_execbuf.c:vmw_cmd_dma`）：
+
+```c
+dirty = (cmd->body.transfer == SVGA3D_WRITE_HOST_VRAM) ? VMW_RES_DIRTY_SET : 0;
+```
+
+它正是按这个字段分派。而 `vmwgfx_stdu.c` 的注释明确说：xorg 的 vmware 驱动
+会针对 pixmap 更新发 `CMD_SURFACE_DMA` —— 即这条命令**在屏靶上是被实际使用、
+能工作的**。
+
+改成 `dma[8] = 2` 之后重测……**回读依然是全零**。所以：
+§37 的**方法**是错的，但它的**结论在这个宿主上碰巧还没被推翻**。
+留待 §39 用别的手段验证。
+
+## 38.8 上游 STDU 呈现路径到底发什么（推翻了 §37.4 的推测）
+
+读完 `vmwgfx_stdu.c` 的两条 commit 路径，结论很干脆：
+**上游 STDU 呈现链路里没有 `UPDATE_GB_IMAGE`。**
+
+- **CPU 路径**（`vmw_stdu_bo_cpu_commit`）：`vmw_bo_cpu_blit()` 直接 CPU 拷进 BO，
+  然后**只发** `UPDATE_GB_SCREENTARGET`。`fifo_reserve_size = 0`，一个命令都不发。
+- **GPU 路径**（`vmw_kms_stdu_surface_fifo_commit`）：`SURFACE_COPY`（源 sid -> 显示 sid）
+  + `UPDATE_GB_SCREENTARGET`；源 sid 就是显示 sid 时**连 COPY 都不发**。
+
+所以 §37.4 抄的那句"M6 靠 UPDATE_GB_IMAGE 生效"的推测**是错的**，
+`UPDATE_GB_IMAGE` 在呈现链上是个纯噪声命令。当前循环真正的形状应当对齐
+**CPU 路径**：写 MOB 内存 -> 一个 `UPDATE_GB_SCREENTARGET`。
+
+`vmw_stdu_populate_update()` 也顺带核实了 rect 的语义是 `{x, y, w, h}`
+（不是 l/t/r/b），我们传 `0,0,1024,512` 是对的。
+
+## 38.9 对照实验（失败但信息量大）：直接写 VRAM + legacy UPDATE
+
+为了把"宿主读不到 GB surface"和"宿主读不到任何东西"分开，
+加了 `kStduVramControl`：每帧把同样的图案写进 **BAR1（legacy framebuffer）**，
+并额外发 `SVGA_CMD_UPDATE`。
+
+**结果：VNC 依然纯黑，1 种颜色。**
+
+这个结果本身就有结论：宿主一旦把 screen type 切成 `ScreenTarget`，
+**legacy 的 `UPDATE` 就被忽略**，像素只从绑定到屏靶的 surface 来。
+所以对照组设计有缺陷（它验证的是一个已知结论），
+不过它也排除了"VNC/编码器坏了"这一类底层猜测 —— 通路本身没坏，
+只是内容源被换了。
+
+> `kStduVramControl` 是诊断开关，会把屏内容毁掉，答完就该关回 0。
+
+## 38.10 §38 净结论
+
+**已修（确定是 bug，与黑屏的因果未定）**
+
+1. `dataMobId = 1` 用 `PT64_0` 描述 4 页 —— 改为 `PT64_1`。
+2. FIFO 回绕时漏算 `[min, stop)` 段 —— 回绕后永久拒绝提交（**会复现的死锁**）。
+3. `kStduBytes`/`kStduPages` 用 768 而非 512 —— 页表多 256 项悬空 +
+   `bzero` 越界写 1 MiB。
+4. `SURFACE_DMA.transfer = 0`（未定义枚举）—— 改为 `READ_HOST_VRAM = 2`。
+
+**已确定排除**
+
+- PT64_2 两级表遍历（§38.1）
+- 屏靶 / VNC 拓扑未生效（§38.2）
+- 所有结构体尺寸与字段（§38.3）
+- `mobPitch`（上游从不赋值）
+- 宿主认为 3D 未就绪（GBOBJECTS 只看 `DEVCAP_3D`，=1）
+- IOMMU（§37 已排除：`IOMapper=0`、`AppleVTD=0`）
+
+**还没解释的核心事实**
+
+宿主接受每一条命令、零报错、`stop` 每次都瞬间追平 `next`、屏靶定义成功，
+但**内容永远是零**（VNC 全黑 + `READ_HOST_VRAM` 回读全零）。
+`region encoder static` 说明宿主从未认为画面有更新。
+
+## 38.11 下一步（§39 的候选，按信息量排序）
+
+1. **`UPDATE_GB_SCREENTARGET` 的 rect 是否被宿主用来做"脏区"判定**：
+   若宿主只在 rect 与"上次已呈现区域"求差时才搬像素，`region encoder static`
+   就说得通了 —— 每一帧都是同一个全屏 rect，差集为空。改为交替发不同子矩形
+   （例如奇数帧左半、偶数帧右半）可以验证。
+2. **用 `SURFACE_COPY` 走 GPU 路径**：造一个 sid 3 的普通 surface，
+   把图案写进去 -> `SURFACE_COPY {src: 3, dest: 2}` -> `UPDATE_GB_SCREENTARGET`。
+   这条路径命令语义更"重"，宿主必须真的读一块 surface 内存才能完成 copy，
+   如果它能出画面，就说明"直写 MOB 被宿主忽略"而 COPY 不会。
+3. **验证 `_stduVirt` 的物理页在宿主 DMA 视角是否可达**：
+   当前是 `inTaskWithPhysicalMask(..., 0xFFFULL)` 的普通分配。
+   上游 MOB 背后是 `TTM_PL_MOB` 的 BO，走 GMR/TTM 管理。
+   可以在 `_stduMem` 上挂 `IODMACommand` 拿到设备视角地址，
+   与 `getPhysicalSegment()` 的 PPN 对比 —— 若 gfx 侧的地址翻译层不是 1:1，
+   这就是最后一块拼图。
+
+## 38.12 决定性割离：完全不用页表的 MOB，屏仍全黑（2026-11-03 03:22）
+
+§38 之前的所有实验都在同一个阴影下：宿主读零，可能是**页表解析失败**（PPN64 编码、
+页数取整、PT 深度），也可能是**呈现链不采样**，两者混合在一条路径上，任何测量都分不清。
+
+`kStduFlat` 把前者从画面里彻底删除：
+
+- MOB 定义成 `PT64_0`，`size = 4096`，`basePpn` 就是这个 4 KiB 页本身。
+  宿主走的是 `otable 条目 -> basePpn -> 数据`，**中间没有任何页表**。
+  （mksSandbox 显示宿主接受 PT64_0——DX 上下文的 MOB 就是 PT64_0。）
+- surface 声明为 `1024x1`（pitch 4096×1 = 4096 = 一个页），全部 payload 正好一页。
+- 屏靶仍是完整的 1024×512，`struct` 其余字段、sid、mobid、stid、命令顺序
+  与正常路径逐字节相同。
+
+结果（03:22:01 那次启动）：
+
+```
+flat: MOB 2 defined (PT64_0, base ppn 114147, 4096 bytes)
+flat: surface 2 defined 1024x1 on mob 2, bound and updated
+flat: screen target 0 (1024x512) bound to surface 2 -- STDU present path is UP, page table NOT involved
+flat: present armed (1024x512 panel, 4 KiB MOB, colour 0xff00ff00) first word 0xff00ff00
+```
+
+VNC 截图：1024×512，**distinct = 1，纯黑 (0,0,0) 524288 px**。
+宿主 `vmware.log` 同一次启动内仍然只有：
+
+```
+SVGA-ScreenMgr: Screen type changed to ScreenTarget
+SWBScreen: Screen 1 Defined: xywh(0, 0, 1024, 512) flags=0x2
+MVNCEncode: screen: 0 BoundingBox: (1024x512) bytesPerLine: 4096
+MVNCRegionEncoder_Create: region encoder static. Screen 0/1 @ Resolution: 1024 x 512
+```
+
+之后零条 region update。
+
+**结论：页表是清白的。** 无论 §38 里那些 PT64_1/PT64_2/页表布局的分析有多细，
+它们都不是黑屏的原因。剩下的可能性只存在于「宿主是否采样我们绑定的 surface」
+这一步。
+
+顺带记一个副作用：`kStduFlat = 1` 让 `stduBringUp` 的前半段成为不可达代码，
+优化器把它们整个删掉，`build.sh` 的可达性检查因此报 5 条 `MISSING`
+（`surface %u bound to mob %u`、`UPDATE_GB_SURFACE accepted`、
+`UPDATE_GB_SURFACE refused`、`pt: VERDICT %s`、`UPDATE_GB_MOB_MAPPING refused`）。
+这不是构建坏了 —— 是那两个模式互斥。`build.sh` 已改为按开关二选一：
+`kStduFlat = 1` 时检查 flat 的 4 条标记，否则检查原来那 8 条。
+保留这个检查比删掉它更有价值，因为它恰好证明了「mode B 真的是死代码」，
+而不是「我以为编译器会删、其实它没删」。
+
+## 38.13 回读宿主副本：一条被自己的对照实验推翻的证据（2026-11-03 03:33）
+
+思路：`READBACK_GB_IMAGE`（1103，`{sid, face, mipmap}` = 12 字节）让宿主把它
+**内部持有的 surface 内容**写回该 surface 当前绑定的 MOB。所以造一个独立的
+scratch MOB（mobid 102，同样 PT64_0，独立分配），把 surface 重绑上去再回读：
+
+- 先把页填成一个从未显示过的橙色 marker `0xFF00A5FF`
+- 发 `UPDATE_GB_IMAGE` + `UPDATE_GB_SCREENTARGET`（与呈现循环完全相同的两条）
+- 重绑 surface 2 -> mobid 102
+- 请求 readback，fence 保证比较发生在宿主写完之后
+
+结果：
+
+```
+flatrb: host surface 2 -> 0/1024 words nonzero, 0 match the marker 0xff00a5ff
+        VERDICT *** host holds nothing ***
+```
+
+第一眼这像是重磅证据：宿主自己的副本里一个字节都没有，连刚写进去的 marker 都没有。
+
+**然后加了对照组，它就作废了。** 紧接其后，在**不修改源页**的情况下再发一次
+readback（此时 surface 仍绑在 scratch MOB 上，内容仍是 marker）：
+
+```
+flatrb: control readback -> 0/1024 words nonzero
+        -- READBACK writes nothing on this host
+```
+
+对照组的结论是：**`READBACK_GB_IMAGE` 在这台宿主上根本不写入任何东西。**
+
+于是第一次的「0/1024」只能说明 readback 不工作，**不能**说明宿主副本是空的。
+这条证据被自己的对照组推翻了 —— 记下来是因为它是个容易重复踩的坑：
+上一版 §37.3 的「READBACK 全零 ⇒ DMA 是 no-op」也建立在同一个未经验证的前提上，
+同样不成立。**凡是靠 readback 得出的结论，在这台宿主上都不可信。**
+
+`GB_SCREEN_DMA`（1131，宿主把屏幕内容写进 guest MOB）本来是同方向的另一条通路，
+但被宿主拒绝（`sd: GB_SCREEN_DMA refused`）——这与上游 `vmwgfx_cmd.c` 里
+`SVGA_3D_CMD_GB_SCREEN_DMA` 标 `vmw_cmd_invalid`（Linux 自己也从不发）一致。
+
+**所以现在「宿主内部有没有我们的像素」这个问题，在 guest 侧没有任何可用的
+读取手段。** 只能从宿主侧看。
+
+## 38.14 当前状态与下一步
+
+已经确定的事实（每一条都有对照）：
+
+1. GB 对象模型起来了：otable、MOB、surface、屏靶全部定义成功，宿主零报错。
+2. 页表清白（§38.12 的无页表对照）。
+3. 宿主的 MKS 确实切到了 ScreenTarget 模式，并设好了 1024×512 拓扑。
+4. 宿主的 region encoder 此后**再也没有产生过一次 region update**。
+5. guest 侧无法回读宿主副本（`READBACK` 不写入，`GB_SCREEN_DMA` 被拒）。
+
+第 4 条是唯一还站得住的、指向呈现链的硬证据。
+
+下一步只剩两个方向，都不再依赖 guest 侧回读：
+
+**A. 让宿主自己说。** 宿主日志里 `svga.forceTraces = "TRUE"` 已开，
+但 `vmware.log` 里没有任何 FIFO 命令级 trace。需要找到 Workstation 26 里
+把 svga 命令流写进日志的开关（候选：`svga.traceLevel`、`svga.commandLog`、
+hostd 侧的 `mks.forceTraces`），让宿主打印它实际处理了哪些命令、
+以及 `UPDATE_GB_SCREENTARGET` 之后它往编码器丢了什么。
+
+**B. 换一条完全不同的呈现通路做对照。** §38.12 的 `SURFACE_COPY` GPU 路径
+（建 sid 3 普通 surface，`SURFACE_COPY {src:3, dest:2}` + `UPDATE_GB_SCREENTARGET`）
+还没跑过。它和 CPU 路径的区别在于：宿主必须真的解引用一块 surface 内存才能完成
+copy，如果它能出画面，说明「直写 MOB」这条路本身被宿主忽略。
+
+**优先级：A > B。** 因为 B 仍然落在同一条 screen target 链上，
+如果 4 号事实的原因在「宿主为什么不刷新编码器」，B 会以同样的方式黑屏；
+而 A 能把这个问题从猜测变成读日志。
+
+**另一个必须重新评估的前提**：`svga.guestBackedPrimaryAware = "TRUE"` 是
+Workstation 的屏幕管理策略开关，社区里大量「VMware 黑屏」报告的第一处置办法就是
+把它改成 `FALSE`。它和 `ScreenTarget` 模式直接相关。§38 全程都是 TRUE。
+在启动 B 之前，先用它做一次单变量对照是更低成本的选择 —— 注意改 `=FALSE` 会让
+宿主回到 RegisterMode（legacy 帧缓冲），那时 §38 之前的 legacy 呈现路径
+（`SVGA_CMD_UPDATE` + BLIT_GMRFB_TO_SCREEN，M6 曾成功的那条）才是对的那条路。
+
+## 38.15 宿主侧 trace 开关：被接受，但没有任何命令级输出（2026-11-03 03:37）
+
+在 vmx 里加了四个候选键，虚拟机**关机状态下**写入（`vmrun -T ws start ... nogui` 之前）：
+
+```
+svga.traceLevel = "9"
+svga.commandLog = "TRUE"
+svga.logCmdStream = "TRUE"
+mks.sandbox.log.fifoLevel = "9"
+```
+
+`vmware.log` 的 `DICT --- CONFIGURATION ... .vmx` 段里四行都出现了
+（清单在 500/506/507/508 行），说明 **vmx 语法有效、被读进了配置字典**。
+但整份日志里没有一行 FIFO 命令级 trace：没有 `SVGA` cmd id、没有 `UPDATE_GB_SCREENTARGET`、
+没有 FIFO pointer 移动记录。`svga.forceTraces = "TRUE"` 本来也一直开着，同样没有输出。
+
+**结论：这个 Workstation build 的命令级 trace 不经过 `vmware.log`。** 方向 A 到此关闭，
+不再花时间找开关。
+
+**顺带发现一条更重要的东西**：`svga.guestBackedPrimaryAware` 在**开机瞬间被重写**。
+把 vmx 改成 `"FALSE"`、虚拟机确认关机，`vmrun start` 之后该键又变回 `"TRUE"`，
+vmx 的 mtime 正好等于 `vmware.log` 里 `19:49:25.028`（PowerOn 那一刻）。
+日志 493 行的 DICT 打的就是 `"TRUE"`，也就是说 §38.16 第一次尝试**根本没生效**，
+不是「改了没用」，而是「改了被改回去了」。
+
+它是 Workstation 的**规范化键**（类似 `cleanShutdown`、`ethernet0.generatedAddress`），
+`vmx` 里写什么都会被规范化写回覆盖。结论：**这个开关在本机上无法用 vmx 改**，
+§38.16 的单变量对照不能靠它做。
+
+## 38.16 决定性对照：宿主 legacy 通路在同一颗 kext 下能出画面，ScreenTarget 不能（2026-11-03 04:0x）
+
+既然 vmx 改不动 `guestBackedPrimaryAware`，就换一个问法 —— 这个问法**不需要改任何宿主配置**：
+
+> 宿主在开机后**自己**会先进 RegisterMode（legacy 帧缓冲，1024×768，
+> `SWBScreen: Screen 1 Defined`），约 25 秒后才因为我们发出的
+> `DEFINE_GB_SCREENTARGET` 切到 ScreenTarget（1024×512）。
+> **那 25 秒里，屏是黑的还是亮的？**
+
+如果是亮的：legacy 通路在同一颗 kext、同一台宿主上本来就工作，
+那么「黑屏」是 ScreenTarget 这条链的属性，而不是更上游（FB/VRAM 映射）的问题。
+如果是黑的：问题在 kext 加载之前，跟呈现通路无关。
+
+**做法**：关机 → 冷启动 → 从 t0 起每秒 VNC 采样一次，共 45 次
+（`tools/vncsnap.py`，脚本 `/tmp/regcap.sh`）。采样起点就是 `vmrun start` 返回的那一刻。
+
+**结果（`.shots/reg/t*.png`，按实际秒数命名）**：
+
+| 采样 | 尺寸 | 颜色数 | 主要内容 |
+|---|---|---|---|
+| t00 | 640×480 | 1 | 纯黑（VNC 刚连上，还没画面） |
+| t03 | 1024×768 | 1 | 纯黑 |
+| **t04** | 1024×768 | **92** | **"VMware" 引导 logo**（bbox x[292..743] y[349..418]） |
+| t06–t08 | 1024×768 | 17 | 切换到 Apple 启动界面 |
+| **t10–t27** | 1024×768 | **29** | **Apple logo + 底部进度条**（进度条逐秒变长：906→618 px） |
+| t29 起 | 1024×512 | 1 | **纯黑**（已切到 ScreenTarget） |
+
+t04 的内容用 ASCII 位图还原出来是清清楚楚的 "VMware" 五个字母；
+t16 是 Apple logo 的大圆环 + 屏幕底部一条进度条。两者都不是噪声。
+
+**这是 §38 全程第一个「屏上有东西」的观测。**
+
+### 判定
+
+1. **legacy 帧缓冲通路可用**，而且是在**同一颗 kext 加载的同一台机器**上、
+   同一份 FB 映射、同一段 VRAM 下可用。上游（PCI 映射、VRAM、`enableController`）
+   全部清白 —— 这一条把 §38 之前所有「FB 没映射上」的猜测一次性排除了。
+2. **黑屏是 ScreenTarget 这条链的属性。** 宿主一旦被我们的
+   `DEFINE_GB_SCREENTARGET` 切过去，屏就再没亮过，哪怕 24 秒前它还在正常输出
+   Apple logo。§38 里「region encoder 从未产出 region update」这条硬事实，
+   根因不在编码器，而在 **ScreenTarget 模式本身在这个 Workstation build 上不出图**。
+3. **§38.14 的优先级判断要改**：当时把方向 A（让宿主说话）排在 B（换通路）前面。
+   现在 A 已确认关闭，而 B 的变体 —— **回到 legacy 通路** —— 从「候选」升级为
+   **唯一已知能出画面的方案**。
+
+### 代价与下一步
+
+legacy 通路的代价是：**分辨率必须由宿主在 RegisterMode 里决定**（1024×768），
+我们不能再自己 `DEFINE_GB_SCREENTARGET` 成 1024×512。M6（commit b89c619）
+当年成功的那条路就是 `SVGA_CMD_UPDATE` + `SVGA_CMD_BLIT_GMRFB_TO_SCREEN`，
+它不需要 screen target 对象，直接操作 host 端的可见帧缓冲。
+
+下一步（§39）：把 kext 的呈现后端从 `kStduFlat` 切回 legacy：
+- 不调 `DEFINE_GB_SCREENTARGET`（让宿主留在 RegisterMode）
+- 用 `SVGA_CMD_BLIT_GMRFB_TO_SCREEN` 从我们的 MOB/GMR 往屏上 blit
+- `SVGA_CMD_UPDATE` 声明脏矩形
+
+这样做的直接后果：**宿主不会切到 ScreenTarget，那 24 秒能显示 Apple logo 的通路会保持可用。**
+
+## 38.17 采样器本身在制造它想测的故障（2026-11-03 04:00）
+
+§38.16 的结论要先打一个折扣，因为第一次对照不干净，第二次才找到真凶。
+
+### 第一次对照为什么不干净
+
+`/tmp/regcap.sh` 里用 `tools/mssh.py --sudo "/sbin/shutdown -h now"` 关机，
+然后轮询 `vmrun list` 等它消失。结果：`off after 30s` 立刻打印，`vmrun start` 紧跟着执行。
+但客户机的 `kern.boottime` 显示它当时**根本没关过**（`up` 时间连续）。
+macOS 经 SSH 收到的 `shutdown -h now` 需要 admin 授权，静默失败。
+`vmrun list` 那 30 秒里返回空只是关机过程的短暂空窗，脚本据此判定「已关」是错的，
+`vmrun start` 于是重新 attach 到**同一个活实例**上。
+
+那次采到的 t04「VMware」logo 和 t16「Apple logo + 进度条」是真实的，
+但它们属于**一次正在进行的启动**，不是冷启动对照。
+
+**教训**：关机一律用 `vmrun -T ws stop "$VMX" hard`，它不问客户机、立即生效。
+轮询确认要等 `vmrun list` **稳定**返回 0 条，并且和客户机 `kern.boottime` 对得上。
+
+### 第二次对照（`/tmp/regcap2.sh`，强制关机 + 每秒单帧采样）
+
+时间轴（客户机 boot `03:59:0x`，宿主日志 UTC `19:59:0x`）：
+
+| 宿主时刻 | 事件 | 采样 | 画面 |
+|---|---|---|---|
+| 19:59:07.493 | `Screen type changed to RegisterMode`，Screen 1 = 1024×768 | t04– | 黑 |
+| 19:59:0x | 客户机 boot，Apple 阶段 | **t06–t33** | **Apple logo + 进度条，27 秒** |
+| 19:59:38.284 | `Guest display topology changed: numDisplays 0` | | |
+| 19:59:38.284 | `SWBScreen: Screen 1 Destroyed: 1024x768` | | |
+| 19:59:38.459 | `Screen type changed to ScreenTarget`，Screen 1 = 1024×512 | **t35–** | **全黑** |
+
+看起来是干净的「legacy 亮 / ScreenTarget 黑」。**但紧邻 `numDisplays 0` 的上一行才是关键：**
+
+```
+19:59:38.019  mks  SOCKET 31 (2952) recv detected remote shutdown
+19:59:38.019  mks  SOCKET 31 (2952) VNC Remote Disconnect: socket closed.
+19:59:38.019  mks  MKSControlMgr: Remove VNC connection 22
+19:59:38.020  mks  MKSRemoteMgr: CleanupConnection (numConsoles=0)   <-- 角标归零
+19:59:38.284  svga Guest display topology changed: numDisplays 0
+19:59:38.284  svga SWBScreen: Screen 1 Destroyed: xywh(0,0,1024,768)
+19:59:38.459  svga Screen type changed to ScreenTarget
+```
+
+`SOCKET 31` 是 **`vncsnap.py` 自己的连接**。它拍完一帧就 `close()`，
+MKS 把「最后一个控制台断开」当成没人看了，于是摘掉显示器 → `numDisplays 0`
+→ ScreenMgr fallback 到 1024×512 ScreenTarget。
+
+**也就是说：每秒重连一次的采样循环，每拍一帧就把宿主往 ScreenTarget 踢一次。**
+它测到的不是驱动的行为，是它自己的副作用。VNC 断开与切换之间隔了 265 ms，
+因果顺序明确。
+
+这个结论往回追溯，对 §38 全程都有影响：凡是「宿主的屏幕模式不对」的观测，
+都要先问一句「采样器当时连着吗、连了几个」。
+
+### 修正后的实验纪律（以后所有屏幕实验都适用）
+
+1. **采样必须长连接**。为此新增 `tools/vncloop.py`：一次握手，连续取 N 帧，
+   整个过程不关 socket。（`vncsnap.py` 仍适合拍单张，但**不能在循环里用**。）
+2. **每次实验前记录 `numConsoles`**。宿主日志里 `AddRemoteConsole` /
+   `CleanupConnection (numConsoles=N)` 是硬指标。
+3. 判定「宿主切了模式」时，必须同时看**断开事件**和 `numDisplays`，
+   不能只看 `Screen type changed`。
+
+### 尚未回答的问题
+
+- 如果全程保持一条连接，宿主会不会一直停在 RegisterMode、画面一直亮？
+  → 正在跑 `/tmp/regcap3.sh`（强制关机 → 启动 → `vncloop` 单连接 60 帧）。
+- 如果会，那么「ScreenTarget 不出图」这件事**有可能从头到尾就不存在**，
+  §38 的整个方向要重估。
+
+## 38.18 真凶：这台客户机从未安装 VMware Tools，宿主因心跳超时放弃 legacy 模式（2026-11-03 04:06）
+
+§38.17 里我把「切 ScreenTarget」归因于采样器的 VNC 反复断连。**这个归因是错的**，
+`vncloop.py` 单连接重跑一次就推翻了它。真正的触发者在这份日志里写得很直白。
+
+### 单连接对照（`/tmp/regcap3.sh` → `tools/vncloop.py`，一条 socket 贯穿启动）
+
+宿主 `vmware.log`（UTC，客户机本地 = UTC+8）：
+
+| 宿主时刻 | 客户机本地 | 事件 |
+|---|---|---|
+| 20:04:09.276 | 04:04:09 | `Tools: sending 'OS_PowerOn'`，`Delaying state change request` |
+| 20:04:10.190 | 04:04:10 | `Tools: Running status rpc handler: 0 => 1`（宿主给的初始值） |
+| 20:04:10.652 | 04:04:10 | `Screen type changed to RegisterMode`，Screen 1 = **1024×768** |
+| 20:04:16.357 | 04:04:16 | `AddRemoteConsole (numConsoles=0)` ← **唯一的 VNC 连接，全程未断** |
+| — | 04:04:18 | 客户机 kernel boot（`kern.boottime`） |
+| 20:04:35.136 | 04:04:35 | **`Tools: Tools heartbeat timeout`**（上次心跳 20 秒前） |
+| 20:04:35.136 | 04:04:35 | `Running status rpc handler: 1 => 0` |
+| 20:04:35.756 | 04:04:35 | `Guest display topology changed: numDisplays 0` |
+| 20:04:35.756 | 04:04:35 | `SWBScreen: Screen 1 Destroyed: 1024x768` |
+| 20:04:35.902 | 04:04:35 | `Screen type changed to **ScreenTarget**`，Screen 1 = **1024×512** |
+| — | 04:04:37.328 | **kext `start`** —— 比切换晚 1.6 秒 |
+| — | 04:04:37.491 | kext 发 `DEFINE_GB_SCREENTARGET`，绑到那个已被抛弃的空靶上 |
+| 20:04:36.413 | 04:04:36 | `MVNCEncodeBackend: Bogus expose rectangle 0,0 1024x768 mode 1024x512` |
+| 20:04:36.421 | 04:04:36 | `MVNCEncode: pump failed, error 5` → `VNC Error (5)` |
+| 20:04:36.422 | 04:04:36 | `CleanupConnection (numConsoles=0)` ← **宿主踢掉连接**（不是我们主动关） |
+
+三个关键点：
+
+1. **VNC 全程只有一条连接，`numConsoles` 从未归零直到被宿主踢掉。**
+   `numDisplays 0` 出现在 `20:04:35.756`，而连接是 `20:04:36.422` 才被清理 ——
+   **切换在前，断连在后，因果顺序和 §38.17 说的相反。**
+2. **触发者是 `Tools heartbeat timeout`。** 这跟 VNC 无关、跟我们的 kext 也无关。
+3. **kext 是切完之后 1.6 秒才加载的。** 我们从未「让」宿主切模式 —— 我们只是
+   接手了一个宿主已经放弃的、几何被改成 1024×512 的空靶。
+
+### 根因取证
+
+追到这一步只剩一个问题：为什么 Tools 心跳会超时？答案：
+
+```
+$ ls "/Library/Application Support/VMware Tools/"   -> 不存在
+$ ps aux | grep -i vmware                            -> 空
+$ sudo launchctl list | grep -i vmware               -> 空
+$ kmutil showloaded | grep -i vmware                 -> 空
+$ ls /Library/LaunchDaemons/ | grep -i vm               -> 空
+```
+
+**这台客户机上从来没有安装过 VMware Tools。** `/Library/Application Support/`
+下只有 Apple、BTServer、CrashReporter、Mozilla、ProApps、Script Editor 六个目录。
+
+`Tools: Running status` 是 guest 通过 **GuestRpc backdoor** 主动上报的，
+而唯一的常规上报者就是 VMware Tools。Tools 不存在 ⇒ 宿主在开局 20 秒后收不到心跳
+⇒ 判定「客户机没有活着的显示」⇒ `numDisplays 0` ⇒ 销毁 legacy Screen 1
+⇒ fallback 到 ScreenTarget 1024×512 ⇒ 我们所有 3D 呈现都画在一个死靶上。
+
+### 这条结论把 §38 整段重新定性
+
+§38.1–§38.14 试过的所有变量 —— MOB 格式（PT64_0/PT64_1/PT64_2）、页表层次、
+surface 尺寸、`UPDATE_GB_SURFACE` vs `UPDATE_GB_IMAGE`、rect 语义、
+`READBACK` / `GB_SCREEN_DMA`、DX 上下文 —— **全部不是根因**。
+它们的共同前提是「宿主正用 ScreenTarget 呈现我们的 surface」，而这个前提从一开始就不成立：
+
+- 宿主进 ScreenTarget 是因为**它以为客户机死了**，不是为了配合我们；
+- 那个 ScreenTarget 是 fallback 产物，几何 1024×512 与 legacy 的 1024×768 不一致，
+  VNC encoder 在两者之间来回撞（`Bogus expose rectangle`），pump 直接失败；
+- 于是**哪怕我们的 GB 对象模型完全正确、宿主零报错，屏上也不可能有东西**。
+
+§38.12 的「页表清白」、§38.16 的「legacy 能出画面」两条结论依然成立，
+而且现在有了统一的解释：**legacy 能出画面正是因为那 25 秒里 Tools 心跳还没超时。**
+
+### 下一步：两条候选，优先 B
+
+**A. 装 VMware Tools。**
+`darwin.iso` 在宿主 `C:\Program Files\VMware\VMware Workstation\darwin.iso`，
+客户机 macOS 15.7.3 + SIP kext 签名已关，装得上。
+**但代价很高**：Tools 会带 `VMwareGfx.kext`，它极可能抢绑 `pci15ad,405`，
+把自研 `vgpuFramebuffer` 挤出局 —— 直接毁掉本项目的测试环境。
+**否决**，除非只装用户态部分（安装包不支持拆分）。
+
+**B. 在 kext 里直接发 GuestRpc 心跳。**
+心跳走 **GuestRpc backdoor**，不需要 Tools 的任何组件：
+
+```
+eax = 0x564D5868 ("VMXh")      magic
+ecx = cmd                      BDOOR_CMD_MESSAGE = 30，低 16 位是命令
+ebx = channel                  RPCI channel number
+edx = 0x5658 (low bandwidth port)
+执行 inl (%dx), %eax           一次调用；返回 eax = 状态
+```
+
+Tools 上报 running status 用的 RPC 是 `Set_Option` / 或直接的
+`vmx.capability.unity`-系调用；最小可行集合是发一个
+`tools.capability.running_status` 系的心跳包，让宿主持续收到心跳即可。
+
+kext 里已经有 `outl`（`vgpuOut32`）和完整的端口 IO 前提，
+加一个 `inl` 包装和一条 `BDOOR_CMD_MESSAGE` 就够了。**代价远低于装 Tools，且不碰显卡绑定。**
+
+**B 必须先验证的一件事**：宿主现在就处于 ScreenTarget。
+如果 kext 开始发心跳，宿主会不会**主动切回** RegisterMode？
+如果会 —— 那 §38 的整个方向可以收尾，呈现改走 legacy + `BLIT_GMRFB_TO_SCREEN`（M6 那条路）。
+如果不会 —— 说明宿主「一旦 fallback 就不回头」，那就必须保证**心跳在第一次超时之前就起来**，
+也就是 kext 要尽早加载（现在 kext 加载时刻 04:04:37 晚于超时 04:04:35 只有 2 秒，
+把 kext 提前到 boot 后 20 秒内即可，可行性取决于 IOKit 的匹配时机）。
+
+## 38.19 kext 自己发 GuestRpc 心跳 —— 通路已验证可用（2026-11-03 04:16）
+
+### 实现
+
+`vgpuFramebuffer.cpp` 里新增：
+
+```c
+static const UInt32 kBdoorMagic  = 0x564D5868;   // "VMXh"
+static const UInt16 kBdoorPort   = 0x5658;
+static const UInt32 kBdoorCmdMsg = 30;           // BDOOR_CMD_MESSAGE
+
+static inline UInt32 vmwareBackdoor(UInt32 cmd, UInt32 arg1, UInt32 arg2) {
+    UInt32 eax = kBdoorMagic, ebx = arg1, ecx = cmd, edx = (UInt32)kBdoorPort;
+    __asm__ volatile ("inl %%dx, %%eax"
+                      : "+a" (eax), "+b" (ebx), "+c" (ecx), "+d" (edx) : : "memory");
+    return eax;
+}
+```
+
+挂点放在 `presentTick()` 的**最前面**，在所有 early return 之前 —— 因为 `_presentFifo == nullptr`
+或 `!_deviceModeValid` 恰恰是最需要心跳保活的状态。
+
+### 第一次运行：错误在节流方式，不在通路
+
+节流最初用 `_presentTicks % 150 == 0`（按 33 ms/tick 算「5 秒」）。实测心跳日志：
+
+```
+04:14:25.174  rpc: heartbeat #1 -> status 0x0
+04:15:00.461  rpc: heartbeat #2 -> status 0x0      <- 间隔 35 秒
+04:15:05.613  rpc: heartbeat #3 -> status 0x0
+04:15:15.958  rpc: heartbeat #5 -> status 0x0      <- 每 10 秒
+04:15:26.251  rpc: heartbeat #7 -> status 0x0
+```
+
+**`presentTick` 的真实周期远大于 33 ms**（present 路径自身要跑命令，机器又只有 2 vCPU），
+所以「150 tick」根本不是「5 秒」。宿主超时是 20 秒，第一次心跳到第二次之间空了 35 秒，
+中间必然超时 —— 日志也确实是：
+
+```
+20:14:23.263  Tools: Tools heartbeat timeout.
+20:14:23.718  Guest display topology changed: numDisplays 0
+20:14:23.854  Screen type changed to ScreenTarget
+```
+
+改成**绝对时间节流**（`mach_absolute_time()` + `absolutetime_to_nanoseconds()`，
+2 秒一次，对 20 秒超时有 10 倍余量），不再依赖 tick 周期。
+
+### 但有一个**决定性的好消息**：宿主确实把我们的心跳当成 Tools 心跳
+
+同一次启动，宿主日志里：
+
+```
+20:14:24.264  Tools: Running status rpc handler: 0 => 1.
+20:14:24.264  Tools: Changing running status: 0 => 1.
+20:14:24.264  Tools: [RunningStatus] Last heartbeat value 5 (last received 0s ago)
+```
+
+`20:14:24.264` 对应客户机本地 `04:14:25.1` —— 正是 kext 心跳 #1 的时刻
+（`04:14:25.174`，两个时钟差不到 1 秒）。**宿主接受了这个由我们自研 kext 发出的、
+零长度的 `BDOOR_CMD_MESSAGE`，并据此把 running status 从 0 翻回 1。**
+
+这条验证的价值：**方案 B 可行，不需要安装 VMware Tools。**
+剩下的问题只是「心跳要足够密、且要在第一次超时之前就开始」——
+前者已经用绝对时间节流解决，后者是加载时机问题（kext 目前比超时晚 1.6 秒加载）。
+
+## 38.20 心跳生效了，宿主不再切 ScreenTarget —— 但画面仍被 CONFIG_DONE 掐断（2026-11-03 04:31）
+
+### 把心跳从 presentTick 里搬出来
+
+§38.19 的心跳挂在 `presentTick()` 上，实测**间隔 35 秒**，远超宿主 20 秒超时。原因是
+`presentTick` 本身会长时间不被进入：
+
+```
+04:25:05.722  heartbeat #1  tick 1
+04:25:07.745  heartbeat #2  tick 60     <- 2 s，正常
+04:25:38.662  heartbeat #3  tick 61     <- 31 s 之后，tick 只前进了一个
+```
+
+`thread_call_enter_delayed` 在同一个 call 已 pending 时返回 FALSE 不排队，而 present 主体
+本身也不便宜（要跑 FIFO 命令）。**骑在 present 上的心跳会继承这个停摆。**
+
+改成**独立的 thread_call**（`rpcTickC`），在自己的回调里重新 arm，与 present 完全解耦；
+并且在 `start()` 里 `super::start()` 之后**立刻**启动（backdoor 端口不需要 FIFO、
+不需要 aperture、不需要模式设置），这样即使后面的设备初始化全失败，心跳也照发。
+
+### 结果 1：宿主不再切 ScreenTarget
+
+本次启动的完整时间轴（客户机本地 = 宿主 UTC + 8）：
+
+| 客户机时刻 | 事件 |
+|---|---|
+| 04:29:54.5 | 客户机 boot |
+| 04:29:45.7 | `Screen type changed to RegisterMode`，Screen 1 = 1024×768 |
+| 04:29:44.6 | `Running status rpc handler: 0 => 1`（EFI 固件发的那一次） |
+| 04:30:10.6 | `Tools heartbeat timeout`（boot+16 s，最后一次 RPC 是 26 秒前的固件那次） |
+| **04:30:13.2** | **`Screen type changed to ScreenTarget`** |
+| 04:30:14.8 | kext `start`（boot+20.3 s） |
+| 04:30:14.8 | **`rpc: heartbeat armed (every 2000 ms)`** |
+| 04:30:15.6 | `Running status rpc handler: 0 => 1` ← **心跳把状态拉回** |
+| 04:30:16.8 | `rpc: heartbeat #1 -> status 0x0` |
+| 04:30:28.4 | `#2` |
+| 04:30:45.9 | `#3` |
+| 04:31:39.9 | `#30`（30 次心跳 / 83 秒 ≈ 2.8 s/次，比设定的 2 s 慢但不影响） |
+
+VNC 采样（单连接，`.shots/rpc4/`）**全程 1024×768**，一次都没有出现 1024×512：
+
+| 帧 | 尺寸 | 非黑像素 | 内容 |
+|---|---|---|---|
+| f00 | 1024×768 | 4620 | Apple logo（4317 个 254,254,254） |
+| f01 | 1024×768 | 1404 | 启动界面（38,38,38 灰） |
+| f03–f22 | 1024×768 | 96–192 | 只有几十个灰像素在动（光标/进度微光） |
+
+**这是 §37/§38 全程第一次做到「宿主整段没有切走」**。心跳确实把宿主钉在了 legacy 模式上。
+（严格说，`04:30:13` 宿主切过去了一次，`04:30:15` 心跳把它拉回 running status=1，
+之后 `Screen type` 再没变过，采样尺寸也稳定在 1024×768。）
+
+### 结果 2：画面仍然在 Apple logo 之后死掉
+
+legacy 模式回来了，但 f01 之后基本全黑。这和 §38.16 那个「能完整显示 Apple logo + 进度条
+直到 27 秒」的对照**不同** —— 差别正是 kext 本身：**这一次 kext 写了 `CONFIG_DONE`**。
+
+kext 源码里 2026-10-06 的实测注释早就写下了这件事：
+
+> MEASURED (2026-10-06 bisect): with 3D enabled, **stage 2 alone freezes presentation** --
+> the moment the guest writes CONFIG_DONE, the MKS switches to the screen-target
+> presentation model and the legacy framebuffer auto-scanout is disabled.
+> `SVGA_CMD_UPDATE` (acked!) does not restore it.
+
+现在这条老观测和本轮的新观测拼成了一个完整的机制：
+
+1. 宿主开机进 RegisterMode（legacy 自动扫描输出），画面正常；
+2. **Tools 心跳超时**（本机没装 Tools）→ 宿主判客户机死 → 切 ScreenTarget；
+3. kext 迟到 1.6–4 秒加载，写 `CONFIG_DONE` → 又**主动**加固了「不用 legacy 扫描输出」这个状态；
+4. 我们的 GB/ScreenTarget 呈现全部画在一个宿主已经抛弃的靶上 → 黑屏。
+
+也就是说 **`CONFIG_DONE` 和「心跳超时」是同一个方向的两道门**，任何一道关上画面就没了。
+
+### 下一步：单变量关掉 CONFIG_DONE（`kFbStage = 0`）
+
+这是现在唯一没做过、且成本最低的对照：
+
+- `kFbStage = 0` 时 `probeFifo()` 只读不写，**不写 `CONFIG_DONE`**，不发任何 FIFO 命令；
+- 心跳照发（它已经独立于 FIFO，在 `start()` 最前面启动）；
+- 如果画面能一路走到登录界面 ⇒ **legacy 通路 + 心跳就是可用方案**，
+  我们只需要在 legacy 下用 VRAM + `SVGA_CMD_UPDATE` 呈现，彻底绕开 ScreenTarget；
+- 如果仍然死 ⇒ 说明不是 `CONFIG_DONE`，是 IOFramebuffer 接管本身与宿主 legacy 扫描输出
+  的冲突，需要看 `enableController` 阶段做了什么。
+
+---
+
+## 38.21（结论）`kFbStage = 0` + 独立心跳 ⇒ 桌面真的出来了，可复现
+
+上一节留下的二选一，答案是**第一条：legacy 通路 + 心跳就是可用方案**。
+而且不是偶然 —— 冷启动 + 全程采样复现了两次。
+
+### 实验配置
+
+```c
+static const UInt32 kFbStage           = 0;   // no FIFO writes at all, so no CONFIG_DONE
+static const UInt32 kEnableRpcHeartbeat = 1;
+static const UInt64 kRpcHeartbeatNs     = 2ULL * 1000000000ULL;
+static const UInt32 kStduFlat           = 1;
+```
+
+心跳跑在**独立的 `thread_call`** 上，在 `start()` 里 `super::start()` 之后、
+`readDeviceMode()` 之前就武装好。它不依赖 `presentTick`（后者实测会停摆 30 秒以上，§38.19）。
+
+### 冷启动时间轴（`vmware.log` + kext 日志，2026-11-03 04:42）
+
+| 时刻 | 事件 | 谁 |
+|---|---|---|
+| 04:42:02.692 | `Running status rpc handler: 0 => 1` | EFI 固件的一次 RPC |
+| 04:42:03.073 | `Screen type changed to RegisterMode`，`Screen 1 Defined xywh(0,0,1024,768)` | 宿主 |
+| 04:42:10 | `=== system boot` | 客户机内核 |
+| 04:42:28.656 | **`Tools: Tools heartbeat timeout`** → `1 => 0` | 宿主（无 Tools） |
+| 04:42:30.031 | kext `start`，心跳武装 | 我们 |
+| 04:42:32.031 | `rpc: heartbeat #1 -> status 0x0` | 我们 |
+| 04:42:30.655 | `Running status rpc handler: 0 => 1` | 宿主：**心跳把超时救回来了** |
+| 04:42:45.504 | `vgpu-fb: enableController` | 我们接管 IOFramebuffer |
+| 之后 | heartbeat #30 / #60 / #90 每 30 秒一次，全 `status 0x0` | 我们 |
+
+宿主日志里 **`Tools heartbeat timeout` 只出现 1 次**（`grep -c` 计数），
+之后就再没超时过 —— 心跳把它永久维持住了。
+
+### VNC 采样（`.shots/cold1/`，1024×768，单连接，60 帧 / 188 秒）
+
+| 时刻 | 状态 | distinct | 判定 |
+|---|---|---|---|
+| t+0 | FULL | 26 | **Apple logo**（6024 白像素，位置居中） |
+| t+3 … t+34 | delta 512 px | 29 | 停在 Apple logo |
+| t+37 | delta 16640 px | 201 | 启动切换中 |
+| **t+43** | **FULL** | **99073** | **桌面出现** |
+| **t+47** | **FULL** | **145464** | **桌面完整** |
+| t+50 … t+188 | delta 512 px（20×20 小方块） | 1455xx | 只有时钟/光标类小区域在动 |
+
+全程 **1024×768，一次 `ScreenTarget` / `1024×512` 都没有**，连接也没有被踢断。
+
+ASCII 渲染（`tools/pngascii.py`）在 t+47 和 t+188 上的结果完全一致：
+顶部整条菜单栏的细碎纹理、中部窗口的 `%@@*%*` 高亮块、右侧滚动条竖线、
+底部 `=========` 的 Dock 条。`f47` 与 `f188` 的差异只在菜单栏时钟那几列 —— 也就是对比表里的 512 px delta。
+
+### 顺带修掉的一个观测陷阱：`vncloop.py` 会谎报黑屏
+
+之前 `vncloop.py` 报「`distinct=180, nonzero=512`」，看起来像屏幕全黑，
+实际屏幕上是完整桌面（`vncsnap.py` 单张快照 `distinct 145779`）。
+根因不是采样器的连接方式，而是它对 **Raw 矩形**的处理：
+
+- VNC 服务端对 `FramebufferUpdate` 请求**只回它认为变了的矩形**，即使 `incremental=0`；
+- 旧实现把每个矩形都写到 `rows[y+row]`，然后用 `x+col` 做列偏移 —— 一旦矩形不在 x=0，
+  列偏移就错了；而且返回的行本身就是稀疏的（未覆盖区域是 0）；
+- 于是「一个 20×20 的小更新」被当成「整屏只有 512 个非零像素」。
+
+修法（`tools/vncloop.py` 重写）：引入持久 `FrameBuffer`，按 `(x, y)` 把矩形 patch 进正确位置；
+`fresh` 判定改成「本次更新触达的行跨度并集是否铺满整屏」，而不是看单个矩形是否满行。
+输出也从「颜色数」升级成 `FULL` / `delta(rects=…,px=…)` + `since=…`，
+一眼能区分「新画面」和「没有任何变化」：
+
+```
+t+  0s 1024x768 FULL distinct=26 nonzero=6024/786432 since=screen -> f00.png
+t+  3s 1024x768 delta(rects=1,px=512) distinct=29 ... since=t+frame 0 -> f03.png
+t+ 43s 1024x768 FULL distinct=99073 nonzero=785760/786432 since=screen -> f43.png
+```
+
+另外补了 `tools/pngascii.py`：把 PNG 渲染成 96×30 的亮度 ASCII，
+这样纯文本的智能体也能判断「菜单栏/窗口/Dock 在不在」，而不是只看统计数字。
+
+### 结论
+
+1. **`CONFIG_DONE` 是那道致命的门。** 不写它，宿主的 legacy 自动扫描输出就一直有效，
+   guest 的 VRAM 写什么宿主就扫什么，画面全程正常。
+2. **心跳是另一道门，但它可以被打开。** 没装 Tools 时宿主 20 秒判死；
+   kext 每 2 秒发一次零长度 `BDOOR_CMD_MESSAGE` 就能把它永久钉在 `running status = 1`。
+3. **两条合起来 = 一个可用的呈现通路**，而且完全绕开 ScreenTarget / GB surface / STDU，
+   也就是绕开了 §35 判定为死路的整条 DX 主线。
+4. 我们**不需要** `SVGA_CMD_UPDATE` 就能出图 —— 宿主自己在扫 VRAM。
+   这一点很重要：意味着呈现通路上我们一行 FIFO 命令都不用发，也就没有任何楔死队列的风险。
+
+### 下一步（按优先级）
+
+1. **验证「不接管也能出图」**：把 `kFbStage` 保持 0，但临时让 kext 不发布 framebuffer
+   （或直接 `kextunload`），看画面是否仍然正常。用来分离「宿主 legacy 扫描输出」
+   与「我们的 IOFramebuffer 接管」各自的贡献。当前证据里 `enableController` 发生在
+   t+15 左右（04:42:45），而桌面出现在 t+43（04:42:53），所以**至少最后这段是宿主自己扫出来的**。
+2. **确认分辨率协商**：`svga max 1176x885` 而实际 `1024x768`，宿主 VRAM 只有 4 MB。
+   要上更高分辨率得先在 vmx 里抬 `svga.vramSize` / `svga.maxWidth/maxHeight`。
+3. **接上面板尺寸变化的通路**：现在画面能出，但换分辨率（`SetMode`）还没验证过。
+4. 清理 vmx 里 §38.15 留下的四个无效 trace 键。
+5. 修 `build.sh` 的 reachability 检查：它对 `kFbStage` 级死代码无效，
+   因为字符串字面量即使代码不可达也会留在二进制里。
