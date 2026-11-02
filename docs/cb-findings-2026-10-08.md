@@ -3400,3 +3400,375 @@ t+ 43s 1024x768 FULL distinct=99073 nonzero=785760/786432 since=screen -> f43.pn
 4. 清理 vmx 里 §38.15 留下的四个无效 trace 键。
 5. 修 `build.sh` 的 reachability 检查：它对 `kFbStage` 级死代码无效，
    因为字符串字面量即使代码不可达也会留在二进制里。
+
+---
+
+## 38.22 对照实验：**桌面不是我们画出来的**，而且 `CONFIG_DONE` 才是切 ScreenTarget 的唯一原因
+
+§38.21 的结论里有一句需要撤回：我当时写「我们不需要 `SVGA_CMD_UPDATE` 就能出图 ——
+宿主自己在扫 VRAM」，把它当成了我们方案的功劳。做了「无 kext」对照之后，真相比这更彻底：
+**画面跟我们的 kext 一点关系都没有。**
+
+### 实验：把 kext 从内核集合里彻底摘掉
+
+热卸被拒（`kext is in use or retained`，这是接管生效的证据），所以走冷启动路径：
+
+```sh
+sudo mv /Library/Extensions/vgpuFramebuffer.kext{,.off}
+sudo rm -f /Library/KernelCollections/AuxiliaryKernelExtensions.kc && sudo kextcache -i /
+# 结果：/Library/KernelCollections/ 里只剩 .file，aux KC 不再生成，
+#       strings 里 'com.vgpu.framebuffer.' 计数 = 0
+```
+
+注：`kmutil install --update-all` 在 sealed 根卷上会以 `Read-only file system` 失败
+（`/` 是 `apfs, sealed, read-only`）。可行路径是 `sudo kextcache -i /`，
+但它**不会重建 aux KC**；要让 aux KC 真正消失，得先 `rm` 掉旧的那份。
+
+### 四次启动的屏幕模式序列（同一台机、同一份 vmx）
+
+| 启动 | kext | `CONFIG_DONE` | 心跳 | `Screen type` 序列 | 画面 |
+|---|---|---|---|---|---|
+| `vmware-2.log` 20:29 | 有（stage 2+） | 写 | 无 | RegisterMode → **ScreenTarget(1024×512)** | **黑** |
+| `vmware-1.log` 20:33 | 有（stage 5） | 写 | 有 | RegisterMode → **ScreenTarget(1024×512)** | **黑** |
+| `vmware-0.log` 20:42 | 有（stage 0） | 不写 | 有 | RegisterMode →（**从不切走**） | **桌面** |
+| `vmware.log` 20:49 | **无** | — | — | RegisterMode →（**从不切走**） | **桌面** |
+
+第 4 行（无 kext）是关键：`grep -c "Tools heartbeat timeout"` = **1**，
+心跳超时照常发生（20:50:09），`running status` 归 0，**但 `Screen type` 没有再变过**，
+`Screen 1 Destroyed` 也从未出现。桌面在 t+50 以 `distinct=145743` FULL 帧出现，
+`tools/pngascii.py` 渲染出与有 kext 时**完全相同**的菜单栏 / 窗口 / Dock。
+之后 74 秒内只有 512 px 的时钟类 delta。
+
+### 结论 1：心跳不是必须的，`CONFIG_DONE` 才是那道门
+
+§38.18–§38.20 把「Tools 心跳超时 → 切 ScreenTarget」当成因果关系，这个解释是**错的**。
+真正的因果链是：
+
+```
+Tools heartbeat timeout  -->  running status 1 => 0        （独立事件，只影响状态标志）
+CONFIG_DONE = 1          -->  MKS 切 screen-target 呈现模型  （这才是切屏幕的触发点）
+                              -->  Screen 1 Destroyed
+                              -->  Screen type changed to ScreenTarget (1024x512)
+```
+
+`vmware-0` 和 `vmware.log` 两次都**经历了** heartbeat timeout，都没有切走 ——
+区别只在 `CONFIG_DONE`。反过来说，`vmware-1` 有心跳、有 `CONFIG_DONE`，照样切走了。
+「心跳把它拉回来」这个说法也不成立：`vmware-0` 里 `0 => 1` 发生在 20:42:30，
+而 `Screen 1 Destroyed` 直到 20:49:37（关机）才出现，中间没有任何切屏动作。
+
+### 结论 2：macOS 自己就有可用的显示通路
+
+没有我们的 kext 时，macOS 用固件留下的 EFI framebuffer + 宿主 legacy 扫描输出
+就能把完整桌面画出来，分辨率 1024×768，pitch 4096，也就是 `SVGA_REG_WIDTH/HEIGHT/PITCH`
+在启动时被固件设好的那组值。宿主在 legacy 模式下持续扫描 VRAM，macOS 的
+`IOFramebuffer` 走 EFI/VBE 路径写这块 VRAM —— 中间完全没有 VMware 驱动参与。
+
+这解释了为什么之前所有「我们呈现失败」的实验都观察不到任何差异：
+**我们的呈现根本没被需要，画面来自另一个（我们已经绕开的）通路。**
+也就意味着 §35–§38 里「DEFINE_RTV 失败 ⇒ 没画面」这条推理链从来就不成立 ——
+没画面的时候，是 `CONFIG_DONE` 把宿主那条通路关掉了。
+
+### 结论 3：项目真正的定位需要重新表述
+
+原来的目标是「写一个 macOS 客机 vGPU 驱动，让客户机可以 3D 加速」。
+现在的事实分层是：
+
+1. **2D 桌面呈现**：已经可用，**不需要我们**（只要不写 `CONFIG_DONE`）。
+   我们能提供的增量是「更高分辨率」和「动态改分辨率」，因为当前 max 只有 1176×885、
+   VRAM 只有 4 MB，全是宿主默认值。
+2. **3D 加速**：仍然需要驱动，而且 §35 已经证明 DX 主线在 guest 侧够不到宿主门控。
+   但既然 2D 不需要 `CONFIG_DONE`，那么 3D 是否也**不必**走 screen-target 模型？
+   这是 §35 之后第一次出现的新可能 —— 值得回去重新审一遍
+   「3D 命令是否需要 `CONFIG_DONE`」这个前提，而不是假设它必须。
+
+### 下一步
+
+1. **先把这个「不写 `CONFIG_DONE` 也能有 2D」当作基线固化下来**：
+   在 vmx 里抬 `svga.vramSize` / `svga.maxWidth` / `svga.maxHeight`，
+   看 macOS 在没有我们驱动的情况下能不能吃下 1920×1080 —— 如果能，
+   那么 2D 需求就只剩「让 WindowServer 知道有更高分辨率可选」。
+2. **重新审 §35**：`CONFIG_DONE` 是 STDU/DX 命令的硬前提，还是只是我们当时的假设？
+   去 vmwgfx 上游源码里找 `SVGA_CMD_DEFINE_GB_SCREENTARGET` 之前是否有
+   `CONFIG_DONE` 检查。（`DEFINE_RTV` 失败是 host 侧 `0x1414930A0` 未创建，
+   与 `CONFIG_DONE` 未必相关，需要分开验证。）
+3. 把丢失的 kext 装回去（`mv *.off`）之前，先量一次「无 kext + 高分辨率」，
+   避免又被我们自己的驱动干扰。
+
+## 39 分辨率是可以在 guest 侧自己改的（2026-11-03 05:32）
+
+§38.22 留下的下一步是「先抬 vmx，看 macOS 能不能吃下 1920×1080」。
+这条没走通（`svga.maxWidth/maxHeight` 不被 GFB 读取，`vmotion.checkpointFBSize`
+每次开机被写回 4 MB），于是换了另一条路 —— **直接在 guest 里写 SVGA 寄存器**。
+结论：**这条路通，而且是我们第一次真正改变了宿主行为。**
+
+### 39.1 载体：把 vgpuProbe 改成一个寄存器实验台
+
+`vgpuFramebuffer.kext` 现在是 `.off` 状态（§38.22 的对照实验），不能拿它做实验。
+`/Library/Extensions/vgpuProbe.kext` 是早期验证「未签名 kext 能否加载」留下的桩，
+挂在 `IOResources` 上、什么都不做 —— 正好拿来当载体：它不接管任何硬件，
+加载失败也不会改变驱动匹配顺序。
+
+改造后的 `kexts/probe/vgpuProbe.cpp` 自己走 PCI 树找 `15ad:0405`，把 BAR0 当 I/O
+端口基址，然后按编译期常量 `VGPU_PROBE_MODE` 跑一种实验：
+
+| mode | 行为 |
+|---|---|
+| 0 | 只读快照（安全） |
+| 1 | 写 `SVGA_REG_WIDTH/HEIGHT/BITS_PER_PIXEL` 再回读 |
+| 2 | 写 `SVGA_REG_MAX_WIDTH/MAX_HEIGHT` 再回读 |
+
+`tools/probe-cycle.py` 把「构建 → 安装 → 重启 → 收日志」串成一条命令。
+**每次实验必须重启一次** —— macOS 15 对被改动过的 AuxKC kext 一律返回
+`KMErrorDomain Code=28`，`kmutil load -z`、`kextutil`、`kmutil load --bundle-path`
+三条路径全都一样。测过 `kmutil unload` 再 `load` 也不行：二进制 UUID 一变就必须重建集合。
+
+### 39.2 三个构建期踩的坑
+
+1. **`OSClassLoadInformation` 未定义**：`IOPCIDevice.h` 会无条件 `#include`
+   `<PCIDriverKit/IOPCIDevice.h>`（只要 SDK 里有这个文件），而 DriverKit 那版依赖
+   IOKit 的类机制。真正的开关是 **`-DKERNEL`** —— `-mkernel` 不会带上它。
+   `kexts/framebuffer/build.sh` 里早有一行注释写着这件事，probe 的构建脚本照抄时漏了。
+2. **缺 `com.apple.iokit.IOPCIFamily` 依赖**：直接把 `IOPCIDevice` 用在
+   `IOResources` 的 client 里，就必须在 `OSBundleLibraries` 里显式声明，
+   否则链接期报 `could not find a kext which exports '__ZN11IOPCIDevice9metaClassE'`。
+   主 kext 是经 `IOGraphicsFamily` 传递拿到的，所以它的 plist 里没有这一项。
+3. **BAR0 的低位是标志位不是地址**：`BAR0 = 0x2041`，bit0=1 表示 I/O 空间，
+   端口基址是 `0x2041 & ~3 = 0x2040`。直接用 `0x2041` 会让索引端口和值端口都偏一位，
+   **所有寄存器都读回 0** —— 看起来完全像「设备被禁用」，白花了一次重启才找到。
+
+### 39.3 寄存器快照，以及它的两个坑
+
+mode 0 在开机后读到的值（每次重启都一样，五次采样无漂移）：
+
+```
+ID               [ 0] = 0x90000002      <- SVGA_ID_2
+ENABLE           [ 1] = 0x1
+WIDTH            [ 2] = 0x400  (1024)
+HEIGHT           [ 3] = 0x300  (768)
+MAX_WIDTH        [ 4] = 0x498  (1176)
+MAX_HEIGHT       [ 5] = 0x375  (885)
+DEPTH            [ 6] = 0x18   (24)
+BITS_PER_PIXEL   [ 7] = 0x20   (32)
+BYTES_PER_LINE   [ 8] = 0x0            <- 读不到
+FB_START         [ 9] = 0x00ff0000     <- 读不到
+FB_OFFSET        [10] = 0x0000ff00     <- 读不到
+MEM_START        [13] = 0xf0000000     <- 对的
+CONFIG_DONE      [15] = 0x00400000     <- 读不到
+SYNC             [16] = 0x00300000     <- 读不到
+GUEST_ID         [19] = 0x00040000     <- 读不到
+VRAM_SIZE        [20] = FLAGS/20/21/22/23 = 0
+```
+
+`WIDTH/HEIGHT/MAX_*/DEPTH/BPP/MEM_START` 全对，其余不对。两个坑都排查过了：
+
+- **不是 I/O 时序**：在 `outl(index)` 和 `inl(value)` 之间插 `outb $0, $0x80`
+  （ISA 经典 settle delay）之后，结果逐字节不变。
+- **不是竞争**：索引/值端口是设备级单个锁存器，理论上别的读者（固件、NDRV、
+  另一个 vCPU）能挤进来。但同一索引连读 5 次全部一致，`port-width latch`
+  测试（`0x1234 -> inl 0x1234 / inw 0x1234 / inb 0x34`）也证明 `inl` 确实是 32 位。
+
+仍在对不上的那几个值上有一个可疑规律：`SYNC[16]` 读到的是 `0x300000`，
+而主 kext 的历史日志写着 `fb size 0x300000` —— 也就是**读 16 拿到了 FB_SIZE 的值**。
+编号是否存在偏移，还是这套 SVGA 变体的布局和上游 `svga_reg.h` 不同，**尚未定论**。
+这一条不影响下面的结论，因为结论只依赖已经读对的那几个寄存器。
+
+### 39.4 mode 1：写宽高，宿主真的跟着改了
+
+写 `WIDTH=1920, HEIGHT=1080, BPP=32`，然后回读：
+
+```
+WIDTH            [ 2] = 0x498  (1176)      <- 写的 1920，被钳到 1176
+HEIGHT           [ 3] = 0x375  (885)       <- 写的 1080，被钳到 885
+SYNC             [16] = 0x3f9000 (4165632) <- 从 0x300000 变成 4165632
+```
+
+`4165632` 与 `1176 × 885 × 4 = 4163040` 同量级（差值是行对齐），
+说明宿主接受了新尺寸并重算了帧缓冲大小。
+
+宿主 `vmware.log` 给出了决定性证据 —— **`SWBScreen` 真的重新定义了这个屏**：
+
+```
+21:31:37.989  SWBScreen: Screen 1 Destroyed: xywh(0, 0, 1024, 768) flags=0x2
+21:31:37.989  SWBScreen: Screen 1 Defined:   xywh(0, 0, 1176, 768) flags=0x2
+21:31:37.991  SWBScreen: Screen 1 Destroyed: xywh(0, 0, 1176, 768) flags=0x2
+21:31:37.991  SWBScreen: Screen 1 Defined:   xywh(0, 0, 1176, 885) flags=0x2
+```
+
+中间那次 `1176×768` 是我先写 WIDTH 后写 HEIGHT 的中间态，宿主对每次写入都响应了。
+
+VNC 侧也确认了：连接直接报 **1176×885**，首帧 `FULL distinct=145552`，
+与 1024×768 时的 `145464` 同量级，像素总数从 786432 涨到 1040760。
+
+### 39.5 但是画面是撕裂的 —— pitch 没跟着改
+
+对首帧做行亮度剖面：
+
+```
+row   0- 659  mean-luma 25..72   <- 有内容
+row 660- 679  mean-luma 12.4
+row 680- 899  mean-luma 0.0      <- 全黑
+col   0-1199  mean-luma ~33      <- 横向铺满
+```
+
+边界在 **第 668 行左右**。算一下：macOS 仍在按老 pitch 4096 往 VRAM 里写，
+老帧缓冲占 `4096 × 768 = 3145728` 字节；宿主现在按新 pitch `1176 × 4 = 4704` 读，
+`3145728 / 4704 = 668.7` 行。**完全吻合。**
+
+所以现在的状态是：
+
+- **宿主侧：切分辨率成功**，1176×885 生效，这是本轮真正的突破。
+- **guest 侧：没人告诉 macOS 尺寸变了。** `IONDRVFramebuffer` 的
+  `IOFBConfig` 里只有一个模式（`DM` 解出来是 1024×768，`DF`=3），
+  `IOFBMemorySize = 3145728`（3 MB），它不会因为我们写了寄存器就重新协商。
+
+### 39.6 这一节改写了什么
+
+1. **§38.22「下一步」第 1 条作废**：分辨率不是只能由宿主在 RegisterMode 里决定。
+   `SVGA_REG_WIDTH/HEIGHT` 对 guest 可写，写完宿主立刻重建 screen。
+   上限是 `MAX_WIDTH/MAX_HEIGHT`，而它们来自 `gfbSize = 4 MB` 这个宿主硬编码。
+2. **`svga.maxWidth` / `svga.maxHeight` 是死键**：宿主日志里始终是
+   `maxWidth=2560, maxHeight=1600`，`SVGA-GFB` 不读这两个 vmx 键。
+3. **真正的上限是 VRAM 4 MB**：`SVGA-GFB: Using Initial gfbSize = 4194304` 之后
+   `Truncated maximum resolution ... max wh(1176, 885)`。要更高分辨率，
+   必须解决这 4 MB —— 而它是 `vmware-vmx.exe` 里的常量，不是配置键
+   （二进制 GFB 段前后只找到 `svga.enableNoBBRestriction` 等，没有 gfbSize 的键）。
+4. **`kFbStage` 之外多了一个新开关面**：即使不做 3D，我们也能提供
+   「改分辨率 / 提供更高分辨率」这个真实功能 —— 前提是补上 pitch 协商这一半。
+
+### 下一步（按价值排序）
+
+1. **补上 guest 侧的一半**：在 kext 里同时做「写寄存器切模式」和「让
+   `IOFramebuffer` 重新读 `BYTES_PER_LINE`/`FB_OFFSET` 并更新模式表」。
+   后者等价于把 `getDisplayModeCount` 从 1 个模式扩成一张表、
+   在 `setDisplayMode` 里真正编程寄存器并 `IOFramebuffer::performWakeup`。
+   这一步做完，「动态改分辨率」就完整了。
+2. **搞清 `BYTES_PER_LINE` 读不到的原因**：写完之后 pitch 一定是变了（撕裂边界
+   精确对应 4096→4704），但读不出来意味着我们没法在 guest 侧校验。
+   先试「写之前读」和「写完立刻读」的差异，再考虑是不是要走 MMIO 高寄存器。
+3. **4 MB 的解**：`vmware-vmx.exe` 里 `Using Initial gfbSize = 4194304` 附近找
+   写入点。已经有 `vmxset.py` 和两个 `.bak-*` 备份，说明这条路上做过补丁；
+   需要重新确认补丁是否还在、是否还有效。
+
+---
+
+## 40 §39.3 的结论作废：寄存器没有偏移，是 probe 的索引表错了
+
+§39.3 我写了两条「已排除」：不是 I/O 时序、不是竞争。两条都对，但我跳过了第三种可能——
+**索引本身写错了**。而 §39 里「`BYTES_PER_LINE` 读不到」这个悬案，答案就是它。
+
+### 40.1 判据：同一组索引，两个驱动，两套答案
+
+决定性证据来自**同一次启动**里的两条日志。主 kext `vgpuFramebuffer` 在 04:34 / 04:42
+两次启用时读到的值是自洽的：
+
+```
+vgpu-fb: svga mode 1024x768 depth 24 bpp 32 pitch 4096
+vgpu-fb: svga fb offset 0x0 fb size 0x300000
+vgpu-fb: svga vram 0x400000 fb start 0xf0000000 caps 0xfdffc3e2
+```
+
+而 probe 在同一台机的索引 8..16 上读到 `0`、`0xff0000`、`0xff00`、`0x300000` 这种
+错位的数字。两个驱动用的是**同一对端口、同一批 `inl`/`outl` 指令**
+（`probe-cycle.py` 与 `vgpuFramebuffer.cpp` 的实现逐字节可以对照），所以差异只能来自
+**索引用的是哪一套编号**。
+
+主 kext 的常量表：
+
+```c
+kSvgaRegBytesPerLine = 0x0C,   kSvgaRegFbStart  = 0x0D,   kSvgaRegFbOffset = 0x0E,
+kSvgaRegVramSize     = 0x0F,   kSvgaRegFbSize   = 0x10,   kSvgaRegCaps     = 0x11,
+kSvgaRegMemStart     = 0x12,   kSvgaRegMemSize  = 0x13,   kSvgaRegConfigDone = 0x14,
+```
+
+probe 当时抄的是上游 `svga_reg.h` 的「顺序编号」（`BYTES_PER_LINE=8`、`FB_OFFSET=10`、
+`CONFIG_DONE=15`）。`svga_reg.h` 在 `BITS_PER_PIXEL`(7) 之后**有一段被跳过的编号**，
+我照着它推断 8 起的连续值，于是从索引 8 开始每个名字都对到了下一个/上一个寄存器上。
+这就是为什么「8 以上全错、7 以下全对」——错得如此有规律，反而看起来像设备行为。
+
+`§39.3` 里那个「可疑规律」现在有了确定解释：`SYNC[16]` 读到 `0x300000` 并不是编号偏移
+的巧合，而是**索引 16 就是 `FB_SIZE`**，值本来就是 `0x300000`。
+
+### 40.2 修好之后，mode 0 的完整快照
+
+```
+ID               [ 0/0x00] = 0x90000002      SVGA_ID_2
+ENABLE           [ 1/0x01] = 0x00000001
+WIDTH            [ 2/0x02] = 0x00000400  (1024)
+HEIGHT           [ 3/0x03] = 0x00000300  ( 768)
+MAX_WIDTH        [ 4/0x04] = 0x00000498  (1176)
+MAX_HEIGHT       [ 5/0x05] = 0x00000375  ( 885)
+DEPTH            [ 6/0x06] = 0x00000018  (24)
+BITS_PER_PIXEL   [ 7/0x07] = 0x00000020  (32)
+BYTES_PER_LINE   [12/0x0c] = 0x00001000  (4096)      <- 之前「读不到」
+FB_START         [13/0x0d] = 0xf0000000
+FB_OFFSET        [14/0x0e] = 0x00000000              <- 之前「读不到」
+VRAM_SIZE        [15/0x0f] = 0x00400000  (4 MB)      <- 之前「读不到」
+FB_SIZE          [16/0x10] = 0x00300000  (3 MB)      <- 之前「读不到」
+CAPABILITIES     [17/0x11] = 0xfdffc3e2
+MEM_START        [18/0x12] = 0xfb800000
+MEM_SIZE         [19/0x13] = 0x00040000  (256 KB)
+CONFIG_DONE      [20/0x14] = 0x00000000              <- 之前「读不到」
+SYNC             [22/0x16] = 0x00000000
+GUEST_ID         [23/0x17] = 0x00000000
+MEM_SIZE_ACTUAL  [27/0x1b] = 0x00000000
+```
+
+`CONFIG_DONE` 读出来是 **0**，且这个值是真的 0 —— 主 kext 的 `kFbStage=0` 从来不写它，
+所以宿主一直停在 legacy 呈现模式。这也从寄存器层面坐实了 §38.22 的因果链。
+
+### 40.3 给 probe 加了自检：错编号不许再静默通过
+
+快照后面跟一段几何交叉验证（`_checkGeometry`）：
+
+```
+geometry before: pitch 4096, 32 bpp x 1024 wide = 4096 bytes/row, fb size 3145728, vram 4194304
+  fb size == pitch*height rounded to a page: CONSISTENT
+  pitch is exactly one row, no scanline padding
+```
+
+判据是 `FB_SIZE == round_up(pitch * height, 4096)`。**第一版判据是错的**：
+我写了 `pitch*height == fbSize`，在 1024×768 下恰好成立（`4096*768 = 0x300000`
+本身就是页对齐的），切到 1176×885 后立刻报 INCONSISTENT（`4163040 != 4165632`）。
+差值 2592 字节说明宿主**把帧缓冲大小向上取整到 4 KB 页**，不是算错了。
+判据改成取整后成立。这条留在这里是因为它演示了一件事：
+**在唯一一个数据点上成立的等式不叫判据。**
+
+### 40.4 mode 1 重跑：pitch 确实是 4704，撕裂的解释彻底闭合
+
+```
+写前: BYTES_PER_LINE[0x0c] = 4096   FB_SIZE[0x10] = 0x300000
+写 1920x1080 后:
+  WIDTH[0x02] = 1176 (钳)    HEIGHT[0x03] = 885 (钳)
+  BYTES_PER_LINE[0x0c] = 4704  <- 1176 * 4，宿主重算了 pitch
+  FB_SIZE[0x10] = 0x3f9000 (4165632) = round_up(4704*885, 4096)
+```
+
+§39.5 的撕裂边界是从像素统计反推的：老帧缓冲 `4096*768 = 3145728` 字节按新 pitch
+`4704` 读，`3145728 / 4704 = 668.7` 行，实测边界在第 668 行。现在 pitch 直接读出来了，
+`1176*4 = 4704` 一字不差 —— 反推和直读互证，这条推理链不再依赖像素统计。
+
+**同时确认：`BYTES_PER_LINE` 对 guest 只读。** 宿主在写 `WIDTH` 时自己重算 pitch，
+guest 没有办法指定它（本节没有尝试写；下一节要做的 modeset 必须知道这件事：
+**我们只能选尺寸，不能选 pitch**）。
+
+### 40.5 顺手修的工具坑：`--last 6m` 会跨过重启
+
+`probe-cycle.py` 原本用 `log show --last 6m` 收日志，理由是「刚重启过，窗口不可能
+够到上一次实验」。但这次改动后的第一轮输出里立刻混进了上一次启动的
+`pitch*height = ... INCONSISTENT` 行 —— 因为宿主机重启只要 **39 秒**，
+6 分钟窗口轻松跨过它。这正是项目记忆里那条纪律（「判定结果前先确认跑的是哪个二进制」）
+的同一个坑，只是换了个入口。
+
+修法：读 `sysctl -n kern.boottime`，在 Python 侧按时间戳把 boot 之前的行全部丢掉
+（`_since_boot`），不再依赖窗口长度猜测。`--last` 只用来让查询有界（无界查询在新开机
+的日志量下会 SSH 超时）。
+
+### 40.6 这一节对「下一步」的改写
+
+1. ~~搞清 `BYTES_PER_LINE` 读不到的原因~~ —— **完成**，是索引表错了，现在能读。
+2. **guest 侧 modeset 的写法确定了**：写 `WIDTH`/`HEIGHT` 让宿主重算 pitch，
+   然后**回读** `BYTES_PER_LINE` / `FB_OFFSET` / `FB_SIZE` 拿到宿主给的几何，
+   再把这组值灌进 `IOFramebuffer`。不能自己算 pitch。
+3. **4 MB `gfbSize` 仍是硬上限**：`VRAM_SIZE = 0x400000`，`MAX = 1176x885`。
+   1920×1080 需要 `1920*1080*4 = 8.29 MB`，超了一倍。这个限制与 modeset 正交，
+   modeset 做完也只能在 1176×885 以内切换。
