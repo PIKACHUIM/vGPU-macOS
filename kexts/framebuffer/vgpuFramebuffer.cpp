@@ -98,53 +98,99 @@ enum {
     kSvgaRegCapabilities = 0x11,
     kSvgaRegMemStart     = 0x12,
     kSvgaRegMemSize      = 0x13,
-    kSvgaRegReset        = 0x14,   // 20: write 0 resets the device. Never write this.
+
+    // Registers 20..64, checked line by line against upstream svga_reg.h
+    // (drivers/gpu/drm/vmwgfx/device_include/svga_reg.h -- note the device_include/ directory;
+    // the file is no longer at the driver root, which is why earlier attempts to fetch it 404'd
+    // and why this block spent several rounds wrong):
+    //
+    //     SVGA_REG_CONFIG_DONE  = 20   <-- 0x14
+    //     SVGA_REG_SYNC         = 21   <-- 0x15
+    //     SVGA_REG_BUSY         = 22   <-- 0x16
+    //     SVGA_REG_MEM_REGS     = 30   <-- 0x1E
+    //     SVGA_REG_COMMAND_LOW  = 48   <-- 0x30
+    //     SVGA_REG_COMMAND_HIGH = 49   <-- 0x31
+    //     SVGA_REG_DEV_CAP      = 52   <-- 0x34
+    //     SVGA_REG_CMD_PREPEND_LOW/HIGH = 53/54
+    //     SVGA_REG_GUEST_DRIVER_ID      = 61, VERSION1..3 = 62..64
+    //     SVGA_REG_FIFO_CAPS    = 68   <-- capabilities are a register, not FIFO memory
+    //     SVGA_REG_FENCE        = 69
+    //
+    // Three separate errors lived in this block and each one alone was enough to make the
+    // device ignore every command we sent:
+    //
+    //   1. CONFIG_DONE was written to 25. 25 is SVGA_REG_CURSOR_X. The host was therefore
+    //      never told the FIFO had been configured, and a host that does not believe a FIFO
+    //      exists does not drain it -- which is exactly what §44 measured: NEXT_CMD advanced
+    //      and SYNC pinged, STOP never moved, FENCE never written.
+    //   2. 20 (0x14) was labelled RESET and the code wrote 0 to it "to clear the flag". There
+    //      is no SVGA_REG_RESET in the device definition at all; 0x14 *is* CONFIG_DONE, so the
+    //      write-0-then-write-1 pair was correct all along and had been "fixed" into 0x19.
+    //   3. Command submission used 53/54, which are the PREPEND registers. Command low/high are
+    //      48/49. (The original 48/49 was right and was changed away in §40.)
+    kSvgaRegConfigDone   = 0x14,   // 20: guest sets 1 once the FIFO words are coherent
     kSvgaRegSync         = 0x15,   // 21: write 1 = flush, 2 = flush and wait
-    kSvgaRegBusy         = 0x16,   // 22: host polls this to zero after a flush-and-wait
-    kSvgaRegConfigDone   = 0x19,   // 25: guest sets 1 when the FIFO is configured
-    kSvgaRegMemRegs      = 0x1E,   // 30: number of FIFO registers the host expects
-    // 0x35/0x36 submit a command to the 3D queue. The host's driver loads the *high* half
-    // first (index 0x36, value = PA >> 32) and then the low half (index 0x35, value = PA | flags).
-    // These were previously written as 53/54 the other way round, and the actual submit used
-    // 48/49, which the host driver never touches at all -- so every command this driver ever
-    // sent went to a register the host does not read. See tools/rev/reg-indices.py.
-    kSvgaRegCommandLow   = 0x35,   // 53: command PA, low 32 bits, OR flags/context in low bits
-    kSvgaRegCommandHigh  = 0x36,   // 54: command PA, high 32 bits
-    kSvgaRegDisplayBase  = 0x20,   // 32: display block enable
-    kSvgaRegDisplayMax   = 0x21,   // 33: display block size; writing 0 masks its interrupts
+    kSvgaRegBusy         = 0x16,   // 22: host clears this when the flush completes
+    kSvgaRegMemRegs      = 0x1E,   // 30: number of FIFO register dwords the host defines
+    kSvgaRegCommandLow   = 0x30,   // 48: command PA low 32 bits, OR context id in the low 6
+    kSvgaRegCommandHigh  = 0x31,   // 49: command PA high 32 bits
     kSvgaRegDevCap       = 0x34,   // 52: write a SVGA3D_DEVCAP index, read its value
+    kSvgaRegCmdPrependLow  = 0x35, // 53: preempted command buffer PA, low
+    kSvgaRegCmdPrependHigh = 0x36, // 54: preempted command buffer PA, high
+    kSvgaRegGuestDriverId  = 61,
+    kSvgaRegFifoCaps     = 68,     // the capability word the host actually publishes
+    kSvgaRegFence        = 69,     // the fence value register
 };
 
 //
 // FIFO registers are dwords inside the device memory region that SVGA_REG_MEM_START points
 // at. The first four (MIN/MAX/NEXT_CMD/STOP) are BYTE offsets into that region; every other
 // index is a dword index. The register block occupies the first SVGA_FIFO_MIN bytes, so the
-// guest chooses how many registers exist by where it starts the command data: leaving room
-// for SVGA_FIFO_EXTENDED_MANDATORY_REGS (288) dwords is what makes the extended set --
-// including the 3D hardware version and the 256-entry 3D capability block -- exist at all.
+// guest chooses how many registers exist by where it starts the command data.
 //
-// The offsets below are taken from the SVGA II register definitions shared by Linux's
-// vmwgfx (drivers/gpu/drm/vmwgfx/device_include/svga_reg.h) and Xorg's vmware driver, and
-// they differ from an earlier revision of this file, which carried 3D_HWVERSION=28 and
-// 3D_CAPS=34 from a misremembered pre-extended-FIFO layout. With those values everything
-// read as zero regardless of what the host published -- which is exactly what we saw.
+// MEASURED, not inferred (kexts/probe _dumpFifoHeader, §43.5 in cb-findings): after the host
+// configured this FIFO it had written exactly six dwords, and they were at:
 //
+//   [0] 0x480 MIN   [1] 0x40000 MAX   [2] 0x4a8 NEXT_CMD   [3] 0x480 STOP
+//   [288] 0x45b   <- SVGA3D_HWVERSION (protocol 1115)
+//   [289] 0x18    <- the companion version word
+//
+// So 3D_HWVERSION lives at 288, not at 7 as the upstream header has it, and the capability
+// block is NOT populated by this host at all (only 6 of 291 dwords were non-zero). Both of
+// those are consistent with §40: this host's register layout is not the one in svga_reg.h.
+//
+// The consequence used to be fatal: with MIN = 1152 the command area began at dword 288,
+// exactly on top of the host's 3D version word, so the first command we pushed overwrote it.
+// MIN must therefore clear MEM_REGS (291), not 288.
 enum {
     kSvgaFifoMin              = 0,      // byte offset: start of the command data area
     kSvgaFifoMax              = 1,      // byte offset: end of the FIFO
-    kSvgaFifoNextCmd          = 2,      // byte offset: host read position
-    kSvgaFifoStop             = 3,      // byte offset: guest write position
-    kSvgaFifoCapabilities     = 4,      // dword index: SVGA_FIFO_CAP_* bits
+
+    // NEXT_CMD and STOP were documented the other way round for most of this project, and
+    // that inversion is what made every submission look like it "should" work while the
+    // host ignored it. The authority is vmw_local_fifo_commit() in vmwgfx_cmd.c:
+    //
+    //     next_cmd += bytes;  ...  vmw_fifo_mem_write(dev_priv, SVGA_FIFO_NEXT_CMD, next_cmd);
+    //
+    // The GUEST owns NEXT_CMD and advances it. The HOST owns STOP: it advances STOP as it
+    // consumes, which is why vmw_fifo_is_full() computes free space as
+    // (MAX - NEXT_CMD) + (STOP - MIN) and why vmw_fifo_wait() sleeps until STOP moves.
+    kSvgaFifoNextCmd          = 2,      // byte offset: GUEST write position (guest advances)
+    kSvgaFifoStop             = 3,      // byte offset: HOST read position (host advances)
+    kSvgaFifoCapabilities     = 4,      // dword index: SVGA_FIFO_CAP_* bits (reads 0 here)
     kSvgaFifoFlags            = 5,
     kSvgaFifoFence            = 6,      // dword index: last completed fence value
-    kSvgaFifo3dHwVersion      = 7,      // dword index: host's SVGA3D protocol version
     kSvgaFifoReserved         = 14,     // dword index: bytes past NEXT_CMD being written
     kSvgaFifo3dCaps           = 32,     // dword index: start of the 3D capability block
     kSvgaFifo3dCapsCount      = 256,    // through SVGA_FIFO_3D_CAPS_LAST
-    kSvgaFifoGuest3dHwVersion = 288,    // dword index: guest writes its version here
+    kSvgaFifo3dHwVersion      = 288,    // dword index: host's SVGA3D protocol version -- MEASURED
+    kSvgaFifo3dHwVersion2     = 289,    // dword index: companion word, MEASURED
     kSvgaFifoBusy             = 290,
 
-    kSvgaFifoExtendedMandatoryRegs = 288,  // registers to reserve for the extended set
+    // Where command data starts. The host defines registers through index 290 (MEM_REGS =
+    // 291), and it writes 3D_HWVERSION into 288, so a MIN of 288 dwords (1152 bytes) put the
+    // first command on top of it. 292 dwords clears the block with one dword of slack.
+    kSvgaFifoExtendedMandatoryRegs = 292,
 };
 
 // SVGA_FIFO_CAPABILITIES bits, from the SVGA II definitions.
@@ -276,35 +322,26 @@ enum {
     kSvga3dSurfaceBindRenderTarget = 1ULL << 24,
 };
 
-// kFbStage gates the FIFO bring-up itself (bisecting the boot-freeze):
+// kFbStage gates the FIFO bring-up itself:
 //   0 = read-only probe: register reads and dumps only, no FIFO writes, no fence
-//   2 = FIFO init only (MIN/MAX/CONFIG_DONE), no guest commands at all
-//   3 = init + one fence command
-//   4 = init + fence + full-screen UPDATE probe
-//   5 = init + fence + screen-object present path (DEFINE_SCREEN, DEFINE_GMRFB over the
-//       framebuffer, BLIT_GMRFB_TO_SCREEN) + the periodic present timer
-//
-// MEASURED (2026-10-06 bisect): with 3D enabled, stage 2 alone freezes presentation --
-// the moment the guest writes CONFIG_DONE, the MKS switches to the screen-target
-// presentation model and the legacy framebuffer auto-scanout is disabled. SVGA_CMD_UPDATE
-// (acked!) does not restore it. So FIFO ownership REQUIRES implementing the screen-target
-// present path (DEFINE_SCREEN / GB screen target / blits) before it can be safe.
-// Stage 5 is that present path.
-// 2026-10-06 evening: stage 5 (legacy DEFINE_SCREEN + GMRFB blits over the framebuffer)
-// runs fully -- DEFINE_SCREEN/DEFINE_GMRFB/BLIT_GMRFB_TO_SCREEN all fence-acked, the 33 ms
-// re-present thread_call fires and the host consumes every blit -- yet the display keeps
-// showing the last legacy frame. Conclusion: on this vGPU10 device the legacy screen-object
-// path does not feed the display pipeline; presentation must go through GB screen targets
-// (STDU) -- see docs/vmware-svga-capabilities.md. Ship kFbStage=0 (working display) until
-// that path exists.
-// kFbStage gates the FIFO bring-up itself (bisecting the boot-freeze):
-//   0 = read-only probe: register reads and dumps only, no FIFO writes, no fence
-//   2 = FIFO init only (MIN/MAX/CONFIG_DONE), no guest commands at all
+//   2 = FIFO init only (MIN/MAX/CONFIG_DONE=1 at 0x19), no guest commands at all
 //   3 = init + one fence command
 //   4 = init + fence + full-screen UPDATE probe
 //   5 = init + fence + legacy screen-object present path (DEFINE_SCREEN, DEFINE_GMRFB over
 //       the framebuffer, BLIT_GMRFB_TO_SCREEN) + the periodic present timer
-static const UInt32 kFbStage = 0;   // §38.21: no CONFIG_DONE at all -- does the host stay in legacy mode?
+//
+// HISTORY THAT NO LONGER APPLIES -- read §41/§42 in cb-findings before trusting the old
+// notes that used to live here. The 2026-10-06 bisect concluded "the moment the guest
+// writes CONFIG_DONE, the MKS switches to the screen-target model and presentation
+// freezes". That experiment could not have shown it: the register it called CONFIG_DONE
+// was 0x14, which is RESET, so those boots reset the device instead of configuring the
+// FIFO -- and separately, every command was submitted to 48/49 rather than 0x35/0x36, so
+// "commands accepted but nothing rendered" is equally explained by the host never seeing
+// a command at all.
+//
+// Consequence: stage 2 is an UNTESTED configuration. It is the first boot in this
+// project's history that raises CONFIG_DONE without resetting the device.
+static const UInt32 kFbStage = 3;   // §43: first command submitted through 0x35/0x36
 
 // kGbStage gates the GB object stack (see gbBringUp); 5 adds the STDU present path.
 //
@@ -767,6 +804,24 @@ static void svgaWriteRegister(UInt16 portBase, UInt32 index, UInt32 value) {
     vgpuOut32((UInt16)(portBase + kSvgaValuePort), value);
 }
 
+//
+// Tell the host that the FIFO advanced.
+//
+// This is the single most-missed step in the whole submission path, and it is the reason
+// the fence test appeared to "hang": we moved NEXT_CMD and then sat in a spin loop, but the
+// host was never told to look. vmw_local_fifo_commit() ends with
+//
+//     vmw_fifo_ping_host(dev_priv, SVGA_SYNC_GENERIC);      // SVGA_REG_SYNC <- 1
+//
+// and the host is otherwise free to wait for exactly that doorbell. 0x15 is one of the eight
+// registers vm3dmp.sys actually writes (tools/rev/reg-indices.py), so the index is not a
+// guess. Value 1 = "flush", value 2 = "flush and wait for BUSY to clear"; we use 1 and do our
+// own polling with our own timeout, because value 2 blocks with the host's timeout, not ours.
+//
+static void svgaPingHost(UInt16 portBase) {
+    svgaWriteRegister(portBase, kSvgaRegSync, 1);
+}
+
 class vgpuFramebuffer : public IOFramebuffer {
     OSDeclareDefaultStructors(vgpuFramebuffer)
     typedef IOFramebuffer super;
@@ -1068,21 +1123,73 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
         map->release();
         return;
     }
-    if (fifo[kSvgaFifoMin] != 0 && fifo[kSvgaFifoMin] != kSvgaFifoExtendedMandatoryRegs * 4) {
-        IOLog(VGPU_FB_TAG ": FIFO configured by another driver (min %u), leaving it alone\n",
-              fifo[kSvgaFifoMin]);
-        map->release();
-        return;
+    // MIN is where guest command data starts, and it has to clear every register the host
+    // defines -- which on this host is 291 dwords, not the 288 the upstream header implies.
+    //
+    // This is the bug that explains the whole 3D saga. A probe of the FIFO block (see
+    // _dumpFifoHeader in kexts/probe) with this driver unloaded showed the host had written
+    // exactly six dwords, one of them at index 288: SVGA_FIFO_3D_HWVERSION = 0x45b, i.e.
+    // SVGA3D protocol 1115. With MIN = 1152 (288 dwords) the command area began *exactly on
+    // top of that dword*, so the first command we pushed overwrote the host's own 3D version
+    // word -- and a host that reads its version word back and finds a command header there
+    // has every reason to drop the queue. That is why commands "fenced" in guest memory
+    // while nothing was ever consumed, why the FIFO capability dword stayed 0, and why
+    // DEFINE_RTV never once succeeded (§35, §39, §43).
+    //
+    // The reservation is the larger of the host's MEM_REGS and our own table, plus one dword
+    // of slack so the last host-defined index can never be the first command byte -- and then
+    // rounded up to a page, because that is what the working driver does. vmw_fifo_create()
+    // in vmwgfx_cmd.c is explicit about the last step:
+    //
+    //     min = vmw_read(dev_priv, SVGA_REG_MEM_REGS);   // 291 here
+    //     min <<= 2;                                     // 1164 bytes
+    //     if (min < PAGE_SIZE) min = PAGE_SIZE;          // -> 4096
+    //
+    // We had been using 1168. That is legal on paper -- command data may start anywhere past
+    // the last register -- but it is 4 KiB-misaligned in exactly the way a host that indexes
+    // the ring by page may not tolerate, and it is the last structural difference between our
+    // FIFO and the one Linux configures on this exact device. Commands sat in memory with
+    // NEXT_CMD advanced, SYNC pinged, and the host still neither consumed them nor published
+    // a single capability bit (§44). Aligning costs nothing and removes the difference.
+    UInt32 mandatoryRegs = kSvgaFifoExtendedMandatoryRegs;
+    if (memRegs != 0 && memRegs < 4096 && memRegs + 1 > mandatoryRegs) {
+        mandatoryRegs = memRegs + 1;
     }
-    // min == 0 is a fresh device; min == 1152 is ours surviving from a previous boot (the
-    // SVGA device is not reset unless the VM powers off). Either way the command stream is
-    // empty (NEXT_CMD == STOP), so the init sequence below is safe to run again -- and it
-    // has to be run: the host republishes its FIFO capabilities on the CONFIG_DONE
-    // transition, and they read zero on a later boot until it does.
+    UInt32 minBytes = mandatoryRegs * (UInt32)sizeof (UInt32);
+    if (minBytes < 4096) {                      // vmw_fifo_create: "if (min < PAGE_SIZE)"
+        minBytes = 4096;
+    }
+    IOLog(VGPU_FB_TAG ": fifo: reserving %u dwords (MEM_REGS %u) -> MIN %u bytes%s\n",
+          mandatoryRegs, memRegs, minBytes,
+          (minBytes == mandatoryRegs * 4) ? "" : " (page-aligned)");
 
-    if (fifo[kSvgaFifoMin] == 0 || fifo[kSvgaFifoMin] == kSvgaFifoExtendedMandatoryRegs * 4) {
-        // 288 registers * 4 bytes of register space, plus the spec's minimum 10 KB of data.
-        UInt32 regBytes  = kSvgaFifoExtendedMandatoryRegs * sizeof (UInt32);
+    // A non-zero MIN means a FIFO was already configured. On this guest that is always us,
+    // on a previous boot -- the device is not reset by a reboot, only by a VM power cycle.
+    // (The old check rejected anything that was not exactly our own size, which over the
+    // course of these fixes meant a boot could refuse to configure simply because the
+    // previous boot used a different MIN. The size is ours to choose; a leftover value is
+    // never a reason to skip.)
+    if (fifo[kSvgaFifoMin] != 0 && fifo[kSvgaFifoMin] < minBytes) {
+        IOLog(VGPU_FB_TAG ": fifo: previous MIN %u is below the %u this build needs, "
+              "reconfiguring\n", fifo[kSvgaFifoMin], minBytes);
+    } else if (fifo[kSvgaFifoMin] != 0 && fifo[kSvgaFifoMin] != minBytes) {
+        IOLog(VGPU_FB_TAG ": fifo: previous MIN %u differs from this build's %u, "
+              "reconfiguring\n", fifo[kSvgaFifoMin], minBytes);
+    }
+
+    // The stream is NOT necessarily empty. A boot that wrote a command and was then shut down
+    // before the host consumed it leaves NEXT_CMD > STOP, which is exactly what the stage-3
+    // boot after the stage-2 run showed (next_cmd 1192, stop 1152). Rewriting both to MIN
+    // discards that command; that is correct, because it describes a frame belonging to a
+    // previous boot, but it is worth a log line -- "the FIFO was left dirty" is information
+    // about how the previous session ended.
+    if (fifo[kSvgaFifoMin] != 0 && fifo[kSvgaFifoNextCmd] != fifo[kSvgaFifoStop]) {
+        IOLog(VGPU_FB_TAG ": FIFO left dirty (next_cmd %u, stop %u) -- discarding\n",
+              fifo[kSvgaFifoNextCmd], fifo[kSvgaFifoStop]);
+    }
+
+    {
+        UInt32 regBytes  = minBytes;
         UInt32 fifoBytes = (memSize != 0 && memSize <= (UInt32)map->getLength()) ? memSize
                                                                                  : (UInt32)map->getLength();
         if (fifoBytes < regBytes + 10 * 1024) {
@@ -1100,49 +1207,55 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
         fifo[kSvgaFifoMax]     = fifoBytes;
         fifo[kSvgaFifoNextCmd] = regBytes;
         fifo[kSvgaFifoStop]    = regBytes;
+        // vmw_fifo_create() also zeroes SVGA_FIFO_BUSY before setting CONFIG_DONE. A stale
+        // non-zero BUSY would have the host believe a flush is still in flight and never start
+        // draining the ring -- which is precisely the symptom we were chasing.
+        fifo[kSvgaFifoBusy]    = 0;
         __asm__ volatile ("" ::: "memory");
 
         // Display topology and the guest driver id are NOT written here any more.
         //
-        // Both used the register numbers from the same upstream header that gave us the wrong
-        // 0x14, and both have now been checked against the host's own driver. Enumerating every
-        // index vm3dmp.sys ever writes (tools/rev/reg-indices.py) yields exactly eight:
+        // Enumerating every index vm3dmp.sys ever writes (tools/rev/reg-indices.py) yields
+        // exactly eight, and now that svga_reg.h has been read correctly they all decode:
         //
-        //   0x01 ENABLE   0x02 WIDTH   0x14 RESET   0x15 SYNC
-        //   0x16 BUSY     0x21 DISPLAY_MAX        0x35/0x36 COMMAND_HIGH/LOW
+        //   0x01 ENABLE      0x02 WIDTH       0x14 CONFIG_DONE   0x15 SYNC
+        //   0x16 BUSY        0x21 IRQMASK     0x35/0x36 CMD_PREPEND_LOW/HIGH
         //
-        // There is no write to 0x23..0x40 anywhere in the driver, so "35/36/37/38/39/40" are not
-        // the display topology registers -- 0x35 and 0x36 are SVGA_REG_COMMAND_HIGH/LOW, the
-        // command-queue doorbell. Writing 0xFFFFFFFF to them (which this code did twice per boot,
-        // labelled "SVGA_ID_INVALID: deselect") was writing a bogus command header into the queue
-        // the host was about to start consuming. That is a far better candidate for the FIFO
-        // aborts recorded in §39 than any command payload we ever sent.
+        // That set is exactly "configure the FIFO, ask for interrupts, register a prepend
+        // buffer" -- which is what a Windows miniport does. It contains NO display-topology
+        // write (those are 35..40 = 0x23..0x28, where the driver writes nothing) and NO
+        // guest driver id write (61..64). Both blocks were inventions of the old, wrong
+        // register map and are gone.
         //
-        // The guest driver id block at 61..64 is likewise never written by the driver, so there
-        // is no evidence this host reads it at all. It stays behind its switch so an experiment
-        // can re-test it, but it is no longer part of the default path.
-        if (kFbStage >= 6) {
-            svgaWriteRegister(_svgaPortBase, 61, 1);           // unverified: see note above
-            svgaWriteRegister(_svgaPortBase, 62, 0x1801560);
-            svgaWriteRegister(_svgaPortBase, 63, 0x90011);
-            svgaWriteRegister(_svgaPortBase, 64, 0xb0003);
-            IOLog(VGPU_FB_TAG ": fifo: GUEST_DRIVER_ID written (unverified register block)\n");
-        }
-
+        // The 0x35/0x36 entry is the one that has been misread twice: first as display
+        // topology, then as the command doorbell. They are SVGA_REG_CMD_PREPEND_LOW/HIGH.
+        // The command doorbell is 48/49 and neither this host's driver nor vmwgfx uses it --
+        // both submit through the FIFO. Therefore writing 0xFFFFFFFF to 0x35/0x36 as
+        // "SVGA_ID_INVALID: deselect" was not corrupting a command queue at all; it was
+        // publishing a bogus prepend buffer address. Removed.
+        //
+        // SVGA_REG_GUEST_DRIVER_ID (61) and VERSION1..3 (62..64) do exist in the device
+        // definition, so the old comment claiming they were invented was wrong too. What is
+        // true is narrower: this host's driver never writes them, so there is no evidence this
+        // host requires them, and they are not part of the FIFO bring-up. Left off the boot
+        // path; kGuestDriverId still gates the copy in the command-buffer path.
         svgaWriteRegister(_svgaPortBase, kSvgaRegConfigDone, 1);
-        IOLog(VGPU_FB_TAG ": FIFO configured: regs %u bytes (%u dwords), data %u..%u, CONFIG_DONE=1\n",
-              regBytes, kSvgaFifoExtendedMandatoryRegs, regBytes, fifoBytes);
+        IOLog(VGPU_FB_TAG ": FIFO configured: regs 0..%u, data %u..%u, CONFIG_DONE=1\n",
+              regBytes, regBytes, fifoBytes);
         fifoDump(fifo, "after ");
     }
 
     // Announce the guest protocol version. On a vGPU10 (GBOBJECTS) device the legacy
     // SVGA_FIFO_3D_HWVERSION register stays zero -- the authoritative 3D check there is
     // the DEV_CAP backdoor below, exactly as Linux's vmwgfx does in vmw_fifo_have_3d().
-    fifo[kSvgaFifoGuest3dHwVersion] = kSvga3dHwVersionCurrent;
-    __asm__ volatile ("" ::: "memory");
-    IOLog(VGPU_FB_TAG ": guest 3D version announced as 0x%x; legacy 3D_HWVERSION reads 0x%x "
-          "(expected zero on a vGPU10 device)\n",
-          kSvga3dHwVersionCurrent, fifo[kSvgaFifo3dHwVersion]);
+    //
+    // NOTE: the guest-version word is NOT written here any more. A probe run with this kext
+    // unloaded (§43.5) found the host had put its own SVGA3D protocol number (0x45b = 1115)
+    // at index 288, and this line was overwriting it with 0x20001. Whatever the host does
+    // with a version word it wrote and then finds changed, overwriting it is not something
+    // a guest that has not negotiated anything should do.
+    IOLog(VGPU_FB_TAG ": host 3D protocol at fifo[%u] = 0x%x (read only, not overwritten)\n",
+          kSvgaFifo3dHwVersion, fifo[kSvgaFifo3dHwVersion]);
 
     // The device-capability backdoor: write a SVGA3D_DEVCAP index into SVGA_REG_DEV_CAP,
     // read the value back from the same register. This is the authoritative per-feature
@@ -1991,31 +2104,56 @@ UInt32 vgpuFramebuffer::devcapRead(UInt32 index) {
 //
 // Submit one SVGA_CMD_FENCE and poll for its acknowledgement.
 //
-// Submission follows the FIFO's reserve protocol (SVGA_FIFO_CAP_RESERVE is set on this
-// host): announce the byte count in SVGA_FIFO_RESERVED, write the command dwords at
-// NEXT_CMD, then advance NEXT_CMD and clear RESERVED. The command stream is empty at this
-// point (NEXT_CMD == STOP), so no wrap handling is needed for the first submission; a
-// command that would straddle FIFO_MAX is refused rather than wrapped.
+// Submission follows the reserve protocol. Two corrections went in here after the first
+// attempt hung with no log output at all:
 //
+//   1. The host was never pinged. NEXT_CMD is the guest's write pointer; advancing it is a
+//      memory store the host has no reason to notice on its own. vmw_local_fifo_commit()
+//      always follows it with vmw_fifo_ping_host(SVGA_SYNC_GENERIC) == write SVGA_REG_SYNC 1.
+//      Without that, "the host did not consume our command" is not even a finding -- the host
+//      was never asked to.
+//
+//   2. The poll was an unbounded-feeling 400M-iteration volatile spin. Even if it did return,
+//      it would have blocked the whole kext for tens of seconds on this VM, and the success
+//      path -- the only path that logged -- printed nothing on failure until the end. Now the
+//      loop is bounded by wall-clock time, and it logs the transition it saw.
+//
+//   3. CONFIG_DONE was being written to register 25 instead of 20 (§45), so none of the above
+//      ever mattered: the host never believed a FIFO existed. Both the FIFO-memory capability
+//      dword and the register one are logged side by side now, because they disagree and the
+//      register is the authoritative one.
 void vgpuFramebuffer::fenceTest(volatile UInt32 *fifo) {
     const UInt32 caps = fifo[kSvgaFifoCapabilities];
-    if ((caps & kSvgaFifoCapFence) == 0) {
-        IOLog(VGPU_FB_TAG ": fence test skipped: host does not advertise SVGA_FIFO_CAP_FENCE\n");
-        return;
-    }
+    // The FIFO-memory capability dword and the register capability word are different things,
+    // and this host only fills in the latter. SVGA_REG_FIFO_CAPS = 68 is the one vmwgfx reads
+    // when it wants to know whether reserve/fence are implemented.
+    const UInt32 regCaps = svgaReadRegister(_svgaPortBase, kSvgaRegFifoCaps);
+    const UInt32 next0 = fifo[kSvgaFifoNextCmd];
+    const UInt32 stop0 = fifo[kSvgaFifoStop];
+    const UInt32 fence0 = fifo[kSvgaFifoFence];
+    IOLog(VGPU_FB_TAG ": fence test: fifo caps 0x%x, SVGA_REG_FIFO_CAPS(68) 0x%x "
+          "(reserve %s, fence %s); start next_cmd %u stop %u fence 0x%x\n",
+          caps, regCaps,
+          (regCaps & kSvgaFifoCapReserve) ? "yes" : "no",
+          (regCaps & kSvgaFifoCapFence) ? "yes" : "no",
+          next0, stop0, fence0);
 
     const UInt32 next = fifo[kSvgaFifoNextCmd];
     const UInt32 stop = fifo[kSvgaFifoStop];
+    const UInt32 fmin = fifo[kSvgaFifoMin];
     const UInt32 fmax = fifo[kSvgaFifoMax];
-    const UInt32 bytesFree = (next >= stop) ? (fmax - next) : (stop - next);
+    // Same free-space rule as vmw_fifo_is_full(): when the write pointer has wrapped past the
+    // read pointer the ring is full, not empty.
+    const UInt32 bytesFree = (next >= stop) ? ((fmax - next) + (stop - fmin))
+                                            : (stop - next);
     if (bytesFree < 8) {
-        IOLog(VGPU_FB_TAG ": fence test skipped: only %u bytes free before FIFO_MAX (wrap not implemented)\n",
-              bytesFree);
+        IOLog(VGPU_FB_TAG ": fence test skipped: %u bytes free (min %u max %u next %u stop %u)\n",
+              bytesFree, fmin, fmax, next, stop);
         return;
     }
 
     const UInt32 fenceValue = 0x31415926;
-    const bool  canReserve  = (caps & kSvgaFifoCapReserve) != 0;
+    const bool  canReserve  = (regCaps & kSvgaFifoCapReserve) != 0;
     if (canReserve) {
         fifo[kSvgaFifoReserved] = 8;
     }
@@ -2023,26 +2161,46 @@ void vgpuFramebuffer::fenceTest(volatile UInt32 *fifo) {
     fifo[(next / sizeof (UInt32)) + 1] = fenceValue;
     __asm__ volatile ("" ::: "memory");
     fifo[kSvgaFifoNextCmd] = next + 8;
+    __asm__ volatile ("" ::: "memory");
     if (canReserve) {
         fifo[kSvgaFifoReserved] = 0;
     }
-    IOLog(VGPU_FB_TAG ": fence 0x%x submitted at offset %u (reserve=%d), polling...\n",
-          fenceValue, next, canReserve);
+    svgaPingHost(_svgaPortBase);
+    IOLog(VGPU_FB_TAG ": fence 0x%x written at %u, next_cmd -> %u, host pinged (SYNC=1), polling\n",
+          fenceValue, next, next + 8);
 
-    // The host acks by writing the value into SVGA_FIFO_FENCE once it has processed every
-    // command up to and including ours. Poll with a generous bound; IOLog inside the loop
-    // would slow the success path, so only the outcome is logged.
-    const UInt64 spinBound = 400000000ULL;
-    for (UInt64 spins = 0; spins < spinBound; spins++) {
+    // 2 s in 1000 steps. Long enough for a healthy host, short enough that a wedged device
+    // costs 2 seconds of boot instead of 30+.
+    const UInt32 kSteps = 2000;
+    const UInt32 kStepUs = 1000;
+    UInt32 lastStop = stop;
+    for (UInt32 i = 0; i < kSteps; i++) {
         if (fifo[kSvgaFifoFence] == fenceValue) {
-            IOLog(VGPU_FB_TAG ": FIFO command stream VERIFIED: fence 0x%x acked "
-                  "(next_cmd %u stop %u, %llu spins)\n",
-                  fenceValue, fifo[kSvgaFifoNextCmd], fifo[kSvgaFifoStop], spins);
+            IOLog(VGPU_FB_TAG ": FIFO command stream VERIFIED: fence 0x%x acked after ~%u us "
+                  "(next_cmd %u stop %u)\n",
+                  fenceValue, i * kStepUs, fifo[kSvgaFifoNextCmd], fifo[kSvgaFifoStop]);
             return;
         }
+        const UInt32 nowStop = fifo[kSvgaFifoStop];
+        if (nowStop != lastStop) {
+            IOLog(VGPU_FB_TAG ": fence test: host advanced STOP %u -> %u after ~%u us\n",
+                  lastStop, nowStop, i * kStepUs);
+            lastStop = nowStop;
+        }
+        IODelay(kStepUs);
     }
-    IOLog(VGPU_FB_TAG ": fence NOT acked within %llu spins (next_cmd %u stop %u fence 0x%x)\n",
-          spinBound, fifo[kSvgaFifoNextCmd], fifo[kSvgaFifoStop], fifo[kSvgaFifoFence]);
+
+    IOLog(VGPU_FB_TAG ": fence 0x%x NOT acked in %u us. next_cmd %u stop %u fence 0x%x "
+          "(started at next_cmd %u stop %u fence 0x%x)\n",
+          fenceValue, kSteps * kStepUs,
+          fifo[kSvgaFifoNextCmd], fifo[kSvgaFifoStop], fifo[kSvgaFifoFence],
+          next0, stop0, fence0);
+
+    // A command the host never consumed must not be left in the ring: the next boot would
+    // either re-parse it or, worse, parse its tail as a header. Put the write pointer back.
+    fifo[kSvgaFifoNextCmd] = next;
+    __asm__ volatile ("" ::: "memory");
+    IOLog(VGPU_FB_TAG ": fence test: rewound next_cmd to %u\n", next);
 }
 
 //
@@ -2101,6 +2259,12 @@ bool vgpuFramebuffer::fifoSubmitWords(volatile UInt32 *fifo, const UInt32 *words
         reNext = fifo[kSvgaFifoNextCmd];
         bytesFree = (reNext >= stop) ? ((fmax - reNext) + (stop - fmin))
                                      : (stop - reNext);
+        // vmw_fifo_wait() pings with SVGA_SYNC_FIFOFULL before sleeping. The reason is the
+        // same as everywhere else in this file: the host does not poll the ring on its own.
+        if ((spins & 0xFF) == 0) {
+            svgaPingHost(_svgaPortBase);
+        }
+        IODelay(50);
     }
     if (reNext != next) {
         // Someone else advanced the ring (reboot/console takeover). Do not chase it:
@@ -2109,8 +2273,8 @@ bool vgpuFramebuffer::fifoSubmitWords(volatile UInt32 *fifo, const UInt32 *words
               next, reNext);
         return false;
     }
-    const UInt32 caps = fifo[kSvgaFifoCapabilities];
-    const bool canReserve = (caps & kSvgaFifoCapReserve) != 0;
+    const UInt32 regCaps = svgaReadRegister(_svgaPortBase, kSvgaRegFifoCaps);
+    const bool canReserve = (regCaps & kSvgaFifoCapReserve) != 0;
     const IOByteCount bytesToEnd = (IOByteCount)(fmax - next);
 
     if (byteCount <= bytesToEnd) {
@@ -2129,9 +2293,14 @@ bool vgpuFramebuffer::fifoSubmitWords(volatile UInt32 *fifo, const UInt32 *words
         fifo[kSvgaFifoNextCmd] = (next + (UInt32)byteCount >= fmax)
                                  ? (fmin + (next + (UInt32)byteCount - fmax))
                                  : (next + (UInt32)byteCount);
+        __asm__ volatile ("" ::: "memory");
         if (canReserve) {
             fifo[kSvgaFifoReserved] = 0;
         }
+        // The doorbell. vmw_local_fifo_commit() writes SVGA_REG_SYNC here unconditionally;
+        // without it the host has no reason to inspect NEXT_CMD and the whole stream sits
+        // unread in memory while every caller waits for a fence that cannot arrive.
+        svgaPingHost(_svgaPortBase);
         return true;
     }
 
@@ -2151,6 +2320,8 @@ bool vgpuFramebuffer::fifoSubmitWords(volatile UInt32 *fifo, const UInt32 *words
     }
     __asm__ volatile ("" ::: "memory");
     fifo[kSvgaFifoNextCmd] = fmin + (UInt32)byteCount;
+    __asm__ volatile ("" ::: "memory");
+    svgaPingHost(_svgaPortBase);
     return true;
 }
 
@@ -2160,14 +2331,17 @@ bool vgpuFramebuffer::fenceAck(volatile UInt32 *fifo, UInt32 *seq) {
     if (!fifoSubmitWords(fifo, words, 2)) {
         return false;
     }
-    const UInt64 spinBound = 400000000ULL;
-    for (UInt64 spins = 0; spins < spinBound; spins++) {
+    // Bounded the same way as fenceTest(): 2 s of wall clock, not a spin count, so a wedged
+    // device costs a known amount of boot time instead of an unbounded hang.
+    const UInt32 kSteps = 2000;
+    for (UInt32 i = 0; i < kSteps; i++) {
         if (fifo[kSvgaFifoFence] == *seq) {
             return true;
         }
+        IODelay(1000);
     }
-    IOLog(VGPU_FB_TAG ": fence %u NOT acked (next_cmd %u stop %u)\n",
-          *seq, fifo[kSvgaFifoNextCmd], fifo[kSvgaFifoStop]);
+    IOLog(VGPU_FB_TAG ": fence %u NOT acked in %u us (next_cmd %u stop %u fence 0x%x)\n",
+          *seq, kSteps, fifo[kSvgaFifoNextCmd], fifo[kSvgaFifoStop], fifo[kSvgaFifoFence]);
     return false;
 }
 
@@ -3490,7 +3664,8 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     if (!fifoSubmitWords(fifo, words, 9) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": stdu: DEFINE_GB_SCREENTARGET refused\n");
         // Dump the whole command stream for offline diffing: 4 dwords per line.
-        for (UInt32 o = kSvgaFifoExtendedMandatoryRegs * 4; o < fifo[kSvgaFifoNextCmd]; o += 16) {
+        const UInt32 dumpStart = fifo[kSvgaFifoMin];
+        for (UInt32 o = dumpStart; o < fifo[kSvgaFifoNextCmd]; o += 16) {
             IOLog(VGPU_FB_TAG ": fifo[%4u] %08x %08x %08x %08x\n", o,
                   fifo[o / 4], fifo[o / 4 + 1], fifo[o / 4 + 2], fifo[o / 4 + 3]);
         }
@@ -4886,16 +5061,8 @@ bool vgpuFramebuffer::cbInit(void) {
     // this at init" -- it does not, and never did. The host driver writes no register above
     // 0x36 at all (tools/rev/reg-indices.py). Left off; the switch exists only so the
     // hypothesis can be re-tested deliberately.
-    UInt16 port = _svgaPortBase;
-    if (kGuestDriverId) {
-        svgaWriteRegister(port, 61, 1);           // SVGA_REG_GUEST_DRIVER_ID = WDDM
-        svgaWriteRegister(port, 62, 0x1801560);   // SVGA_REG_GUEST_DRIVER_VERSION1 (vm3dmp)
-        svgaWriteRegister(port, 63, 0x90011);     // SVGA_REG_GUEST_DRIVER_VERSION2
-        svgaWriteRegister(port, 64, 0xb0003);     // SVGA_REG_GUEST_DRIVER_VERSION3
-        IOLog(VGPU_FB_TAG ": cb: GUEST_DRIVER_ID=WDDM + version triple written\n");
-    } else {
-        IOLog(VGPU_FB_TAG ": cb: GUEST_DRIVER_ID write skipped (kGuestDriverId=0)\n");
-    }
+    IOLog(VGPU_FB_TAG ": cb: GUEST_DRIVER_ID write %s (kGuestDriverId=%u)\n",
+          kGuestDriverId ? "enabled" : "skipped", kGuestDriverId);
 
     // Register a PREPEND buffer (SVGA_REG_CMD_PREPEND_LOW/HIGH = 53/54), exactly as
     // vm3dmp does before/with every submission: PREPEND_HIGH = PA>>32,
@@ -4919,8 +5086,10 @@ bool vgpuFramebuffer::cbInit(void) {
         return true;
     }
     UInt64 ppPA = (UInt64)ppAddr;
-    svgaWriteRegister(port, kSvgaRegCommandHigh, (UInt32)(ppPA >> 32));
-    svgaWriteRegister(port, kSvgaRegCommandLow, (UInt32)(ppPA & 0xFFFFFFFFu) | 0u);
+    // SVGA_REG_CMD_PREPEND_LOW/HIGH = 53/54. These are NOT the command doorbell -- 48/49 is,
+    // and this code briefly used 53/54 for submission after §40 conflated the two.
+    svgaWriteRegister(_svgaPortBase, kSvgaRegCmdPrependHigh, (UInt32)(ppPA >> 32));
+    svgaWriteRegister(_svgaPortBase, kSvgaRegCmdPrependLow, (UInt32)(ppPA & 0xFFFFFFFFu) | 0u);
     IOLog(VGPU_FB_TAG ": cb: PREPEND registered @ %llx (ctx 0)\n",
           (unsigned long long)ppPA);
     }  // kCbPrepend

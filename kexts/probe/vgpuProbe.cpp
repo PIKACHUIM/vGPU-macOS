@@ -104,6 +104,7 @@ static const UInt32 kRegSync          = 0x15;   // write 1 = flush, 2 = flush an
 static const UInt32 kRegBusy          = 0x16;   // polled to zero after a flush-and-wait
 static const UInt32 kRegConfigDone    = 0x19;   // set once the FIFO is configured
 static const UInt32 kRegMemSizeActual = 0x1B;
+static const UInt32 kRegMemRegs       = 0x1E;   // how many FIFO registers the host publishes
 static const UInt32 kRegDisplayBase   = 0x20;   // display block enable / base
 static const UInt32 kRegDisplayMax    = 0x21;   // block size; writing 0 masks interrupts
 
@@ -144,6 +145,7 @@ static const RegName kRegisters[] = {
     { kRegBusy,          "BUSY"           },   // 0x16
     { kRegConfigDone,    "CONFIG_DONE"    },   // 0x19
     { kRegMemSizeActual, "MEM_SIZE_ACTUAL"},   // 0x1B
+    { kRegMemRegs,       "MEM_REGS"       },   // 0x1E
     { kRegDisplayBase,   "DISPLAY_BASE"   },   // 0x20
     { kRegDisplayMax,    "DISPLAY_MAX"    },   // 0x21
 };
@@ -266,6 +268,7 @@ private:
     IOPCIDevice *_findDisplayDevice();
     void         _snapshot(UInt16 portBase, const char *when);
     void         _checkGeometry(UInt16 portBase, const char *when);
+    void         _dumpFifoHeader(IOPCIDevice *dev, UInt16 portBase);
     void         _runExperiment();
 };
 
@@ -465,7 +468,79 @@ void vgpuProbe::_runExperiment() {
     _snapshot(portBase, "after max write");
 #endif
 
+    _dumpFifoHeader(dev, portBase);
+
     dev->release();
+}
+
+// Read the FIFO register block itself, without touching it.
+//
+// This exists because of a contradiction that DEVCAP alone cannot settle: on a boot where
+// the framebuffer driver configured the FIFO, svga_reg_devcap(0x34) reported DEVCAP_3D = 1
+// while every 3D capability dword in the FIFO read zero. Either the capabilities live at a
+// different index than the upstream header says (which is exactly what happened to the
+// register indices in §40), or this host does not publish them and only DEVCAP is real.
+//
+// Printing the raw dwords around the interests lets the two hypotheses be told apart: if
+// the host writes its capabilities somewhere, the non-zero runs will show up in the dump
+// even at an unexpected offset.
+void vgpuProbe::_dumpFifoHeader(IOPCIDevice *dev, UInt16 portBase) {
+    UInt32 memStart = svgaReadRegister(portBase, kRegMemStart);
+    UInt32 memSize  = svgaReadRegister(portBase, kRegMemSize);
+    UInt32 memRegs  = svgaReadRegister(portBase, kRegMemRegs);
+    if (memStart == 0 || memSize == 0) {
+        IOLog(VGPU_PROBE_TAG ": fifo: no mem region (start 0x%x size 0x%x)\n", memStart, memSize);
+        return;
+    }
+
+    IODeviceMemory *region = nullptr;
+    for (UInt32 index = 0; index < 6 && region == nullptr; index++) {
+        IODeviceMemory *bar = dev->getDeviceMemoryWithIndex(index);
+        if (bar != nullptr && bar->getPhysicalAddress() == memStart) {
+            region = bar;
+        }
+    }
+    if (region == nullptr) {
+        IOLog(VGPU_PROBE_TAG ": fifo: mem start 0x%x is not a BAR\n", memStart);
+        return;
+    }
+    IOMemoryMap *map = region->map();
+    if (map == nullptr) {
+        IOLog(VGPU_PROBE_TAG ": fifo: could not map 0x%x\n", memStart);
+        return;
+    }
+
+    volatile UInt32 *fifo = (volatile UInt32 *)map->getVirtualAddress();
+    IOLog(VGPU_PROBE_TAG ": fifo: mem regs %u, dump of dwords 0..15 and 284..295\n", memRegs);
+    for (UInt32 i = 0; i + 7 < 16; i += 8) {
+        IOLog(VGPU_PROBE_TAG ": fifo[%3u..%3u] %08x %08x %08x %08x %08x %08x %08x %08x\n",
+              i, i + 7,
+              fifo[i], fifo[i + 1], fifo[i + 2], fifo[i + 3],
+              fifo[i + 4], fifo[i + 5], fifo[i + 6], fifo[i + 7]);
+    }
+    // The tail covers the guest-version / busy slots at 288..290 and one past them, so an
+    // off-by-one in the extended set is visible rather than inferred.
+    for (UInt32 i = 284; i + 3 < 296; i += 4) {
+        IOLog(VGPU_PROBE_TAG ": fifo[%3u..%3u] %08x %08x %08x %08x\n",
+              i, i + 3, fifo[i], fifo[i + 1], fifo[i + 2], fifo[i + 3]);
+    }
+
+    // Count non-zero dwords across the whole register area the host says exists, so the
+    // "capabilities are zero" claim is quantified rather than sampled.
+    UInt32 limit = memRegs != 0 && memRegs < 4096 ? memRegs : 291;
+    UInt32 nonZero = 0, firstNonZero = limit;
+    for (UInt32 i = 0; i < limit; i++) {
+        if (fifo[i] != 0) {
+            nonZero++;
+            if (i < firstNonZero) {
+                firstNonZero = i;
+            }
+        }
+    }
+    IOLog(VGPU_PROBE_TAG ": fifo: %u of %u dwords non-zero (first at %u)\n",
+          nonZero, limit, firstNonZero);
+
+    map->release();
 }
 
 bool vgpuProbe::start(IOService *provider) {

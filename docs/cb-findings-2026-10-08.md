@@ -3975,3 +3975,195 @@ kSvgaRegDisplayMax   = 0x21,
 并把 1063 行那次 `write(0x14, 0)` 改成了 `write(0x19, 0)` —— 那才是"取消配置"。
 这一改的含义是：**下一次 `kFbStage >= 1` 的启动不再复位设备**，
 是 §38 以来第一次可以干净地观察"MKS 面对一个真的配好 FIFO 的 guest"的行为。
+
+---
+
+## §43 实验：`CONFIG_DONE=1` 不再黑屏 —— §38.22 的因果链正式作废
+
+按 §42 修完寄存器后跑的第一轮 `kFbStage = 2`（只配 FIFO，不发任何命令）。
+
+### 43.1 结果：画面完好，宿主从未切 ScreenTarget
+
+| 观测 | 值 |
+|---|---|
+| `kextstat` | `com.vgpu.framebuffer` 已加载 |
+| `fifo[before]` | `min 0 max 0 next_cmd 0 stop 0` —— 全新设备 |
+| FIFO 写入后 | `min 1152 max 262144 next_cmd 1152 stop 1152` |
+| `CONFIG_DONE` | **1**（写进 `0x19`，历史第一次） |
+| `fifo caps` | **`0x0`** ← 异常，见 43.3 |
+| `3d hw version` | **`0x0`** ← 异常 |
+| `3d capabilities` | **`0 of 256 non-zero`** ← 异常 |
+| `DEVCAP_3D` | **1** —— `SVGA3D LIVE` |
+| VNC 截图颜色数 | **145262**，菜单栏 / 窗口 / Dock 全在 |
+| 宿主 `Screen type` | 开机一次 `RegisterMode`，**此后再无变化** |
+| 宿主 `SWBScreen` | 只有 Screen 1 的 Def/Destroy，没有切型号 |
+
+**结论：`CONFIG_DONE = 1` 与黑屏无关。** §38.20–§38.22 用了四小节论证的
+"写 `CONFIG_DONE` ⇒ MKS 切 screen-target 呈现模型 ⇒ 黑屏"这条链，
+在寄存器修正后**一次也复现不出来**。
+
+### 43.2 那条链其实一直在测量设备复位
+
+§42 已经推出 `0x14` 是 `RESET`。这里再加一条正面证据：
+本轮唯一改变的就是"不再写 `0x14`"，而黑屏就消失了。
+换句话说，过去所有"stage ≥ 1 就黑"的实验，变量其实一直是**设备复位**，不是 FIFO 配置。
+
+这也把 §38.22 里那个怎么都解释不通的现象解释掉了：
+
+> `ScreenTarget (1024×512)`——1024 是我们当时设的宽度，512 不是我们设的任何值。
+
+复位后宿主按默认参数重建 Screen 1，高度被 VRAM/默认 pitch 截断到一个安全值。
+那不是"切呈现模型"，是"重建显示状态丢了一半信息"。
+
+### 43.3 新的未解问题：FIFO caps 与 3D 能力块全零
+
+`CONFIG_DONE` 写了 1，宿主**没有**把它的 FIFO 能力位公布出来：
+
+```
+fifo[after ] min 1152 max 262144 next_cmd 1152 stop 1152 caps 0x0 busy 0
+fifo[after ] 3d hw version 0x0
+3d capabilities advertised: 0 of 256 non-zero
+```
+
+但同一时刻 `SVGA_REG_DEVCAP`（`0x34`）却逐个返回真实值，`DEVCAP_3D = 1`：
+
+```
+devcap[ 0.. 7] 00000001 00000008 00000008 00000008 00000007 00000001 0000000d 00000001
+devcap[16..23] 00000001 433d0000 00000014 00008000 00008000 00004000 00008000 00008000
+```
+
+两条通道给出**互相矛盾**的 3D 立场：DEVCAP 说 3D 是有的，FIFO 能力块说一个也没有。
+可能性有三种，下一步要区分：
+
+1. **`MIN` 设得太小/太大**：我们写 `1152`（288 个 dword）。若宿主期望的扩展寄存器区
+   比 288 更大，能力块会落在宿主不写的位置上。
+2. **能力块需要先读 `3D_HWVERSION` 才被填充**：vm3dmp 在初始化早期读它，我们读到的也是 0。
+3. **`caps` 在 `CONFIG_DONE` 之后要被"读一次"才更新**：我们是直接读内存，
+   而宿主可能只在某个时机刷新。
+
+第 1 条最可疑，因为 `regs 291` 这个读数（`SVGA_REG_MEM_REGS = 0x1E`）比我们设的
+288 大 3 —— 差值恰好是 3D 扩展的头部。之前从未注意过这个 291。
+
+### 43.4 净收益
+
+- 主 kext 现在可以在 `kFbStage = 2` 下**带着画面**持有 FIFO。这是整个项目第一次。
+- 也就是说"2D 呈现 + FIFO 所有权"可以并存，§38.22 结论 3 里
+  "2D 只需要不写 CONFIG_DONE"这个前提**不再必要** —— 2D 与 FIFO 不再互斥。
+- 剩下的问题收敛成一个具体的数字：**`MEM_REGS = 291` 而 `MIN = 1152 = 288*4`**。
+  先把 `MIN` 对齐到宿主公布的 `MEM_REGS`，再看能力块是否被填充。
+
+## §44 寄存器号的真相：`CONFIG_DONE` 一直写在一个别的寄存器上
+
+这一节推翻 §40、§41 和 §42 里关于寄存器编号的结论。**先说明为什么会错，再给证据。**
+
+### 44.1 错误的来源：`svga_reg.h` 换了目录
+
+前几轮一直用
+`https://raw.githubusercontent.com/torvalds/linux/master/drivers/gpu/drm/vmwgfx/svga_reg.h`
+去核对寄存器编号。这个 URL 现在返回 404，因为文件已经搬到
+`drivers/gpu/drm/vmwgfx/device_include/svga_reg.h`。
+拿不到权威表之后，编号是靠对 `vm3dmp.sys` 反汇编里的立即数**猜语义**来的 ——
+而"某个索引出现在 out 指令里"只能证明它被写过，证明不了它是什么。
+
+正确地址（可直接 curl）：
+```
+https://raw.githubusercontent.com/torvalds/linux/master/drivers/gpu/drm/vmwgfx/device_include/svga_reg.h
+```
+
+### 44.2 上游权威表（`device_include/svga_reg.h` 原文）
+
+| 常量 | 值 | 我们之前用的 |
+|---|---|---|
+| `SVGA_REG_CONFIG_DONE` | **20 (0x14)** | 0x19 (25) ❌ |
+| `SVGA_REG_SYNC` | 21 (0x15) | 0x15 ✅ |
+| `SVGA_REG_BUSY` | 22 (0x16) | 0x16 ✅ |
+| `SVGA_REG_MEM_REGS` | 30 (0x1E) | 0x1E ✅ |
+| `SVGA_REG_COMMAND_LOW` | **48 (0x30)** | 0x35 ❌ |
+| `SVGA_REG_COMMAND_HIGH` | **49 (0x31)** | 0x36 ❌ |
+| `SVGA_REG_DEV_CAP` | 52 (0x34) | 0x34 ✅ |
+| `SVGA_REG_CMD_PREPEND_LOW/HIGH` | 53/54 | 误当成命令口 ❌ |
+| `SVGA_REG_GUEST_DRIVER_ID` | 61 | §41 误判为"不存在" ❌ |
+| `SVGA_REG_FIFO_CAPS` | **68** | 从未读过 |
+| `SVGA_REG_FENCE` | **69** | 从未读过 |
+
+**`SVGA_REG_RESET` 在上游定义里根本不存在。** §41 里"0x14 是 RESET，写 0 会复位设备"
+这个结论是纯粹的误读 —— `0x14` 就是 `CONFIG_DONE`，写 0 再写 1 正是配置 FIFO 的
+标准动作，而它被"修复"成了 25。
+
+25 是 `SVGA_REG_CURSOR_X`。
+
+### 44.3 为什么这一个错就足以让一切失效
+
+宿主不理解"FIFO 已配置"之前，不会去排空这个环。于是：
+
+- `NEXT_CMD` 由 guest 推进（写进去的值一直在，看起来"提交成功"）
+- `SYNC` 回了但没有意义（没有 FIFO 需要 flush）
+- `STOP` 永远不动
+- FIFO 内存里的 caps dword 永远是 0
+- 每条命令都在内存里躺着，然后被下一次开机当成脏数据丢弃
+
+这与 §43/§44 前实测的每一条症状完全吻合：`next_cmd 1176 / stop 1168 / fence 0x0`。
+
+### 44.4 修正后的实测结果（2026-11-03 07:01 那次启动）
+
+```
+fifo[after ] min 4096 max 262144 next_cmd 4096 stop 4096 caps 0x77f busy 0
+fence test: fifo caps 0x77f, SVGA_REG_FIFO_CAPS(68) 0x77f (reserve yes, fence yes)
+fence 0x31415926 written at 4096, next_cmd -> 4104, host pinged (SYNC=1), polling
+FIFO command stream VERIFIED: fence 0x31415926 acked after ~1000 us (next_cmd 4104 stop 4104)
+gb: MOB otable base set (ppn 51049, 16384 bytes)
+gb: SURFACE otable base set (ppn 51050, 4096 bytes)
+gb: data MOB 1 defined (pt ppn 51051, 16384 bytes, PT64_1)
+gb: GB SURFACE 1 defined (256x256 X8R8G8B8 on MOB 1) -- GB object model is UP
+gb: DXCONTEXT otable base set (pt ppn 51061, 2048 bytes, PT64_0)
+flat: MOB 2 defined (PT64_0, base ppn 49129, 4096 bytes)
+flat: surface 2 defined 1024x1 on mob 2, bound and updated
+flat: screen target 0 (1024x512) bound to surface 2 -- STDU present path is UP
+present tick 1200 (next 120048 stop 120048)
+```
+
+**项目史上第一次**：
+
+1. 宿主确认了 FIFO：`caps 0x77f`（此前恒为 0），`reserve yes / fence yes`
+2. 宿主消费了我们的命令：`fence acked after ~1000 us`，`STOP` 从 4096 推进到 4104
+3. `GB` 对象模型建立成功：MOB otable / SURFACE otable / MOB 1 / GB SURFACE 1 全部通过
+   （§44 之前这些命令全部超时，`MOB object table base refused`）
+4. STDU 呈现链绑定成功并稳定运行：1200 个 tick，`next == stop` 说明宿主一直在追
+
+同时把 `MIN` 对齐到 4096（`vmw_fifo_create()` 里 `if (min < PAGE_SIZE) min = PAGE_SIZE`），
+并在配置时把 `SVGA_FIFO_BUSY` 清零 —— 这两条也照抄了 vmwgfx。
+
+### 44.5 新暴露的问题：呈现链"通"了但宿主读到的是零
+
+```
+flatrb: host surface 2 -> 0/1024 words nonzero, 0 match the marker 0xff00a5ff
+        VERDICT *** host holds nothing ***
+flatrb: control readback -> 0/1024 words nonzero -- READBACK writes nothing on this host
+```
+
+现在这个读回**第一次可信**：以前它跑在一个宿主根本没读的 FIFO 上，
+"宿主读到零"不能区分"页表错"和"呈现链错"。现在页表彻底不参与
+（`flat` 路径用 PT64_0，MOB 的"页表"就是数据页本身），宿主仍然读到零，
+**所以问题在呈现链，不在页表。** 这正是 §38.12 设计 `kStduFlat` 时要分离的两件事。
+
+另外 `GB_SCREEN_DMA refused`（`fence 21 NOT acked`）说明 `SVGA_3D_CMD_DX_PRED_COPY_REGION`
+那条 DMA 路径仍然不通，但它与主呈现路径是独立的。
+
+### 44.6 屏幕变成全黑：`DEFINE_GB_SCREENTARGET` 真的接管了显示
+
+VNC 截图从 1024x768 变成 **1024x512 全黑**。原因清楚：screen target 绑定了一块
+`1024x1` 的 surface，其余 511 行是未定义区域。这不是"命令没生效"，
+恰恰是**命令生效了**——显示分辨率真的被我们改成了 1024x512。
+（此前画面能保住，是因为 screen target 从未成功建立。）
+
+**教训：在 surface 有完整内容之前不要 bind 到 screen target。**
+后续要么先用正常路径（512 页真 surface）再 bind，要么把 flat 实验挪到
+不影响主显示的 STID 上。
+
+### 44.7 §40/§41/§42 作废清单
+
+- §40「寄存器无偏移，probe 索引表错了」——错，probe 表本来就是对的（0..N 连续索引）
+- §41「0x14 是 RESET」「命令口是 53/54」「61..64 不存在」——全部错，见 44.2
+- §42「§38.21–38.22 是误诊，真因是设备复位」——不成立，从来没发生过复位
+- §43「MIN 踩掉宿主 3D 版本字」——`MIN=288*4` 确实太小，但版本字在重配后本来就会被
+  宿主写成 0（44.4 里 `3d hw version 0x0`），这条的因果链也不对
