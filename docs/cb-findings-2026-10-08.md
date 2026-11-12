@@ -4582,3 +4582,43 @@ pid 3024 (Windows)              pid 39348 (macOS)
 `SeDebugPrivilege`（默认是 present-but-disabled）。另外 `GetCurrentProcess()` 必须声明
 `restype = HANDLE`，否则 `OpenProcessToken` 在 x64 上会报 `ERROR_INVALID_HANDLE (6)`。
 两个坑都已在脚本里注释。
+
+### 48.10 槽结构被读清楚了，而且它可能根本不是"DX 的东西"
+
+`[dev+0xae0]` 是个 **word**（`0xae0` 有效字节 + `0xae1` 待停标志），不是单字节。
+每槽布局（步长 `0x118`，槽0 `+0xad8`、槽1 `+0xbf0`）：
+
+| 偏移 | 宽度 | 语义 | 写点 |
+|---|---|---|---|
+| `+0xad8` | dword | 在飞命令计数 | `0x140086e01` / `0x140086f4b` 增、`0x14050a1e6` 减 |
+| `+0xadc` | dword | 另一路引用计数 | `0x1404d7364` 减 |
+| `+0xae0` | byte | **已启用** | **置位 `0x14050a47b`**、清 `0x1404d738e` |
+| `+0xae1` | byte | 待停 | `0x1404d7372` 判 |
+
+收尾逻辑（`0x1404d7364` 起）只有三个计数全归零才清 `ae0`：
+
+```
+dec  dword [slot+0xadc]
+cmp  byte [slot+0xae1],0 ; je out
+cmp  dword [slot+0xadc],0 ; jne out
+cmp  dword [slot+0xad8],0 ; jne out
+mov  word [slot+0xae0],0        ; ← 三个都 0 才清"已启用"
+call 0x1404125a0                ; 重算 [dev+0x9bc]
+```
+
+**关键线索**：置位 `0xae0` 的 `0x14050a47b` 位于片段 `0x14050a20d`，而进入那个片段的
+唯一分支是 `0x14050a052 je 0x14050a20d` —— 也就是 **"这个 CB 不是 DX CB"** 的那一边。
+
+如果这条读法成立，那么 `[dev+0x9bc]`（DC 槽活跃）是 **legacy GB/3D 命令处理时**才会置位的，
+而不是 DX 命令。这也解释了 Windows 那边为什么 `ae0/bf8` 常驻 1：
+`vm3d` 的日志里明确有 `WDDM Guest backed surface is on` —— 它同时用 GB 通路。
+
+⇒ **下一个判据应该换**：不要再去"让 DX CB 把槽点亮"，而是先让 **legacy GB 命令**
+把槽点亮，再在同一段时间里发 DX CB，看 `[0x1414930A0]` 会不会变。
+这也是我们既有代码里 `kGbStage` 那条线本来就在做的事。
+
+**我现在的判断（写下来备查）**：`[0x1414930A0]` 可能不是"DX 管理器"，
+而是 legacy 3D/GB 处理器的一个附属对象。§19 把它命名成 DX 管理器，
+后续 §20–§35 全部围着这个名字转 —— 名字一旦错，方向就跟着错。
+下一步值得花 20 分钟做的是**用 `vmxmem.py` 在 `kGbStage=5` 的启动里采样**：
+如果那时 `[0x1414930A0]` 非空，就证明它是 GB 侧的对象，与 DX 无关。
