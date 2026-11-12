@@ -140,7 +140,39 @@ enum {
     kSvgaRegGuestDriverId  = 61,
     kSvgaRegFifoCaps     = 68,     // the capability word the host actually publishes
     kSvgaRegFence        = 69,     // the fence value register
+
+    // Three registers the ScreenTarget work needed and had never even been read (§45).
+    //
+    //   SVGA_REG_BLANK_SCREEN_TARGETS = 58 -- write 1 to put every screen target into the
+    //        "blank" (uncomposited) state, 0 to bring them back. A screen target that is
+    //        blank never samples its attached surface, which would explain a ScreenTarget
+    //        that accepts GB_SCREEN_DMA and dispenses zeroes.
+    //   SVGA_REG_CAP2 = 59 -- the second capability word. SVGA_CAP2_SCREENDMA_REG (0x10)
+    //        says the SVGA_REG_SCREENDMA control register exists at all.
+    //   SVGA_REG_SCREENDMA = 75 -- controls the hardware screen-DMA path:
+    //        UNDEFINED 0 / NOT_PRESENT 1 / PRESENT 2. Under PRESENT the host performs the
+    //        screen-to-memory copy in hardware; NOT_PRESENT means the guest must not expect
+    //        GB_SCREEN_DMA to return anything. That distinction decides whether §45's
+    //        "0/524288 words" measurement was a real result or a measurement of a disabled
+    //        feature -- read it before drawing any conclusion from the DMA probe.
+    kSvgaRegBlankScreenTargets = 58,
+    kSvgaRegCap2         = 59,
+    kSvgaRegScreenDma    = 75,
+
+    // The four limits that decide whether the screen target we define is even legal here.
+    // Every one of these was unread until §45; a 1024x512 target rejected by the host for
+    // exceeding SCREENTARGET_MAX_* looks exactly like a target that accepts commands and
+    // displays nothing, which is the symptom we have been chasing for three rounds.
+    kSvgaRegScreenTargetMaxWidth  = 55,
+    kSvgaRegScreenTargetMaxHeight = 56,
+    kSvgaRegMobMaxSize   = 57,     // bytes; the real ceiling for our page-table MOBs
+    kSvgaRegGbObjectMemSizeKb = 76, // total GB-object memory the host will dole out
 };
+
+// svga_reg.h: SVGA_SCREENDMA_REG_{UNDEFINED,NOT_PRESENT,PRESENT}
+enum { kSvgaScreenDmaUndefined = 0, kSvgaScreenDmaNotPresent = 1, kSvgaScreenDmaPresent = 2 };
+// svga_reg.h: SVGA_CAP2_SCREENDMA_REG
+static const UInt32 kSvgaCap2ScreenDmaReg = 0x00000010;
 
 //
 // FIFO registers are dwords inside the device memory region that SVGA_REG_MEM_START points
@@ -341,16 +373,33 @@ enum {
 //
 // Consequence: stage 2 is an UNTESTED configuration. It is the first boot in this
 // project's history that raises CONFIG_DONE without resetting the device.
-static const UInt32 kFbStage = 3;   // §43: first command submitted through 0x35/0x36
+// §47: 3 -> 5, and this is the configuration that ships. Stage 5 is the legacy
+// screen-object present path (DEFINE_SCREEN + DEFINE_GMRFB + BLIT_GMRFB_TO_SCREEN, re-blit
+// every kPresentIntervalMs), and it is the only path on this host that has ever put our own
+// pixels on the screen: the first boot with it rendered the macOS lock screen live, and the
+// desktop after logging in through VNC. It costs one FIFO command per frame and no guest
+// memory at all, because the GMRFB points straight at the framebuffer in BAR1.
+//
+// Everything the STDU path spent §36-§47 chasing -- MOBs, page tables, object-table
+// entries, screen-target binds, surface updates -- turns out to be unnecessary for a
+// working display on this host. See kGbStage below.
+static const UInt32 kFbStage = 5;
 
 // kGbStage gates the GB object stack (see gbBringUp); 5 adds the STDU present path.
 //
-// 10-29 22:5x (§36.4): raised 4 -> 5. The DX main line is closed (§35: DEFINE_RTV
-// cannot succeed on this host, every variable excluded), so there is nothing left for
-// stage 4 to serve -- it was only ever the stepping stone to stage 5. The 2D path that
-// stage 5 opens is the one that already worked: M6 (10-06, b89c619) rendered the screen
-// live with exactly this code. Note kDxTest must stay 0 while this is 5 -- see below.
-static const UInt32 kGbStage = 5;
+// §47: 5 -> 0. The STDU path never produced a lit pixel here, and the control arm finally
+// said why in one line: with the STDU bound and updated at 30 Hz, painting MAGENTA into
+// VRAM and the red/green pattern into the surface produced a capture that was black --
+// neither source was being presented. Once the guest takes the FIFO, this host presents
+// only what the driver blits to a screen object; sampling a bound screen target is not
+// something it does for us. That makes every STDU experiment of the last three weeks a
+// measurement of a path this host does not implement, and it makes kFbStage=5 the answer.
+//
+// The STDU code stays: it is the vGPU10 present path a real driver would use, the object
+// model is proven (DEFINE/BIND/UPDATE all fence-verified, page tables resolve), and the day
+// the reason for the missing sample-and-composite turns up, the way back is one number.
+// Note kDxTest must stay 0 while this is 5 -- see below.
+static const UInt32 kGbStage = 0;
 
 // kDxTest runs the DX clear/readback round-trip experiment after the present path is up.
 // Measured 2026-10-06: with the test present, the host aborts FIFO processing at
@@ -399,28 +448,89 @@ static const UInt32 kStduReadback = 1;
 
 // kStduPt1 picks the MOB page-table depth for the STDU backing store (§38).
 //
+// §45: back to 0. This is the M6 shape (§b89c619), the only configuration on this project
+// that ever put pixels on the screen, and it says so in its own commit message:
+//
+//   "3. The 3 MB backing MOB needs PT64_2 (768 pages -> 2 L1 PT pages -> root),
+//       not PT64_1 -- level count from vmwgfx's vmw_mob_pt_setup."
+//
+// PT64_1 was adopted afterwards purely to make 512 pages fit one level, which required
+// shrinking the surface from 1024x768 to 1024x512 -- i.e. it changed the display mode to
+// suit the page-table shape, which is backwards. Both the two-level walk and the 3-page PT
+// allocation are still present below; only this switch was flipped.
+//
 // 1 = PT64_1: ONE level, one 4 KiB page holding 512 entries, covering 512 * 4 KiB = 2 MiB.
 // 2 = PT64_2: TWO levels, a root page naming the second-level pages, 768 entries over
 //             2 second-level pages.
+static const UInt32 kStduPt1 = 0;
+
+// kStduTopology restores the SVGA_REG_DISPLAY_* block (registers 35..40) before the screen
+// target is defined (§45).
 //
-// Why this is a switch: PT64_1 is the shape the DX experiment used, and on this host
-// that shape demonstrably works -- `dx: DMA ROUND TRIP VERIFIED -- magenta survived
-// upload+download` proves the host can resolve an MOB through a one-level table and
-// move bytes in both directions. PT64_2 has never been observed working here. §38
-// rebuilt the two-level table correctly (root -> L1page[i/512][i%512], guest-side
-// probe walking the same path the device does), and readback is STILL all zero.
+// This is the single most important line in M6's commit message and it was deleted by
+// accident in 0e80bab:
 //
-// So the remaining variable is the depth itself. 768 pages do not fit in one level
-// (512 max), so PT64_1 has to be tried at a size that does: the odd 256 rows are
-// dropped and the surface becomes 1024x512 (exactly 512 pages, 2 MiB).
-static const UInt32 kStduPt1 = 1;
+//   "1. Display topology: SVGA_REG_DISPLAY_ID/IS_PRIMARY/POSITION_X/Y/WIDTH/HEIGHT
+//       (registers 35-40) must be programmed -- without a declared display the MKS renders
+//       nothing regardless of screen targets."
+//
+// How it got deleted is worth recording, because the mistake is a decimal/hex mix-up and
+// not a judgement call. 0e80bab's comment says:
+//
+//   "That set is exactly ... 0x35/0x36 CMD_PREPEND_LOW/HIGH ... It contains NO
+//    display-topology write (those are 35..40 = 0x23..0x28 ...)"
+//
+// 0x35/0x36 (hex) is decimal 53/54 = PREPEND, which is correct. 35..40 (decimal) is
+// 0x23..0x28 = DISPLAY_*, which is also correct. Both statements are true and they are
+// about different registers -- but the block that was actually removed was the decimal
+// 35..40 one, i.e. the display topology, on the strength of an argument about 0x35/0x36.
+//
+// There is also a real difference between M6's version and the one 0e80bab removed: M6
+// wrote the six values and stopped, while the later version appended
+// `SVGA_REG_DISPLAY_ID = 0xFFFFFFFF` as a "deselect". Deselecting the display right after
+// declaring it is the opposite of declaring it, and 2026-10-07's "these writes wedge the
+// FIFO" matrix was collected with that deselect in place. So: declare, do not deselect.
+static const UInt32 kStduTopology = 1;
 
 // Height actually used by the STDU surface. 512 when kStduPt1 == 1 so that the page
 // count fits a single-level table; otherwise the full inherited mode. The literals are
 // spelled out because kStduWidth/kStduHeight are declared further down (§352 vs §525);
 // keep them in sync with those.
-static const UInt32 kStduSurfWidth  = 1024;
-static const UInt32 kStduSurfHeight = (kStduPt1 == 1) ? 512 : 768;
+//
+// §45: 768 is back, because kStduPt1 is back to 0 (M6's PT64_2 shape). 1024x768 * 4 =
+// 3 MiB = 768 pages, which needs exactly the two second-level pages the PT allocation
+// already provides. This is also the mode the host is actually scanning out (SVGA_REG_WIDTH
+///HEIGHT read 1024x768 at load), so a 1024x512 surface was always a partial frame.
+// §47: the host's Screen 0 is 640x480, so make the surface 640x480 too.
+//
+// This switch exists because of a log line that had never been produced before this boot.
+// Once SVGA_REG_ENABLE carries HIDE, the host answers with
+//
+//     SVGA hiding SVGA
+//     SWBScreen: Screen 1 Destroyed: xywh(0, 0, 1024, 768) flags=0x2
+//     SWBScreen: Screen 0 Defined:   xywh(0, 0,  640, 480) flags=0x3
+//
+// i.e. it tears down the legacy screen, stands up a *guest* screen (Screen 0, flags 0x3)
+// and hands the display to us -- the one behaviour every previous boot lacked. But it
+// builds that screen at 640x480, not at the 1024x768 it just destroyed, and not at the
+// 1024x768 the DISPLAY_* topology registers read back. The screen target we bind is
+// 1024x768, so the host is compositing a 640x480 screen from a surface that describes
+// itself as 1024x768 -- a mismatch that is a perfectly good explanation for "bound,
+// updated, and still black", and a cheap one to remove.
+//
+// So: 640x480 everywhere. Same code path, same commands, same order; only the geometry
+// moves. If the painted pattern appears, the present path is complete and the remaining
+// work is to make the host adopt *our* mode instead of us adopting the host's. If the
+// screen stays black at a matched geometry, then geometry is exonerated and the fault is
+// in how the host reads the MOB.
+//
+// Pages: 640*480*4 = 1228800 bytes = 300 pages, which still fits one second-level table
+// (512 entries), so the PT shape below is unchanged.
+static const UInt32 kStduMatchHost = 0;
+
+static const UInt32 kStduSurfWidth  = kStduMatchHost ? 640 : 1024;
+static const UInt32 kStduSurfHeight = kStduMatchHost ? 480
+                                   : (kStduPt1 == 1) ? 512 : 768;
 static const UInt32 kStduSurfPages  = kStduSurfWidth * kStduSurfHeight * 4 / 4096;
 
 // kStduDma = 0 removes SURFACE_DMA from the present loop (§37).
@@ -442,7 +552,61 @@ static const UInt32 kStduSurfPages  = kStduSurfWidth * kStduSurfHeight * 4 / 409
 // the upload in the loop also gives the read-back probe something to read: without a
 // WRITE_HOST_VRAM first, the host's copy of the surface is whatever it was at BIND.
 // The §38d FIFO wrap deadlock that this switch used to expose is fixed independently.
-static const UInt32 kStduDma = 1;
+static const UInt32 kStduDma = 0;
+
+// kStduImage puts UPDATE_GB_IMAGE (1101) back in the per-frame present loop (§45).
+//
+// §38.8 removed it on the grounds that upstream's STDU CPU path sends only
+// UPDATE_GB_SCREENTARGET. That was true of the code being read and false about this
+// host, because the measurement it rested on was taken while every surface we created
+// had a mis-filled OTable entry (surfaceFlags written as 64 bits into a 32-bit field --
+// see surfaceEntryFill). Under that defect the host's surface described width=0/height=1,
+// so no upload path could have worked, and "the DMA already handles it" was never a
+// finding, only an assumption.
+//
+// M6 (b89c619) shipped a live display and names 1101 as the command that did it. It is a
+// separate switch so one boot can attribute the result to this command alone.
+static const UInt32 kStduImage = 1;
+
+// kStduScreenDma runs GB_SCREEN_DMA once on the normal (non-flat) present arm (§45b).
+// It is the only command that reports what the host is actually displaying, so it is what
+// tells "our upload never landed" apart from "the host never samples the surface".
+// SVGA_REG_BLANK_SCREEN_TARGETS is write-1-blank / write-0-unblank. Upstream only
+// touches it on suspend/resume, but nothing says a guest that defines its own target may
+// assume the "unblank" default -- and a blanked target explains every measurement we have
+// with no other defect required. Its own switch because a write to an unimplemented
+// register on this device class is not guaranteed harmless.
+static const UInt32 kStduUnblank = 1;
+static const UInt32 kStduScreenDma = 1;
+
+// kStduEnableHide writes SVGA_REG_ENABLE = ENABLE_ENABLE | ENABLE_HIDE (3) before
+// CONFIG_DONE (§47).
+//
+// This is the one step in upstream's bring-up that we never copied. vmwgfx_drv.c
+// vmw_device_init() is unambiguous about the order (line 423-434):
+//
+//     dev_priv->enable_state = vmw_read(dev_priv, SVGA_REG_ENABLE);
+//     ...
+//     vmw_write(dev_priv, SVGA_REG_ENABLE, SVGA_REG_ENABLE_ENABLE |
+//                                           SVGA_REG_ENABLE_HIDE);
+//     vmw_write(dev_priv, SVGA_REG_TRACES, uses_fb_traces);
+//     dev_priv->fifo = vmw_fifo_create(dev_priv);      <-- CONFIG_DONE happens in here
+//
+// So on a real driver the HIDE bit is set BEFORE the FIFO exists, and vmw_svga_enable()
+// (line 1330) is the only place that clears it back to ENABLE -- and that call is about
+// "let me use VRAM as a memory pool", not about displaying anything.
+//
+// We measured this host's boot value and it is 1: the device comes up with ENABLE set and
+// HIDE clear, i.e. "nobody has taken over the display, keep scanning the legacy
+// framebuffer out". That is exactly the state in which the desktop is visible (stage 0
+// boot). Then we write CONFIG_DONE, the host's ScreenMgr switches to ScreenTarget, its
+// scanout source disappears -- and the HIDE bit that would have told it "a guest driver
+// owns the display now, composite the screen targets instead" was never set.
+//
+// That reading explains every black-screen boot in the matrix with one missing write,
+// and it explains why nothing about the surface, the MOB, the page table or the update
+// rectangle ever mattered: the host was never asked to composite.
+static const UInt32 kStduEnableHide = 0;
 
 // Dump every CB header+payload to the log (bisect instrumentation).
 static const UInt32 kCbDump = 1;
@@ -573,6 +737,38 @@ static const UInt32 kStduTeardown = 0;
 // console would otherwise use, so it goes back to 0 once it has answered. (It answered in
 // §38.9: with ScreenTarget active the legacy UPDATE is ignored, so writing BAR1 changes
 // nothing on screen -- keep it off.)
+//
+// §46: the whole round that had this at 1 was built on a false premise, so it is off again
+// and the correction is recorded here rather than in a commit message nobody re-reads.
+//
+// The premise was that the host never leaves RegisterMode, on the strength of exactly one
+// line in vmware.log:
+//
+//     SVGA-ScreenMgr: Screen type changed to RegisterMode
+//
+// That line is real but it is only the LAST transition of many. Grepping the whole file
+// instead of the tail gives the actual sequence for the boot we were reasoning about:
+//
+//     11:36:24.805Z  Screen type changed to RegisterMode
+//     11:56:09.389Z  SWBScreen: Screen 1 Destroyed: xywh(0, 0, 1024, 768)
+//     11:56:09.389Z  Screen type changed to ScreenTarget
+//     11:56:09.389Z  SWBScreen: Screen 1 Defined: xywh(0, 0, 1024, 768)
+//
+// and again at 11:56:54.521Z, half a second after stduBringUp ran. So the host DOES enter
+// ScreenTarget, it does so on our behalf, and three minutes later its encoder reports the
+// pitch we chose:
+//
+//     MVNCEncode: screen: 0 BoundingBox: (1024x768) @ (0,0) bytesPerLine: 4096
+//
+// Every conclusion drawn from "the host is still in RegisterMode" -- including the idea
+// that BAR1 is what the scanout reads -- is therefore void, and the arm this switch
+// guarded could never have produced a meaningful reading either way. The earlier §38.9
+// reading ("legacy UPDATE is ignored") is void for the same reason: it was taken while
+// ScreenTarget was live, which is exactly when UPDATE is supposed to be ignored.
+//
+// Nothing about the present path changes because of this; it only removes a wrong
+// explanation. The fault is still where §45 left it: the host is in ScreenTarget mode,
+// bound to our surface, sampling at our pitch, and still shows black.
 static const UInt32 kStduVramControl = 0;
 
 // ---------------------------------------------------------------------------
@@ -603,7 +799,18 @@ static const UInt32 kStduVramControl = 0;
 // MOB payload are exactly one row-pair (1024 px * 4 = 4096 = pitch 4096 * 1 row). Colour
 // depends on the tick, so any working present path shows a flickering colour field rather
 // than a still image.
-static const UInt32 kStduFlat = 1;
+// §44.7: the experiment is DONE and it answered its question.
+//
+// With the FIFO actually configured (§44), the flat path bound a PT64_0 MOB to the screen
+// target and the host still read zeros back. That is the answer: the MOB page table is not
+// the fault, the present chain is. Continuing to run the flat path now only costs us the
+// display -- it binds a 1024x1 surface to the screen target, which is why the screen went
+// black at 1024x512.
+//
+// So it is off. The normal path below builds a real kStduWidth x kStduSurfHeight surface
+// (512 pages, PT64_1) which is the one that can actually fill a panel. Its earlier failures
+// happened while the host was not reading the FIFO at all, so they say nothing about it.
+static const UInt32 kStduFlat = 0;
 
 // §38.13: the scratch MOB the flat readback writes into. Same numbering habit as the
 // older probe (mobid 2 is the surface, +100 keeps the diagnostics out of the way).
@@ -670,10 +877,18 @@ static const UInt32     kGbDataPages         = 4;    // 16 KiB data MOB -> needs
 static const UInt32     kGbMobTableEntries   = 1024; // 16 KiB
 static const UInt32     kGbSurfaceTableEnts  = 64;   // 64 * 72 = 4608 bytes
 
-// Sizes derived from the SVGAOTable*Entry structures (packed, 8-byte trailing alignment on
-// the mob entry; the surface entry is 72 bytes exactly as vmwgfx's headers define it).
-static const UInt32 kGbMobEntryBytes         = 16;
-static const UInt32 kGbSurfaceEntryBytes     = 64;   // SVGAOTableSurfaceEntry (0x140a080c0: type1=64)
+// Sizes derived from the SVGAOTable*Entry structures (both `#pragma pack(push, 1)`).
+//
+// §45: kGbSurfaceEntryBytes used to say 72 in this comment while the value said 64, and the
+// 72 was right -- SVGAOTableSurfaceEntry is
+//     format(4) surface1Flags(4) numMipLevels(4) multisampleCount(4) autogenFilter(4)
+//     size{width,height,depth}(12) mobid(4) arraySize(4) mobPitch(4) surface2Flags(4)
+//     multisamplePattern(1) qualityLevel(1) bufferByteStride(2) minLOD(4) pad0[2](8)
+//   = 64
+// The struct really is 64 bytes; what was wrong was how it was being FILLED (see
+// surfaceEntryFill), not its size. Keep the size, fix the fill.
+static const UInt32 kGbMobEntryBytes         = 16;   // {ptDepth(4) sizeInBytes(4) base(8)}
+static const UInt32 kGbSurfaceEntryBytes     = 64;   // SVGAOTableSurfaceEntry, packed
 
 // Offsets inside the single contiguous working buffer the kext allocates.
 static const IOByteCount kGbOffPtOtable      = 0x0000;
@@ -699,7 +914,7 @@ static const UInt32     kGbDxCtxEntryBytes   = 8;   // {u32 cid; u32 mobid}; hos
 // framebuffer (VRAM) into that memory and issues UPDATE_GB_SCREENTARGET -- the host reads
 // the surface data straight out of guest RAM.
 //
-static const UInt32     kStduWidth           = 1024;
+static const UInt32     kStduWidth           = kStduMatchHost ? 640 : 1024;
 // The inherited display is 1024x768, but the STDU surface height is kStduSurfHeight
 // (declared near the top of the file): 512 under kStduPt1 so 512 pages fit one PT level.
 // kStduHeight stays as the *framebuffer* height for reference only -- do NOT use it to
@@ -714,6 +929,13 @@ static const UInt32     kStduHeight          = 768;
 static const IOByteCount kStduBytes          = (IOByteCount)kStduWidth * kStduSurfHeight * 4;
 static const UInt32     kStduPages           = (UInt32)(kStduBytes / kGbPageBytes); // kStduSurfPages
 static const UInt32     kStduL1Pages         = (kStduPages + 511) / 512;            // 2
+// §47: there were two widths all along -- kStduSurfWidth up top and kStduWidth here --
+// and they only agreed because both were the literal 1024. kStduSurfPages is derived from
+// one and kStduBytes from the other, so changing just one would size the MOB and its page
+// table differently, which is the §38d bug in a new costume. Make the compiler hold them
+// together instead of a comment asking for it.
+static_assert(kStduWidth == kStduSurfWidth, "kStduWidth and kStduSurfWidth must agree");
+static_assert(kStduSurfPages == kStduPages, "surface page count disagrees with MOB size");
 static const UInt32     kGbStEntryBytes      = 64;   // SVGAOTableScreenTargetEntry
 static const UInt32     kGbStTableEnts       = 64;   // 64 * 64 = 4096 bytes
 
@@ -822,6 +1044,110 @@ static void svgaPingHost(UInt16 portBase) {
     svgaWriteRegister(portBase, kSvgaRegSync, 1);
 }
 
+//
+// =====================================================================
+// §45: the two object-table / command payloads that were being mis-filled.
+//
+// Everything here is transcribed field by field from
+//   drivers/gpu/drm/vmwgfx/device_include/svga3d_cmd.h
+//   drivers/gpu/drm/vmwgfx/device_include/svga3d_types.h
+// at the protocol generation this host speaks. The previous hand-rolled offsets assumed
+// `surfaceFlags` was 64 bits wide, which shifted EVERY following field by 4 bytes.
+//
+// The consequence was not subtle, it was just invisible: the host read
+//   numMipLevels  = 0            (mips are inherited from the next field)
+//   size.width    = 0
+//   size.height   = 1
+//   mobid         = 2 in the width slot ... i.e. the surface described nothing
+// yet DEFINE itself was "accepted", because the command body's size was also wrong
+// (40 instead of the authoritative 36), so the host's parser walked 4 bytes into the
+// NEXT command. Accepting a command is not the same as understanding it.
+//
+// Why this hid for so long: the DX arm of this driver had ALREADY been fixed (it writes
+// sflags32 at +4 and 36-byte bodies -- see dxReadbackTest), and the DX DMA round trip
+// demonstrably works on this host. Only the STDU/display arm still had the 64-bit layout.
+// That A/B is the strongest possible evidence that the 32-bit layout is the correct one.
+// =====================================================================
+
+// SVGA3dSurface1Flags is `typedef uint32` (svga3d_types.h:392). The 64-bit type is
+// SVGA3dSurfaceAllFlags and is only used by the _v3/_v4 DEFINE variants.
+static const UInt32 kSvgaSurfaceFlagsMask32 = 0xFFFFFFFFu;
+
+// Fill one SVGAOTableSurfaceEntry (64 bytes, #pragma pack(1)):
+//    +0  SVGA3dSurfaceFormat   format              4
+//    +4  SVGA3dSurface1Flags   surface1Flags       4    <-- 32-bit, NOT 64
+//    +8  uint32                numMipLevels        4
+//   +12  uint32                multisampleCount    4
+//   +16  SVGA3dTextureFilter   autogenFilter       4
+//   +20  SVGA3dSize            size{w,h,d}        12
+//   +32  SVGAMobId             mobid               4
+//   +36  uint32                arraySize           4
+//   +40  uint32                mobPitch            4
+//   +44  SVGA3dSurface2Flags   surface2Flags       4
+//   +48  uint8                 multisamplePattern  1
+//   +49  uint8                 qualityLevel        1
+//   +50  uint16                bufferByteStride    2
+//   +52  float                 minLOD              4
+//   +56  uint32                pad0[2]             8
+static void surfaceEntryFill(volatile UInt8 *entry, UInt32 format, UInt64 flags64,
+                             UInt32 width, UInt32 height, UInt32 mobId, UInt32 pitch,
+                             UInt32 surface2Flags) {
+    const UInt32 flags1 = (UInt32)(flags64 & kSvgaSurfaceFlagsMask32);
+    const UInt32 surface2 = surface2Flags | (UInt32)((flags64 >> 32) & kSvgaSurfaceFlagsMask32);
+    UInt32 one = 1, filter = 0, depth = 1;
+    UInt8  msPattern = 0, quality = 0;
+    UInt16 byteStride = 0;
+    float  minLOD = 0.0f;
+
+    bzero((void *)entry, kGbSurfaceEntryBytes);
+    memcpy((void *)(entry +  0), &format,     4);
+    memcpy((void *)(entry +  4), &flags1,     4);   // <-- the field that used to be 8 bytes
+    memcpy((void *)(entry +  8), &one,        4);   // numMipLevels
+    memcpy((void *)(entry + 12), &one,        4);   // multisampleCount
+    memcpy((void *)(entry + 16), &filter,     4);   // autogenFilter
+    memcpy((void *)(entry + 20), &width,      4);
+    memcpy((void *)(entry + 24), &height,     4);
+    memcpy((void *)(entry + 28), &depth,      4);
+    memcpy((void *)(entry + 32), &mobId,      4);
+    memcpy((void *)(entry + 36), &one,        4);   // arraySize
+    memcpy((void *)(entry + 40), &pitch,      4);
+    memcpy((void *)(entry + 44), &surface2,   4);
+    memcpy((void *)(entry + 48), &msPattern,  1);
+    memcpy((void *)(entry + 49), &quality,    1);
+    memcpy((void *)(entry + 50), &byteStride, 2);
+    memcpy((void *)(entry + 52), &minLOD,     4);
+    __asm__ volatile ("" ::: "memory");
+}
+
+// SVGA3dCmdDefineGBSurface (V1), body size 36 bytes = 9 dwords:
+//    +0  uint32                   sid                4
+//    +4  SVGA3dSurface1Flags      surfaceFlags       4    <-- 32-bit in V1
+//    +8  SVGA3dSurfaceFormat      format             4
+//   +12  uint32                   numMipLevels       4
+//   +16  uint32                   multisampleCount   4
+//   +20  SVGA3dTextureFilter      autogenFilter      4
+//   +24  SVGA3dSize               size{w,h,d}       12
+// Writes 10 dwords: {cmd, size, sid, flags, format, mips, ms, filter, w, h, d} is 11 --
+// see below; the helper writes the full framed command.
+static const UInt32 kSvgaDefineGbSurfaceBodyBytes = 36;
+
+static void defineGbSurfaceFrame(UInt32 *out, UInt32 sid, UInt64 flags64, UInt32 format,
+                                 UInt32 width, UInt32 height) {
+    const UInt32 flags1 = (UInt32)(flags64 & kSvgaSurfaceFlagsMask32);
+    out[0]  = kSvga3dCmdDefineGbSurface;
+    out[1]  = kSvgaDefineGbSurfaceBodyBytes;   // 36, NOT 40: the body has no depth field
+    out[2]  = sid;
+    out[3]  = flags1;
+    out[4]  = format;
+    out[5]  = 1;                                // numMipLevels
+    out[6]  = 1;                                // multisampleCount
+    out[7]  = 0;                                // autogenFilter = SVGA3D_TEX_FILTER_NONE
+    out[8]  = width;
+    out[9]  = height;
+    out[10] = 1;                                // size.depth -- inside SVGA3dSize, still legal
+}
+static const UInt32 kSvgaDefineGbSurfaceWords = 11;
+
 class vgpuFramebuffer : public IOFramebuffer {
     OSDeclareDefaultStructors(vgpuFramebuffer)
     typedef IOFramebuffer super;
@@ -893,6 +1219,7 @@ private:
     // STDU present state.
     bool _stduActive = false;
     UInt8 _paintLogged = 0;         // kStduPaint logs once, on the first painted frame
+    UInt8 _vramLogged = 0;          // kStduVramControl logs once, same reason
     IOBufferMemoryDescriptor *_stduMem = nullptr;   // 3 MB surface backing store
     void                    *_stduVirt = nullptr;
     UInt64                   _stduPhys = 0;
@@ -1092,6 +1419,63 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
     UInt32 memSize  = svgaReadRegister(_svgaPortBase, kSvgaRegMemSize);
     UInt32 memRegs  = svgaReadRegister(_svgaPortBase, kSvgaRegMemRegs);
     IOLog(VGPU_FB_TAG ": svga mem start 0x%x size 0x%x regs %u\n", memStart, memSize, memRegs);
+
+    // ScreenTarget control state, read before the FIFO is touched (§45). These three
+    // registers are the only published way to ask the device "is the screen-DMA path you
+    // are about to be handed commands for actually switched on", and §45 sent
+    // GB_SCREEN_DMA without ever asking. A GB_SCREEN_DMA that returns zeroes is only
+    // evidence of a host bug if the feature reports itself PRESENT and unblanked, so the
+    // reading has to come first and be logged unconditionally.
+    {
+        const UInt32 cap2     = svgaReadRegister(_svgaPortBase, kSvgaRegCap2);
+        const UInt32 screenDm = svgaReadRegister(_svgaPortBase, kSvgaRegScreenDma);
+        const UInt32 blank    = svgaReadRegister(_svgaPortBase, kSvgaRegBlankScreenTargets);
+        const UInt32 stMaxW   = svgaReadRegister(_svgaPortBase, kSvgaRegScreenTargetMaxWidth);
+        const UInt32 stMaxH   = svgaReadRegister(_svgaPortBase, kSvgaRegScreenTargetMaxHeight);
+        const UInt32 mobMax   = svgaReadRegister(_svgaPortBase, kSvgaRegMobMaxSize);
+        const UInt32 gbMemKb  = svgaReadRegister(_svgaPortBase, kSvgaRegGbObjectMemSizeKb);
+        const char *sdName = (screenDm == kSvgaScreenDmaPresent)    ? "PRESENT"
+                           : (screenDm == kSvgaScreenDmaNotPresent) ? "NOT_PRESENT"
+                           : (screenDm == kSvgaScreenDmaUndefined)  ? "UNDEFINED"
+                           : "out-of-range";
+        IOLog(VGPU_FB_TAG ": screendma: CAP2 0x%08x (SCREENDMA_REG %s) SCREENDMA %u (%s) "
+              "BLANK_SCREEN_TARGETS %u\n",
+              cap2, (cap2 & kSvgaCap2ScreenDmaReg) ? "yes" : "no", screenDm, sdName, blank);
+        IOLog(VGPU_FB_TAG ": screendma: limits -> ST max %ux%u, MOB max %u bytes, "
+              "GB object mem %u KB\n", stMaxW, stMaxH, mobMax, gbMemKb);
+        if (stMaxW != 0 && kStduWidth > stMaxW) {
+            IOLog(VGPU_FB_TAG ": screendma: *** our target is %u wide, the host caps at %u ***\n",
+                  kStduWidth, stMaxW);
+        }
+        if (stMaxH != 0 && kStduSurfHeight > stMaxH) {
+            IOLog(VGPU_FB_TAG ": screendma: *** our target is %u tall, the host caps at %u ***\n",
+                  kStduSurfHeight, stMaxH);
+        }
+        if (mobMax != 0 && (UInt32)kStduBytes > mobMax) {
+            IOLog(VGPU_FB_TAG ": screendma: *** our MOB is %u bytes, the host caps at %u ***\n",
+                  (UInt32)kStduBytes, mobMax);
+        }
+        if (screenDm == kSvgaScreenDmaNotPresent) {
+            IOLog(VGPU_FB_TAG ": screendma: *** the host says the DMA path does not exist here; "
+                  "GB_SCREEN_DMA returning zeroes says nothing about the surface ***\n");
+        }
+        if (blank != 0) {
+            IOLog(VGPU_FB_TAG ": screendma: *** screen targets are BLANKED; a blanked target "
+                  "does not sample its surface ***\n");
+        }
+
+        // SVGA_REG_BLANK_SCREEN_TARGETS is write-1-blank / write-0-unblank. Upstream only
+        // touches it on suspend/resume, but nothing says a guest that defines its own
+        // target may assume the "unblank" default -- and a blanked target explains every
+        // measurement we have (commands accepted, DMA returns zeroes, screen black) with
+        // no other defect required. Writing 0 is idempotent and reversible, so it is the
+        // cheapest possible test of that explanation.
+        if (kStduUnblank) {
+            svgaWriteRegister(_svgaPortBase, kSvgaRegBlankScreenTargets, 0);
+            const UInt32 after = svgaReadRegister(_svgaPortBase, kSvgaRegBlankScreenTargets);
+            IOLog(VGPU_FB_TAG ": screendma: unblank written, reads back %u\n", after);
+        }
+    }
     if (memStart == 0 || memSize == 0) {
         IOLog(VGPU_FB_TAG ": no device memory region, FIFO not reachable\n");
         return;
@@ -1117,6 +1501,31 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
     volatile UInt32 *fifo = (volatile UInt32 *)map->getVirtualAddress();
 
     fifoDump(fifo, "before");
+
+    // §47: SVGA_REG_ENABLE first, and outside the kFbStage gate.
+    //
+    // ENABLE is *device* state, not guest state: it survives a guest reboot. One boot with
+    // ENABLE_HIDE set therefore leaves the device hidden for every boot after it, including
+    // the read-only one -- which is precisely what happened today. A two-boot sequence
+    // (hide, then rebuild without it) produced a black screen with no explanation in any
+    // guest log, because the write that caused it was two boots in the past.
+    //
+    // So the write happens on both arms and before every other decision: with the switch on
+    // it hides, with it off it un-hides. That also makes kFbStage=0 mean what it says --
+    // "no FIFO writes" -- while still being able to undo an earlier experiment.
+    if (kStduEnableHide) {
+        UInt32 enableBefore = svgaReadRegister(_svgaPortBase, kSvgaRegEnable);
+        svgaWriteRegister(_svgaPortBase, kSvgaRegEnable, 3);   // ENABLE | HIDE
+        IOLog(VGPU_FB_TAG ": enable: %u -> ENABLE|HIDE before CONFIG_DONE, reads back %u\n",
+              enableBefore, svgaReadRegister(_svgaPortBase, kSvgaRegEnable));
+    } else {
+        UInt32 enableBefore = svgaReadRegister(_svgaPortBase, kSvgaRegEnable);
+        svgaWriteRegister(_svgaPortBase, kSvgaRegEnable, 1);   // ENABLE only
+        IOLog(VGPU_FB_TAG ": enable: %u -> ENABLE only (un-hide) before CONFIG_DONE, "
+              "reads back %u\n",
+              enableBefore, svgaReadRegister(_svgaPortBase, kSvgaRegEnable));
+    }
+
     if (kFbStage == 0) {
         // Read-only bisect mode: no FIFO writes at all.
         IOLog(VGPU_FB_TAG ": probeFifo: read-only (kFbStage=0)\n");
@@ -1239,6 +1648,39 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
         // true is narrower: this host's driver never writes them, so there is no evidence this
         // host requires them, and they are not part of the FIFO bring-up. Left off the boot
         // path; kGuestDriverId still gates the copy in the command-buffer path.
+        // Display topology (registers 34..40) is declared HERE, before CONFIG_DONE, and not
+        // in stduBringUp next to the screen-target define (§45).
+        //
+        // Measured this boot: with the block placed in stduBringUp, DEFINE_GB_SCREENTARGET
+        // was refused -- the FIFO aborted at 1124, exactly the failure mode the 2026-10-07
+        // matrix recorded for "topology writes while the MKS is processing our FIFO". The
+        // registers are host-side display state, not FIFO state; writing them while a live
+        // stream is being drained makes the MKS rebuild its output while it is mid-command.
+        // Before CONFIG_DONE the host is not yet draining anything, so the same six writes
+        // are free -- which is also why M6's first success recorded them as step 1 of the
+        // bring-up and not as part of the present path.
+        //
+        // 35..40 decimal = 0x23..0x28 hex. NOT 0x35/0x36, which is CMD_PREPEND_LOW/HIGH;
+        // conflating those two is what deleted this block in 0e80bab.
+        // §47: ENABLE is written above, before the kFbStage gate, because it is device
+        // state that outlives a reboot. Nothing about CONFIG_DONE is left here but the
+        // topology block and the flag itself.
+        if (kStduTopology) {
+            svgaWriteRegister(_svgaPortBase, 34, 1);           // SVGA_REG_NUM_GUEST_DISPLAYS
+            svgaWriteRegister(_svgaPortBase, 35, 0);           // SVGA_REG_DISPLAY_ID (stid 0)
+            svgaWriteRegister(_svgaPortBase, 36, 1);           // SVGA_REG_DISPLAY_IS_PRIMARY
+            svgaWriteRegister(_svgaPortBase, 37, 0);           // SVGA_REG_DISPLAY_POSITION_X
+            svgaWriteRegister(_svgaPortBase, 38, 0);           // SVGA_REG_DISPLAY_POSITION_Y
+            svgaWriteRegister(_svgaPortBase, 39, kStduWidth);  // SVGA_REG_DISPLAY_WIDTH
+            svgaWriteRegister(_svgaPortBase, 40, kStduSurfHeight); // SVGA_REG_DISPLAY_HEIGHT
+            IOLog(VGPU_FB_TAG ": topo: declared stid 0, primary, 0,0 %ux%u before CONFIG_DONE; "
+                  "reads back id %u primary %u pos %u,%u size %ux%u\n",
+                  kStduWidth, kStduSurfHeight,
+                  svgaReadRegister(_svgaPortBase, 35), svgaReadRegister(_svgaPortBase, 36),
+                  svgaReadRegister(_svgaPortBase, 37), svgaReadRegister(_svgaPortBase, 38),
+                  svgaReadRegister(_svgaPortBase, 39), svgaReadRegister(_svgaPortBase, 40));
+        }
+
         svgaWriteRegister(_svgaPortBase, kSvgaRegConfigDone, 1);
         IOLog(VGPU_FB_TAG ": FIFO configured: regs 0..%u, data %u..%u, CONFIG_DONE=1\n",
               regBytes, regBytes, fifoBytes);
@@ -1588,6 +2030,31 @@ void vgpuFramebuffer::presentSetup(volatile UInt32 *fifo) {
         return;
     }
 
+    // §47: fill the framebuffer with magenta ONCE, before the first blit.
+    //
+    // This is a draw detector, not decoration. It runs at kext start, before WindowServer
+    // has drawn anything, so by the time a capture is taken one of three things is true:
+    // the desktop is on screen (the blit works and the window server draws), magenta is on
+    // screen (the blit works and nothing redraws -- so the framebuffer driver is not where
+    // WindowServer draws), or the screen is black (the blit does not work at all). Without
+    // it, "black" cannot be told apart from "the guest put nothing there".
+    if (_vramMap == nullptr) {
+        _vramMap = _aperture->map();
+    }
+    if (_vramMap != nullptr && kStduVramControl) {
+        volatile UInt32 *vram = (volatile UInt32 *)_vramMap->getVirtualAddress();
+        const UInt32 vw = (UInt32)(_devicePitch / 4);
+        for (UInt32 y = 0; y < _deviceHeight; y++) {
+            volatile UInt32 *row = vram + (IOByteCount)y * vw;
+            for (UInt32 x = 0; x < vw; x++) {
+                row[x] = 0xFFFF00FF;
+            }
+        }
+        __asm__ volatile ("" ::: "memory");
+        IOLog(VGPU_FB_TAG ": present: legacy arm filled VRAM with magenta (draw detector) "
+              "first=0x%08x\n", vram[0]);
+    }
+
     // DEFINE_SCREEN: SVGAScreenObject v1 -- structSize=28 (no backingStore field; it is
     // optional with SVGA_FIFO_CAP_SCREEN_OBJECT, which this host advertises).
     words[0] = kSvgaCmdDefineScreen;
@@ -1836,6 +2303,26 @@ void vgpuFramebuffer::presentTick(void) {
         _presentTicks == 4) {
         stduReadbackProbe();    // §36.8: once, after the paint has been DMA'd a few times
     }
+    // §45b: ask the host what it is CURRENTLY DISPLAYING for this screen.
+    //
+    // This is the one measurement that separates the two remaining explanations, and it
+    // has to be run on the normal arm -- until now it only ever ran on the flat arm,
+    // which is why the normal path has never had an answer to "is the surface wrong, or
+    // is the display pipeline not consuming it?".
+    //
+    //   GB_SCREEN_DMA returns pixels  -> the host IS displaying something and can push it
+    //                                    into guest memory. If those pixels are not our
+    //                                    pattern, the surface we bound never reached the
+    //                                    display, and the fault is in the upload/bind.
+    //   GB_SCREEN_DMA returns zeros   -> the host's display for stid 0 is genuinely blank,
+    //                                    i.e. it never sampled the surface at all; the
+    //                                    fault is upstream of the encoder and UPDATE_*
+    //                                    volume is irrelevant until that is fixed.
+    //
+    // Placed after the readback probe so the two verdicts land in the log together.
+    if (_stduActive && !kStduFlat && kStduScreenDma && _presentTicks == 8) {
+        stduScreenDma(_presentFifo);
+    }
     if (_stduActive && kStduFlat) {
         // §38.12 flat present: the surface has exactly one data page, and it IS the MOB.
         // Nothing to copy, nothing to DMA -- recolour the page, tell the host both that
@@ -1869,19 +2356,32 @@ void vgpuFramebuffer::presentTick(void) {
             __asm__ volatile ("" ::: "memory");
             (void)_flatMem->performOperation(kIOMemoryIncoherentIOFlush, 0, kGbPageBytes);
 
-            UInt32 img[17];
+            // §45: this used to send 52 bytes / 17 dwords with three made-up trailing
+            // fields (box.srcx/srcY/srcZ and box.dstx/dstY/dstZ) that SVGA3dBox does not
+            // have. The authoritative command (svga3d_cmd.h:1253) is
+            //     SVGA3dCmdUpdateGBImage { SVGA3dSurfaceImageId image; SVGA3dBox box; }
+            //   image = {sid, face, mipmap}   12 B
+            //   box   = {x, y, z, w, h, d}    24 B   <-- 6 dwords, six fields, no src/dst
+            //   body  = 36 B = 9 dwords, framed = 11 dwords.
+            // With 52 the host read the next command header 16 bytes into our padding,
+            // which is why every update after the first was swallowed. Same class of bug
+            // as the DEFINE body being 40 instead of 36.
+            //
+            // The box names the whole first row because the flat MOB is a single 4 KiB
+            // page (1024x1): w = 1024 pixels, h = 1 row, d = 1 slice.
+            UInt32 img[11];
             img[0] = kSvga3dCmdUpdateGbImage;
-            img[1] = 52;
-            img[2] = _surfaceId;
-            img[3] = 0; img[4] = 0; img[5] = 0;                 // box.x/y/z
-            img[6] = kStduWidth;                                // box.w
-            img[7] = 1;                                         // box.h
-            img[8] = 1;                                         // box.d
-            img[9] = 0; img[10] = 0; img[11] = 0;               // box.srcx/y/z
-            img[12] = 0; img[13] = 0; img[14] = 0;              // box.dstx/y/z
-            img[15] = 0;
-            img[16] = 0;                                        // trailing pad / align
-            fifoSubmitWords(_presentFifo, img, 17);
+            img[1] = 36;                                        // body bytes
+            img[2] = _surfaceId;                                // image.sid
+            img[3] = 0;                                         // image.face
+            img[4] = 0;                                         // image.mipmap
+            img[5] = 0;                                         // box.x
+            img[6] = 0;                                         // box.y
+            img[7] = 0;                                         // box.z
+            img[8] = kStduWidth;                                // box.w
+            img[9] = 1;                                         // box.h
+            img[10] = 1;                                        // box.d
+            fifoSubmitWords(_presentFifo, img, 11);
 
             UInt32 upd[7];
             upd[0] = kSvga3dCmdUpdateGbScreenTarget;
@@ -1980,6 +2480,14 @@ void vgpuFramebuffer::presentTick(void) {
                 for (UInt32 x = blockX; x < blockX + blockSize; x++) row[x] = white;
             }
             __asm__ volatile ("" ::: "memory");
+            // §45: flush the painted frame out to the pages the host will read.
+            //
+            // On x86 kIOMemoryIncoherentIOFlush is a fence, not a cache writeback, so this
+            // is not strictly load-bearing on this host -- but it is the only thing that
+            // makes the memory visible as "the guest asserted these bytes are final", and
+            // it costs one call per frame. It was present on the flat arm and missing here,
+            // which is exactly the kind of asymmetry that makes a bisect lie.
+            (void)_stduMem->performOperation(kIOMemoryIncoherentIOFlush, 0, kStduBytes);
             // Log once, from the first painted frame: proves the loop ran and shows the
             // buffer's physical backing, so a black capture can't be blamed on the wrong
             // buffer. kStduPaint + this line is also what build.sh greps for.
@@ -1994,9 +2502,31 @@ void vgpuFramebuffer::presentTick(void) {
         // §38h control arm: the same pattern straight into the legacy frame buffer, plus
         // the legacy SVGA_CMD_UPDATE that has always made it to the screen. See the
         // kStduVramControl comment for what each outcome means.
-        if (kStduVramControl && _vramVirt != nullptr && kStduPaint) {
-            memcpy(_vramVirt, _stduVirt, (IOByteCount)kStduWidth * kStduSurfHeight * 4);
-            // SVGA_CMD_UPDATE has no header: it IS the four dwords {x, y, width, height}.
+        // §47 control arm, rewritten: MAGENTA into VRAM, not a copy of the surface.
+        //
+        // The original arm memcpy'd the surface into VRAM, which meant both sources held
+        // exactly the same pattern -- so whatever the capture showed, it could not tell the
+        // two apart. That was true of the code and it invalidated the arm, which is why it
+        // sat at 0 for so long. Now VRAM gets a colour the surface never has, so a capture
+        // answers a question no log can:
+        //
+        //   red border / green top  -> the host is presenting our surface; the STDU path is
+        //                              correct and the black screen has some other cause
+        //   magenta                 -> the host is scanning VRAM after all; the screen fails
+        //                              because nothing writes the framebuffer, not because
+        //                              the screen target is wrong
+        //   black                   -> the host presents NEITHER: taking the FIFO is what
+        //                              killed presentation, and every screen-target command
+        //                              written since has been beside the point
+        //
+        // SVGA_CMD_UPDATE has no header: it IS the dwords {cmd, x, y, width, height}.
+        if (kStduVramControl && _vramVirt != nullptr) {
+            const IOByteCount vramPixels = (IOByteCount)kStduWidth * kStduSurfHeight;
+            volatile UInt32 *vramPx = (volatile UInt32 *)_vramVirt;
+            for (IOByteCount i = 0; i < vramPixels; i++) {
+                vramPx[i] = 0xFFFF00FF;   // magenta, opaque
+            }
+            __asm__ volatile ("" ::: "memory");
             UInt32 upd0[5];
             upd0[0] = kSvgaCmdUpdate;
             upd0[1] = 0;
@@ -2004,6 +2534,12 @@ void vgpuFramebuffer::presentTick(void) {
             upd0[3] = kStduWidth;
             upd0[4] = kStduSurfHeight;
             fifoSubmitWords(_presentFifo, upd0, 5);
+            if (_vramLogged == 0) {
+                _vramLogged = 1;
+                IOLog(VGPU_FB_TAG ": present: VRAM control arm armed (magenta %llu px at "
+                      "%p), surface keeps the red/green pattern\n",
+                      (unsigned long long)vramPixels, _vramVirt);
+            }
         }
 
         // §37: SURFACE_DMA is a proven no-op on this host. §37.3 measured it directly --
@@ -2019,6 +2555,15 @@ void vgpuFramebuffer::presentTick(void) {
         // UPDATE_GB_IMAGE, UPDATE_GB_SCREENTARGET. If the display lights up, the DMA was
         // not just useless but actively harmful -- an unanswered DMA may be what made the
         // host treat the surface as busy and skip the proxy update as well.
+        // §45: the upload names the same half as the UPDATE_GB_IMAGE / UPDATE_GB_SCREENTARGET
+        // pair below. It used to compute its own half from the tick parity, so on every
+        // frame the DMA uploaded one half while the screen update asked the host to show the
+        // other -- the last command in the stream won, and it was always asking for data
+        // that had not been uploaded on that frame.
+        const UInt32 halfH = kStduSurfHeight / 2;
+        const bool lowerHalf = (_presentTicks & 1) != 0;
+        const UInt32 halfY = lowerHalf ? halfH : 0;
+
         if (kStduDma) {
         UInt32 dma[21];
         dma[0] = 1044;                  // SVGA_3D_CMD_SURFACE_DMA
@@ -2030,18 +2575,14 @@ void vgpuFramebuffer::presentTick(void) {
         dma[6] = 0;                     // host.face
         dma[7] = 0;                     // host.mipmap
         dma[8] = 1;                     // transfer = SVGA3D_WRITE_HOST_VRAM
-        // The upload box follows the same half the update rect names (see §38.11 below),
-        // so every pixel still reaches the host, just in two alternating halves.
-        const UInt32 dmaHalfY = ((_presentTicks & 1) != 0) ? (kStduSurfHeight / 2) : 0;
-        const UInt32 dmaHalfH = kStduSurfHeight / 2;
-        dma[9] = 0;                     // box.x
-        dma[10] = dmaHalfY;             // box.y
+        dma[9]  = 0;                    // box.x
+        dma[10] = halfY;                // box.y
         dma[11] = 0;                    // box.z
         dma[12] = kStduWidth;           // box.w
-        dma[13] = dmaHalfH;             // box.h
+        dma[13] = halfH;                // box.h
         dma[14] = 1;                    // box.d
         dma[15] = 0;                    // box.srcx
-        dma[16] = dmaHalfY;             // box.srcy
+        dma[16] = halfY;                // box.srcy
         dma[17] = 0;                    // box.srcz
         dma[18] = 12;                   // suffix.suffixSize
         dma[19] = (UInt32)((IOByteCount)kStduWidth * kStduSurfHeight * 4);   // suffix.maximumOffset
@@ -2049,28 +2590,51 @@ void vgpuFramebuffer::presentTick(void) {
         fifoSubmitWords(_presentFifo, dma, 21);
         }
 
-        // §38.8: the upstream STDU CPU path is exactly two steps -- write the BO memory,
-        // then ONE UPDATE_GB_SCREENTARGET. It sends neither UPDATE_GB_SURFACE (1102) nor
-        // UPDATE_GB_IMAGE (1101) per frame; the latter is not in the STDU present chain at
-        // all. Both used to be submitted here as "cheap insurance" and both were noise:
-        // they only add dwords to the ring and hide which command actually matters.
+        // §38.8 said the upstream STDU CPU path sends neither UPDATE_GB_SURFACE (1102) nor
+        // UPDATE_GB_IMAGE (1101) per frame, so both were dropped from the loop.
         //
-        // §38.11: the rect now alternates between the two halves on every frame.
+        // §45: that reasoning was built on a broken measurement. At the time this was
+        // decided, every surface we created had a mis-filled OTable entry (surfaceFlags
+        // written as 64 bits into a 32-bit field), so the host's surface described
+        // width=0 height=1, and no upload command could have worked. Dropping 1101 because
+        // "the DMA already moved the pixels" assumed the DMA worked, and §37's evidence
+        // that it did not was collected under the same defect.
         //
-        // The host's own log ends at "MVNCRegionEncoder_Create: region encoder static"
-        // and never emits a region update afterwards, which is what a host that sees no
-        // *change* would print. One hypothesis is that it diffs the update rect against
-        // what it last presented, and a byte-identical full-screen rect every 33 ms
-        // diffs to nothing. Alternating halves makes consecutive rects differ, so if the
-        // host is doing that diffing, this boot's screen shows real content.
-        const UInt32 halfH = kStduSurfHeight / 2;
-        const bool lowerHalf = (_presentTicks & 1) != 0;
+        // M6's commit b89c619 is explicit that UPDATE_GB_IMAGE is what made the display go
+        // live: "the host keeps an internal copy of surface contents; a direct MOB write is
+        // invisible until it is told to re-read". KMS on this same device class does exactly
+        // this (vmw_kms_update_proxy). It is kept as its own switch so a single boot can
+        // attribute the result to one command rather than to the bundle.
+        //
+        // §38.11: the rect alternates between the two halves on every frame, because the
+        // host's log suggests it diffs consecutive rects. `halfY` is computed once above,
+        // so the DMA, the image update and the screen update all name the SAME half --
+        // when they disagreed, whichever came last silently undid the others.
+
+        if (kStduImage) {
+            // §45: authoritative SVGA3dCmdUpdateGBImage, 36-byte body:
+            //   image{sid,face,mipmap} then box{x,y,z,w,h,d}
+            UInt32 img[11];
+            img[0]  = kSvga3dCmdUpdateGbImage;
+            img[1]  = 36;
+            img[2]  = _surfaceId;
+            img[3]  = 0;                        // face
+            img[4]  = 0;                        // mipmap
+            img[5]  = 0;                        // box.x
+            img[6]  = halfY;                    // box.y
+            img[7]  = 0;                        // box.z
+            img[8]  = kStduWidth;               // box.w
+            img[9]  = halfH;                    // box.h
+            img[10] = 1;                        // box.d
+            fifoSubmitWords(_presentFifo, img, 11);
+        }
+
         UInt32 upd[7];
         upd[0] = kSvga3dCmdUpdateGbScreenTarget;
         upd[1] = 20;
         upd[2] = _stduStid;
         upd[3] = 0;                                   // rect.x
-        upd[4] = lowerHalf ? halfH : 0;               // rect.y
+        upd[4] = halfY;                               // rect.y -- same half as the upload
         upd[5] = kStduWidth;                          // rect.w
         upd[6] = halfH;                               // rect.h
         fifoSubmitWords(_presentFifo, upd, 7);
@@ -2537,48 +3101,32 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
           dataMobId, (unsigned long long)ppnDataPt, dataBytes);
     }
 
-    // DEFINE_GB_SURFACE: {sid, surfaceFlags(64), format, numMipLevels, multisampleCount,
-    //                     autogenFilter, size{w,h,d}} -- 40 bytes, and the header size
-    // must say so exactly: the host aborts FIFO processing on a size mismatch.
+    // DEFINE_GB_SURFACE: {sid, surfaceFlags(32), format, numMipLevels, multisampleCount,
+    //                     autogenFilter, size{w,h,d}} -- 36 bytes (§45).
+    //
+    // §45: this said 40 and carried an extra trailing "depth" dword. SVGA3dSize already
+    // contains depth, so the body is 9 dwords, not 10. Sending 40 made the host's parser
+    // start the next command 4 bytes late -- commands were still "accepted" because the
+    // status follows the FIFO write, not the field-by-field sanity check. The comment that
+    // used to sit here claimed the 64-bit layout and the 40-byte size were what the host
+    // wanted; the authoritative header says otherwise, and vmwgfx's own V1 branch proves it.
     if (kGbStage >= 3) {
     const UInt64 surfaceFlags = kSvga3dSurfaceHintDynamic | kSvga3dSurfaceHintTexture;
-    const UInt32 width = 256, height = 256, depth = 1;
-    words[0] = kSvga3dCmdDefineGbSurface;
-    words[1] = 40;
-    words[2] = surfaceId;
-    memcpy(&words[3], &surfaceFlags, 8);
-    words[5] = kSvga3dSurfaceFormatX8R8G8B8;
-    words[6] = 1;    // numMipLevels
-    words[7] = 1;    // multisampleCount
-    words[8] = 0;    // autogenFilter = SVGA3D_TEX_FILTER_NONE
-    words[9] = width;
-    words[10] = height;
-    words[11] = depth;
-    if (!fifoSubmitWords(fifo, words, 12) || !fenceAck(fifo, &_fenceSeq)) {
+    const UInt32 width = 256, height = 256;
+
+    defineGbSurfaceFrame(words, surfaceId, surfaceFlags, kSvga3dSurfaceFormatX8R8G8B8,
+                         width, height);
+    if (!fifoSubmitWords(fifo, words, kSvgaDefineGbSurfaceWords) ||
+        !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": gb: DEFINE_GB_SURFACE refused\n");
         return;
     }
 
-    // The guest fills the surface's OTable entry too.
+    // The guest fills the surface's OTable entry too (§45: authoritative field offsets).
     volatile UInt8 *surfTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffSurfaceTable);
     volatile UInt8 *entry = surfTable + (IOByteCount)surfaceId * kGbSurfaceEntryBytes;
-    UInt32 fmt = kSvga3dSurfaceFormatX8R8G8B8;
-    UInt32 mips = 1, ms = 1, filter = 0;
-    memcpy((void *)(entry + 0), &fmt, 4);
-    memcpy((void *)(entry + 4), &surfaceFlags, 8);
-    memcpy((void *)(entry + 12), &mips, 4);
-    memcpy((void *)(entry + 16), &ms, 4);
-    memcpy((void *)(entry + 20), &filter, 4);
-    memcpy((void *)(entry + 24), &width, 4);
-    memcpy((void *)(entry + 28), &height, 4);
-    memcpy((void *)(entry + 32), &depth, 4);
-    memcpy((void *)(entry + 36), &dataMobId, 4);
-    memcpy((void *)(entry + 40), &mips, 4);           // arraySize
-    UInt32 pitch = width * 4;
-    memcpy((void *)(entry + 44), &pitch, 4);          // mobPitch
-    UInt64 zero64 = 0;
-    memcpy((void *)(entry + 48), &zero64, 8);         // surface2Flags
-    bzero((void *)(entry + 56), 16);                  // multisamplePattern, quality, pads
+    surfaceEntryFill(entry, kSvga3dSurfaceFormatX8R8G8B8, surfaceFlags,
+                     width, height, dataMobId, width * 4, 0);
     __asm__ volatile ("" ::: "memory");
 
     IOLog(VGPU_FB_TAG ": gb: GB SURFACE %u defined (%ux%u X8R8G8B8 on MOB %u) -- "
@@ -2826,39 +3374,17 @@ void vgpuFramebuffer::stduFlatBringUp(volatile UInt32 *fifo) {
 
     volatile UInt8 *surfTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffSurfaceTable);
     volatile UInt8 *entry = surfTable + (IOByteCount)_surfaceId * kGbSurfaceEntryBytes;
-    UInt32 fmt = kSvga3dSurfaceFormatX8R8G8B8;
     const UInt64 surfaceFlags = kSvga3dSurfaceHintDynamic | kSvga3dSurfaceHintTexture |
                                 kSvga3dSurfaceScreentarget;
-    UInt32 mips = 1, ms = 1, filter = 0, depth = 1;
-    UInt32 pitch = flatW * 4;
     UInt64 zero64 = 0;
-    memcpy((void *)(entry + 0), &fmt, 4);
-    memcpy((void *)(entry + 4), &surfaceFlags, 8);
-    memcpy((void *)(entry + 12), &mips, 4);
-    memcpy((void *)(entry + 16), &ms, 4);
-    memcpy((void *)(entry + 20), &filter, 4);
-    memcpy((void *)(entry + 24), &flatW, 4);
-    memcpy((void *)(entry + 28), &flatH, 4);
-    memcpy((void *)(entry + 32), &depth, 4);
-    memcpy((void *)(entry + 36), &_stduMobId, 4);
-    memcpy((void *)(entry + 40), &mips, 4);           // arraySize
-    memcpy((void *)(entry + 44), &pitch, 4);          // mobPitch
-    memcpy((void *)(entry + 48), &zero64, 8);         // surface2Flags
-    bzero((void *)(entry + 56), 16);
+    surfaceEntryFill(entry, kSvga3dSurfaceFormatX8R8G8B8, surfaceFlags,
+                     flatW, flatH, _stduMobId, flatW * 4, 0);
     __asm__ volatile ("" ::: "memory");
 
-    words[0] = kSvga3dCmdDefineGbSurface;
-    words[1] = 40;
-    words[2] = _surfaceId;
-    memcpy(&words[3], &surfaceFlags, 8);
-    words[5] = kSvga3dSurfaceFormatX8R8G8B8;
-    words[6] = 1;
-    words[7] = 1;
-    words[8] = 0;
-    words[9] = flatW;
-    words[10] = flatH;
-    words[11] = 1;
-    if (!fifoSubmitWords(fifo, words, 12) || !fenceAck(fifo, &_fenceSeq)) {
+    defineGbSurfaceFrame(words, _surfaceId, surfaceFlags, kSvga3dSurfaceFormatX8R8G8B8,
+                         flatW, flatH);
+    if (!fifoSubmitWords(fifo, words, kSvgaDefineGbSurfaceWords) ||
+        !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": flat: DEFINE_GB_SURFACE refused\n");
         return;
     }
@@ -3024,19 +3550,21 @@ void vgpuFramebuffer::stduFlatReadback(volatile UInt32 *fifo) {
         (void)_flatMem->performOperation(kIOMemoryIncoherentIOFlush, 0, kGbPageBytes);
     }
 
-    UInt32 img[17];
+    // §45: authoritative SVGA3dCmdUpdateGBImage -- 36-byte body, {sid,face,mipmap} then
+    // SVGA3dBox{x,y,z,w,h,d}. It used to be 52 bytes with src/dst fields that do not exist.
+    UInt32 img[11];
     img[0] = kSvga3dCmdUpdateGbImage;
-    img[1] = 52;
+    img[1] = 36;
     img[2] = _surfaceId;
-    img[3] = 0; img[4] = 0; img[5] = 0;
-    img[6] = kStduWidth;
-    img[7] = 1;
-    img[8] = 1;
-    img[9] = 0; img[10] = 0; img[11] = 0;
-    img[12] = 0; img[13] = 0; img[14] = 0;
-    img[15] = 0;
-    img[16] = 0;
-    fifoSubmitWords(fifo, img, 17);
+    img[3] = 0;                     // face
+    img[4] = 0;                     // mipmap
+    img[5] = 0;                     // box.x
+    img[6] = 0;                     // box.y
+    img[7] = 0;                     // box.z
+    img[8] = kStduWidth;            // box.w
+    img[9] = 1;                     // box.h
+    img[10] = 1;                    // box.d
+    fifoSubmitWords(fifo, img, 11);
 
     UInt32 upd[7];
     upd[0] = kSvga3dCmdUpdateGbScreenTarget;
@@ -3230,25 +3758,27 @@ void vgpuFramebuffer::stduScreenDma(volatile UInt32 *fifo) {
     bzero(_sdVirt, sdBytes);
     (void)_sdMem->performOperation(kIOMemoryIncoherentIOFlush, 0, sdBytes);
 
-    // SVGA3dCmdGBScreenDMA {screenId, dead, destMobID, destPitch, changeMapMobID} = 20 B.
-    // changeMapMobID = SVGA3D_INVALID_ID: we do not want the change map.
-    UInt32 sd[6];
+    // SVGA3dCmdGBScreenDMA (svga3d_cmd.h:1467, 20-byte body, 5 dwords):
+    //   screenId, dead, destMobID, destPitch, changeMapMobID
+    //
+    // §45b: this used to submit a 5-dword frame ({cmd, size, stid, dead, mobid}) and then
+    // push destPitch as a SEPARATE one-dword submission, with a comment claiming the
+    // trailing fields were only needed "if the command needed them". They always are --
+    // `size` says 20, so the host consumes exactly the five body dwords and would have
+    // read the pitch from wherever the FIFO happened to be pointing. Same class of bug as
+    // the 40-vs-36 DEFINE body: the header said more bytes than were framed.
+    UInt32 sd[7];
     sd[0] = kSvga3dCmdGbScreenDma;
-    sd[1] = 20;
-    sd[2] = _stduStid;
-    sd[3] = 0;
-    sd[4] = _flatSdMobId;
-    sd[5] = kStduWidth * 4;
-    if (!fifoSubmitWords(fifo, sd, 6) || !fenceAck(fifo, &_fenceSeq)) {
+    sd[1] = 20;                             // body bytes
+    sd[2] = _stduStid;                      // screenId
+    sd[3] = 0;                              // dead
+    sd[4] = _flatSdMobId;                   // destMobID
+    sd[5] = kStduWidth * 4;                 // destPitch
+    sd[6] = SVGA3D_INVALID_ID_U32;          // changeMapMobID: not wanted
+    if (!fifoSubmitWords(fifo, sd, 7) || !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": sd: GB_SCREEN_DMA refused\n");
         return;
     }
-    // The remaining two fields (changeMapMobID and the pitch of the map) follow in the
-    // next submission only if the command needed them; with INVALID_ID it does not.
-    UInt32 sd2[1];
-    sd2[0] = SVGA3D_INVALID_ID_U32;
-    fifoSubmitWords(fifo, sd2, 1);
-    fenceAck(fifo, &_fenceSeq);
 
     (void)_sdMem->performOperation(kIOMemoryIncoherentIOFlush, 0, sdBytes);
     __asm__ volatile ("mfence" ::: "memory");
@@ -3522,40 +4052,21 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     //    DEFINE_GB_SURFACE sid 2 at full display size on mobid 2.
     volatile UInt8 *surfTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffSurfaceTable);
     volatile UInt8 *entry = surfTable + (IOByteCount)_surfaceId * kGbSurfaceEntryBytes;
-    UInt32 fmt = kSvga3dSurfaceFormatX8R8G8B8;
     const UInt64 surfaceFlags = kSvga3dSurfaceHintDynamic | kSvga3dSurfaceHintTexture |
                                 kSvga3dSurfaceScreentarget;
-    UInt32 mips = 1, ms = 1, filter = 0;
-    UInt32 depth = 1;
-    UInt32 pitch = kStduWidth * 4;
-    memcpy((void *)(entry + 0), &fmt, 4);
-    memcpy((void *)(entry + 4), &surfaceFlags, 8);
-    memcpy((void *)(entry + 12), &mips, 4);
-    memcpy((void *)(entry + 16), &ms, 4);
-    memcpy((void *)(entry + 20), &filter, 4);
-    memcpy((void *)(entry + 24), &kStduWidth, 4);
-    memcpy((void *)(entry + 28), &kStduSurfHeight, 4);
-    memcpy((void *)(entry + 32), &depth, 4);
-    memcpy((void *)(entry + 36), &_stduMobId, 4);
-    memcpy((void *)(entry + 40), &mips, 4);           // arraySize
-    memcpy((void *)(entry + 44), &pitch, 4);          // mobPitch
-    UInt64 zero64 = 0;
-    memcpy((void *)(entry + 48), &zero64, 8);         // surface2Flags
-    bzero((void *)(entry + 56), 16);
-    __asm__ volatile ("" ::: "memory");
+    // §45: this used to hand-roll 8-byte surfaceFlags into a 4-byte field. See
+    // surfaceEntryFill/defineGbSurfaceFrame at the top of the file for the authoritative
+    // layout and for why this one shift invalidated everything downstream of it.
+    surfaceEntryFill(entry, kSvga3dSurfaceFormatX8R8G8B8, surfaceFlags,
+                     kStduWidth, kStduSurfHeight, _stduMobId, kStduWidth * 4, 0);
 
-    words[0] = kSvga3dCmdDefineGbSurface;
-    words[1] = 40;
-    words[2] = _surfaceId;
-    memcpy(&words[3], &surfaceFlags, 8);
-    words[5] = kSvga3dSurfaceFormatX8R8G8B8;
-    words[6] = 1;                   // numMipLevels
-    words[7] = 1;                   // multisampleCount
-    words[8] = 0;                   // autogenFilter
-    words[9] = kStduWidth;
-    words[10] = kStduSurfHeight;
-    words[11] = 1;                  // depth
-    if (!fifoSubmitWords(fifo, words, 12) || !fenceAck(fifo, &_fenceSeq)) {
+    UInt64 zero64 = 0;
+    UInt32 zero32 = 0;
+
+    defineGbSurfaceFrame(words, _surfaceId, surfaceFlags, kSvga3dSurfaceFormatX8R8G8B8,
+                         kStduWidth, kStduSurfHeight);
+    if (!fifoSubmitWords(fifo, words, kSvgaDefineGbSurfaceWords) ||
+        !fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": stdu: DEFINE_GB_SURFACE refused\n");
         return;
     }
@@ -3610,18 +4121,30 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     // 5. The screen target's OTable entry (its `image` field names the content surface --
     //    this is what was missing when the screen stayed black), then
     //    DEFINE_GB_SCREENTARGET stid 0.
+    //
+    // SVGAOTableScreenTargetEntry (svga3d_cmd.h, packed, 64 bytes):
+    //   +0  SVGA3dSurfaceImageId image{sid,face,mipmap}   12
+    //   +12 uint32              width                      4
+    //   +16 uint32              height                     4
+    //   +20 int32               xRoot                      4
+    //   +24 int32               yRoot                      4
+    //   +28 SVGAScreenTargetFlags flags                    4
+    //   +32 uint32              dpi                        4
+    //   +36 uint32              pad[7]                    28
+    // This layout was already correct; it is spelled out here so the next reader does not
+    // have to re-derive it (§45's bug was one field over in the surface table).
     volatile UInt8 *stTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffStTable);
     volatile UInt8 *stEntry = stTable + (IOByteCount)_stduStid * kGbStEntryBytes;
+    bzero((void *)stEntry, kGbStEntryBytes);
     memcpy((void *)(stEntry + 0), &_surfaceId, 4);    // image.sid
-    memcpy((void *)(stEntry + 4), &zero64, 8);        // image.face, image.mipmap
+    memcpy((void *)(stEntry + 4), &zero32, 4);        // image.face
+    memcpy((void *)(stEntry + 8), &zero32, 4);        // image.mipmap
     memcpy((void *)(stEntry + 12), &kStduWidth, 4);
     memcpy((void *)(stEntry + 16), &kStduSurfHeight, 4);
-    UInt32 zero32 = 0;
     memcpy((void *)(stEntry + 20), &zero32, 4);       // xRoot
     memcpy((void *)(stEntry + 24), &zero32, 4);       // yRoot
     memcpy((void *)(stEntry + 28), &kSvgaStflagPrimary, 4);
     memcpy((void *)(stEntry + 32), &zero32, 4);       // dpi
-    bzero((void *)(stEntry + 36), 28);                // pad[7]
     __asm__ volatile ("" ::: "memory");
 
     // STDU objects survive guest reboots, and redefining an existing object poisons the
@@ -3650,6 +4173,19 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     if (!fenceAck(fifo, &_fenceSeq)) {
         IOLog(VGPU_FB_TAG ": stdu: DESTROY_GB_MOB not acked\n");
     }
+    }
+
+    if (kStduTopology) {
+        // §45: the topology block lives in probeFifo now, BEFORE CONFIG_DONE -- see the
+        // comment there. Writing it here, while the host is draining a live FIFO, is what
+        // made DEFINE_GB_SCREENTARGET abort this boot. The registers are already declared
+        // by the time stduBringUp runs, so all that is left is to log what the host echoes
+        // back, which confirms the state survived the FIFO takeover.
+        IOLog(VGPU_FB_TAG ": stdu: topology at screen-target time -> id %u primary %u "
+              "pos %u,%u size %ux%u\n",
+              svgaReadRegister(_svgaPortBase, 35), svgaReadRegister(_svgaPortBase, 36),
+              svgaReadRegister(_svgaPortBase, 37), svgaReadRegister(_svgaPortBase, 38),
+              svgaReadRegister(_svgaPortBase, 39), svgaReadRegister(_svgaPortBase, 40));
     }
 
     words[0] = kSvga3dCmdDefineGbScreenTarget;
@@ -3709,6 +4245,27 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
     _stduActive = true;
     IOLog(VGPU_FB_TAG ": stdu: screen target 0 (%ux%u) bound to surface %u on MOB %u -- "
           "STDU present path is UP\n", kStduWidth, kStduSurfHeight, _surfaceId, _stduMobId);
+
+    // §45: prove in the log which layout this binary actually used, by reading the OTable
+    // entry back the way the host would parse it. Six boots in a row were spent reasoning
+    // about a field order that was wrong by one dword; a one-line echo makes the next
+    // occurrence of that class of bug impossible to miss. If these numbers do not match
+    // what was written above, nothing downstream of here means anything.
+    {
+        UInt32 rFmt = 0, rFlags = 0, rMips = 0, rW = 0, rH = 0, rMob = 0, rPitch = 0;
+        memcpy(&rFmt,   (const void *)(entry +  0), 4);
+        memcpy(&rFlags, (const void *)(entry +  4), 4);
+        memcpy(&rMips,  (const void *)(entry +  8), 4);
+        memcpy(&rW,     (const void *)(entry + 20), 4);
+        memcpy(&rH,     (const void *)(entry + 24), 4);
+        memcpy(&rMob,   (const void *)(entry + 32), 4);
+        memcpy(&rPitch, (const void *)(entry + 40), 4);
+        IOLog(VGPU_FB_TAG ": stdu: surface otable -> fmt %u flags 0x%08x mips %u %ux%u "
+              "mobid %u pitch %u (expect fmt %u flags 0x%08x mips 1 %ux%u mobid %u pitch %u)\n",
+              rFmt, rFlags, rMips, rW, rH, rMob, rPitch,
+              kSvga3dSurfaceFormatX8R8G8B8, (UInt32)(surfaceFlags & kSvgaSurfaceFlagsMask32),
+              kStduWidth, kStduSurfHeight, _stduMobId, kStduWidth * 4);
+    }
 
     // The DX round-trip is deferred to a present tick (~20 s after boot): running it
     // inline at IOFramebuffer start destabilises the guest later (see 2026-10-07 notes).
@@ -4100,10 +4657,7 @@ bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
     // The surface's OTable entry, then DEFINE_GB_SURFACE via legacy.
     volatile UInt8 *surfTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffSurfaceTable);
     volatile UInt8 *entry = surfTable + (IOByteCount)surfId * kGbSurfaceEntryBytes;
-    UInt32 fmt = kSvga3dSurfaceFormatX8R8G8B8;
     UInt64 sflags = kSvga3dSurfaceHintRenderTarget | kSvga3dSurfaceBindRenderTarget;
-    UInt32 mips = 1, ms = 1, filter = 0, depth = 1;
-    UInt32 pitch = dxW * 4;
     // SVGAOTableSurfaceEntry is 64 bytes (svga3d_cmd.h):
     //   format, surface1Flags, numMipLevels, multisampleCount, autogenFilter,
     //   size{width,height,depth}, mobid, arraySize, mobPitch, surface2Flags,
@@ -4111,42 +4665,16 @@ bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
     //   minLOD(float), pad0[2].
     // We used to write a 72-byte layout with a 64-bit flags field, so every entry
     // after sid 0 was misaligned and the DX RTV path read garbage for sid 3.
-    UInt32 sflags32 = (UInt32)(kSvga3dSurfaceHintRenderTarget | kSvga3dSurfaceBindRenderTarget);
-    UInt32 surface2 = 0;
-    UInt8  msPattern = 0, quality = 0;
-    UInt16 byteStride = 0;
-    float  minLOD = 0.0f;
-    bzero((void *)entry, kGbSurfaceEntryBytes);
-    memcpy((void *)(entry + 0),  &fmt, 4);
-    memcpy((void *)(entry + 4),  &sflags32, 4);
-    memcpy((void *)(entry + 8),  &mips, 4);
-    memcpy((void *)(entry + 12), &ms, 4);
-    memcpy((void *)(entry + 16), &filter, 4);
-    memcpy((void *)(entry + 20), &dxW, 4);
-    memcpy((void *)(entry + 24), &dxH, 4);
-    memcpy((void *)(entry + 28), &depth, 4);
-    memcpy((void *)(entry + 32), &mobId, 4);
-    memcpy((void *)(entry + 36), &mips, 4);        // arraySize
-    memcpy((void *)(entry + 40), &pitch, 4);
-    memcpy((void *)(entry + 44), &surface2, 4);
-    memcpy((void *)(entry + 48), &msPattern, 1);
-    memcpy((void *)(entry + 49), &quality, 1);
-    memcpy((void *)(entry + 50), &byteStride, 2);
-    memcpy((void *)(entry + 52), &minLOD, 4);
+    //
+    // §45: the fix that was applied here by hand is now surfaceEntryFill()/defineGbSurfaceFrame()
+    // at the top of the file, shared with the STDU arm -- which still had the old bug.
+    surfaceEntryFill(entry, kSvga3dSurfaceFormatX8R8G8B8, sflags,
+                     dxW, dxH, mobId, dxW * 4, 0);
     __asm__ volatile ("" ::: "memory");
 
-    words[0] = kSvga3dCmdDefineGbSurface;
-    words[1] = 40;
-    words[2] = surfId;
-    memcpy(&words[3], &sflags, 8);
-    words[5] = kSvga3dSurfaceFormatX8R8G8B8;
-    words[6] = 1;
-    words[7] = 1;
-    words[8] = 0;
-    words[9] = dxW;
-    words[10] = dxH;
-    words[11] = 1;
-    if (!fifoSubmitWords(fifo, words, 12) || !fenceAck(fifo, &_fenceSeq)) {
+    defineGbSurfaceFrame(words, surfId, sflags, kSvga3dSurfaceFormatX8R8G8B8, dxW, dxH);
+    if (!fifoSubmitWords(fifo, words, kSvgaDefineGbSurfaceWords) ||
+        !fenceAck(fifo, &_fenceSeq)) {
     IOLog(VGPU_FB_TAG ": dx: legacy DEFINE_GB_SURFACE refused\n");
     return false;
     }

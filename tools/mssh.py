@@ -113,6 +113,34 @@ def run(client, command: str, timeout: float | None,
     return status
 
 
+def push(client, local: str, remote: str) -> int:
+    """Upload a file over the exec channel instead of SFTP.
+
+    Kept because `--put` on Windows is fragile for a reason that cost an hour on
+    2026-11-12: Git Bash rewrites any argument that looks like a POSIX path, so
+    `/var/tmp/vgpu-fb/build.sh` reached paramiko as
+    `C:/Users/.../PortableGit/var/tmp/vgpu-fb/build.sh` and SFTP answered ENOENT for a
+    path that does exist. Either prefix the call with MSYS2_ARG_CONV_EXCL='*' or use
+    this, which streams the payload base64-encoded through `base64 -d` on the guest.
+    """
+    import base64
+
+    data = pathlib.Path(local).read_bytes()
+    payload = base64.b64encode(data)
+    cmd = f"base64 -d > {shlex.quote(remote)}"
+    stdin, stdout, stderr = client.exec_command(cmd, get_pty=False)
+    stdin.write(payload)
+    stdin.flush()
+    stdin.channel.shutdown_write()
+    err = stderr.read().decode("utf-8", "replace")
+    status = stdout.channel.recv_exit_status()
+    if status != 0:
+        sys.stderr.write(err)
+        return status
+    print(f"pushed {local} -> {remote} ({len(data)} bytes)")
+    return 0
+
+
 def put(client, local: str, remote: str) -> int:
     sftp = client.open_sftp()
     try:
@@ -166,6 +194,8 @@ def main() -> int:
     ap.add_argument("-r", "--retries", type=int, default=1,
                     help="connect attempts, useful for polling a booting guest")
     ap.add_argument("--put", nargs=2, metavar=("LOCAL", "REMOTE"))
+    ap.add_argument("--push", nargs=2, metavar=("LOCAL", "REMOTE"),
+                    help="upload over the exec channel (works when SFTP does not)")
     ap.add_argument("--get", nargs=2, metavar=("REMOTE", "LOCAL"),
                     help="download a file, or a directory tree, from the guest")
     ap.add_argument("-s", "--sudo", action="store_true",
@@ -176,13 +206,15 @@ def main() -> int:
     load_env_file(pathlib.Path(args.env_file))
 
     command = " ".join(args.command).strip()
-    if not command and not args.put and not args.get:
+    if not command and not args.put and not args.get and not args.push:
         command = sys.stdin.read().strip()
-    if not command and not args.put and not args.get:
+    if not command and not args.put and not args.get and not args.push:
         sys.exit("no command given")
 
     client = connect(args.connect_timeout, args.retries)
     try:
+        if args.push:
+            return push(client, args.push[0], args.push[1])
         if args.put:
             return put(client, args.put[0], args.put[1])
         if args.get:

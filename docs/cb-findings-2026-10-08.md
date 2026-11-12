@@ -4167,3 +4167,169 @@ VNC 截图从 1024x768 变成 **1024x512 全黑**。原因清楚：screen target
 - §42「§38.21–38.22 是误诊，真因是设备复位」——不成立，从来没发生过复位
 - §43「MIN 踩掉宿主 3D 版本字」——`MIN=288*4` 确实太小，但版本字在重配后本来就会被
   宿主写成 0（44.4 里 `3d hw version 0x0`），这条的因果链也不对
+
+## 46. 撤回：「宿主从未离开 RegisterMode」是误读（2026-11-12）
+
+上一轮的核心假设是错的，原因很具体：只 grep 了 `vmware.log` 的**尾部一行**，
+看到 `Screen type changed to RegisterMode` 就断定宿主一直待在 RegisterMode。
+把整个文件读完，同一个 boot 里其实是：
+
+```
+11:56:13.367Z  SVGA-ScreenMgr: Screen type changed to RegisterMode      (上一次 panic 之后)
+11:56:54.515Z  SWBScreen: Screen 1 Destroyed: xywh(0, 0, 1024, 768) flags=0x2
+11:56:54.521Z  SVGA-ScreenMgr: Screen type changed to ScreenTarget      ← stduBringUp 之后 1.3 s
+11:56:54.521Z  SWBScreen: Screen 1 Defined: xywh(0, 0, 1024, 768) flags=0x2
+```
+
+也就是说宿主**确实**被我们推进了 ScreenTarget 模式，
+"切换到 ScreenTarget 就会黑"这条老结论方向是对的，
+"宿主还在 RegisterMode，所以 BAR1 才是扫描源"这条新结论作废。
+
+同一轮里还有一个**实验设计本身无效**的臂：`kStduVramControl` 当时写的是
+`memcpy(VRAM <- surface)`，两个来源内容完全一样，无论屏上出现什么都无法区分是谁。
+这也是 §47.2 重做这个对照臂（洋红 vs 红绿）的原因——重做之后它立刻给出了答案。
+
+**教训**：`grep | tail -1` 不是日志分析；判据必须能区分两个假设，
+不能两个假设下都"符合预期"。
+
+## 47. 显示通了：不是 STDU，是 legacy screen object（2026-11-12）
+
+这一轮把"屏幕上有画面"做成了，路径和过去三周的方向**完全不同**。结论先写：
+
+> **本宿主在客人接管 FIFO 之后，只呈现驱动 blit 到 screen object 的内容。
+> 它不会去采样我们 bind 过去的 screen target。**
+> 所以 STDU（`DEFINE_GB_SCREENTARGET` + surface + MOB）在这台机器上不可能出画面，
+> 而 `DEFINE_SCREEN` + `DEFINE_GMRFB` + `BLIT_GMRFB_TO_SCREEN` 可以。
+
+### 47.1 `SVGA_REG_ENABLE` 的 HIDE 位：宿主"把显示交出来"的开关
+
+vmwgfx 的顺序（`vmwgfx_drv.c:423-434`，一字不改）：
+
+```c
+dev_priv->enable_state = vmw_read(dev_priv, SVGA_REG_ENABLE);
+...
+vmw_write(dev_priv, SVGA_REG_ENABLE, SVGA_REG_ENABLE_ENABLE |
+                                      SVGA_REG_ENABLE_HIDE);
+vmw_write(dev_priv, SVGA_REG_TRACES, uses_fb_traces);
+dev_priv->fifo = vmw_fifo_create(dev_priv);      /* CONFIG_DONE 在里面 */
+```
+
+**HIDE 在 FIFO 建立之前就写。** 我们从来没写过它——本机启动时读到的是 `enable 1`。
+写 `ENABLE|HIDE`（=3）之后再 CONFIG_DONE，宿主日志第一次出现：
+
+```
+SVGA hiding SVGA
+SWBScreen: Screen 1 Destroyed: xywh(0, 0, 1024, 768) flags=0x2
+SWBScreen: Screen 0 Defined:   xywh(0, 0,  640, 480) flags=0x3
+```
+
+不写 HIDE 时同一时刻是：
+
+```
+SVGA-ScreenMgr: Screen type changed to ScreenTarget
+SWBScreen: Screen 1 Defined: xywh(0, 0, 1024, 768) flags=0x2
+```
+
+两条路径的差别就在 **Screen 0 flags=0x3（客人屏幕）** 与 **Screen 1 flags=0x2（legacy 屏）**。
+宿主自建的那个 Screen 0 是 **640x480**——不是它刚销毁的 1024x768，
+也不是拓扑寄存器 39/40 回读到的 1024x768。
+
+**踩过的坑（重要）**：`SVGA_REG_ENABLE` 是**设备状态，不是客人状态**，它跨客人重启存活。
+把 HIDE 打开一次之后，下一次启动（哪怕新二进制不写 HIDE）仍然是隐藏态，
+表现为"换回旧配置也黑屏"，而任何客人日志都解释不了。
+所以现在**两条分支都写 ENABLE**（开=3，关=1），并且写在 `kFbStage == 0` 早退之前。
+
+### 47.2 洋红对照臂：宿主什么都不呈现
+
+有 Screen 0 之后仍然全黑，于是做了一个之前一直做错的对照：把**两种来源写成不同颜色**。
+
+- surface 里画红边/上半绿/下半蓝 + 游走白块（原有 `kStduPaint`）
+- VRAM 整屏填洋红 `0xFFFF00FF`，再发 legacy `SVGA_CMD_UPDATE`
+
+（旧版这个臂是 `memcpy(VRAM <- surface)`，两边内容完全一样，看什么都分不出来——
+这就是它长期挂在 0 的原因。）
+
+结果：**1024x768 全黑，distinct colors = 1**。既没有红绿，也没有洋红。
+STDU 每帧 `UPDATE_GB_IMAGE` + `UPDATE_GB_SCREENTARGET` 都被 fence 消费，
+呈现循环 12900 tick 不楔死，绑定和 otable 回读全对——**宿主就是不采样**。
+
+同时把几何对齐也排掉了：`kStduMatchHost=1`（surface 改成 640x480、pitch 2560、
+300 页，和宿主 Screen 0 一致）仍然全黑。
+
+### 47.3 换路：legacy screen object 一次就通
+
+`kFbStage = 5` 这条通路早在项目第一天就写好了，但一直被"STDU 才是正路"压着，
+而且它从来没在**寄存器修正之后**跑过（§41/§42 那次 bisect 的全部结论都建立在
+命令发到 48/49、`0x14` 当 CONFIG_DONE 上，等于没跑）。三条命令：
+
+```
+DEFINE_SCREEN        {screenId 0, PRIMARY, 1024x768, root 0,0}         body 28 B
+DEFINE_GMRFB         {gmrId FRAMEBUFFER, offset FB_OFFSET, pitch, BGRX32} body 16 B
+BLIT_GMRFB_TO_SCREEN {src 0,0; dest 0,0-1024,768; screenId 0}          body 28 B
+```
+
+然后 `thread_call` 每 33 ms 重发一次 blit。**没有任何客人内存参与**：
+GMRFB 直接指向 BAR1 里的 framebuffer，blit 是宿主侧 DMA。每帧成本 9 个 FIFO dword。
+
+配合 `kGbStage = 0`（完全不碰 GB 对象栈）第一次启动即出现：
+
+- 锁屏完整实时渲染（壁纸、日期 `11月12日 星期四`、时钟、`Pika` 用户、密码框、右上菜单栏）
+- VNC 输入密码后进入**桌面**：菜单栏、Terminal 里正在跑的 shell、系统设置窗口、Dock、崩溃报告对话框
+- `present tick` 稳定 30 Hz（300 tick / 10 s），FIFO `next/stop` 同步前进，从不楔死
+- 时钟每分钟自更新 —— 画面是活的，不是一帧贴图
+
+### 47.4 为什么之前的 M6 "成功" 不能算作 STDU 有效
+
+M6（`b89c619`，10-06）记录"锁屏完整实时渲染"，四要素是拓扑寄存器 + `UPDATE_GB_IMAGE`
++ PT64_2 + SCREENTARGET flag。今天把这四要素全部复现（§45 起）却始终黑，
+而且洋红对照臂证明宿主根本不看 surface。
+
+诚实地说：M6 那次画面**来源未确定**。当时同样没有写 HIDE，宿主日志里也是
+`Screen type changed to ScreenTarget` + `Screen 1`，也就是说宿主那一侧的状态和今天
+没有任何区别。两种解释都成立：(a) 当时某条我们已删掉/改写的路径真的生效过；
+(b) 当时看到的画面来自宿主自己的 legacy 扫描输出，而不是我们的 surface。
+**在找到可复现的对照之前，不要把 M6 当作"STDU 可用"的证据引用。**
+
+### 47.5 出货配置
+
+| 开关 | 值 | 说明 |
+|---|---|---|
+| `kFbStage` | **5** | legacy screen-object 呈现（唯一出画面的通路） |
+| `kGbStage` | **0** | 不建 GB 对象栈；STDU 代码保留，改回去只需改这一个数 |
+| `kStduEnableHide` | 0 | 但**仍然写** `ENABLE=1`，防止上一次实验留下的隐藏态 |
+| `kStduVramControl` | 0 | 洋红对照臂（实验用；开着会在每次启动闪一下洋红） |
+| `kDxTest` | 0 | DX 主线已关闭（§35） |
+
+STDU 全套代码、`kStduFlat`、`kStduDma`、`kStduImage`、`kStduPt1`、`kStduMatchHost`
+都保留。回到 STDU 实验只需 `kGbStage=5`，但先回答一个问题：
+**这台宿主到底在什么条件下才会采样 screen target？** 目前没有任何一个 boot 观察到过。
+
+### 47.6 工具与流程上的两个修正
+
+1. **`build.sh` 的开关判定必须锚定声明行。**
+   `grep -E 'kGbStage[[:space:]]*=[[:space:]]*5'` 命中了注释里的
+   "never together with kGbStage = 5 on a boot we care about"，
+   于是用 `kGbStage=0` 的二进制去查 STDU 标记，构建报 `FATAL` 但原因和代码无关。
+   现在统一走 `sw <名字> <值>`，正则锚在 `static const <类型> <名字> = <值>;`。
+   这个文件通篇都是"某开关 = 某值"的注释，不锚定就等于随机。
+
+2. **`build.sh` 的 STDU 标记改成 `kGbStage == 5` 条件成立时才要求。**
+   在此之前它是无条件的，等于**禁止构建另一条呈现通路**——而那条通路正是答案。
+   可达性守卫不该锁死合法配置。
+
+3. **Windows 侧 `tools/mssh.py --put` 的 ENOENT 是 Git Bash 路径转换。**
+   `/var/tmp/x` 被 MSYS 改写成 `C:/Users/.../PortableGit/var/tmp/x` 之后才交给 paramiko，
+   SFTP 当然说"没有这个文件"。`MSYS2_ARG_CONV_EXCL='*'` 或在 `--push`
+   （走 exec 通道 + base64）之间选一个。**不要把它误诊成客机 sftp-server 的问题。**
+
+### 47.7 下一步（按价值排序）
+
+1. **分辨率**：现在锁死 1024x768，因为 VRAM 只有 4 MB（`gfbSize` 写在
+   `vmware-vmx.exe 0x14050aa98`）。1920x1080 需要 8.29 MB。这是纯宿主侧限制，
+   要改就得再打一次宿主补丁（参照 §19 的 1 字节补丁流程）。
+2. **`ABGR`/`BGRA` 校验**：GMRFB 用的是 `BGRX32`，屏幕颜色看着正确，但没做逐像素比对。
+   便宜的做法：填一块已知 RGB 的色卡，截图读回数值。
+3. **脏矩形**：现在每 33 ms 全屏 blit。改成按 `SVGA_CMD_UPDATE` 区域 blit 能省带宽，
+   但先要有 vblank/damage 来源，暂不做。
+4. **回到 3D**：GMRFB 通路只能搬像素，vGPU10 的 3D 仍然卡在 DX 管理器从不创建（§19/§22）。
+   显示通了不代表 3D 通了，不要混为一谈。

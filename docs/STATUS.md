@@ -20,16 +20,34 @@
 
 ## 已达成的里程碑
 
+### M8：屏幕真的亮了 —— 走 legacy screen object，不是 STDU（11-12）⭐
+- **画面来源确定**：`kFbStage=5 + kGbStage=0`，
+  `DEFINE_SCREEN` + `DEFINE_GMRFB`(BAR1 直指 framebuffer) + `BLIT_GMRFB_TO_SCREEN`，
+  每 33 ms 重发一次。无客人内存参与，每帧 9 个 FIFO dword。
+- 实测：锁屏完整实时渲染（时钟自更新）；VNC 输入密码后进入**可用桌面**
+  （菜单栏 / Terminal / 系统设置 / Dock）。`present tick` 稳定 30 Hz，FIFO 从不楔死。
+- **STDU 在本宿主出不画面，且已证明不是我们的锅**：洋红对照臂（surface 红绿图案 +
+  VRAM 洋红）截图为纯黑 → 客人接管 FIFO 后宿主**只呈现 blit 到 screen object 的内容，
+  不采样 bind 过去的 screen target**。几何对齐（640x480 全链路）也排除。
+- **新发现 `SVGA_REG_ENABLE_HIDE`**：写 `ENABLE|HIDE` 后宿主日志出现
+  `SVGA hiding SVGA` → `Screen 0 Defined flags=0x3`（客人屏幕）；不写则是
+  `Screen 1 flags=0x2`（legacy 屏）。**ENABLE 是设备状态，跨客人重启存活**，
+  详见 `cb-findings` §47.1。
+- 细节与作废清单见 `docs/cb-findings-2026-10-08.md` §47。
+
 ### M1–M5：寄存器/FIFO/GB 对象（9-29 → 10-06）
 - SVGA3D LIVE（DEVCAP_3D=1）；GB 对象模型 UP（MOB/Surface/OTable）。
 - DX 命令集 OPEN：DXCONTEXT/SM41/GL43 devcap 全 1，DX context 创建成功。
 - 关键坑：`words[]` 溢出（≥12 dwords）、命令 size 必须精确、OTable 条目先于 DEFINE 写。
 
-### M6：STDU 显示路径全通（10-06 23:39，b89c619）
-- 锁屏完整实时渲染——FIFO 所有权 + GB/DX 栈 + 显示共存。
+### M6：STDU 显示路径全通（10-06 23:39，b89c619）**（结论待复核，见 §47.4）**
+- 当时记录：锁屏完整实时渲染——FIFO 所有权 + GB/DX 栈 + 显示共存。
 - 四要素：①拓扑寄存器 `SVGA_REG_DISPLAY_*`(35-40)；②`UPDATE_GB_IMAGE`(1101)；
   ③3MB MOB 用 PT64_2；④surface 加 `SVGA3D_SURFACE_SCREENTARGET`(1<<16)。
 - 呈现循环 30Hz：memcpy(VRAM→surface MOB) + UPDATE_GB_IMAGE + UPDATE_GB_SCREENTARGET。
+- ⚠️ 11-12：四要素全部复现仍全黑，且 §47.2 的洋红对照臂证明宿主不采样 surface。
+  M6 那次的画面来源未确定（可能是宿主自己的 legacy 扫描输出）。**不要再把 M6 当作
+  "STDU 可用"的证据引用。**
 
 ### M7：CB（Command Buffer）机制打通（10-07，86bbdb9）⭐
 - **根因确认**：vGPU10 的 DX 命令必须经 CB 提交（`SVGA_REG_COMMAND_LOW=48/HIGH=49`），
@@ -135,7 +153,22 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 
 ## 当前开放问题
 
-### P0：像素通路 —— 回到 2D 路径（§35.5 的设想已作废）
+### P0'：显示已经可用，接下来（11-12 起）
+1. **分辨率锁在 1024x768**：VRAM 只有 4 MB（`gfbSize` 写在 `vmware-vmx.exe 0x14050aa98`），
+   1920x1080 要 8.29 MB。要更高就必须再打一次宿主补丁（流程见 §19 的 1 字节补丁）。
+2. **颜色格式未逐像素校验**：GMRFB 用 `BGRX32`，肉眼看正确，但没有色卡回归。
+3. **脏矩形**：现在每 33 ms 全屏 blit；有 damage 来源后再优化。
+4. **3D 仍然不通**：GMRFB 只搬像素，vGPU10 的 3D 仍卡在 DX 管理器从不创建（§19/§22）。
+   **显示通了 ≠ 3D 通了。**
+
+### P0：像素通路 ✅ 已关闭（11-12，见 M8 / `cb-findings` §47）
+
+> 结论：2D 像素通路**已打通**，但走的不是 STDU。`kFbStage=5 + kGbStage=0`
+> （DEFINE_SCREEN + DEFINE_GMRFB + BLIT_GMRFB_TO_SCREEN）实测出现完整可用桌面。
+> 下面保留的是当时的推理过程，其中"STDU 呈现链是健康的"这一句已被 §47.2 推翻——
+> 宿主根本不采样 bind 过去的 screen target。
+
+### P0-旧记录：回到 2D 路径（§35.5 的设想已作废）
 §35.5 曾提出"用 `SVGA_3D_CMD_DX_DEFINE_GB_SURFACE` 重建 sid"来隔离"跨路径引用"。
 **这条实验在动手前被 §36 证伪，作废：**
 
@@ -197,9 +230,19 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 
 | 配置 | 效果 |
 |---|---|
-| `kFbStage=0`（出货默认） | 只读 kext，MKS legacy 呈现，显示正常 |
+| **`kFbStage=5 + kGbStage=0`（当前出货）** | **legacy screen-object 呈现，画面可用** |
+| `kFbStage=0` | 只读 kext，宿主自己扫 VRAM，显示正常但驱动不参与 |
+| `kFbStage=3 + kGbStage=5` | STDU 实验（宿主不采样 surface，屏幕必黑） |
 | `kFbStage=2 + kGbStage=4 + kDxTest=1` | DX/CB 实验（headless，SSH 活） |
-| `kFbStage=2 + kGbStage=5` | STDU 显示实验（fresh MKS 有冻结风险） |
+| `kStduEnableHide=1` | 写 `ENABLE\|HIDE` → 宿主 `SVGA hiding SVGA`、建 Screen 0(640x480) |
+
+11-12 新增（§47）：
+
+| 开关 | 值 | 含义 |
+|---|---|---|
+| `kStduEnableHide` | 0 | 但**两条分支都写 ENABLE**：开=3(HIDE)，关=1。设备状态跨重启存活 |
+| `kStduVramControl` | 0 | 洋红对照臂：STDU 臂往 VRAM 灌洋红、legacy 臂启动时灌一次 |
+| `kStduMatchHost` | 0 | 1 = surface 跟宿主 Screen 0 对齐成 640x480（已证伪，仍全黑） |
 
 10-29 新增的三个独立开关（一次只动一个）：
 

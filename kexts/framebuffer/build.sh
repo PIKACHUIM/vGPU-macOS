@@ -97,7 +97,25 @@ nm -u "$BUNDLE/Contents/MacOS/$NAME" 2>/dev/null | wc -l
 echo "--- reachability markers ---"
 SWITCHES="$HERE/$NAME.cpp"
 
-# STDU / 2D present path: always required, because it is the path we now ship.
+# Read a switch's value from its DECLARATION, not from anywhere in the file.
+#
+# The naive grep -E 'kGbStage *= *5' matched a comment (§47: "never together with
+# kGbStage = 5 on a boot we care about") and quietly built the wrong experiment: the
+# binary had kGbStage = 0 and the marker check demanded the STDU path, so the build
+# failed for a reason that had nothing to do with the code. This file is mostly
+# comments about switch values, so every grep here has to be anchored to the
+# declaration itself.
+sw() {
+    grep -qE "^[[:space:]]*static const [A-Za-z_0-9]+[[:space:]]+$1[[:space:]]*=[[:space:]]*$2[[:space:]]*;" "$SWITCHES"
+}
+
+# §47: the STDU marker set belongs to kGbStage == 5. Until today it was unconditional,
+# which meant the one other presentation path this project has -- the legacy screen-object
+# blit at kFbStage >= 5 -- could not be built at all without also building the STDU stack
+# it is meant to be tested against. A reachability guard that forbids a legitimate
+# configuration is not a guard, it is a lock.
+if sw kGbStage 5; then
+echo "kGbStage = 5 -> STDU / 2D present path markers are required"
 MARKERS="STDU re-present started
 screen target 0 (%ux%u) bound to surface %u
 STDU paint armed (red border, green top"
@@ -106,7 +124,7 @@ STDU paint armed (red border, green top"
 # in stduBringUp is a constant fold), so its markers are legitimately absent. Require the
 # flat arm's markers instead -- that keeps the reachability guard meaningful in both modes
 # rather than just deleting the check.
-if grep -qE 'kStduFlat[[:space:]]*=[[:space:]]*1' "$SWITCHES"; then
+if sw kStduFlat 1; then
     echo "kStduFlat = 1 -> flat-MOB markers are required, page-table markers retired"
     MARKERS="$MARKERS
 flat: MOB %u defined (PT64_0, base ppn %llu, %u bytes)
@@ -124,7 +142,7 @@ UPDATE_GB_MOB_MAPPING refused"
 fi
 
 # The readback probe rides on SURFACE_DMA, so it is only in the binary when kStduDma is 1.
-if grep -qE 'kStduDma[[:space:]]*=[[:space:]]*1' "$SWITCHES"; then
+if sw kStduDma 1; then
     echo "kStduDma = 1 -> readback markers are required"
     MARKERS="$MARKERS
 rb: VERDICT %s"
@@ -132,9 +150,46 @@ else
     echo "kStduDma = 0 -> present loop is M6-shaped, readback markers not required"
 fi
 
+else
+echo "kGbStage != 5 -> STDU markers retired, requiring the legacy screen-object path"
+MARKERS="screen-object present path is UP
+periodic re-present started"
+fi
+
+# §47: the VRAM control arm. Its whole value is that the capture shows a colour the
+# surface never holds, so a build that silently dropped the fill would look exactly like
+# "the host presents neither" -- the answer we are trying to tell apart from the others.
+# Required on BOTH paths, and therefore after the branch above: the STDU arm paints the
+# framebuffer every tick, the legacy arm paints it once as a draw detector. Nesting this
+# inside the kGbStage == 5 arm (the first attempt) left the legacy build with no guard for
+# the one line it most needs one on.
+if sw kStduVramControl 1; then
+    echo "kStduVramControl = 1 -> magenta control-arm markers are required"
+    MARKERS="$MARKERS
+legacy arm filled VRAM with magenta (draw detector)"
+    if sw kGbStage 5; then
+        MARKERS="$MARKERS
+VRAM control arm armed (magenta %llu px at"
+    fi
+else
+    echo "kStduVramControl = 0 -> control arm retired, marker not required"
+fi
+
+# §47: the ENABLE|HIDE write is the newest single-write hypothesis; its log line is the
+# only evidence the write ran before CONFIG_DONE, so require it while the switch is on.
+if sw kStduEnableHide 1; then
+    echo "kStduEnableHide = 1 -> ENABLE|HIDE marker is required"
+    MARKERS="$MARKERS
+enable: %u -> ENABLE|HIDE before CONFIG_DONE"
+else
+    echo "kStduEnableHide = 0 -> un-hide marker is required (ENABLE survives reboots)"
+    MARKERS="$MARKERS
+enable: %u -> ENABLE only (un-hide) before CONFIG_DONE"
+fi
+
 # §38.19: the GuestRpc heartbeat keeps the host from expiring the Tools timer and tearing
 # down the legacy screen. Required only while the switch is on.
-if grep -qE 'kEnableRpcHeartbeat[[:space:]]*=[[:space:]]*1' "$SWITCHES"; then
+if sw kEnableRpcHeartbeat 1; then
     echo "kEnableRpcHeartbeat = 1 -> heartbeat markers are required"
     MARKERS="$MARKERS
 rpc: heartbeat #"
@@ -143,7 +198,7 @@ else
 fi
 
 # DX template experiment: required only while kDxTest is on.
-if grep -qE 'kDxTest[[:space:]]*=[[:space:]]*1' "$SWITCHES"; then
+if sw kDxTest 1; then
     echo "kDxTest = 1 -> DX template markers are required"
     MARKERS="$MARKERS
 TEMPLATE only mode
@@ -173,7 +228,7 @@ done
 # can NOT see is the branch it selects, so both verdict literals are checked:
 # if the optimizer dropped the "still refused" arm (or the whole call), the
 # build fails here instead of costing a boot cycle to discover from the log.
-if grep -qE 'kDxTest[[:space:]]*=[[:space:]]*1' "$SWITCHES"; then
+if sw kDxTest 1; then
     STOP="TEMPLATE verdict -> %s"
     VERDICTS="still refused
 DX manager still absent
