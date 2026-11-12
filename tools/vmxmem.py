@@ -89,6 +89,62 @@ def list_vmx():
     return out
 
 
+def enable_debug_privilege():
+    """Turn on SeDebugPrivilege for this process.
+
+    Being an administrator is NOT enough here: vmware-vmx is started by the
+    vmware-authd service at a higher privilege than the interactive user, so
+    OpenProcess returns 5 even from an elevated shell until SeDebugPrivilege is
+    actually enabled (it is present-but-disabled by default, per UAC).
+    """
+    advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    # Prototypes matter: without restype=HANDLE, GetCurrentProcess() returns a
+    # 32-bit int and OpenProcessToken answers ERROR_INVALID_HANDLE (6) on x64.
+    kernel.GetCurrentProcess.restype = wt.HANDLE
+    advapi.OpenProcessToken.restype = wt.BOOL
+    advapi.OpenProcessToken.argtypes = [wt.HANDLE, wt.DWORD, ctypes.POINTER(wt.HANDLE)]
+    advapi.LookupPrivilegeValueW.restype = wt.BOOL
+    advapi.LookupPrivilegeValueW.argtypes = [wt.LPCWSTR, wt.LPCWSTR, ctypes.c_void_p]
+    advapi.AdjustTokenPrivileges.restype = wt.BOOL
+    advapi.AdjustTokenPrivileges.argtypes = [wt.HANDLE, wt.BOOL, ctypes.c_void_p,
+                                             wt.DWORD, ctypes.c_void_p, ctypes.c_void_p]
+
+    class LUID(ctypes.Structure):
+        _fields_ = [("LowPart", wt.DWORD), ("HighPart", wt.LONG)]
+
+    class LUID_AND_ATTRIBUTES(ctypes.Structure):
+        _fields_ = [("Luid", LUID), ("Attributes", wt.DWORD)]
+
+    class TOKEN_PRIVILEGES(ctypes.Structure):
+        _fields_ = [("PrivilegeCount", wt.DWORD), ("Privileges", LUID_AND_ATTRIBUTES * 1)]
+
+    TOKEN_QUERY = 0x0008
+    TOKEN_ADJUST_PRIVILEGES = 0x0020
+    SE_PRIVILEGE_ENABLED = 0x0002
+
+    htok = wt.HANDLE()
+    if not advapi.OpenProcessToken(kernel.GetCurrentProcess(),
+                                   TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES,
+                                   ctypes.byref(htok)):
+        return False, f"OpenProcessToken failed: {ctypes.get_last_error()}"
+    luid = LUID()
+    if not advapi.LookupPrivilegeValueW(None, "SeDebugPrivilege", ctypes.byref(luid)):
+        return False, f"LookupPrivilegeValue failed: {ctypes.get_last_error()}"
+    tp = TOKEN_PRIVILEGES()
+    tp.PrivilegeCount = 1
+    tp.Privileges[0].Luid = luid
+    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED
+    if not advapi.AdjustTokenPrivileges(htok, False, ctypes.byref(tp),
+                                        ctypes.sizeof(tp), None, None):
+        return False, f"AdjustTokenPrivileges failed: {ctypes.get_last_error()}"
+    err = ctypes.get_last_error()
+    if err == 1300:  # ERROR_NOT_ALL_ASSIGNED -- token does not have the privilege
+        return False, "SeDebugPrivilege not held by this token (need admin)"
+    kernel.CloseHandle(htok)
+    return True, "ok"
+
+
 def open_proc(pid):
     h = k32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
     if not h:
@@ -136,6 +192,54 @@ def snapshot(pid, out):
                + ("   <-- CREATED" if dm else "   <-- NULL (DEFINE_RTV will fail)"))
 
 
+WATCH_FIELDS = [
+    ("dxManager", 0x1414930A0, 8),
+    ("9bc",       None, 4),
+    ("ad8",       None, 4),
+    ("bf0",       None, 4),
+    ("ae0",       None, 2),
+    ("bf8",       None, 2),
+]
+
+
+def watch(pid, seconds, out):
+    """Sample the interesting fields continuously.
+
+    A single sample cannot tell "never created" from "created on demand and already
+    destroyed" -- and the Windows guest on this host runs DX fine while a one-shot
+    read says NULL. Repeated sampling distinguishes them: a flickering non-NULL
+    means on-demand; a constant NULL means the pointer is simply not on this path.
+    """
+    import time
+    h = open_proc(pid)
+    base = module_base(h)
+    dev = struct.unpack("<Q", read(h, base + (0x1413F31C0 - IB), 8))[0]
+    out.append(f"pid {pid} watching {seconds}s  dev={dev:#x}")
+    seen = {}
+    t0 = time.time()
+    n = 0
+    while time.time() - t0 < seconds:
+        for name, va, size in WATCH_FIELDS:
+            addr = (base + (va - IB)) if va else (dev + int(name, 16))
+            try:
+                raw = read(h, addr, size)
+            except OSError:
+                continue
+            v = int.from_bytes(raw, "little")
+            key = name
+            seen.setdefault(key, {}).setdefault(v, 0)
+            seen[key][v] += 1
+        n += 1
+        time.sleep(0.05)
+    out.append(f"  {n} samples")
+    for name, _, _ in WATCH_FIELDS:
+        if name not in seen:
+            continue
+        vals = sorted(seen[name].items(), key=lambda kv: -kv[1])
+        txt = "  ".join(f"{v:#x}x{c}" for v, c in vals[:6])
+        out.append(f"    {name:10s}: {txt}")
+
+
 def main():
     argv = sys.argv[1:]
     if not argv:
@@ -150,14 +254,24 @@ def main():
         i = argv.index("--out")
         out_path = argv[i + 1]
         argv = argv[:i] + argv[i + 2:]
+    secs = 0
+    if "--watch" in argv:
+        i = argv.index("--watch")
+        secs = int(argv[i + 1])
+        argv = argv[:i] + argv[i + 2:]
     if argv[0] == "all":
         pids = list_vmx()
     else:
         pids = [int(argv[0])]
     out = []
+    ok, why = enable_debug_privilege()
+    out.append(f"SeDebugPrivilege: {why}")
     for pid in pids:
         try:
-            snapshot(pid, out)
+            if secs:
+                watch(pid, secs, out)
+            else:
+                snapshot(pid, out)
         except OSError as exc:
             out.append(f"pid {pid}: {exc}  (needs elevation: vmx runs at high integrity)")
     text = "\n".join(out)

@@ -4523,3 +4523,62 @@ vm3d: VM3DDevAdapterGrowOTableItem: Grow OTable 0 from 1024 entries to 2048, use
 3. 如果 macOS 侧 `[dev+0x9bc]` 恒 0 且 Windows 侧也只在处理期短暂为 1：说明这就是一条
    **竞争路径**，那时才轮到宿主补丁，且补丁点在 `0x1404c7a14` 与 `0x140509fa3` 两处，
    不是 §19 那种单字节。
+
+### 48.9 实测：宿主内存直读（提权后，20 秒 / 397 采样）
+
+有了 `tools/vmxmem.py` 就能直接看活进程，不必再靠 x64dbg attach。两次测量：
+
+**(1) 一次性快照（两台 VM 都在跑）**
+
+| 字段 | Windows VM (pid 3024) | macOS VM (pid 39348) |
+|---|---|---|
+| `[0x1414930A0]` DX 管理器 | **0** | **0** |
+| `[dev+0xb4]` ENABLE 影子 | 1 | 1 |
+| `[dev+0x81d]` ENABLE bit0 | 1 | 1 |
+| `[dev+0x71]` stopped | 0 | 0 |
+| `[dev+0x9bc]` 任一槽活跃 | 0 | 0 |
+| `[dev+0xad8]` 槽0 计数 | 0 | 0 |
+| `[dev+0xbf0]` 槽1 计数 | 0 | 0 |
+| `[dev+0xae0]` 槽0 标志 | **1** | **0** |
+| `[dev+0xbf8]` 槽1 标志 | **1** | **0** |
+| `[dev+0xf4]` caps | `0xfdffc3e2` | `0xfdffc3e2` |
+| `[dev+0x1c0]` caps2 | `0x77f` | `0x77f` |
+
+两台 VM 的 `dev` 指针**相同**（`0x7ff749a15a60`）、模块基址也相同（`0x7ff7482a0000`）。
+这不是读错进程：VMware 的 `.per_vm_` 段就是按固定布局映射的，两个 VM 布局一致是设计如此。
+
+**(2) 连续采样 20 s（每 50 ms，各 397 次）**
+
+```
+pid 3024 (Windows)              pid 39348 (macOS)
+  dxManager : 0x0 x397            dxManager : 0x0 x397
+  9bc       : 0x0 x394, 0x1 x3    9bc       : 0x0 x397
+  ad8       : 0x0 x395, 0x2 x2    ad8       : 0x0 x397
+  bf0       : 0x0 x395, 0x1 x2    bf0       : 0x0 x397
+  ae0       : 0x1 x397            ae0       : 0x0 x397
+  bf8       : 0x1 x397            bf8       : 0x0 x397
+```
+
+**三条结论：**
+
+1. **闸门 (D) 的机制是真的**：Windows 那边 `[dev+0x9bc]` 确实会短暂变 1（3/397 ≈ 0.8%），
+   槽计数也出现过 2/1。所以 §48.3 对 `[dev+0x9bc]` 的解读成立，它不是死字段。
+2. **但 `[0x1414930A0]` 在 Windows VM 里 397 次全为 0** —— 而同一台 VM 的日志明确写着
+   `vm3d: WDDM DX10 context is on` 并跑过 `Grow OTable`。
+   ⇒ **「DX 管理器为 NULL ⇒ DX 不能用」这个因果链站不住**。要么这台 VM 当时确实没有 DX
+   负载（锁屏/DWM 空闲），要么那条路径根本不看这个指针。**这一点还没分辨出来。**
+3. **macOS 侧与 Windows 侧唯一的实质差异是槽标志 `ae0` / `bf8`**：
+   Windows 都是 1，macOS 都是 0。按 `0x1404125a0` 的重算逻辑，
+   `[dev+0x9bc]` 想要变 1 必须 `[dev+0xbf8] != 0` 且某个槽计数 > 0。
+   **macOS 连第一步都没做到** —— 也就是说 §17/§22 那些 `START_STOP_CONTEXT`
+   在设备态上并没有留下痕迹（本次量到的就是 0）。
+
+**因此下一步最该做的实验（不需要宿主补丁）**：让 kext 正确地
+`SVGA_DC_CMD_START_STOP_CONTEXT{enable=1, context=0}`，然后用 `vmxmem.py`
+**在宿主侧直接验证 `ae0`/`bf8` 是否变 1**。这个闭环以前做不到（客人看不到宿主字段），
+现在一条命令就能判。只有这一步成立，才轮得到 `[dev+0x9bc]` 和创建路径。
+
+**工具使用前提**：`vmxmem.py` 必须提权，而且**光管理员不够** —— 还要显式启用
+`SeDebugPrivilege`（默认是 present-but-disabled）。另外 `GetCurrentProcess()` 必须声明
+`restype = HANDLE`，否则 `OpenProcessToken` 在 x64 上会报 `ERROR_INVALID_HANDLE (6)`。
+两个坑都已在脚本里注释。

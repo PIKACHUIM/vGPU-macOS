@@ -182,6 +182,18 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 与 `dev` 各闸门字段。Windows 侧应当非空（校验理解），macOS 侧缺哪一项就补哪一项。
 **未测之前不打新补丁。**
 
+**11-13 已测（`vmxmem.py`，20 s / 397 采样，详见 §48.9）**：
+
+- 两台 VM 的 (A)`b4=1`、(A')`81d=1`、(E)`71=0` **都是开的**；(C) 开机即 1。唯一关着的是 (D)`9bc=0`。
+- Windows 侧 `9bc` 会短暂变 1（3/397），槽计数出现过 2/1 ⇒ (D) 机制为真。
+- ⚠️ **`[0x1414930A0]` 在两个进程里 397 次全为 0**，包括在跑 DX 的 Windows VM
+  ⇒ 「管理器 NULL ⇒ DX 不通」这条因果**站不住**，要么当时无 DX 负载，要么路径不看它。
+- **唯一的实质差异**：槽标志 `ae0`/`bf8` Windows 是 1、macOS 是 0 ⇒ 我们的
+  `START_STOP_CONTEXT` 在设备态上没留下痕迹。
+
+**新的下一步（不需要宿主补丁）**：让 kext 正确发 `START_STOP_CONTEXT{enable=1,ctx=0}`，
+再用 `vmxmem.py` 在宿主侧验证 `ae0`/`bf8` 是否变 1。这一步成立之前不要碰创建路径。
+
 ### P0：像素通路 ✅ 已关闭（11-12，见 M8 / `cb-findings` §47）
 
 ### P0：像素通路 ✅ 已关闭（11-12，见 M8 / `cb-findings` §47）
