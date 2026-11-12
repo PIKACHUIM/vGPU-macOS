@@ -156,10 +156,33 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 ### P0'：显示已经可用，接下来（11-12 起）
 1. **分辨率锁在 1024x768**：VRAM 只有 4 MB（`gfbSize` 写在 `vmware-vmx.exe 0x14050aa98`），
    1920x1080 要 8.29 MB。要更高就必须再打一次宿主补丁（流程见 §19 的 1 字节补丁）。
+   **11-13 补注**：Windows 客人日志 `WDDM VRAM 4096KB` 说明 4 MB 是 VMX 全局限制，
+   不是 macOS 路径特有。
 2. **颜色格式未逐像素校验**：GMRFB 用 `BGRX32`，肉眼看正确，但没有色卡回归。
 3. **脏矩形**：现在每 33 ms 全屏 blit；有 damage 来源后再优化。
-4. **3D 仍然不通**：GMRFB 只搬像素，vGPU10 的 3D 仍卡在 DX 管理器从不创建（§19/§22）。
-   **显示通了 ≠ 3D 通了。**
+4. **3D 仍不通**：见下面的 P0-3D。
+
+### P0-3D：DX 加速（11-13 重新打开，用户目标改为「完整支持 DX3D 加速」）
+
+**前提未丢**：§19 的 1 字节宿主补丁（`x64\vmware-vmx.exe` 0x87293 `FE→FC`）**仍在位**，
+备份 `vmware-vmx.exe.bak-dxflag` 也在。但 §22 已证明光放开 flags 不够。
+
+**11-13 这一轮的净产出（详见 `cb-findings` §48）**：
+
+| # | 结论 |
+|---|---|
+| 1 | **地址基线纠错**：`dev = [0x1413F31C0]`（891 引用），不是笔记里的 `0x1414931C0`（**0 引用**）。§28 关于 `[dev+0xad8]` 的"影子寄存器"结论撤回 |
+| 2 | **tick 是活的**：`0x1404c5ee0` ← CFG thunk `0x1401565f0` ← `0x14014c278`（VMX 主事件循环忙轮询）。§23.1 的"0 callers"是扫描器盲区 |
+| 3 | **四道闸门落到具体写点**：(A) `[dev+0x81d]` ← `SVGA_REG_ENABLE` bit0；(C) `[0x14140B043]` 开机即 1；(D) `[dev+0x9bc]` = 两个 DC 槽计数 > 0；(E) `[dev+0x71] == 0` |
+| 4 | **`[dev+0xb4]` = `SVGA_REG_ENABLE` 影子**（写点 `0x140415cef`，日志 `SVGA hiding/enabling SVGA`）⇒ (A) 与 ENABLE 是同一条线，**客人可控** |
+| 5 | ⚠️ **静态模型自相矛盾**：创建块 `0x140509fe8` 静态不可达（`r14b` 恒 0 + 无跳转指向），可 Windows 客人确实在跑 DX（`vm3d: WDDM DX10 context is on` + `Grow OTable`）。⇒ **不要再据此设计补丁实验** |
+| 6 | **DX 命令在 vCPU 线程处理**（日志 `threadName="vcpu-6"`），主循环 tick 跑在 `vmx` 线程 ⇒ 原理上"tick 能看到在飞槽"成立 |
+
+**下一步（先测再补）**：提权跑 `tools/vmxmem.py all`，读两台 VM 的 `[0x1414930A0]`
+与 `dev` 各闸门字段。Windows 侧应当非空（校验理解），macOS 侧缺哪一项就补哪一项。
+**未测之前不打新补丁。**
+
+### P0：像素通路 ✅ 已关闭（11-12，见 M8 / `cb-findings` §47）
 
 ### P0：像素通路 ✅ 已关闭（11-12，见 M8 / `cb-findings` §47）
 

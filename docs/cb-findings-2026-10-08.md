@@ -4333,3 +4333,193 @@ STDU 全套代码、`kStduFlat`、`kStduDma`、`kStduImage`、`kStduPt1`、`kStd
    但先要有 vblank/damage 来源，暂不做。
 4. **回到 3D**：GMRFB 通路只能搬像素，vGPU10 的 3D 仍然卡在 DX 管理器从不创建（§19/§22）。
    显示通了不代表 3D 通了，不要混为一谈。
+
+## §48 3D 重开（2026-11-13）：地址基线纠错、tick 是活的、以及静态模型的自相矛盾
+
+用户把目标重新定为「完整支持 DX3D 加速」之后，第一件事是回去核对 §19 那个 1 字节补丁
+还在不在 —— 结果是**还在位**：
+
+```
+C:/Program Files\VMware\VMware Workstation\x64\vmware-vmx.exe   22,967,216 B
+  26.0.0 build-25388281
+  0x87293 = FC   （周围机器码 F7 45 A7 FC FF FF FF = test dword [rbp-0x59], 0xFFFFFFFC）
+  备份 vmware-vmx.exe.bak-dxflag（原始版本，同尺寸）仍在
+```
+
+也就是说 §19.5 的前提没有丢。但 §22 已经证明：**光放开 flags 不够**，真正挡住的是
+「DX 管理器只在时间片 tick 里被惰性创建」。所以这一轮的全部工作都花在把那条链问清楚上。
+结论分两部分：一批**必须撤回的地址错误**，和一个**连自相矛盾都没解决**的现状。
+
+### 48.1 纠错：`dev` 不是 `0x1414931C0`（该地址零引用）
+
+§22.2 / §27 / §28 全部以 `dev = [0x1414931C0]` 为基准。用新的引用统计脚本
+（`disasm/globalrefs.py`）扫全 `.text`：
+
+| 全局 | rip 相对引用数 | 结论 |
+|---|---|---|
+| `0x1414930A0` | **98** | DX 管理器，§22 记的地址是对的 |
+| `0x1414931C0` | **0** | 不存在的东西，§22.2 写错了 |
+| `0x1413F31C0` | **891** | 真正的 SVGA 设备对象；150 个字段被访问 |
+
+证据不是"引用数多"，而是两道闸门本身就读它：
+
+```
+0x1404c796f  mov r10,[rip+0xf2b84a]   -> 0x1413F31C0   ; cmp byte [r10+0x81d],0   ← gate
+0x1404c7a0d  mov rax,[rip+0xf2b7ac]   -> 0x1413F31C0   ; mov ecx,[rax+0x9bc]      ← gate
+0x1404c7a1a  mov rax,[rip+0xf2b79f]   -> 0x1413F31C0   ; cmp byte [rax+0x71],0    ← gate
+0x1404125a0  mov rdx,[rip+0xfe0c19]   -> 0x1413F31C0   ; 槽计数重算
+```
+
+**受影响的历史结论**（不是全盘作废，但要按新地址重读）：
+
+- §22.2 的"创建点在 `0x140509f20`、唯一写入点 `0x14050a077`"——**成立**，这两个地址是用
+  写指令自己反解出来的（`mov [rip+0xf89022],rax` → `0x1414930A0`），不依赖 `dev`。
+- §27 "`[dev+0x9bc]` 是上下文活跃缓存"——**方向对**，但它说的"只有 2 个写入点"是按错误
+  对象扫的。
+- §28 "`[dev+0xad8]` 是 SVGA 寄存器 0x12 的影子、恒为 0"——**应当撤回**。新证据：
+  `[dev+0xad8]` 是**两个槽的 dword 计数数组**（槽0 `+0xad8`、槽1 `+0xbf0`，步长 `0x118`），
+  重算函数 `0x1404125a0` 逐个比较"`dword [slot] > 0`"来决定 `[dev+0x9bc]`。
+  §28.1 看到的 `mov word [rbx+0xad8], r9w` 是另一个结构（同一个偏移、不同的基址）。
+
+### 48.2 tick 是活的：之前"0 callers"是扫描器的盲区
+
+§23.1 记「`0x1404c5ee0` ← 0 callers（tick 回调/定时器）」。用 `.pdata` 逐函数扫确实看不到，
+因为真正的引用形式是：
+
+```
+0x1401565f0  jmp 0x1404c5ee0          ; CFG thunk 垫片（jmp + int3 补齐到 16 字节）
+0x14014c278  call 0x1401565f0         ; ← 真调用者
+0x14014c140..0x14014c286              ; ← VMX 主事件循环（忙轮询）
+```
+
+`0x14014c278` 位于一个循环体里：`call 0x140156610` → `call 0x14017cee0` →
+原子 `or`/`xchg` 位图 → 位图空时 `call 0x1401565f0`（进入 tick）→ `je 0x14014c140` 回到循环顶。
+所以 tick 跑得很勤，**它不是"永不触发"，而是每一次主循环都可能触发**。
+
+两条扫描教训（已固化成工具）：
+
+1. **`.pdata` 覆盖不到 CFG thunk 和非 pdata 的汇编**。必须再补一遍全 `.text` 的
+   `E8/E9 rel32` 原始扫描（`disasm/caller_chain.py` 就是这么做的，并且会把 thunk 两侧都走）。
+2. **capstone 的 RIP 相对寻址 `mem.base` 是 `X86_REG_RIP`，不是 0。**
+   第一版脚本按 `base == 0` 判断，于是两个全局都报 "0 load site(s)"，
+   差点又得出一个"这个地址没被用过"的错误结论。改过来后立刻从 0 → 891。
+
+### 48.3 四道闸门的真实语义（全部落到了具体写点）
+
+创建调用点的完整判据（`0x1404c7950`）：
+
+```
+0x1404c7979  cmp byte [dev+0x81d],0 ; je  bail      (A) 必须 != 0
+0x1404c7987.. 若干计数器比较（"跑够久了没有"）        (B) 必须都不超时
+0x1404c7a02  movzx eax,[0x14140B043] ; test al,al; je bail   (C) 必须 != 0
+0x1404c7a14  mov ecx,[dev+0x9bc] ; test ecx,ecx ; je bail    (D) 必须 != 0
+0x1404c7a25  cmp byte [dev+0x71],0 ; jne bail        (E) 必须 == 0
+0x1404c7a2b  call 0x140509f20                        ★ 创建
+```
+
+| 条件 | 字段 | 唯一写点 | 语义 | 客人可控？ |
+|---|---|---|---|---|
+| (A) | `[dev+0x81d]` | `0x1405098d4`（在 `0x1405098c0(bool)` 里） | `SVGA_REG_ENABLE` 的 bit0 状态 | **是**，写 ENABLE=1 |
+| (C) | `[0x14140B043]` | `0x1404d8ff9`（置 1） | 配置初始化标志 | 开机即 1，不用管 |
+| (D) | `[dev+0x9bc]` | `0x1404125e3` / `0x1404125ef` | 两个 DC 槽是否有计数 > 0 | 只能间接 |
+| (E) | `[dev+0x71]` | `0x140508b0b`(清) / `0x14050a74f`、`0x14050a7fc`(置 1) | 设备停止/忙 | 运行时通常 0 |
+
+**(A) 的来源是一处重要发现**：`[dev+0xb4]` 原来是 `SVGA_REG_ENABLE` 的影子，
+唯一写点 `0x140415cef`，写完立刻打印：
+
+```
+0x140415d0c  lea rax,[rip+0x77c2c5]   -> 0x140b91fd8 "hiding"
+0x140415d16  lea rdx,[rip+0x77c2c3]   -> 0x140b91fe0 "enabling"
+0x140415d...  "SVGA %s SVGA"
+```
+
+这正是 §47 在宿主日志里看到的 `SVGA hiding SVGA` / `SVGA enabling SVGA` 的出处。
+也就是说 **ENABLE 同时喂给两道门**：`[dev+0xb4]`（tick 的 `test ecx,ecx`）和
+`[dev+0x81d]`（`0x1405098c0` 里从 `cl` 直写）。这一条把 §47 的实验
+和 DX 链**接上了**：当时写 `ENABLE|HIDE=3` 时，DX 闸门的 (A) 其实是开着的。
+
+### 48.4 但创建函数自己也查同一个槽，而且创建块静态不可达
+
+`0x140509f20` 的开头就是另一个槽扫描，和 tick 里那道一模一样：
+
+```
+0x140509f87  movzx r8d,[rdx+0xbf8]
+0x140509f90  test r8b,r8b ; je  0x140509fb1          ; 槽1 的 active 字节
+0x140509f95  cmp byte [rdx+0xae0],r14b ; jne 0x140509fa3
+0x140509f9e  cmp rax,rbx ; jne 0x140509fb1
+0x140509fa3  cmp dword [rcx+rdi+0xad8],0 ; ja 0x14050a194   ; 任槽 count>0 → 走收尾
+0x140509fb1  dec esi / dec rax / sub rcx,0x118 / jns loop
+0x140509fcc  call 0x1404125a0      ; 重算 [dev+0x9bc]
+0x140509fd9  test r14b,r14b ; je 0x14050a4c1                ; r14b 恒 0 → 一定跳走
+0x140509fe2  mov r9d,3 → 落进 0x140509fe8 …  ★ 真正创建在这里
+```
+
+问题就在这里：`r14b` 在入口 `0x140509f53` 被 `xor` 成 0，之后到 `0x140509fd9` 之前
+**没有任何指令写它**，所以 `je` 恒成立；而 `0x140509fe8`（含 `0x14050a077` 那个唯一写入）
+**没有任何跳转指向它**（`caller_chain.py` 报 0 callers，全 `.text` 原始扫描也没有）。
+
+换成一句直白的话：**按静态阅读，DX 管理器永远不可能被创建。**
+
+### 48.5 这与已知事实矛盾 —— 说明静态模型不完整，立即停止据此设计实验
+
+同一台宿主、同一个 `vmware-vmx.exe`（pid 3024 是 Windows 那台 VM 的 vmx），
+Windows 10 客人日志里有 38 行 `Guest: vm3d:`，包括：
+
+```
+vm3d: WDDM SVGA WDDM Full Display driver, Version: 9.17.11.0003  Device: SVGA2
+vm3d: WDDM 3D is on.          vm3d: WDDM DX10 context is on.
+vm3d: WDDM Preemption Aware is on.        vm3d: WDDM HP Queue is on.
+vm3d: WDDM Guest backed surface is on.    vm3d: WDDM GL3 is on.
+vm3d: WDDM VRAM 4096KB.
+vm3d: VM3DDevAdapterGrowOTableItem: Grow OTable 0 from 1024 entries to 2048, use 8 pages
+     [threadName="vcpu-6"]
+```
+
+三条可用的推论：
+
+1. **DX 在这台宿主上是真的能跑的**，包括 otable 增长这种 vGPU10 操作。所以
+   「本宿主不支持 DX」这个说法到此为止，不要再写。
+2. **DX 命令在 vCPU 线程上处理**（`vcpu-6`）。主循环 tick 跑在 `vmx` 线程，
+   两者并发 —— 这才让"tick 观察到在飞槽"在原理上成立。
+3. `WDDM VRAM 4096KB` 与 macOS 侧 `SVGA_REG_VRAM_SIZE=4194304` 一致 ⇒
+   **4 MB 是 VMX 全局限制**，不是 macOS 路径特有（§47.7 第 1 条成立，范围更大）。
+
+既然静态模型自己打架，继续拿它推导"该补哪个字节"就是在赌。**下一步必须先拿实测状态**，
+见 §48.8。
+
+### 48.6 本轮新增的分析工具（`disasm/`，此前未入库）
+
+| 文件 | 作用 |
+|---|---|
+| `gate_probe.py` | 一次跑完三问：tick 的取址引用、闸门前后 0x120 字节反汇编、三个闸门字段的读写点 |
+| `objfields.py` | 给定全局，列出"从它加载的寄存器"访问过的所有字段（W/R 计数 + 写点地址） |
+| `globalrefs.py` | 给定全局，列出**全部**引用（不管地址怎么进寄存器），标 W/R 与所在函数 |
+| `ripscan.py` | 反汇编一个窗口并把每条 RIP 相对操作数解析成绝对地址；附带全局引用计数 |
+| `caller_chain.py` | 全 `.text` 的 `E8/E9` 原始扫描 + thunk 折叠，上溯调用链（能穿过 CFG 垫片） |
+| `dump.py` | 反汇编任意窗口，解析 RIP 目标并尝试把目标当字符串打出来 |
+
+`tools/vmxmem.py` 是**新的方向**：直接读活的 `vmware-vmx.exe` 进程内存
+（`ReadProcessMemory`，读 `[dev]`、`[0x1414930A0]`、各闸门字段）。
+**它需要提权**：vmx 以高完整性级别运行，非管理员 `OpenProcess` 返回 5。
+脚本对失败是降级处理而不是崩，`list` / `<pid>` / `all` / `--out` 四种用法。
+
+### 48.7 流程教训
+
+1. **别用"0 引用"当结论，先怀疑扫描器。** `0x1414931C0` 的"零引用"是真的，
+   但同一批脚本对 `0x1413F31C0` 也报过零引用 —— 那是 capstone 的 `X86_REG_RIP` 造成的。
+   两个零引用长得一样，含义完全不同。
+2. **pdata 不是代码的全集。** 漏掉 CFG thunk 会让一个活函数看起来像死代码。
+3. **静态结论撞上实测事实时，实测优先。** §48.4 的矛盾花掉的时间，比直接读一次
+   宿主内存多得多。
+
+### 48.8 下一步：先测，再补
+
+1. **提权跑 `tools/vmxmem.py all`**，一次拿到两台 VM 的：
+   `[0x1414930A0]`（DX 管理器）、`dev+0xb4 / +0x71 / +0x81d / +0x9bc / +0xad8 / +0xbf0`。
+   **这一步同时验证两件事**：Windows 那边应当非空（校验我们的理解），
+   macOS 那边缺的是哪一项（定位真正的卡点）。
+2. 如果 Windows 侧 `dxManager != 0`：对比它的四个闸门值，找出 macOS 缺的那一项，
+   再决定是"客人补一条命令"还是"宿主补一个字节"。
+3. 如果 macOS 侧 `[dev+0x9bc]` 恒 0 且 Windows 侧也只在处理期短暂为 1：说明这就是一条
+   **竞争路径**，那时才轮到宿主补丁，且补丁点在 `0x1404c7a14` 与 `0x140509fa3` 两处，
+   不是 §19 那种单字节。
