@@ -313,6 +313,16 @@ enum {
     kSvga3dCmdDxSetViewports       = 1174,
     kSvga3dCmdDxSetScissorRects    = 1175,
     kSvga3dCmdDxClearRenderTargetView = 1176,
+    // §51 survey commands. All three are cid-less state setters with no COTable
+    // dependency, so between them they answer "does this host dispatch DX render
+    // commands at all?" without any of the view/surface questions mixed in.
+    kSvga3dCmdDxSetTopology        = 1160,   // {SVGA3dPrimitiveType topology}
+    kSvga3dCmdDxSetDepthStencilState = 1163, // {depthStencilId, stencilRef}
+    kSvga3dCmdDxSetRasterizerState = 1164,   // {rasterizerId}
+    // Legacy (vGPU9 / DX9-era) clear, used by the §51 bisection as the "is it the
+    // transport or the DX dispatcher?" control: same CB path, completely different
+    // command family.
+    kSvga3dCmdClear               = 1057,   // {cid, clearFlag, color, depth, stencil}
     kSvga3dCmdReadbackGbSurface    = 1104,
     kSvga3dCmdDxReadbackSubResource = 1183,
     kSvga3dResourceTexture2D       = 3,
@@ -411,7 +421,42 @@ static const UInt32 kGbStage = 0;
 // SURFACE_DMA round trip -- and that path is already proven by M6's live display. Running
 // it alongside STDU also re-arms the exact hang described above. Turn it back on only to
 // bisect that hang, never together with kGbStage = 5 on a boot we care about.
+//
+// 11-14 §49/§50: back ON, and the reason is new. vm3dmp never sends 1187 at all -- the
+// whole 1185..1199 DEFINE_*_VIEW / DEFINE_*_STATE range has no immediate anywhere in its
+// .text. It defines a render target by writing an SVGACOTableDXRTViewEntry row and binding
+// the table with SET_COTABLE. So DEFINE_RTV being refused says nothing about whether this
+// host can render; only CLEAR_RTV over a COTable-defined view can answer that. The test
+// now treats 1187 as a sentinel instead of an abort (see dxVm3dmpTemplate) and always
+// proceeds to CLEAR/READBACK.
+//
+// This must still never be combined with kGbStage = 5; with kGbStage 0 the GB object
+// stack is brought up to stage 4 for the experiment's benefit only (see gbBringUp), while
+// the display keeps using the screen-object present path.
+// 11-14 §51: switched back OFF. The experiment ran to a conclusion: this host never
+// dispatches a 3D render command. Evidence in §51 -- DX context management is ACCEPTED,
+// the CB transport is proven (sync COMPLETED), yet SET_TOPOLOGY(1160), CLEAR_RTV(1176) and
+// even the legacy SVGA_3D_CMD_CLEAR(1057) all return COMMAND_ERROR at errorOffset 0.
+// Nothing is gained by re-running it every boot; flip this back to 1 to reproduce, and
+// remember it must never run together with kGbStage = 5.
 static const UInt32 kDxTest = 0;
+
+// §50 (11-14): DEFINE_RTV (1187) is not merely useless on this host, it is actively
+// destructive. Its STATUS 3 wedges the command-buffer queue, so *everything* submitted
+// afterwards on that queue comes back as "timeout waiting for completion" instead of an
+// answer -- measured 11-14 00:06: 1187 -> STATUS 3, then SET_SHADER_IFACE and CLEAR_RTV
+// both timed out at the 400 ms mark. Every earlier attempt to read CLEAR_RTV as "the host
+// refuses to render" was therefore reading a queue that 1187 had already killed.
+//
+// vm3dmp defines views by writing SVGACOTableDXRTViewEntry rows, so the correct experiment
+// never sends 1187 at all. Keep the send behind this switch only to re-confirm that.
+static const UInt32 kDxSendDefineRtv = 0;
+
+// rtvId of the COTable-defined render target view. It has to be the SAME number in
+// dxTemplateSetupSurface (which writes the row) and in dxVm3dmpTemplate (which clears it).
+// The row used to be written at index 0 while the clear targeted index 1, so even a
+// working CLEAR would have referenced an all-zero view.
+static const UInt32 kDxTemplateRtvId = 1;
 
 // kStduPaint overlays a known pattern (red border, green top half, blue bottom half) on
 // the surface every present tick, ON TOP of the VRAM->surface copy.
@@ -678,11 +723,27 @@ static const UInt32 kCbFlagDxContext = 2;
 // distinguishes: bit set → STATUS 4 at the header layer; bit clear → the payload reaches
 // the command parser and fails per-command. Keep it as a named switch so each boot says
 // which of the two it is testing.
-static const UInt32 kCbKeepDxContext = 0;
+//
+// 11-14 §51: switched ON, and this time the precondition is finally in place.
+// The reason bit-clear fails per-command is now visible in the authoritative header:
+// SVGA3dCmdDXClearRenderTargetView is {renderTargetViewId, rgba} and
+// SVGA3dCmdDXDefineRenderTargetView is {rtvId, sid, format, dimension, desc} -- NEITHER
+// carries a cid. The only thing that can tell the host which DX context a cid-less
+// command belongs to is cbHeader.dxContext. We were sending dxContext = 0, so the render
+// commands had no context at all and came back COMMAND_ERROR at errorOffset 0 -- while
+// DEFINE_CONTEXT(1143), BIND_CONTEXT(1145) and SET_COTABLE(1207), which all carry a cid
+// in the body, were ACCEPTED in the very same boot. That split is exactly what a
+// missing dxContext predicts, and nothing else we have measured does.
+//
+// The old STATUS 4 measurements were taken before any DEFINE_CONTEXT had ever succeeded,
+// so `lookup-or-create(dxContext)` had nothing to find. On 11-14 the same boot defines
+// and binds cid 1 first, and only then submits DX-flagged CBs carrying dxContext = 1.
+// Order, not the flag, is what was missing.
+static const UInt32 kCbKeepDxContext = 1;
 
 // Delay before the DX test runs (seconds after kext bring-up). Gives SSH/logd time
 // to be fully live so results survive an MKS wedge.
-static const UInt32 kDxTestDelayS = 90;
+static const UInt32 kDxTestDelayS = 30;
 
 // Periodic DX probe: every kProbeEveryS seconds re-submit the packed DEFINE+BIND
 // on the device queue (errors there do not wedge). Used while a host-side debugger
@@ -770,6 +831,13 @@ static const UInt32 kStduTeardown = 0;
 // explanation. The fault is still where §45 left it: the host is in ScreenTarget mode,
 // bound to our surface, sampling at our pitch, and still shows black.
 static const UInt32 kStduVramControl = 0;
+
+// kPaintTestPattern (§52): the driver writes a known pattern into VRAM once, before the
+// first blit, so a screenshot can prove the display is driven by pixels WE put there and
+// that the pitch/first-row values read back from the device are the ones the host uses.
+// This is the 2D deliverable that survives §51's finding (no 3D dispatch on this host).
+// Turn it off once there is real guest content to show -- it covers the whole screen.
+static const UInt32 kPaintTestPattern = 1;
 
 // ---------------------------------------------------------------------------
 // kStduFlat -- the §38.12 isolation experiment.
@@ -2055,6 +2123,70 @@ void vgpuFramebuffer::presentSetup(volatile UInt32 *fifo) {
               "first=0x%08x\n", vram[0]);
     }
 
+    // §52: the pixel proof.
+    //
+    // §51 closed the 3D question for this host: neither a DX command nor the legacy
+    // SVGA_3D_CMD_CLEAR is ever dispatched (both COMMAND_ERROR at errorOffset 0 through a
+    // CB transport that demonstrably works), so "pixels from the SVGA3D engine" is not
+    // reachable here. What IS reachable is the 2D path, and it needs to be demonstrated
+    // rather than asserted: the driver writes a known pattern into VRAM itself, and the
+    // host's own scan-out/blit shows it. A screenshot then proves three separate things
+    // at once -- guest writes reach the scan-out, the pitch/offset we read back from the
+    // device is the pitch the host uses, and the display is driven by OUR pushes, not by
+    // leftovers in VRAM.
+    //
+    // The pattern is deliberately diagnostic, not decorative:
+    //   * eight full-height vertical bars   -> wrong BYTES_PER_LINE makes them slanted
+    //   * a 1-pixel white frame             -> wrong height/first-row offset clips a side
+    //   * a red 2-pixel rule at y = 1       -> the pitch witness, visible at the very top
+    //   * an 8x8 checkerboard at (8,8)      -> proves sub-region addressing
+    if (kPaintTestPattern && _vramMap != nullptr) {
+        volatile UInt32 *vram = (volatile UInt32 *)_vramMap->getVirtualAddress();
+        const UInt32 vw = (UInt32)(_devicePitch / 4);
+        const UInt32 vh = _deviceHeight;
+        static const UInt32 bars[8] = {
+            0xFFFFFFFF, 0xFFFFFF00, 0xFF00FFFF, 0xFF00FF00,
+            0xFFFF00FF, 0xFFFF0000, 0xFF0000FF, 0xFF000000,
+        };
+        for (UInt32 y = 0; y < vh; y++) {
+            volatile UInt32 *row = vram + (IOByteCount)y * vw;
+            for (UInt32 x = 0; x < _deviceWidth; x++) {
+                row[x] = bars[(x * 8) / (_deviceWidth ? _deviceWidth : 1)];
+            }
+            // leave the padding columns (pitch > width) zeroed: if BYTES_PER_LINE were
+            // wrong the bars above would already be slanted, this just keeps them black.
+            for (UInt32 x = _deviceWidth; x < vw; x++) {
+                row[x] = 0xFF000000;
+            }
+        }
+        // 1-pixel white frame.
+        for (UInt32 x = 0; x < _deviceWidth; x++) {
+            vram[(IOByteCount)0 * vw + x] = 0xFFFFFFFF;
+            vram[(IOByteCount)(vh - 1) * vw + x] = 0xFFFFFFFF;
+        }
+        for (UInt32 y = 0; y < vh; y++) {
+            vram[(IOByteCount)y * vw + 0] = 0xFFFFFFFF;
+            vram[(IOByteCount)y * vw + (_deviceWidth - 1)] = 0xFFFFFFFF;
+        }
+        // Red pitch witness on row 1, and an 8x8 checkerboard at (8,8).
+        for (UInt32 x = 0; x < _deviceWidth; x++) {
+            vram[(IOByteCount)1 * vw + x] = 0xFFFF0000;
+        }
+        for (UInt32 y = 8; y < 72; y++) {
+            for (UInt32 x = 8; x < 72; x++) {
+                vram[(IOByteCount)y * vw + x] = (((x >> 3) + (y >> 3)) & 1)
+                                              ? 0xFFFFFFFF : 0xFF000000;
+            }
+        }
+        __asm__ volatile ("" ::: "memory");
+        IOLog(VGPU_FB_TAG ": present: TEST PATTERN painted into VRAM "
+              "(%ux%u, pitch %u B, %u dwords/row) first=0x%08x mid=0x%08x last=0x%08x\n",
+              _deviceWidth, vh, (UInt32)_devicePitch, vw,
+              vram[0],
+              vram[(IOByteCount)(vh / 2) * vw + _deviceWidth / 2],
+              vram[(IOByteCount)(vh - 1) * vw + _deviceWidth - 1]);
+    }
+
     // DEFINE_SCREEN: SVGAScreenObject v1 -- structSize=28 (no backingStore field; it is
     // optional with SVGA_FIFO_CAP_SCREEN_OBJECT, which this host advertises).
     words[0] = kSvgaCmdDefineScreen;
@@ -2934,7 +3066,23 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
     if (_gbMem != nullptr) {
         return;   // already up (kext start runs once, but stay idempotent)
     }
-    if (kGbStage == 0) {
+    // 11-14 §50: kGbStage=0 used to mean "no working buffer at all", and the DX
+    // experiment then wrote its object tables through a NULL _gbVirt -- the 4-byte
+    // MOB entry store for mobid 4 landed on 0x3040 (kGbOffMobTable + 4*16) and
+    // page-faulted the kernel. One panic, one reboot loop, four lost boots.
+    //
+    // The DX experiment needs the object tables (and the DXCONTEXT otable, which
+    // is registered inside the stage-4 block) but it must NOT run stage 5: the
+    // STDU present path and the DX test together wedge the FIFO at
+    // DEFINE_GB_SCREENTARGET. So with kDxTest on and kGbStage 0, bring the GB
+    // object stack up to stage 4 and stop there -- the display keeps using the
+    // screen-object present path (kFbStage 2), which needs none of this.
+    const UInt32 gbStage = (kGbStage == 0 && kDxTest) ? 4u : kGbStage;
+    if (gbStage != kGbStage) {
+        IOLog(VGPU_FB_TAG ": gb: kGbStage 0 but kDxTest 1 -> bringing up GB objects to "
+              "stage %u only (no STDU)\n", gbStage);
+    }
+    if (gbStage == 0) {
         IOLog(VGPU_FB_TAG ": gb: disabled (kGbStage=0)\n");
         return;
     }
@@ -3070,7 +3218,7 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
           (unsigned long long)ppnSurfacePt, surfaceTableBytes);
 
     // The guest writes its half of the MOB entry before defining it.
-    if (kGbStage >= 2) {
+    if (gbStage >= 2) {
     volatile UInt8 *mobTable = (volatile UInt8 *)((char *)_gbVirt + kGbOffMobTable);
     UInt32 mobEntryOff = dataMobId * kGbMobEntryBytes;
     // §38c: upstream vmw_mob_pt_populate() decides the depth from the page count --
@@ -3110,7 +3258,7 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
     // status follows the FIFO write, not the field-by-field sanity check. The comment that
     // used to sit here claimed the 64-bit layout and the 40-byte size were what the host
     // wanted; the authoritative header says otherwise, and vmwgfx's own V1 branch proves it.
-    if (kGbStage >= 3) {
+    if (gbStage >= 3) {
     const UInt64 surfaceFlags = kSvga3dSurfaceHintDynamic | kSvga3dSurfaceHintTexture;
     const UInt32 width = 256, height = 256;
 
@@ -3137,7 +3285,7 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
     // DX (vGPU10) context. Gated on the DXCONTEXT device capability: the
     // DX command set is only legal when the host advertises it.
     // ------------------------------------------------------------------
-    if (kGbStage >= 4) {
+    if (gbStage >= 4) {
     const UInt32 devcapDx  = devcapRead(kSvgaDevcapDxContext);
     const UInt32 devcapSm41 = devcapRead(kSvgaDevcapSm41);
     const UInt32 devcapGl43 = devcapRead(kSvgaDevcapGl43);
@@ -3244,7 +3392,7 @@ void vgpuFramebuffer::gbBringUp(volatile UInt32 *fifo) {
     // UPDATE_GB_SCREENTARGET; the host reads the surface data straight out
     // of guest RAM.
     // ------------------------------------------------------------------
-    if (kGbStage >= 5) {
+    if (gbStage >= 5) {
         stduBringUp(fifo);
     }
 }
@@ -4299,7 +4447,7 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
     IOLog(VGPU_FB_TAG ": dx: TEMPLATE entered (sid %u %ux%u)\n", surfId, dxW, dxH);
     UInt32 words[24];
     const UInt32 tcid = 1;
-    const UInt32 trtv = 1;
+    const UInt32 trtv = kDxTemplateRtvId;   // row written by dxTemplateSetupSurface
     const UInt32 stateMobId = 6;
     const UInt32 ctxStateBytes = 12288;     // sizeof(SVGADXContextMobFormat)
     _ctxStateMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
@@ -4484,59 +4632,139 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
         // refused  => format is not the blocker. DEFINE_RTV cannot succeed on this host
         //             at all; freeze that in STATUS.md and fall back to the 2D path
         //             (GB surface + SVGA_3D_CMD_SURFACE_DMA / blit, §31.5-3).
-        UInt32 rtv2[9] = { kSvga3dCmdDxDefineRenderTargetView, 28,
-                           trtv, surfId, 2 /* A8R8G8B8 */, 3 /* texture2d */, 0, 0, 1 };
-        bool okRtv = cbSubmitCtx(rtv2, 9, tcid, 0, 2);
-        UInt32 rtvQ = tcid;
-        IOLog(VGPU_FB_TAG ": dx: RTV fmt2 A8R8G8B8/t2d {rtv %u sid %u q%u} -> %s\n",
-              trtv, surfId, tcid, okRtv ? "ACCEPTED" : "refused");
-        if (okRtv) {
-            IOLog(VGPU_FB_TAG ": dx: *** DX MANAGER ALIVE (q%u, fmt2 A8R8G8B8/t2d) ***\n",
-                  tcid);
+        // ---- STEP 3: CLEAR over the COTable-defined view, on a PRISTINE queue. ----
+        // §50: 1187 must not be sent. It answers STATUS 3 and that answer wedges the CB
+        // queue, so every later command reads as a timeout -- which is exactly how
+        // "CLEAR_RTV refused" was being produced before. Order is therefore:
+        //   (a) CLEAR_RTV      -- the only question that matters, first, on a clean queue
+        //   (b) READBACK       -- only if the clear was accepted
+        //   (c) SET_SHADER_IFACE -- last, independent probe, cannot contaminate (a)/(b)
+        const UInt32 rtvQ = tcid;
+        bool okRtv = true;
+        if (kDxSendDefineRtv) {
+            UInt32 rtv2[9] = { kSvga3dCmdDxDefineRenderTargetView, 28,
+                               trtv, surfId, 2 /* A8R8G8B8 */, 3 /* texture2d */, 0, 0, 1 };
+            okRtv = cbSubmitCtx(rtv2, 9, tcid, 0, 2);
+            IOLog(VGPU_FB_TAG ": dx: RTV fmt2 A8R8G8B8/t2d {rtv %u sid %u q%u} -> %s\n",
+                  trtv, surfId, tcid, okRtv ? "ACCEPTED" : "refused");
+        } else {
+            IOLog(VGPU_FB_TAG ": dx: 1187 intentionally NOT sent -- the view is COTable "
+                  "row %u, defined before SET_COTABLE\n", trtv);
         }
-        IOLog(VGPU_FB_TAG ": dx: TEMPLATE verdict -> %s\n",
-              okRtv ? "*** DX MANAGER ALIVE ***" : "still refused");
-        if (!okRtv) {
-            IOLog(VGPU_FB_TAG ": dx: TEMPLATE stopping (RTV refused; engine state unknown)\n");
-            return false;
-        }
+
+        bool okClr = false;
         {
-            // SET_SHADER_IFACE is its own CB in the driver, on a capability bit. Sent
-            // last on purpose: if it errors it must not take the RTV verdict with it.
-            UInt32 si[5] = { kSvga3dCmdDxSetShaderIface, 12, tcid, stateMobId, 0x2000 };
-            bool okSi = cbSubmitCtx(si, 5, rtvQ, 0, 2);
-            IOLog(VGPU_FB_TAG ": dx: TEMPLATE SET_SHADER_IFACE (q%u) -> %s\n",
-                  rtvQ, okSi ? "submitted" : "refused");
-        }
-        if (okRtv) {
-            UInt32 clr[8] = { kSvga3dCmdDxClearRenderTargetView, 20, trtv, 0, 0, 0, 0 };
+            // ---- §51 BISECTION: is the transport or the DX dispatcher at fault? ----
+            //
+            // Everything measured so far says: context-management DX commands are
+            // accepted, every DX *render/state* command comes back COMMAND_ERROR at
+            // errorOffset 0. Two very different worlds produce that:
+            //   (a) the CB command dispatch has no 3D handlers at all in this config
+            //       (a transport problem -- and our whole CB mechanism is wrong), or
+            //   (b) 3D dispatch works but this device was never given a DX device.
+            //
+            // The only way to tell them apart is to send a command from the OTHER 3D
+            // family through the same transport. SVGA_3D_CMD_CLEAR (1057) is the legacy
+            // (vGPU9 / DX9-era) clear, it carries its cid in the body, and it needs no
+            // COTable, no DX context and no view. If it is accepted, dispatch works and
+            // the failure is DX-specific; if it is refused at byte 0 as well, the CB
+            // path never reaches a 3D renderer at all.
+            UInt32 lc[6];
+            lc[0] = kSvga3dCmdClear;        // 1057
+            lc[1] = 20;                     // body: cid, clearFlag, color, depth, stencil
+            lc[2] = tcid;
+            lc[3] = 1;                      // SVGA3D_CLEAR_COLOR
+            lc[4] = 0xFF00FF00u;            // green
+            // depth/stencil are floats/uints in one 8-byte tail; keep both inert.
+            lc[5] = 0x3F800000u;            // depth = 1.0f
+            bool okLegacy = cbSubmitCtx(lc, 6, tcid, 0, 1);
+            IOLog(VGPU_FB_TAG ": dx: BISECT legacy SVGA_3D_CMD_CLEAR {cid %u} -> %s\n",
+                  tcid, okLegacy ? "ACCEPTED (3D dispatch works -> DX-specific problem)"
+                                 : "refused (no 3D dispatch through CB at all)");
+
+            // ---- §51 GRADED SURVEY: one CB, four commands, errorOffset names the first
+            // that the host refuses:
+            //   byte  0  SET_TOPOLOGY (trianglelist)      no COTable, no resources
+            //   byte 12  SET_RASTERIZER_STATE (none)      no COTable
+            //   byte 24  SET_DEPTHSTENCIL_STATE (none)    no COTable
+            //   byte 40  CLEAR_RTV {rtv 1, green}         needs the RTVIEW COTable row
+            UInt32 sv[24];
+            UInt32 n = 0;
+            const UInt32 offTopo = n * 4;
+            sv[n++] = kSvga3dCmdDxSetTopology;
+            sv[n++] = 8;
+            sv[n++] = 1;                    // SVGA3D_PRIMITIVE_TRIANGLELIST
+            const UInt32 offRast = n * 4;
+            sv[n++] = kSvga3dCmdDxSetRasterizerState;
+            sv[n++] = 8;
+            sv[n++] = 0xFFFFFFFF;           // SVGA3D_INVALID_ID
+            const UInt32 offDs = n * 4;
+            sv[n++] = kSvga3dCmdDxSetDepthStencilState;
+            sv[n++] = 12;
+            sv[n++] = 0xFFFFFFFF;           // depthStencilId
+            sv[n++] = 0;                    // stencilRef
+            const UInt32 offClr = n * 4;
+            sv[n++] = kSvga3dCmdDxClearRenderTargetView;
+            sv[n++] = 20;
+            sv[n++] = trtv;
             { float g[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
-              memcpy(&clr[3], g, 16); }
-            bool okClr = cbSubmitCtx(clr, 7, rtvQ, 0, 2);
+              memcpy(&sv[n], g, 16); n += 4; }
+            okClr = cbSubmitCtx(sv, n, rtvQ, tcid, kCbFlagDxContext);
+            {
+                volatile UInt32 *hd = (volatile UInt32 *)_cbHeaderVirt;
+                const UInt32 st = hd[0];
+                const UInt32 eo = hd[1];
+                const char *who = (st == 1)            ? "none -- all four accepted"
+                                : (eo == offTopo)      ? "SET_TOPOLOGY (byte 0)"
+                                : (eo == offRast)      ? "SET_RASTERIZER_STATE"
+                                : (eo == offDs)        ? "SET_DEPTHSTENCIL_STATE"
+                                : (eo == offClr)       ? "CLEAR_RTV"
+                                :                        "none / unknown offset";
+                IOLog(VGPU_FB_TAG ": dx: SURVEY status %u errorOffset %u -> first "
+                      "refused: %s  (offsets %u/%u/%u/%u)\n",
+                      st, eo, who, offTopo, offRast, offDs, offClr);
+            }
             if (okClr) {
                 okClr = cbSubmitCtx(sync, 0, 0, 0, 1);
             }
-            IOLog(VGPU_FB_TAG ": dx: TEMPLATE CLEAR_RTV -> %s\n",
-                  okClr ? "ACCEPTED" : "refused");
-            if (okClr) {
-                UInt32 rb[4] = { kSvga3dCmdDxReadbackSubResource, 8, surfId, 0 };
-                bool okRb = cbSubmitCtx(rb, 4, rtvQ, 0, 2);
-                if (okRb) {
-                    okRb = cbSubmitCtx(sync, 0, 0, 0, 1);
-                }
-                IOLog(VGPU_FB_TAG ": dx: TEMPLATE READBACK -> %s\n",
-                      okRb ? "ACCEPTED" : "refused");
-                __asm__ volatile ("" ::: "memory");
-                if (okRb) {
-                    UInt32 px = *(volatile UInt32 *)_dxVirt;
-                    UInt32 mid = *(volatile UInt32 *)((char *)_dxVirt +
-                                  (IOByteCount)(dxW * (dxH / 2) + dxW / 2) * 4);
-                    IOLog(VGPU_FB_TAG ": dx: TEMPLATE pixels first=0x%08x mid=0x%08x "
-                          "(want 0xff00ff00)\n", px, mid);
-                }
-            }
-            return true;
+            IOLog(VGPU_FB_TAG ": dx: TEMPLATE CLEAR_RTV {rtv %u green, dxContext %u} -> %s\n",
+                  trtv, tcid, okClr ? "ACCEPTED" : "refused");
         }
+
+        bool okRb = false;
+        if (okClr) {
+            UInt32 rb[4] = { kSvga3dCmdDxReadbackSubResource, 8, surfId, 0 };
+            okRb = cbSubmitCtx(rb, 4, rtvQ, tcid, kCbFlagDxContext);
+            if (okRb) {
+                okRb = cbSubmitCtx(sync, 0, 0, 0, 1);
+            }
+            IOLog(VGPU_FB_TAG ": dx: TEMPLATE READBACK {sid %u} -> %s\n",
+                  surfId, okRb ? "ACCEPTED" : "refused");
+            __asm__ volatile ("" ::: "memory");
+            if (okRb) {
+                UInt32 px = *(volatile UInt32 *)_dxVirt;
+                UInt32 mid = *(volatile UInt32 *)((char *)_dxVirt +
+                              (IOByteCount)(dxW * (dxH / 2) + dxW / 2) * 4);
+                IOLog(VGPU_FB_TAG ": dx: TEMPLATE pixels first=0x%08x mid=0x%08x "
+                      "(want 0xff00ff00)\n", px, mid);
+            }
+        }
+
+        {
+            // Independent probe, deliberately last: if this errors it must not take the
+            // CLEAR/READBACK answers with it.
+            UInt32 si[5] = { kSvga3dCmdDxSetShaderIface, 12, tcid, stateMobId, 0x2000 };
+            bool okSi = cbSubmitCtx(si, 5, rtvQ, tcid, kCbFlagDxContext);
+            IOLog(VGPU_FB_TAG ": dx: TEMPLATE SET_SHADER_IFACE (q%u) -> %s\n",
+                  rtvQ, okSi ? "ACCEPTED" : "refused");
+        }
+
+        IOLog(VGPU_FB_TAG ": dx: TEMPLATE verdict -> %s\n",
+              okClr ? (okRb ? "*** DX CLEAR + READBACK ACCEPTED ***"
+                            : "*** DX CLEAR ACCEPTED ***, readback refused")
+                    : "CLEAR refused -- the host does not run DX clears over a "
+                      "COTable-defined view either");
+        return okClr;
     }
     return false;
 }
@@ -4553,6 +4781,15 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
 bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
                                              const UInt32 surfId, const UInt32 mobId,
                                              const UInt32 dxW, const UInt32 dxH) {
+    // §50: every object table this function fills lives inside the GB working
+    // buffer. Without it, `mobTable + mobId*16` is a small bare address -- mobid 4
+    // gives 0x3040 -- and the first 4-byte entry store page-faults the kernel.
+    // A log line is infinitely cheaper than a panic plus a boot loop.
+    if (_gbVirt == nullptr) {
+        IOLog(VGPU_FB_TAG ": dx: no GB working buffer (_gbVirt NULL) -- object tables "
+              "unreachable, refusing to run the surface setup\n");
+        return false;
+    }
     const UInt32 dxBytes = dxW * dxH * 4;
     const UInt32 dxPages = dxBytes / kGbPageBytes;
     UInt32 words[24];
@@ -4622,6 +4859,45 @@ bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
     return false;
     }
     bzero((void *)_cotableMem->map()->getVirtualAddress(), kGbPageBytes);
+
+    // §49 (11-13): an EMPTY RTVIEW table is why nothing downstream ever worked.
+    // bzero() left the 4 KiB table full of zeroes, so rtvId 0 resolved to
+    // {sid 0, format 0, dimension 0} -- a view of nothing. Then we kept sending
+    // SVGA_3D_CMD_DX_DEFINE_RENDERTARGET_VIEW (1187) to *create* the view, and the
+    // host's handler for 1187 gates on a state object that this build never
+    // creates (measured: [0x1414930A0] == 0 across 397 samples, including in a
+    // Windows guest that runs DX fine).
+    //
+    // vm3dmp never sends 1187. Its .text contains no immediate in the whole
+    // 1185..1199 DEFINE_*_VIEW / DEFINE_*_STATE range -- it defines views by
+    // writing SVGACOTableDXRTViewEntry and binding the table with SET_COTABLE.
+    // Entry layout (svga3d_dx.h, pack(1)), 32 bytes:
+    //     SVGA3dSurfaceId      sid;
+    //     SVGA3dSurfaceFormat  format;
+    //     SVGA3dResourceType   resourceDimension;
+    //     SVGA3dRenderTargetViewDesc desc;   // 3 x uint32: mipSlice/firstArraySlice/arraySize
+    //     uint32 pad[2];
+    {
+        volatile UInt32 *ct =
+            (volatile UInt32 *)_cotableMem->map()->getVirtualAddress();
+        // rtvId kDxTemplateRtvId -> dword offset rtvId*8 (32 B entry). This MUST be the
+        // same id dxVm3dmpTemplate clears; it used to be 0 here and 1 there. The view
+        // format also has to match the surface it points at, and the surface below is
+        // defined as X8R8G8B8, not A8R8G8B8.
+        const UInt32 e = kDxTemplateRtvId * 8;
+        ct[e + 0] = surfId;                        // SVGA3dSurfaceId
+        ct[e + 1] = kSvga3dSurfaceFormatX8R8G8B8;   // SVGA3dSurfaceFormat (== surface)
+        ct[e + 2] = 3;                             // SVGA3D_RESOURCE_TEXTURE2D
+        ct[e + 3] = 0;                             // desc.tex.mipSlice
+        ct[e + 4] = 0;                             // desc.tex.firstArraySlice
+        ct[e + 5] = 1;                             // desc.tex.arraySize
+        ct[e + 6] = 0;                             // pad
+        ct[e + 7] = 0;                             // pad
+        __asm__ volatile ("" ::: "memory");
+        IOLog(VGPU_FB_TAG ": dx: RTV COTable entry %u written {sid %u, fmt %u X8R8G8B8, "
+              "tex2D, mip 0, array 0+1} 32 B\n", kDxTemplateRtvId, surfId,
+              kSvga3dSurfaceFormatX8R8G8B8);
+    }
     IOByteCount ctLen = 0;
     IOVirtualAddress ctAddr = _cotableMem->getPhysicalSegment(0, &ctLen);
     if (ctAddr == 0) {
@@ -5816,7 +6092,10 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
             return false;
         }
     }
-    IOLog(VGPU_FB_TAG ": cb: timeout waiting for completion -- header dump://n");
+    IOLog(VGPU_FB_TAG ": cb: timeout waiting for completion (header flags %u%s) -- "
+          "header dump://n", h[4],
+          (h[4] & kCbFlagDxContext) ? ", DX stream: vm3dmp fire-and-forgets these, so the "
+                                      "plain sync that follows is the real verdict" : "");
     for (int d = 0; d < 4; d++) {
         IOLog(VGPU_FB_TAG ": cb hdr[%2u..%2u] %08x %08x %08x %08x %08x %08x %08x %08x\n",
               d * 8, d * 8 + 7,

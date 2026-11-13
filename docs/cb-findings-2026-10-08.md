@@ -4622,3 +4622,206 @@ call 0x1404125a0                ; 重算 [dev+0x9bc]
 后续 §20–§35 全部围着这个名字转 —— 名字一旦错，方向就跟着错。
 下一步值得花 20 分钟做的是**用 `vmxmem.py` 在 `kGbStage=5` 的启动里采样**：
 如果那时 `[0x1414930A0]` 非空，就证明它是 GB 侧的对象，与 DX 无关。
+
+## §49 空 COTable ≠ 空视图：RTV 应该由表行定义，而不是 1187
+
+**这一节推翻的是整场 §26–§35 战役的前提**。
+
+`SVGA_3D_CMD_DX_DEFINE_RENDERTARGET_VIEW`（1187）不是创建 RTV 的唯一途径，而且
+**vm3dmp 从来不发它**：把 `driver/vm3dmp.sys` 的 `.text` 整段扫一遍，`1185..1199`
+（全部 `DEFINE_*_VIEW` / `DEFINE_*_STATE`）**一个立即数都没有**。它用的是
+1143/1145/1207/1274，RTV 靠 **COTable 行**定义，再用 `SET_COTABLE` 绑定整张表。
+
+权威结构（`svga3d_dx.h`，`pack(1)`，32 字节）：
+
+```c
+typedef struct {
+    SVGA3dSurfaceId     sid;              // +0
+    SVGA3dSurfaceFormat format;           // +4
+    SVGA3dResourceType  resourceDimension;// +8
+    SVGA3dRenderTargetViewDesc desc;      // +12  mipSlice/firstArraySlice/arraySize
+    uint32 pad[2];                        // +24
+} SVGACOTableDXRTViewEntry;
+```
+
+我们此前用 `bzero()` 清空 4 KiB 的 RTVIEW 表，于是 `rtvId 0` 解析成
+`{sid 0, format 0, dimension 0}` —— 一个"什么都没有"的视图。然后一直发 1187 去
+*创建*它，而 1187 的 handler 又卡在一个本构建从未创建的状态对象上。两头都错。
+
+改法是：`SET_COTABLE` 之前在表里写好行。**实测 `SET_COTABLE {cid 1 mob 5 type 0,
+validSize 4096} -> ACCEPTED`**（有史以来第一次），说明表绑定这一环一直是好的。
+
+两个顺带修掉的错位：
+
+* 行写在 index 0，而 CLEAR 打 index 1（`trtv`）。即使 CLEAR 通了，它引用的也是一行
+  全零的视图。现在两边共用 `kDxTemplateRtvId`。
+* 视图 format 写的是 A8R8G8B8(2)，可它指向的 surface 定义成 X8R8G8B8(1)。已对齐。
+
+## §50 `_gbVirt == NULL`：那个 panic 的真身是 `0x3040`
+
+把 1187 改成非致命之后，客体第一次走进了 CLEAR/READBACK 段，随即 kernel panic，
+并陷入每 ~72 秒一次的重启循环。panic 报文里两条信息是关键：
+
+```
+CR2: 0x0000000000003040        RDI: 0x0000000000003040
+Error code: 0x0000000000000002   <- bit1 = 写故障，RDI 就是被写的目的地址
+RIP: 0xffffff8003701092          <- 在内核 __HIB 段，不在 kext 里
+```
+
+`RDI = 0x3040` 是目的地址、长度 4 —— 这是 `memcpy(dst, &local, 4)`，不是空指针解引用。
+对一下常量：
+
+```
+kGbOffMobTable = 0x3000, kGbMobEntryBytes = 16, mobId = 4
+0x3000 + 4*16 = 0x3040          ← 精确命中
+```
+
+即 `dxTemplateSetupSurface()` 里的 `memcpy(mobTable + mobEntryOff, &mobDepth, 4)`，
+而 `mobTable = (char*)_gbVirt + kGbOffMobTable`。**`_gbVirt` 是 NULL**，因为
+`kGbStage = 0` 时 `gbBringUp()` 在分配工作缓冲之前就 `return` 了，而 DX 实验要往
+对象表里写东西。所以这是"我没给实验分配它的工作区"，不是宿主的问题。
+
+三处改动：
+
+1. `gbBringUp()` 引入**有效 stage**：`kGbStage == 0 && kDxTest` 时按 stage 4 拉起
+   GB 对象栈（对象表、数据 MOB、surface、**DXCONTEXT otable**），但绝不进 stage 5
+   （STDU 与 DX 实验同开会复现 `DEFINE_GB_SCREENTARGET` 处的 FIFO 中止）。
+   显示仍然走 screen-object 呈现通路（`kFbStage = 2`），与 GB 无关。
+2. `dxTemplateSetupSurface()` 开头加空指针护栏，把"panic + 重启循环"降级成一行日志。
+3. 客体抢救手法（以后别再花四个启动去摸）：**删掉 `/Library/Extensions/vgpuFramebuffer.kext`
+   再重启**，kext 不再加载 → 不再 panic → 拿到不受限的时间窗，然后从容 build+install。
+
+## §51 DX 派发器缺席：一次分级探测把"3D 到底能不能渲染"问死了
+
+§35 的结论是"DX 主线关闭"，依据是宿主侧 `[0x1414930A0] == 0`。§48.5 已经证明这个
+依据不成立（跑 DX 的 Windows 客体里 397 次采样也全是 0），所以 §35 一直是**结论对、
+理由错**。本节把它换成可复现的证据链。
+
+### 51.1 先排除配置层
+
+宿主日志同时给出两件事：
+
+```
+MKSRenderMain: PowerOn allowed BasicOps ISB DX12 DX11 DX11Basic VK
+Vulkan Renderer: Created with LUID: 0x0000000000014cf3
+SVGA3dCaps: guest, compatibility level: 10
+```
+
+渲染器是真的（DX12/DX11/VK 都允许），客体被告知 vGPU10。`.vmx` 里
+`mks.enable3d = TRUE` + `mks.enable3d.available = TRUE` 就是
+`docs/vmware-svga-capabilities.md` 记录的正确组合。
+
+试过一个额外旋钮：把 `vmotion.svga.baseCapsLevel` 从 `"9"` 改成 `"11"`（渲染器
+自报 11，日志里 `after clamping` 变成 9）。**无效** —— VMware 在 power-on 时把它
+写回 9，重启后仍是 `after clamping num 9`。这个键是派生的，不是输入。
+（`svga.allowSVGA3` 按文档本来就不需要，至今仍保持注释状态。）
+
+结论：**平台侧已经到顶，不能再从配置里榨出 3D。**
+
+### 51.2 上下文管理命令是通的，渲染命令不是
+
+同一次启动内，全部走 CB：
+
+| 命令 | 号 | 结果 |
+|---|---|---|
+| `DX_DEFINE_CONTEXT` | 1143 | **ACCEPTED**（COMPLETED） |
+| `DX_BIND_CONTEXT` | 1145 | **ACCEPTED** |
+| `DX_SET_COTABLE` | 1207 | **ACCEPTED**（首次） |
+| `DX_CLEAR_RENDERTARGET_VIEW` | 1176 | **COMMAND_ERROR, errorOffset 0** |
+| `DX_DEFINE_RENDERTARGET_VIEW` | 1187 | **COMMAND_ERROR, errorOffset 0** |
+| `DX_SET_SHADER_IFACE` | 1274 | refused |
+
+### 51.3 `dxContext` 假设 —— 干净地证伪
+
+翻 `svga3d_dx.h` 时发现一条被忽略的事实：
+
+```c
+typedef struct SVGA3dCmdDXClearRenderTargetView {
+    SVGA3dRenderTargetViewId renderTargetViewId;   // 没有 cid
+    SVGA3dRGBAFloat rgba;
+} SVGA3dCmdDXClearRenderTargetView;
+```
+
+1176 和 1187 **都不带 cid**。能告诉宿主"这条命令属于哪个 DX 上下文"的只有
+CB 头里的 `dxContext`，而我们出于 §15/§22 的历史结论一直把它强制成 0
+（`kCbKeepDxContext = 0`）。这完美解释了 51.2 的表：**自带 cid 的命令过，不带 cid 的
+被拒**。
+
+于是打开 `kCbKeepDxContext = 1`，并给渲染命令传 `flags = DX_CONTEXT`、`dxContext = 1`。
+历史记录说这样会撞 `STATUS 4 / CB_HEADER_ERROR`（header 层的 `lookup-or-create`
+失败）—— 但那些测量**都发生在 `DEFINE_CONTEXT` 首次成功之前**。
+
+实测结果：
+
+```
+cb: STATUS 3 (errorOffset 0)          <- 不是 4！CB 头通过了
+dx: TEMPLATE CLEAR_RTV {rtv 1 green, dxContext 1} -> refused
+```
+
+**头没被拒**，说明宿主确实解析出了 `dxContext = 1`。但 CLEAR 依旧 `COMMAND_ERROR`。
+假设证伪，而且是好事：它把"头层没有 DX 上下文"这条路排掉了。
+
+### 51.4 分级探测 + 二选一对照：派发器缺席
+
+`errorOffset 0` 只说明"CB 里第一条命令失败"。把四条命令排进**同一个** CB，让
+`errorOffset` 指认第一条被拒的：
+
+```
+byte  0   DX_SET_TOPOLOGY (trianglelist)      无 COTable、无资源
+byte 12   DX_SET_RASTERIZER_STATE (none)      无 COTable
+byte 24   DX_SET_DEPTHSTENCIL_STATE (none)    无 COTable
+byte 40   DX_CLEAR_RTV {rtv 1, green}         需要 RTVIEW 表行
+-> SURVEY status 3 errorOffset 0 -> first refused: SET_TOPOLOGY (byte 0)
+```
+
+`SET_TOPOLOGY` 是能想到的最简单的一条 DX 命令：4 字节 body、无 id、无表、无视图。
+它在 byte 0 就被拒。
+
+那么问题可能根本不在 DX ——或许是**传输层**根本没有 3D 派发。用同一条 CB 通路发一条
+**legacy** 命令（`SVGA_3D_CMD_CLEAR`，1057，自带 cid、不需要任何 DX 概念）作对照：
+
+```
+dx: BISECT legacy SVGA_3D_CMD_CLEAR {cid 1} -> refused (no 3D dispatch through CB at all)
+```
+
+**legacy 也被拒。** 于是结论收敛成一句可复现的话：
+
+> 这台宿主的 SVGA3D 设备对外宣称 vGPU10（caps 全置、DXCONTEXT/SM41/SM5 都为 1），
+> CB/fence 机制完全可用，DX 上下文管理命令全部 ACCEPTED ——
+> 但**任何 3D 渲染/状态命令都不被派发**，无论 DX 还是 legacy，
+> 一律 `COMMAND_ERROR / errorOffset 0`。
+
+这与 §10-10 在 legacy FIFO 上的观察（"parse+fence 每条 3D 命令，但从不执行渲染管线"）
+是同一件事的两种测法。**§35 的结论成立，但理由要从"DX 管理器为 NULL"改成"3D 派发器
+不在此配置中"。** 在拿到一台 3D 真能派发的宿主之前，Metal/IOAccelerator→SVGA3D 这条
+Level-2 路线没有可依托的下层。
+
+复现方式：`kDxTest = 1`（且 `kGbStage` 保持 0），重启，看 `dx: SURVEY` / `dx: BISECT` 两行。
+
+## §52 可交付的像素：2D 通路 + 驱动自绘图案（已截图验证）
+
+既然 3D 引擎不可达，"像素"这份交付必须落在 2D 上，而且要**证明**而不是声称。
+
+`kPaintTestPattern = 1` 时，`presentSetup()` 在**第一次 blit 之前**往 VRAM 里画：
+
+* 8 条整高竖色带（白/黄/青/绿/品红/红/蓝/黑）—— `BYTES_PER_LINE` 只要错一点，色带立刻变斜；
+* 1 像素白框 —— 高度或首行偏移错就会缺边；
+* y = 1 处一条 2 像素红线 —— 顶部 pitch 探针；
+* (8,8) 起 72×72 的 8 像素棋盘 —— 证明子区域寻址。
+
+日志回读与截图互相印证：
+
+```
+present: TEST PATTERN painted into VRAM (1024x768, pitch 4096 B, 1024 dwords/row)
+         first=0xffffffff mid=0xffff00ff last=0xffffffff
+present: screen 0 defined (1024x768), GMRFB = BAR1+0, blit acked -- screen-object present path is UP
+```
+
+开机早期截图（`docs/shots/2026-11-14-test-pattern.png`）：八条色带**完全垂直**、
+白框完整、棋盘就位、顶部红线可见。也就是说客体的写、宿主的扫描输出、以及我们
+回读的 pitch/FB_OFFSET 三者一致。
+
+再过十几秒 WindowServer 把它整个覆盖掉，屏幕变成 macOS 登录界面
+（`docs/shots/2026-11-14-login-screen.png`）—— 这反过来是更强的证据：
+**WindowServer 正在用我们的 framebuffer 合成**，显示通路是活的、可用的，
+缺的只是加速而不是"能不能出画面"。

@@ -175,6 +175,16 @@ else
     echo "kStduVramControl = 0 -> control arm retired, marker not required"
 fi
 
+# §52: the pattern is the deliverable -- if the optimizer or a bad edit drops the paint
+# loop, the screenshot shows a black screen and we would blame the host again.
+if sw kPaintTestPattern 1; then
+    echo "kPaintTestPattern = 1 -> test-pattern marker is required"
+    MARKERS="$MARKERS
+present: TEST PATTERN painted into VRAM"
+else
+    echo "kPaintTestPattern = 0 -> no pattern painted, marker not required"
+fi
+
 # §47: the ENABLE|HIDE write is the newest single-write hypothesis; its log line is the
 # only evidence the write ran before CONFIG_DONE, so require it while the switch is on.
 if sw kStduEnableHide 1; then
@@ -204,8 +214,8 @@ if sw kDxTest 1; then
 TEMPLATE only mode
 TEMPLATE entered
 SPLIT DX_DEFINE_CONTEXT
-dx: RTV fmt2 A8R8G8B8/t2d
-DX MANAGER ALIVE (q%u"
+dx: 1187 intentionally NOT sent
+dx: RTV COTable entry %u written"
 else
     echo "kDxTest = 0 -> DX template retired, markers not required"
 fi
@@ -230,7 +240,9 @@ done
 # build fails here instead of costing a boot cycle to discover from the log.
 if sw kDxTest 1; then
     STOP="TEMPLATE verdict -> %s"
-    VERDICTS="still refused
+    VERDICTS="DX CLEAR + READBACK ACCEPTED
+DX CLEAR ACCEPTED
+CLEAR refused
 DX manager still absent
 DX MANAGER ALIVE"
     for m in "$STOP" $VERDICTS; do

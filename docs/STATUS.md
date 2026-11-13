@@ -194,6 +194,35 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 **新的下一步（不需要宿主补丁）**：让 kext 正确发 `START_STOP_CONTEXT{enable=1,ctx=0}`，
 再用 `vmxmem.py` 在宿主侧验证 `ae0`/`bf8` 是否变 1。这一步成立之前不要碰创建路径。
 
+---
+
+### P0-3D ✅ 已关闭（11-14，见 `cb-findings` §49–§51）
+
+上面的宿主侧补丁路线**全部作废**，不需要再往 `vmware-vmx.exe` 上打任何补丁。理由不是
+"又猜了一次"，而是客体侧把问题问死了。四条可复现的事实：
+
+| # | 事实 | 来源 |
+|---|---|---|
+| 1 | **COTable 行定义 RTV 成立**：`SET_COTABLE {cid 1, mob 5, type 0( RTVIEW), validSize 4096}` → **ACCEPTED**（首次）。RTV 不该靠 1187 创建，vm3dmp 的 `.text` 里 1185–1199 一个立即数都没有 | §49 |
+| 2 | **1187 是有害的**：它的 `STATUS 3` 会把 CB 队列打死，之后所有命令都变成 400 ms 超时。以前读到的"CLEAR 被拒"其实是读了条被 1187 杀掉的队列 | §49/§51 |
+| 3 | **`dxContext` 假设已证伪**：给渲染命令带 `flags=DX_CONTEXT, dxContext=1` 之后 CB **头**通过（不再是 STATUS 4），说明宿主解析出了上下文；但 CLEAR 仍然 `COMMAND_ERROR / errorOffset 0` | §51.3 |
+| 4 | **3D 派发器缺席**：`DX_SET_TOPOLOGY`(1160，4 字节 body、无表无视图) 在 byte 0 被拒；同一 CB 通路上的 **legacy `SVGA_3D_CMD_CLEAR`(1057) 也被拒** ⇒ 不是 DX 特有的问题，是这台宿主不派发任何 3D 渲染/状态命令 | §51.4 |
+
+配置层也已到顶：宿主日志 `MKSRenderMain: PowerOn allowed ... DX12 DX11 DX11Basic VK`、
+`Vulkan Renderer: Created with LUID 0x14cf3`、`SVGA3dCaps: guest, compatibility level: 10`；
+把 `vmotion.svga.baseCapsLevel` 从 9 改成 11 会被 VMware 在 power-on 时写回 9（派生的键）。
+
+**因此**：Level-2（Metal / IOAccelerator → SVGA3D）没有可依托的下层。它不是"还没写"，
+而是"下层不给"。要重开这条线，必须先有一台 3D 命令真能派发的宿主。
+
+### P0：像素通路 ✅ 已关闭（11-14 补强，见 `cb-findings` §52）
+
+除 §47 的 2D 桌面之外，现在还有一份**驱动自绘**的像素证据：`kPaintTestPattern = 1` 时
+`presentSetup()` 在首次 blit 前往 VRAM 画 8 条竖色带 + 白框 + 顶部红色 pitch 探针 +
+左上棋盘。截图 `docs/shots/2026-11-14-test-pattern.png` 里色带完全垂直，证明
+`BYTES_PER_LINE = 4096` 与宿主一致；十几秒后 WindowServer 把它覆盖成登录界面
+（`docs/shots/2026-11-14-login-screen.png`），反证 WindowServer 正在用我们的 framebuffer 合成。
+
 ### P0：像素通路 ✅ 已关闭（11-12，见 M8 / `cb-findings` §47）
 
 ### P0：像素通路 ✅ 已关闭（11-12，见 M8 / `cb-findings` §47）
