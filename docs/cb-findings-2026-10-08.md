@@ -4825,3 +4825,117 @@ present: screen 0 defined (1024x768), GMRFB = BAR1+0, blit acked -- screen-objec
 （`docs/shots/2026-11-14-login-screen.png`）—— 这反过来是更强的证据：
 **WindowServer 正在用我们的 framebuffer 合成**，显示通路是活的、可用的，
 缺的只是加速而不是"能不能出画面"。
+
+## §53 2D 引擎的判决：屏幕对象模式下只有 blit，没有绘制（2026-11-14）
+
+§51 把 3D 问死之后，"Level-2（Metal / IOAccelerator）能不能落"就只剩一个问题：
+**下层还有没有任何能让宿主替我们画东西的能力。** 这一节回答它，并且先把
+"我有三次答案都是错的"写清楚 —— 因为错的地方本身是可复用的教训。
+
+### 53.1 三个方法论错误，一个比一个隐蔽
+
+| 版本 | 做法 | 为什么不算数 |
+|---|---|---|
+| v1 | 屏幕回读进 BAR1，再和 BAR1 比 | BAR1 **就是** blit 到屏幕的源。`BLIT_SCREEN_TO_GMRFB` 落到自己的源上，"宿主画了"和"我们把自己的缓冲区拷回自己"字节完全相同；对照像素还挑了同一根色带里 |
+| v2 | 回读进 FB 之后的 scratch（0x300000） | 映射窗口**只到 FB 结束**：`IODeviceMemory::withSubRange(vram, fbOffset, pitch*height)`。0x300000 正好是一格外，读到全 0；于是 `src==dst` 把 0 和 0 比成"拷贝成功" |
+| v3 | scratch 移进映射内（§53.2） | 结构对了，但 `capture -> refused`：回读命令根本拿不到 fence，于是只能报 UNVERIFIED |
+
+教训收敛成两条：
+
+1. **回读的落点必须与被比较的缓冲区无关**，否则测的是自拷贝；
+2. **"读到的值都是 0 / 都是同一个值"必须先当成通道故障**，而不是当成结论。
+   v2 就是这么把一个不存在的 "COPY EXECUTED" 写进日志的。
+
+顺带记下本次真正踩到的地基事实（以后所有 scratch/readback 实验都要用它）：
+
+```
+_aperture = IODeviceMemory::withSubRange(vram, _deviceFbOffset, _apertureLength)
+_apertureLength = _devicePitch * _deviceHeight          // = 0x300000 @1024x768
+VRAM_SIZE       = 0x400000                              // 4 MiB
+```
+
+**4 MiB 的 VRAM 里只有 3 MiB 可被 kext 直接寻址。** 第 4 MB 存在但不在这张映射里。
+
+### 53.2 通道不可用：屏幕是只写的
+
+v3 实测（`kProbe2D = 1`，`2d: scratch` / `2d: CHANNEL` 两行）：
+
+```
+2d: scratch 0x200000 (row 512, 256x256, 1024 B/line) -> mapped+writable, sentinel -> 0x5a5a5a5a
+2d: CHANNEL blit-> acked, capture -> refused, painted 0xFF00FF00 read back 0xdeaddead
+            -> READBACK UNUSABLE
+```
+
+* scratch 在映射内、CPU 可写（哨兵读回原值），所以不是地址问题；
+* `BLIT_GMRFB_TO_SCREEN`（写屏幕）acked；
+* `BLIT_SCREEN_TO_GMRFB`（读屏幕）**拿不到 fence** —— 命令被解析、被跳过、从不完成。
+
+一句话：**在 `SVGA_FIFO_CAP_SCREEN_OBJECT` 模式下，屏幕对象是只写的。**
+宿主不保留可回读的前台内容，所以"把屏幕读回来做数值判据"这条路在本宿主上关闭，
+唯一的 oracle 是外部截图。
+
+### 53.3 判决：fill / copy 不改变显示内容
+
+既然只能靠截图，就必须让"2D 引擎不动手"和"2D 引擎动了手但被覆盖"长得不一样。
+做法是把**已知有效**的操作摆在最前面当对照，绘制操作排在它后面：
+
+```
+每 tick（33 ms）三条命令，顺序固定：
+  1. BLIT_GMRFB_TO_SCREEN  全屏      <- 对照：§52 已证明它能把 VRAM 送上屏
+  2. RECT_COPY  200x200 (100,100)->(600,400)
+  3. FRONT_ROP_FILL 200x200 洋红 @ (400,100)   <- 最后一笔，没有后续覆盖
+```
+
+实测（本次启动 tick 2400 / 3000）：
+
+```
+2d: LOOP tick 3000 -- blit control acked, copy acked, magenta fill acked
+```
+
+三条全部 fence 成功。截图（`docs/shots/2026-11-14-2d-ctl-b.png`）逐像素核对：
+
+| 判据 | 期望 | 实测 | 结论 |
+|---|---|---|---|
+| 对照：8 条竖色带 | 存在 | 存在（x=160 黄 / 300 青 / 450 绿 / 570 洋红 / 700 红 / 830 蓝） | blit 通路活着 |
+| fill：(400..600, 100..300) 洋红 | 0xFFFF00FF | (450,150) = 绿（色带本色） | **fill 不改显示** |
+| copy：(600..800, 400..600) | 白/黄/青 | (650,450) = 红（色带本色） | **copy 不改显示** |
+| 我们自己写进 VRAM 的绿色 64×64 @ (600,300) | 出现 | 出现 | 证实上面的"存在"都是 VRAM 内容被 blit 上去 |
+
+绿色方块是个好用的反证：它是 §53.2 通道自检时用 **CPU 写 VRAM** 画的那块
+（`kParkX=600, kParkY=300, kParkW=64`），它出现在屏幕上，说明
+"屏幕上有东西"只能归因于 blit + VRAM，2D 绘制没有贡献。
+
+另外截图下部 y≥600 处色带整体错位，那是 scratch（rows 512..767 × x<256，按 256 像素
+步距写入）以 1024 像素步距重新 blit 造成的斜切 —— 又一个"我们的写入确实上屏了"的旁证。
+
+（第一版 tick 是"整屏涂绿 → 蓝块 → 拷贝"，结果三条命令全 acked、屏幕变**全黑**。
+那次没法定论：全屏黑既可能是"宿主执行了填充但颜色被吃成黑"，也可能是"显示停止更新"。
+所以才有本节这个带对照的顺序。全黑那次不再作为证据引用。）
+
+### 53.4 结论与它意味着什么
+
+> 在这台宿主 + 屏幕对象模式下，2D 引擎对外**只提供传输**（GMRFB → 屏幕的 blit），
+> **不提供绘制**：`FRONT_ROP_FILL` 与 `RECT_COPY` 会被 FIFO 接收、会被 fence，
+> 但对屏幕内容没有任何影响；屏幕还不可回读。
+
+对 Level-2 的直接后果：
+
+* IOAccelerator 需要的"宿主替我做 fill / copy / 合成"没有下层可站；
+  我们唯一能做的就是**在客体内存里 memcpy 出像素再 blit**，那已经不是加速，
+  而且 §52 已经做到了；
+* 3D 派发器缺席（§51）意味着 Metal 需要的三角形光栅化更不可能；
+* 于是 **Level-2 在本宿主上是"有条件不可实现"**：不是我们没找到调用方式，
+  而是这台设备的模型根本没给客体一套能绘制、能回读的图形引擎。
+
+要把它变成"可实现"，需要换一个前提，而不是再试一个参数：
+
+1. 一台 3D 命令真能派发的宿主（VMware 对 Windows/Linux 客体给的就是这套，
+   macOS 客体档案里没有）；
+2. 或者拿到可用的 STDU/ScreenTarget 合成通路（§38.22 的因果链还没被推翻），
+   让宿主直接消费 GB surface —— 这条路是"把显示交给宿主合成"，
+   与"客体画"是两件不同的事，也是 §36 之后一直没走通的那条；
+3. 或者在宿主侧改 `vmware-vmx.exe` 的 3D 门控（§48 的静态模型自相矛盾，
+   在拿到第三台机器交叉验证前不再据此设计实验）。
+
+复现方式：`kProbe2D = 1` 重启，等 `2d: LOOP tick` 出现后任意时刻 VNC 截图，
+对照 §53.3 的四行判据。出货配置已恢复 `kProbe2D = 0`。

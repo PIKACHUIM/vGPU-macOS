@@ -242,6 +242,15 @@ enum {
     kSvgaCmdDefineScreen = 34,
     kSvgaCmdDefineGmrfb = 36,
     kSvgaCmdBlitGmrfbToScreen = 37,
+    // §53: the two 2D primitives a display accelerator actually needs. Both draw on the
+    // SCREEN (not into guest VRAM), which is exactly the shape of the screen-object
+    // present path -- so they are the only candidates left for an acceleration layer
+    // after §51 closed the 3D one.
+    kSvgaCmdRectCopy         = 3,   // {srcX,srcY,destX,destY,width,height}
+    kSvgaCmdFrontRopFill     = 29,  // {color,x,y,width,height,rop}
+    // Reads the SCREEN back into the guest's GMRFB. This is what turns "is the 2D engine
+    // running?" from a screenshot guess into a number we can print.
+    kSvgaCmdBlitScreenToGmrfb = 38, // {destOrigin,srcRect,srcScreenId}
 };
 
 // SVGA_GMR_FRAMEBUFFER: a SVGAGuestPtr gmrId that addresses the legacy framebuffer (BAR1)
@@ -839,6 +848,13 @@ static const UInt32 kStduVramControl = 0;
 // Turn it off once there is real guest content to show -- it covers the whole screen.
 static const UInt32 kPaintTestPattern = 1;
 
+// kProbe2D (§53): Level-2 feasibility. With §51 closing the 3D dispatcher, the only
+// lower layer an accelerator could use is the 2D engine. This fills a blue rectangle and
+// copies a band of it with SVGA_CMD_FRONT_ROP_FILL / SVGA_CMD_RECT_COPY -- both draw on
+// the SCREEN -- and suspends the periodic re-present so the result stays capturable.
+// Off by default: it leaves the guest's screen static.
+static const UInt32 kProbe2D = 0;
+
 // ---------------------------------------------------------------------------
 // kStduFlat -- the §38.12 isolation experiment.
 //
@@ -1259,6 +1275,7 @@ private:
 
     void presentSetup(volatile UInt32 *fifo);
     void presentTick(void);
+    void probe2DTick(volatile UInt32 *fifo);   // §53: the 2D-only drawing tick
     static void presentTickC(thread_call_param_t param0, thread_call_param_t param1);
     void schedulePresent(void);
     thread_call_t _presentCall = nullptr;
@@ -2233,7 +2250,202 @@ void vgpuFramebuffer::presentSetup(volatile UInt32 *fifo) {
     IOLog(VGPU_FB_TAG ": present: screen 0 defined (%ux%u), GMRFB = BAR1+%u, blit acked -- "
           "screen-object present path is UP\n", _deviceWidth, _deviceHeight, _deviceFbOffset);
 
+    // §53 Level-2 feasibility probe, v3: does this host EXECUTE the 2D engine, measured
+    // with a readback that cannot lie to itself?
+    //
+    // §51 proved the 3D dispatcher is absent, so the only lower layer a display accelerator
+    // could sit on is the 2D engine. The present path already proves BLIT_GMRFB_TO_SCREEN
+    // works, but a blit is transport, not a drawing primitive -- an IOAccelerator needs fill
+    // and copy.
+    //
+    // v1 was UNSOUND: it captured the screen back into the very buffer it had just blitted
+    // TO the screen (BLIT_SCREEN_TO_GMRFB -> BAR1, which is the source of
+    // BLIT_GMRFB_TO_SCREEN), so "the host drew it" and "we copied our own buffer onto
+    // itself" produced byte-identical pixels, and the control pixel sat in the same colour
+    // bar as the test pixel.
+    //
+    // v2 was sound in shape but pointed the capture GMRFB past the end of the mapping:
+    // _aperture is IODeviceMemory::withSubRange(vram, fbOffset, pitch*height), i.e. exactly
+    // the VISIBLE framebuffer (0x300000 = 3 MiB of a 4 MiB VRAM), so a scratch area at
+    // 0x300000 was outside the window and every read came back 0x00000000 -- which then
+    // made "src == dst" compare 0 against 0 and report a copy that never happened.
+    //
+    // v3 therefore:
+    //   * keeps the scratch INSIDE the mapped window (the bottom 256 rows of the
+    //     framebuffer, x < 256) and never captures a screen rect that overlaps it;
+    //   * proves the READBACK CHANNEL before trusting any verdict: a green block is written
+    //     straight into VRAM, blitted to the screen, and captured back -- if that pixel does
+    //     not come back green, the probe says UNVERIFIED instead of guessing;
+    //   * writes a sentinel into the scratch with the CPU first, so "the mapping is not even
+    //     writable here" is a distinguishable outcome from "the blit did nothing";
+    //   * makes every arm self-evident: the copy source is a block WE painted, not whatever
+    //     the desktop happens to contain.
+    if (kProbe2D && _vramMap != nullptr) {
+        const UInt32 kCapW     = 256;                   // capture window, pixels (square)
+        const UInt32 kCapPitch = kCapW * 4;             // scratch stride, bytes
+        const UInt32 kCapBytes = kCapPitch * kCapW;     // 256 KiB
+        const UInt32 kScratchRow = _deviceHeight - kCapW;   // bottom band of the framebuffer
+        const UInt32 scratch = kScratchRow * (UInt32)_devicePitch;
+        // The green marker block the copy arm moves; it must not overlap the scratch band.
+        const UInt32 kParkX = 600, kParkY = 300, kParkW = 64;
+        const UInt32 kCopyDstY = 420;
+
+        UInt8 *base = (UInt8 *)_vramMap->getVirtualAddress();
+        volatile UInt32 *fb  = (volatile UInt32 *)base;
+        volatile UInt32 *scr = (volatile UInt32 *)(base + scratch);
+        const UInt32 fbWords = (UInt32)(_devicePitch / 4);
+
+        if ((IOByteCount)scratch + kCapBytes > _apertureLength) {
+            IOLog(VGPU_FB_TAG ": 2d: SKIP -- scratch 0x%x + %u exceeds the mapped aperture "
+                  "0x%llx\n", scratch, kCapBytes, (unsigned long long)_apertureLength);
+        } else {
+            // GMRFB is what both blit directions read/write on the guest side.
+            auto setGmrfb = [&](UInt32 off, UInt32 pitch) -> bool {
+                UInt32 g[6];
+                g[0] = kSvgaCmdDefineGmrfb;
+                g[1] = 16;
+                g[2] = kSvgaGmrFramebuffer;
+                g[3] = off;
+                g[4] = pitch;
+                g[5] = kSvgaGmrfbFormatBgrx32;
+                return fifoSubmitWords(fifo, g, 6) && fenceAck(fifo, &_fenceSeq);
+            };
+            // screen rect (sx,sy,kCapW,kCapW) -> scratch (0,0)
+            auto capture = [&](UInt32 sx, UInt32 sy) -> bool {
+                if (sy + kCapW > kScratchRow) {
+                    return false;       // would capture (and then overwrite) the scratch itself
+                }
+                UInt32 b[9];
+                b[0] = kSvgaCmdBlitScreenToGmrfb;
+                b[1] = 28;              // destOrigin(8) + srcRect(16) + srcScreenId(4)
+                b[2] = 0;               // destOrigin.x
+                b[3] = 0;               // destOrigin.y
+                b[4] = sx;
+                b[5] = sy;
+                b[6] = sx + kCapW;
+                b[7] = sy + kCapW;
+                b[8] = 0;               // srcScreenId
+                return fifoSubmitWords(fifo, b, 9) && fenceAck(fifo, &_fenceSeq);
+            };
+            auto blitToScreen = [&]() -> bool {
+                UInt32 b[9];
+                b[0] = kSvgaCmdBlitGmrfbToScreen;
+                b[1] = 28;
+                b[2] = 0; b[3] = 0;     // srcOrigin
+                b[4] = 0; b[5] = 0;     // destRect.left/top
+                b[6] = _deviceWidth;
+                b[7] = _deviceHeight;
+                b[8] = 0;               // destScreenId
+                return fifoSubmitWords(fifo, b, 9) && fenceAck(fifo, &_fenceSeq);
+            };
+            // capture stores screen (sx,sy) at scratch (0,0), so a window-local read is
+            // straight row-major indexing of the scratch.
+            auto at = [&](UInt32 lx, UInt32 ly) -> UInt32 {
+                return scr[(IOByteCount)ly * kCapW + lx];
+            };
+
+            // 0. the mapping must accept a CPU write, or nothing below means anything.
+            scr[0] = 0x5A5A5A5Au;
+            const UInt32 sentinel = scr[0];
+            const bool mapOk = (sentinel == 0x5A5A5A5Au);
+            IOLog(VGPU_FB_TAG ": 2d: scratch 0x%x (row %u, %ux%u, %u B/line) -> %s, "
+                  "sentinel -> 0x%08x\n",
+                  scratch, kScratchRow, kCapW, kCapW, kCapPitch,
+                  mapOk ? "mapped+writable" : "NOT WRITABLE", sentinel);
+
+            if (!mapOk) {
+                IOLog(VGPU_FB_TAG ": 2d: VERDICT UNVERIFIED -- scratch is not CPU-writable at "
+                      "0x%x (aperture 0x%llx)\n", scratch,
+                      (unsigned long long)_apertureLength);
+            } else {
+                // 1. channel proof: paint a green block into VRAM, show it, capture it back.
+                for (UInt32 y = 0; y < kParkW; y++) {
+                    volatile UInt32 *row = fb + (IOByteCount)(kParkY + y) * fbWords + kParkX;
+                    for (UInt32 x = 0; x < kParkW; x++) {
+                        row[x] = 0xFF00FF00u;
+                    }
+                }
+                __asm__ volatile ("" ::: "memory");
+                const bool okShow = setGmrfb(_deviceFbOffset, _devicePitch) && blitToScreen();
+                const bool okChan = setGmrfb(scratch, kCapPitch) && capture(kParkX - 24, kParkY - 24);
+                const UInt32 chanPx = okChan ? at(24, 24) : 0xDEADDEADu;
+                const bool channelOk = okShow && okChan && (chanPx == 0xFF00FF00u);
+                IOLog(VGPU_FB_TAG ": 2d: CHANNEL blit-> %s, capture -> %s, painted 0xFF00FF00 "
+                      "read back 0x%08x -> %s\n",
+                      okShow ? "acked" : "refused", okChan ? "acked" : "refused", chanPx,
+                      channelOk ? "readback works" : "READBACK UNUSABLE");
+
+                if (!channelOk) {
+                    IOLog(VGPU_FB_TAG ": 2d: VERDICT UNVERIFIED -- BLIT_SCREEN_TO_GMRFB does "
+                          "not return what is on the screen, so fill/copy cannot be measured "
+                          "by readback on this host\n");
+                } else {
+                    // 2. fill arm: draw 160x160 blue at the top-left, read before/after.
+                    const bool capA = capture(0, 0);
+                    const UInt32 fBefore = capA ? at(0, 0) : 0xDEADDEADu;
+                    const UInt32 fCtlBefore = capA ? at(200, 200) : 0xDEADDEADu;
+
+                    UInt32 fl[8];
+                    fl[0] = kSvgaCmdFrontRopFill;
+                    fl[1] = 24;             // {color,x,y,width,height,rop}
+                    fl[2] = 0xFF0000FFu;    // blue (BGRX: low byte = B)
+                    fl[3] = 0;              // x
+                    fl[4] = 0;              // y
+                    fl[5] = 160;            // width
+                    fl[6] = 160;            // height
+                    fl[7] = 0xCC;           // rop = SRCCOPY
+                    const bool okFill = fifoSubmitWords(fifo, fl, 8) && fenceAck(fifo, &_fenceSeq);
+
+                    const bool capB = capture(0, 0);
+                    const UInt32 fAfter = capB ? at(0, 0) : 0xDEADDEADu;
+                    const UInt32 fCtlAfter = capB ? at(200, 200) : 0xDEADDEADu;
+                    IOLog(VGPU_FB_TAG ": 2d: FILL 160x160@(0,0) blue -> %s | readback %s | "
+                          "in 0x%08x -> 0x%08x, ctl 0x%08x -> 0x%08x\n",
+                          okFill ? "acked" : "refused", capB ? "acked" : "refused",
+                          fBefore, fAfter, fCtlBefore, fCtlAfter);
+                    const bool fillDrew = (fAfter == 0xFF0000FFu) && (fAfter != fBefore);
+                    const bool fillCtlHeld = (fCtlAfter == fCtlBefore);
+
+                    // 3. copy arm: move the green block we painted, then read the destination.
+                    UInt32 cp[8];
+                    cp[0] = kSvgaCmdRectCopy;
+                    cp[1] = 24;             // {srcX,srcY,destX,destY,width,height}
+                    cp[2] = kParkX;
+                    cp[3] = kParkY;
+                    cp[4] = kParkX;
+                    cp[5] = kCopyDstY;
+                    cp[6] = kParkW;
+                    cp[7] = kParkW;
+                    const bool okCopy = fifoSubmitWords(fifo, cp, 8) && fenceAck(fifo, &_fenceSeq);
+
+                    const bool capD = capture(kParkX - 24, kCopyDstY - 24);
+                    const UInt32 copyPx = capD ? at(24, 24) : 0xDEADDEADu;
+                    IOLog(VGPU_FB_TAG ": 2d: COPY %ux%u (%u,%u)->(%u,%u) -> %s | dst reads "
+                          "0x%08x (want 0xFF00FF00)\n",
+                          kParkW, kParkW, kParkX, kParkY, kParkX, kCopyDstY,
+                          okCopy ? "acked" : "refused", copyPx);
+                    const bool copyDrew = okCopy && capD && (copyPx == 0xFF00FF00u);
+
+                    IOLog(VGPU_FB_TAG ": 2d: VERDICT fill=%s (ctl %s) copy=%s -- both measured "
+                          "through a verified readback\n",
+                          fillDrew ? "EXECUTED" : "NOT EXECUTED",
+                          fillCtlHeld ? "held" : "ALSO CHANGED",
+                          copyDrew ? "EXECUTED" : "NOT EXECUTED");
+                }
+
+                // Leave the GMRFB where the present path expects it.
+                setGmrfb(_deviceFbOffset, _devicePitch);
+            }
+        }
+    }
+
     // Keep presenting. The first tick fires after one interval; each tick reschedules.
+    //
+    // §53: with the 2D probe on we deliberately do NOT start the periodic re-present. Each
+    // tick re-blits VRAM over the whole screen, which would erase the fill/copy marks
+    // within 33 ms -- far faster than any capture. Leaving the screen static turns one
+    // boot into an unambiguous picture: colour bars (from the blit) + the marks the 2D
+    // engine either drew or did not.
     _presentCall = thread_call_allocate(&vgpuFramebuffer::presentTickC, (thread_call_param_t)this);
     if (_presentCall == nullptr) {
         IOLog(VGPU_FB_TAG ": present: could not allocate the present thread_call\n");
@@ -2406,6 +2618,69 @@ void vgpuFramebuffer::probeC2(thread_call_param_t param0, thread_call_param_t pa
     self->armProbe(self->_probeCall);
 }
 
+//
+// §53: the 2D drawing tick, second shape. The first shape (fill the whole screen green,
+// then a blue marker, then a copy) came back with all three commands FENCED and a screen
+// that had gone uniformly black -- which is exactly the ambiguity this tick exists to
+// remove: "the host executed a black fill" and "the display stopped updating" look the
+// same through a fence. So now every tick starts with the ONE op whose behaviour is
+// already established (§52: BLIT_GMRFB_TO_SCREEN puts VRAM on the screen and a screenshot
+// proves it) and only then adds the two drawing ops:
+//
+//   1. BLIT_GMRFB_TO_SCREEN        -> the colour-bar pattern appears (control)
+//   2. RECT_COPY  200x200 (100,100)->(600,400)
+//   3. FRONT_ROP_FILL 200x200 magenta at (400,100)
+//
+// A capture that shows the bars but neither mark means the 2D engine does not draw; bars
+// plus the magenta block means fill executes; bars plus the block at (600,400) means copy
+// executes. A capture with no bars at all means the present path itself broke this tick.
+//
+void vgpuFramebuffer::probe2DTick(volatile UInt32 *fifo) {
+    const bool verbose = (_presentTicks <= 2) || (_presentTicks % 600 == 0);
+
+    // 1. control: the established present blit, whole screen from the framebuffer GMRFB.
+    UInt32 bs[9];
+    bs[0] = kSvgaCmdBlitGmrfbToScreen;
+    bs[1] = 28;                     // {srcOrigin, destRect, destScreenId}
+    bs[2] = 0; bs[3] = 0;           // srcOrigin
+    bs[4] = 0; bs[5] = 0;           // destRect.left/top
+    bs[6] = _deviceWidth;
+    bs[7] = _deviceHeight;
+    bs[8] = 0;                      // destScreenId
+    const bool okBlit = fifoSubmitWords(fifo, bs, 9) && fenceAck(fifo, &_fenceSeq);
+
+    // 2. copy arm: a 200x200 block from the middle of the bars to an empty-ish area.
+    UInt32 cp[8];
+    cp[0] = kSvgaCmdRectCopy;
+    cp[1] = 24;                     // {srcX,srcY,destX,destY,width,height}
+    cp[2] = 100;
+    cp[3] = 100;
+    cp[4] = 600;
+    cp[5] = 400;
+    cp[6] = 200;
+    cp[7] = 200;
+    const bool okCopy = fifoSubmitWords(fifo, cp, 8) && fenceAck(fifo, &_fenceSeq);
+
+    // 3. fill arm: magenta, deliberately a colour no bar and no desktop widget holds.
+    UInt32 fl[8];
+    fl[0] = kSvgaCmdFrontRopFill;
+    fl[1] = 24;                     // {color,x,y,width,height,rop}
+    fl[2] = 0xFFFF00FFu;            // magenta (BGRX: low byte = B)
+    fl[3] = 400;
+    fl[4] = 100;
+    fl[5] = 200;
+    fl[6] = 200;
+    fl[7] = 0xCC;                   // rop = SRCCOPY
+    const bool okFill = fifoSubmitWords(fifo, fl, 8) && fenceAck(fifo, &_fenceSeq);
+
+    if (verbose) {
+        IOLog(VGPU_FB_TAG ": 2d: LOOP tick %u -- blit control %s, copy %s, magenta fill %s "
+              "(bars without marks = the 2D engine does not draw)\n",
+              _presentTicks, okBlit ? "acked" : "refused", okCopy ? "acked" : "refused",
+              okFill ? "acked" : "refused");
+    }
+}
+
 void vgpuFramebuffer::presentTick(void) {
     //
     // §38.19: the heartbeat goes FIRST, before every early return below. The whole point is
@@ -2415,6 +2690,16 @@ void vgpuFramebuffer::presentTick(void) {
     // the present path below is reachable.
     //
     _presentTicks++;
+    // §53: with kProbe2D the tick's only job is to DRAW with the 2D engine, so the screen
+    // keeps showing the result and a capture any time after the first tick is meaningful.
+    // (An earlier design drew once at load and disabled the timer; the fill then had to be
+    // caught before WindowServer repainted, which is not a race worth running.)
+    if (kProbe2D) {
+        if (_presentFifo != nullptr) {
+            probe2DTick(_presentFifo);
+        }
+        return;
+    }
     // The heartbeat is NOT here: see startRpcHeartbeat(). It rides its own thread_call
     // because presentTick can stall for tens of seconds (measured, §38.19).
     if (_dxBusy) {

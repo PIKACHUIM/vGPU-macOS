@@ -152,8 +152,20 @@ fi
 
 else
 echo "kGbStage != 5 -> STDU markers retired, requiring the legacy screen-object path"
-MARKERS="screen-object present path is UP
+MARKERS="screen-object present path is UP"
+# §53: kProbe2D deliberately skips the periodic re-present so the screen stays static for
+# capture, which makes that log line unreachable -- require it only when the probe is off.
+if sw kProbe2D 1; then
+    echo "kProbe2D = 1 -> periodic present deliberately absent; 2D probe markers required"
+    MARKERS="$MARKERS
+2d: LOOP
+2d: scratch
+2d: CHANNEL
+2d: VERDICT"
+else
+    MARKERS="$MARKERS
 periodic re-present started"
+fi
 fi
 
 # §47: the VRAM control arm. Its whole value is that the capture shows a colour the
