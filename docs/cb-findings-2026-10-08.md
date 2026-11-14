@@ -5056,3 +5056,110 @@ probe() 里做模式设置  ->  SVGA_REG_ENABLE 去 HIDE  ->  客人 WindowServe
 
 所以 Level-2 的准确表述变成：**能做出一个 2D 加速的显示驱动（copy 可用），
 做不出 Metal/IOAccelerator。** 前者是这次可以交付的边界。
+
+## §55 Metal / OpenGL 的真实门槛（2026-11-15）
+
+用户目标改成"直到 Metal/OpenGL 可用"，并给了两个参考仓库。这一节是**测量结果**，
+不是判断：先问死"缺什么"，再说"能不能补"。
+
+### 55.1 现状：有显示、没有加速器
+
+```
+system_profiler SPDisplaysDataType:
+    VMware SVGA 3D GPU   Device ID 0x0405   Vendor 0x15ad   VRAM 3 MB
+ioreg -rc IOAccelerator -> 空
+kextstat | grep IOGraphics -> 只有 com.apple.iokit.IOGraphicsFamily
+```
+
+显示器是我们驱动的 framebuffer；**系统里没有任何 IOAccelerator 实例**。
+
+### 55.2 Metal：0 个设备
+
+`kexts/probes/metal_probe.m`（`MTLCopyAllDevices` + `MTLCreateSystemDefaultDevice`）：
+
+```
+MTLCopyAllDevices count = 0
+MTLCreateSystemDefaultDevice = nil  -> Metal has NO device
+```
+
+原因不是"没注册"，而是系统里现成的 Metal 驱动**没有一个匹配我们的 PCI ID**：
+
+| 驱动 | 匹配条件 | 能用吗 |
+|---|---|---|
+| `AppleParavirtGPUIOGPUFamily` | `IONameMatch = paravirtualizedgraphics,gpu`，`IOProviderClass = AppleARMIODevice` | ❌ 只在 Apple Silicon + Virtualization.framework 下存在 |
+| `AGXG13/14/15/16*.kext` | Apple Silicon 内置 GPU | ❌ |
+| `AppleIntel*Graphics.kext` | 具体 Intel iGPU 的 PCI ID | ❌ 我们是 0x15ad:0x0405 |
+
+### 55.3 OpenGL：只有软件渲染器，但它是真的
+
+`kexts/probes/gl_probe.c`（CGL + FBO 画一个三角形再读回像素）：
+
+```
+software: RENDERER=Apple Software Renderer
+software: VENDOR=Apple Inc. VERSION=2.1 APPLE-21.1.1 GLSL=1.20
+software: triangle centre pixel = 255,0,0,255 -> OPENGL RASTERISES
+default:  CGLChoosePixelFormat failed (invalid CoreGraphics connection)
+accelerated: 同上
+```
+
+* 软件渲染器**能出像素**（不是只返回一个字符串）；
+* 上限是 **GL 2.1 / GLSL 1.20**（Apple Software Renderer 的固有限制，没有 3.2 core）；
+* 后两行失败是**会话问题不是能力问题**：SSH 里没有 WindowServer 连接（CGS），
+  要判"加速路径能不能建上下文"必须在已登录的 Aqua 会话里跑。
+
+### 55.4 为什么你给的两个参考都补不上这个缺口
+
+**MoltenVK** 是 Vulkan → **Metal**。它要求先有一个可用的 Metal 设备；§55.2 是 0 个。
+它是 Metal 的下游，不能替代 Metal。而 Vulkan 自己若要在本机落地，还得有一份针对
+SVGA 的 Vulkan 驱动，底层又回到 §51 判定缺席的 3D 派发器。
+
+**nullmoth/nvidia-macos-driver**（读它的 HOW-IT-WORKS 与安装要求）：
+
+```
+Metal app -> NVMTLDriver.bundle -> (Apple AIR -> SPIR-V) -> NVK(Mesa Vulkan) -> NVRM/NVAccel kexts -> NVIDIA GPU
+```
+
+它是**真的 Metal 驱动**，但四个前提我们一个都不满足：
+
+1. 硬件必须是 NVIDIA Turing 及以后（GTX16/RTX20~50）；我们的"GPU"是 VMware SVGA；
+2. 内核侧复用的是 **NVIDIA 自己的开源 GPU 内核模块 r610** —— 没有 NVIDIA 硬件就没有可用内核侧；
+3. 需要 OpenCore + `csr-active-config 0x0A43` + `amfi=0x80` 等引导层改动（我们是 VMware 引导）；
+4. 它的 `NVAccel` 里是与 NVIDIA 显存/GPUVA ABI 强绑定的实现（`nvrm_vram_abi.h`）。
+
+它对我们的价值是**架构参考**：一个 Metal 驱动 = ①发布 `MetalPluginName` 的
+IOAccelerator kext + ②实现 Metal 驱动 ABI 的用户态 bundle + ③AIR→后端 IR 的翻译器
++ ④能真正执行着色器的内核后端。第 ④ 项在本宿主不存在。
+
+至于"改成支持 DX 的驱动"：DX 命令最终也要落到同一套执行后端上（§51：3D 派发器缺席），
+所以它不是一条替代路径，而是同一个缺口的另一种说法。
+
+### 55.5 一次 panic，以及它说明的事
+
+在已登录桌面里启动一个 GL 窗口程序（`kexts/probes/gl_window.m`）时客体 panic
+（`Kernel-2026-11-15-010713.panic`，01:07）：
+
+```
+Panic(CPU 0): NMIPI for spinlock acquisition timeout
+Ticket spinlock timeout after 54067273133 ticks ... current owner: kernel_task (on CPU 0)
+Panicked task: pid 188 contextstored
+```
+
+与 §50 那次 `0x3040` 页错误**不是同一个签名**（11-13 两次都是
+`Kernel trap ... type = 14=page fault`）。这次是**CPU 0 持锁 54 秒不释放**，
+落在内核地址（`0xffffff800e...`），不在我们的 kext 里。
+
+归因还没做，如实记下：可能是宿主侧 mks 停顿导致我们的同步 FIFO/RPC 调用长时间不返回，
+也可能是纯负载（当时 load average 11）。**在继续加功能前，这条稳定性问题排在前面。**
+
+### 55.6 结论
+
+| 目标 | 状态 | 依据 |
+|---|---|---|
+| 显示（framebuffer） | ✅ | §54.4 登录界面 + 桌面 |
+| OpenGL（软件） | ✅ 可用，上限 GL 2.1 | §55.3 |
+| OpenGL（硬件加速） | ❌ 需要 GL 驱动 + IOAccelerator | §55.2 |
+| Metal | ❌ 0 个设备，且无匹配驱动 | §55.2 |
+| Metal via 自研驱动 | ❌ 需要 ④ 执行后端，本宿主没有 | §51 + §55.4 |
+
+**一句话**：这台虚拟机可以提供"能显示、能软件渲染 GL 2.1"的图形栈；Metal 缺的不是
+配置项，而是一台有 3D 执行后端的设备。

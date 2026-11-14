@@ -160,7 +160,8 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 | L1 | SVGA3D 的 **DX 命令流真正执行出像素** | ❌ 本宿主不可达，已问死 | §51：连最简 `SET_TOPOLOGY` 都在 byte 0 被拒，legacy `3D_CMD_CLEAR` 同样被拒 ⇒ 3D 派发器缺席 |
 | L1' | 退一步：**像素通路可用**（2D），且由驱动自证 | ✅ 已交付 | §52 色带/白框/棋盘截图 + 登录界面截图 |
 | L2a | **2D 加速的显示驱动**（copy/blit 加速） | ✅ 可达，且下层已实测 | §54.2：`RECT_COPY` 逐位正确；blit 可用；fill 不可用 |
-| L2b | **Metal / IOAccelerator** | ⛔ 不可实现（本宿主） | §51 无 3D 派发 ⇒ 没有三角形光栅化与着色器可站 |
+| L2b | **Metal / IOAccelerator** | ⛔ 不可实现（本宿主） | §55.2 `MTLCopyAllDevices == 0`；系统里没有匹配 0x15ad:0x0405 的 Metal 驱动 |
+| L2c | **OpenGL（软件渲染 GL 2.1）** | ✅ 可用 | §55.3 `Apple Software Renderer`，FBO 三角形读回 255,0,0,255 |
 
 > L2 的准确表述：**下层有一个真能跑的拷贝引擎，但没有任何 3D 光栅化。**
 > 所以能做 2D 加速的显示驱动，做不出 Metal。要重开 L2b，前提是换宿主/客体档案，
