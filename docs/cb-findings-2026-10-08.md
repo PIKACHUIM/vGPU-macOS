@@ -4939,3 +4939,120 @@ v3 实测（`kProbe2D = 1`，`2d: scratch` / `2d: CHANNEL` 两行）：
 
 复现方式：`kProbe2D = 1` 重启，等 `2d: LOOP tick` 出现后任意时刻 VNC 截图，
 对照 §53.3 的四行判据。出货配置已恢复 `kProbe2D = 0`。
+
+## §54 撤回 §53 的一半：2D 引擎的 `RECT_COPY` **是**能用的（2026-11-14 深夜）
+
+§53 的结论有一半是错的，原因是我把命令线格式写错了。这一节记撤回、以及撤回之后
+重新测出来的东西 —— 后者比原来的错误结论重要得多。
+
+### 54.1 错在哪：多了一个「长度字」
+
+`svga_reg.h` 里有一类命令的**第一个字段就是 `size`**（`SVGAFifoCmdDefineGMRFB`、
+`SVGAFifoCmdDefineScreen` 里的 `SVGAScreenObject.structSize`、`SVGAFifoCmdEscape`），
+也有另一类**完全没有 size 字段**：
+
+```c
+typedef struct { uint32 color, x, y, width, height, rop; } SVGAFifoCmdFrontRopFill;
+typedef struct { uint32 srcX, srcY, destX, destY, width, height; } SVGAFifoCmdRectCopy;
+typedef struct { uint32 x, y, width, height; } SVGAFifoCmdUpdate;
+```
+
+我按前者的习惯给后三者各塞了一个长度字（`24` / `24` / `12`），于是宿主把它们解析成：
+
+```
+发出的:  [3][24][100][100][600][400][200][200]
+宿主读到: RECT_COPY{srcX=24, srcY=100, destX=100, destY=600, w=400, h=200}
+```
+
+也就是一条**完全合法的、被正常执行了的**拷贝，只是矩形不是我要的那个。而
+`FRONT_ROP_FILL` 因为 `x` 收到 `0xFFFF00FF` 被裁掉，看起来像"无效果"。
+
+**证据在截图上就能量出来**（`docs/shots/2026-11-14-2d-ctl-b.png`，§53 那张"判决"图）。
+逐行找颜色边界：
+
+```
+y = 590 之前:  白|黄 在 x=128, 黄|青 在 256, 青|绿 在 384   （正常色带）
+y = 610 之后:  白|黄 在 x=204, 黄|青 在 332, 青|绿 在 460   （+76）
+而 x ≥ 512 的边界不动
+```
+
++76 = `destX(100) - srcX(24)`，只影响 `destX .. destX+400 = 100..500`。这与
+`RECT_COPY{24,100,100,600,400,200}` 的预测**逐像素吻合**，而我当时把它当成
+"scratch 步距错位"解释过去了 —— 这是本轮最该早一步抓住的地方：
+**截图里已经写着答案，我却用了另一个更复杂的假设。**
+
+### 54.2 正确的线格式下重测（legacy 寄存器模式，纯数值）
+
+`kProbe2D = 2`：不定义 screen object、不发 blit，直接在 FB 上测，判据全部来自 VRAM 回读：
+
+```
+2d2: COPY 100x100 (160,100)->(400,400) -> acked | src 0xffffff00, dst 0xff00ff00 -> 0xffffff00
+2d2: FILL rop 0xcc 100x100@(600,500) -> acked | 0xffff00ff -> 0xffff00ff
+2d2: FILL rop 0xf0 100x100@(720,500) -> acked | 0xffff0000 -> 0xffff0000
+2d2: FILL rop 0x00 100x100@(840,500) -> acked | 0xff0000ff -> 0xff0000ff
+2d2: FILL rop 0xff 100x100@(600,620) -> acked | 0xffff00ff -> 0xffff00ff
+2d2: VERDICT copy=EXECUTED fill=NOT EXECUTED (4 rop encodings, no change)
+```
+
+| 能力 | 结论 | 判据 |
+|---|---|---|
+| `RECT_COPY`(3) | ✅ **执行** | 目标像素 `0xff00ff00 → 0xffffff00`，与源像素**逐位相同**；目标原值不同，排除"本来就是这个色" |
+| `FRONT_ROP_FILL`(29) | ❌ 不写内存 | 四种 rop（`0xCC` SRCCOPY / `0xF0` PATCOPY / `0x00` BLACKNESS / `0xFF` WHITENESS）四个不同矩形，前后全部一致 |
+| `UPDATE`(1) | acked | 五字格式 `[1][x][y][w][h]`，无长度字 |
+
+顺带修掉一个判据 bug：上一次我把"拷贝成功"写成 `dst == 0xFFFF00FF`（我**以为**
+fill 会画出的洋红），而实际源像素是黄色 —— 日志里那行 `0xff00ff00 -> 0xffffff00`
+明明已经证明拷贝成功，结论却写成 NOT EXECUTED。**期望值必须从被测内存里读出来，
+不能从"我以为"里读。**
+
+### 54.3 更重要的意外：显示**根本不需要** screen object
+
+`kProbe2D = 2` 这一轮在 `DEFINE_SCREEN` 之前就 `return` 了，也就是说：
+
+* 没有 `DEFINE_SCREEN`、没有 `DEFINE_GMRFB`、没有 `BLIT_GMRFB_TO_SCREEN`；
+* 没有 present 定时器，一个 tick 都没有；
+
+而屏幕上是**完整的 macOS 登录界面**（壁纸、时钟、用户名、密码框、鼠标指针），
+截图见 `docs/shots/2026-11-14-legacy-noscreen.png`。
+
+所以 §47 的因果归因是错的：
+
+> 显示能工作，靠的是宿主**直接扫描输出 BAR1 上 `FB_OFFSET` 处、按 `BYTES_PER_LINE`
+> 排布的那块内存**（寄存器模式）。screen object 与全屏 blit 从来不是显示的前提。
+
+这解释了之前几件一直没归位的事实：为什么"色带"能出现在屏幕上（它们就在被扫描的
+内存里）、为什么 WindowServer 一画就把它们盖掉（同一个缓冲区）、以及为什么 §47 的
+A/B 里那些"没画面"的配置其实是被别的开关（模式设置/ENABLE）弄坏的。
+
+### 54.4 出货配置随之简化
+
+既然 blit 与 screen object 都不是显示的前提，它们只剩成本：每 33 ms 一次全屏 FIFO
+提交，把客人内存重新推一遍。新增开关 `kSkipScreenObject = 1` 后，驱动退化成一台
+**纯 framebuffer**：
+
+```
+probe() 里做模式设置  ->  SVGA_REG_ENABLE 去 HIDE  ->  客人 WindowServer 直接画进 VRAM
+                                                      ->  宿主自己扫描输出
+```
+
+不再发 `DEFINE_SCREEN`/`DEFINE_GMRFB`/`BLIT_GMRFB_TO_SCREEN`，不再有 present 定时器
+（心跳仍在，它本来就是独立的 thread_call）。验证：重启后登录界面出现并**持续存在**。
+
+### 54.5 对 Level-2 的重新评估
+
+§53.4 说"2D 引擎只提供传输、没有绘制"，现在要改成分级结论：
+
+| 需要的原语 | 状态 |
+|---|---|
+| blit GMRFB→屏幕 | 可用（其实连它都不必要，宿主自己扫） |
+| **屏幕内矩形复制 `RECT_COPY`** | ✅ **可用**（数值判据） |
+| 纯色填充 `FRONT_ROP_FILL` | ❌ 四种 rop 都无效 |
+| 3D 三角形 | ❌ 派发器缺席（§51） |
+| 屏幕回读 | ❌ 只写（§53.2） |
+
+也就是说下层**有**一个真能跑的拷贝引擎。它够做滚动、够做窗口搬移、够做
+"memcpy 一次 + 一次 RECT_COPY" 的合成，但**不够做 Metal**：Metal 的核心是三角形
+光栅化与着色器，那仍然只能来自 §51 判定缺席的 3D 派发器。
+
+所以 Level-2 的准确表述变成：**能做出一个 2D 加速的显示驱动（copy 可用），
+做不出 Metal/IOAccelerator。** 前者是这次可以交付的边界。

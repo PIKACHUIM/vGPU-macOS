@@ -152,7 +152,17 @@ fi
 
 else
 echo "kGbStage != 5 -> STDU markers retired, requiring the legacy screen-object path"
-MARKERS="screen-object present path is UP"
+# §53 mode 2 returns before DEFINE_SCREEN on purpose (that is the whole point of the
+# experiment: no screen object, legacy front buffer), so this marker is legitimately
+# unreachable there and the guard must not demand it.
+if sw kProbe2D 2; then
+    MARKERS="2d2: VERDICT"
+elif sw kSkipScreenObject 1; then
+    # §53: shipping config -- plain framebuffer, so the screen-object line is gone on purpose.
+    MARKERS="plain register-mode framebuffer"
+else
+    MARKERS="screen-object present path is UP"
+fi
 # §53: kProbe2D deliberately skips the periodic re-present so the screen stays static for
 # capture, which makes that log line unreachable -- require it only when the probe is off.
 if sw kProbe2D 1; then
@@ -162,6 +172,14 @@ if sw kProbe2D 1; then
 2d: scratch
 2d: CHANNEL
 2d: VERDICT"
+elif sw kProbe2D 2; then
+    echo "kProbe2D = 2 -> legacy numeric 2D probe; its markers are required"
+    MARKERS="$MARKERS
+2d2: COPY
+2d2: FILL rop
+2d2: VERDICT"
+elif sw kSkipScreenObject 1; then
+    echo "kSkipScreenObject = 1 -> no present timer by design, marker not required"
 else
     MARKERS="$MARKERS
 periodic re-present started"

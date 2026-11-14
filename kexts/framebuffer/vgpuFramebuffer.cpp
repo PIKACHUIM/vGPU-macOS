@@ -846,14 +846,30 @@ static const UInt32 kStduVramControl = 0;
 // that the pitch/first-row values read back from the device are the ones the host uses.
 // This is the 2D deliverable that survives §51's finding (no 3D dispatch on this host).
 // Turn it off once there is real guest content to show -- it covers the whole screen.
-static const UInt32 kPaintTestPattern = 1;
+static const UInt32 kPaintTestPattern = 0;
 
-// kProbe2D (§53): Level-2 feasibility. With §51 closing the 3D dispatcher, the only
-// lower layer an accelerator could use is the 2D engine. This fills a blue rectangle and
-// copies a band of it with SVGA_CMD_FRONT_ROP_FILL / SVGA_CMD_RECT_COPY -- both draw on
-// the SCREEN -- and suspends the periodic re-present so the result stays capturable.
-// Off by default: it leaves the guest's screen static.
+// kProbe2D (§53): Level-2 feasibility. With §51 closing the 3D dispatcher, the only lower
+// layer an accelerator could use is the 2D engine. Mode 1 draws on the SCREEN object and is
+// judged by screenshot; mode 2 does the same test in LEGACY register mode, where the
+// framebuffer itself is the front buffer -- so fill/copy land in memory the CPU can read,
+// and the verdict stops depending on a capture at all.
+//   0 = off (shipping)
+//   1 = screen-object tick: blit control + copy + magenta fill, judged by screenshot
+//   2 = legacy numeric: fill/copy read back from VRAM, no screen object defined
 static const UInt32 kProbe2D = 0;
+
+// kSkipScreenObject (§53): ship the plain register-mode framebuffer.
+//
+// Measured 2026-11-14: with kProbe2D = 2 the driver returned BEFORE DEFINE_SCREEN /
+// DEFINE_GMRFB / BLIT_GMRFB_TO_SCREEN, issued none of them, armed no present timer -- and
+// the macOS login screen appeared and stayed up (docs/shots/2026-11-14-legacy-noscreen.png).
+// So the host scans out BAR1 at FB_OFFSET on its own; the screen object and the 33 ms
+// full-screen blit were never what made the display work, and the blit was re-pushing
+// guest memory over the screen 30 times a second for nothing.
+//
+// With this on, the driver is a pure framebuffer: mode set in probe(), un-hide via
+// SVGA_REG_ENABLE, then the guest's own WindowServer draws into VRAM and the host scans it.
+static const UInt32 kSkipScreenObject = 1;
 
 // ---------------------------------------------------------------------------
 // kStduFlat -- the §38.12 isolation experiment.
@@ -1276,6 +1292,7 @@ private:
     void presentSetup(volatile UInt32 *fifo);
     void presentTick(void);
     void probe2DTick(volatile UInt32 *fifo);   // §53: the 2D-only drawing tick
+    void legacy2DTest(volatile UInt32 *fifo);  // §53 mode 2: 2D engine in legacy register mode
     static void presentTickC(thread_call_param_t param0, thread_call_param_t param1);
     void schedulePresent(void);
     thread_call_t _presentCall = nullptr;
@@ -2204,6 +2221,23 @@ void vgpuFramebuffer::presentSetup(volatile UInt32 *fifo) {
               vram[(IOByteCount)(vh - 1) * vw + _deviceWidth - 1]);
     }
 
+    // §53: ship the plain framebuffer (see kSkipScreenObject). Everything below -- the
+    // screen object, the GMRFB, the blit, the present timer -- measured as unnecessary.
+    if (kSkipScreenObject) {
+        IOLog(VGPU_FB_TAG ": present: plain register-mode framebuffer -- no DEFINE_SCREEN, no "
+              "GMRFB, no blit, no present timer (the host scans out BAR1 itself)\n");
+        return;
+    }
+
+    // §53 mode 2: measure the 2D engine in LEGACY register mode, where the front buffer IS
+    // the framebuffer at FB_OFFSET -- so whatever fill/copy do is readable from guest memory
+    // and the verdict needs no screenshot. Deliberately BEFORE DEFINE_SCREEN: defining a
+    // screen object is what turned fill/copy into no-ops in mode 1.
+    if (kProbe2D == 2) {
+        legacy2DTest(fifo);
+        return;
+    }
+
     // DEFINE_SCREEN: SVGAScreenObject v1 -- structSize=28 (no backingStore field; it is
     // optional with SVGA_FIFO_CAP_SCREEN_OBJECT, which this host advertises).
     words[0] = kSvgaCmdDefineScreen;
@@ -2650,28 +2684,26 @@ void vgpuFramebuffer::probe2DTick(volatile UInt32 *fifo) {
     const bool okBlit = fifoSubmitWords(fifo, bs, 9) && fenceAck(fifo, &_fenceSeq);
 
     // 2. copy arm: a 200x200 block from the middle of the bars to an empty-ish area.
-    UInt32 cp[8];
-    cp[0] = kSvgaCmdRectCopy;
-    cp[1] = 24;                     // {srcX,srcY,destX,destY,width,height}
+    UInt32 cp[7];
+    cp[0] = kSvgaCmdRectCopy;       // {srcX,srcY,destX,destY,width,height} -- no size word
+    cp[1] = 100;
     cp[2] = 100;
-    cp[3] = 100;
-    cp[4] = 600;
-    cp[5] = 400;
+    cp[3] = 600;
+    cp[4] = 400;
+    cp[5] = 200;
     cp[6] = 200;
-    cp[7] = 200;
-    const bool okCopy = fifoSubmitWords(fifo, cp, 8) && fenceAck(fifo, &_fenceSeq);
+    const bool okCopy = fifoSubmitWords(fifo, cp, 7) && fenceAck(fifo, &_fenceSeq);
 
     // 3. fill arm: magenta, deliberately a colour no bar and no desktop widget holds.
-    UInt32 fl[8];
-    fl[0] = kSvgaCmdFrontRopFill;
-    fl[1] = 24;                     // {color,x,y,width,height,rop}
-    fl[2] = 0xFFFF00FFu;            // magenta (BGRX: low byte = B)
-    fl[3] = 400;
-    fl[4] = 100;
+    UInt32 fl[7];
+    fl[0] = kSvgaCmdFrontRopFill;   // {color,x,y,width,height,rop} -- no size word either
+    fl[1] = 0xFFFF00FFu;            // magenta (BGRX: low byte = B)
+    fl[2] = 400;
+    fl[3] = 100;
+    fl[4] = 200;
     fl[5] = 200;
-    fl[6] = 200;
-    fl[7] = 0xCC;                   // rop = SRCCOPY
-    const bool okFill = fifoSubmitWords(fifo, fl, 8) && fenceAck(fifo, &_fenceSeq);
+    fl[6] = 0xCC;                   // rop = SRCCOPY
+    const bool okFill = fifoSubmitWords(fifo, fl, 7) && fenceAck(fifo, &_fenceSeq);
 
     if (verbose) {
         IOLog(VGPU_FB_TAG ": 2d: LOOP tick %u -- blit control %s, copy %s, magenta fill %s "
@@ -2679,6 +2711,98 @@ void vgpuFramebuffer::probe2DTick(volatile UInt32 *fifo) {
               _presentTicks, okBlit ? "acked" : "refused", okCopy ? "acked" : "refused",
               okFill ? "acked" : "refused");
     }
+}
+
+//
+// §53 mode 2: the same fill/copy question, asked in LEGACY register mode.
+//
+// Mode 1 proved that with a screen object defined, FRONT_ROP_FILL and RECT_COPY are fenced
+// and then have no effect on what is displayed. That leaves one explanation untested: in
+// screen-object mode there is no "front buffer" to draw into, so the commands may be
+// discarded as inapplicable rather than unimplemented. Legacy register mode is where they
+// were designed to work -- the front buffer there IS the framebuffer at FB_OFFSET, which
+// means the result lands in memory this driver can read. That makes the verdict NUMERIC
+// and independent of any capture:
+//
+//   vram[y][x] before  -> known pattern colour (painted by kPaintTestPattern)
+//   FRONT_ROP_FILL magenta over a 160x160 rect
+//   vram[y][x] after   -> magenta means the fill EXECUTED (nothing else writes that colour)
+//   RECT_COPY that rect elsewhere -> destination reads magenta means the copy EXECUTED
+//   a control pixel outside both rects must be unchanged
+//
+// It also submits SVGA_CMD_UPDATE (the legacy "I dirtied this region, scan it out"), which
+// is what a real framebuffer driver would use instead of a 33 ms full-screen blit.
+//
+void vgpuFramebuffer::legacy2DTest(volatile UInt32 *fifo) {
+    if (_vramMap == nullptr) {
+        IOLog(VGPU_FB_TAG ": 2d2: no VRAM mapping, cannot measure\n");
+        return;
+    }
+    volatile UInt32 *vram = (volatile UInt32 *)_vramMap->getVirtualAddress();
+    const UInt32 vw = (UInt32)(_devicePitch / 4);
+
+    // ---- arm 1: RECT_COPY, with the expectation taken from the memory itself ----
+    //
+    // The first version of this test compared the destination against a hard-coded magenta
+    // and therefore reported "NOT EXECUTED" while the log line right next to it showed the
+    // destination had changed from green to exactly the source colour. Never compare
+    // against a colour the test did not observe: read the source pixel first, then require
+    // the destination to equal THAT.
+    const UInt32 kSrcX = 160, kSrcY = 100, kDstX = 400, kDstY = 400, kCopyW = 100;
+    const UInt32 srcPx = vram[(IOByteCount)kSrcY * vw + kSrcX];
+    const UInt32 dstBefore = vram[(IOByteCount)kDstY * vw + kDstX];
+
+    UInt32 cp[7];
+    cp[0] = kSvgaCmdRectCopy;       // {srcX,srcY,destX,destY,width,height} -- no size word
+    cp[1] = kSrcX;
+    cp[2] = kSrcY;
+    cp[3] = kDstX;
+    cp[4] = kDstY;
+    cp[5] = kCopyW;
+    cp[6] = kCopyW;
+    const bool okCopy = fifoSubmitWords(fifo, cp, 7) && fenceAck(fifo, &_fenceSeq);
+    __asm__ volatile ("" ::: "memory");
+    const UInt32 dstAfter = vram[(IOByteCount)kDstY * vw + kDstX];
+    IOLog(VGPU_FB_TAG ": 2d2: COPY %ux%u (%u,%u)->(%u,%u) -> %s | src 0x%08x, dst "
+          "0x%08x -> 0x%08x\n",
+          kCopyW, kCopyW, kSrcX, kSrcY, kDstX, kDstY, okCopy ? "acked" : "refused",
+          srcPx, dstBefore, dstAfter);
+    const bool copyExecuted = (dstAfter == srcPx) && (dstBefore != srcPx);
+
+    // ---- arm 2: FRONT_ROP_FILL, swept over the plausible ROP3 encodings ----
+    //
+    // The payload is now byte-correct (no length word), so a fill that still does nothing
+    // is a real negative. The only remaining variable is the rop byte: 0xCC is GDI
+    // SRCCOPY, 0xF0 is PATCOPY, 0x00 BLACKNESS, 0xFF WHITENESS. Each attempt gets its own
+    // rect so one success cannot hide behind another, and each is read back immediately.
+    static const UInt32 rops[4] = { 0xCC, 0xF0, 0x00, 0xFF };
+    static const UInt32 rectX[4] = { 600, 720, 840, 600 };
+    static const UInt32 rectY[4] = { 500, 500, 500, 620 };
+    UInt32 fillHits = 0;
+    for (UInt32 i = 0; i < 4; i++) {
+        const UInt32 px = vram[(IOByteCount)rectY[i] * vw + rectX[i]];
+        UInt32 fl[7];
+        fl[0] = kSvgaCmdFrontRopFill;   // {color,x,y,width,height,rop} -- no size word
+        fl[1] = 0xFFFF00FFu;            // magenta
+        fl[2] = rectX[i];
+        fl[3] = rectY[i];
+        fl[4] = 100;
+        fl[5] = 100;
+        fl[6] = rops[i];
+        const bool ok = fifoSubmitWords(fifo, fl, 7) && fenceAck(fifo, &_fenceSeq);
+        __asm__ volatile ("" ::: "memory");
+        const UInt32 after = vram[(IOByteCount)rectY[i] * vw + rectX[i]];
+        IOLog(VGPU_FB_TAG ": 2d2: FILL rop 0x%02x 100x100@(%u,%u) -> %s | 0x%08x -> 0x%08x\n",
+              rops[i], rectX[i], rectY[i], ok ? "acked" : "refused", px, after);
+        if (after != px) {
+            fillHits++;
+        }
+    }
+
+    IOLog(VGPU_FB_TAG ": 2d2: VERDICT copy=%s fill=%s -- measured in VRAM, no DEFINE_SCREEN "
+          "and no blit issued in this mode\n",
+          copyExecuted ? "EXECUTED" : "NOT EXECUTED",
+          fillHits > 0 ? "EXECUTED" : "NOT EXECUTED (4 rop encodings, no change)");
 }
 
 void vgpuFramebuffer::presentTick(void) {
@@ -2694,7 +2818,7 @@ void vgpuFramebuffer::presentTick(void) {
     // keeps showing the result and a capture any time after the first tick is meaningful.
     // (An earlier design drew once at load and disabled the timer; the fill then had to be
     // caught before WindowServer repainted, which is not a race worth running.)
-    if (kProbe2D) {
+    if (kProbe2D == 1) {
         if (_presentFifo != nullptr) {
             probe2DTick(_presentFifo);
         }
