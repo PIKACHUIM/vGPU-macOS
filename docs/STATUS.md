@@ -148,26 +148,27 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 `validSizeInBytes` 0/128/4096、`surfaceFlags` 有无 `BIND_RENDER_TARGET`、
 字段顺序/`cmdSize`/`desc`、单发 vs 批量、`dxContext` 字段。
 
-⇒ **`DEFINE_RTV` 在本宿主上无法成功**，§29 起的这条主线判定不可达。
+> §65更正：以下为历史判决，不能外推为DX渲染不可达。旧测试遗漏typed视图格式及surface的ms/mobPitch约束；现在经COTable懒加载已成功绑定RTV、清屏并读回绿色像素。显式DEFINE_RTV需另行复测。
+
+当时判定：**`DEFINE_RTV` 在本宿主上无法成功**，§29 起的这条主线判定不可达。
 `cb-findings` §30.2 / §31.3 / §32.2 三条中间结论已撤回，不要引用。
 
 ## 当前开放问题
 
-> 最后更新：2026-11-15 夜间（§65：DX RTV绑定、清屏及读回成功，首/中像素均为预期绿色；完整像素复测待完成）
+> 最后更新：2026-11-15 夜间（§66：DX清屏读回全65536像素校验通过；后续DX命令完成，两次独立启动成功）
 
 ### 两级目标的最终状态（11-15 夜间修订）
 
 | 级 | 目标 | 状态 | 依据 |
 |---|---|---|---|
-| L1 | SVGA3D 的 **DX 命令流真正执行出像素** | 已取得清屏像素证据，待完整复测 | §65：surface/RTV142、ms0、mobPitch0；RTV绑定/CLEAR/READBACK完成，首/中像素0xff00ff00；尾部探索探针仍失败 |
+| L1 | SVGA3D 的 **DX 命令流真正执行出像素** | 清屏读回门槛已达成 | §65/§66两次启动成功；§66全65536像素0xff00ff00、mismatches0，后续DX状态命令完成；三角形绘制待验证 |
 | L1' | 退一步：**像素通路可用**（2D），且由驱动自证 | ✅ 已交付 | §52 色带/白框/棋盘截图 + 登录界面截图 |
 | L2a | **2D 加速的显示驱动**（copy/blit 加速） | ✅ 可达，且下层已实测 | §54.2：`RECT_COPY` 逐位正确；blit 可用；fill 不可用 |
-| L2b | **Metal / IOAccelerator** | ⛔ 不可实现（本宿主） | §55.2 `MTLCopyAllDevices == 0`；系统里没有匹配 0x15ad:0x0405 的 Metal 驱动 |
+| L2b | **Metal / IOAccelerator** | 尚未实现；继续研究 | §55.2实测无Metal设备；§65已打通底层DX清屏，不能再据旧派发失败断言不可实现；仍缺完整渲染及macOS加速驱动接口 |
 | L2c | **OpenGL（软件渲染 GL 2.1）** | ✅ 可用 | §55.3 `Apple Software Renderer`，FBO 三角形读回 255,0,0,255 |
 
-> L2 的准确表述：**下层有一个真能跑的拷贝引擎，但没有任何 3D 光栅化。**
-> 所以能做 2D 加速的显示驱动，做不出 Metal。要重开 L2b，前提是换宿主/客体档案，
-> 见 §53.4 的三条。
+> §65纠正：下层已有DX渲染目标清屏和像素读回证据；三角形光栅化、shader、资源上传及macOS应用级接口仍待实现。
+> `MTLCopyAllDevices == 0` 只说明当前无可用Metal驱动，不能证明自研驱动不可实现；不再将换宿主列为唯一前提。
 
 ### P0'：显示已经可用，接下来（11-12 起）
 1. **分辨率锁在 1024x768**：VRAM 只有 4 MB（`gfbSize` 写在 `vmware-vmx.exe 0x14050aa98`），

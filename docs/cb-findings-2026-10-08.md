@@ -5691,3 +5691,24 @@ TEMPLATE pixels first=0xff00ff00 mid=0xff00ff00 (want0xff00ff00)
 这是首个DX命令执行与预期像素读回的联合证据，不再仅有COMPLETED状态。相对§64的单变量变化表明，当前组合中mobPitch1024是剩余阻塞之一；不能反推此前ms1或legacy视图格式1合法。21:32:20 heartbeat#30 status0，SSH正常。
 
 尾部独立SET_SHADER_IFACE仍STATUS3，发生在成功读回之后，不推翻清屏像素结果；下一轮将其隔离到探索开关，增加全65536像素校验与队列健康检查，并新启动复测。当前只验证首/中两点，尚不宣称完整绘制流水线、Metal、硬件OpenGL或屏幕呈现已实现。
+
+## §66 新启动复测：65536像素全绿且队列继续响应（2026-11-15）
+
+`§66-verify` 保持§65成功的资源与命令参数，新增全图读回校验及随后一条INVALID rasterizer state命令；SET_SHADER_IFACE隔离到kDxExplore=1，相关marker也跟随开关保留。函数返回值收紧为CLEAR、READBACK、全像素和队列检查全部通过。
+
+构建124392 bytes，26个已有警告，marker通过、弱引用0；旧成功版备份 `/var/tmp/vgpu-fb/backup-65-pitch0.kext`。boottime=21:36:26，21:36:55.817确认新标签。21:37:25.855–.867结果：
+
+```
+OBSERVE surface sid3 fmt142 flags0x1000040 mips1 ms0 size256x256x1 mob4 array1 pitch0
+LADDER 1/2/3a/3b/4 COMPLETED
+TEMPLATE READBACK ACCEPTED
+TEMPLATE pixel verification total65536 mismatches0 last0xff00ff00 -> PASS
+TEMPLATE post-readback queue health -> COMPLETED
+TEMPLATE verified round trip -> PASS
+```
+
+backing MOB在setup时由CPU预填洋红0xffff00ff，成功读回后全部65536像素为绿色，排除仅查看未变化预填buffer的假阳性。§65与§66为两次独立启动的成功结果；本轮没有执行尾部SET_SHADER_IFACE，实验链没有STATUS3。
+
+**L1的清屏像素门槛已达成。** 证据覆盖DX上下文、COTable懒加载RTV绑定、渲染目标清屏、MOB读回和后续队列响应；不覆盖三角形光栅化、shader、资源上传、显示呈现或应用级Metal/硬件OpenGL。未新增宿主补丁，既有FE→FC仍是环境前提。
+
+后续优先复用此健康基线做shader/三角形绘制；显式DEFINE_RTV、规范的DEFINE/BIND资源生命周期及共享helper其他调用者的旧ms/pitch字段需分别复测，不应把历史FIFO fence误作语义成功。

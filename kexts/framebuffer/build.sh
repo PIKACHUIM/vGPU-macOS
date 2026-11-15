@@ -283,6 +283,7 @@ dx: SURVEY status %u errorOffset %u
 dx: DXBRANCH empty DX batch
 dx: MATRIX b) SET_TOPOLOGY alone
 dx: MATRIX a) DEFINE_CONTEXT
+dx: TEMPLATE SET_SHADER_IFACE
 device after it -> %s"
 else
     echo "kDxExplore = 0 -> exploration retired, markers not required"
@@ -334,6 +335,9 @@ if sw kDxTest 1; then
     STOP="TEMPLATE verdict -> %s"
     VERDICTS="OBSERVE surface after DEFINE
 OBSERVE COTable after SET
+TEMPLATE pixel verification
+TEMPLATE post-readback queue health
+TEMPLATE verified round trip
 DX CLEAR + READBACK ACCEPTED
 DX CLEAR ACCEPTED
 CLEAR not completed

@@ -809,7 +809,7 @@ static const UInt32 kDxTestDelayS = 30;
 //
 // The value is embedded in the banner string, so it is also covered by build.sh's
 // reachability check ("start, provider=%s [build %s]") -- a stale binary cannot pretend.
-#define VGPU_BUILD_TAG "§65-pitch0"
+#define VGPU_BUILD_TAG "§66-verify"
 
 // How long one CB may take before we call it unanswered, and how long after that we keep
 // looking. Both are §56: the old budget was a 200M-iteration spin (~130 ms) that reported
@@ -5474,6 +5474,8 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
         }   // if (kDxExplore)
 
         bool okRb = false;
+        bool pixelsVerified = false;
+        bool queueHealthy = false;
         if (okClr) {
             UInt32 rb[4] = { kSvga3dCmdDxReadbackSubResource, 8, surfId, 0 };
             okRb = cbSubmitCtx(rb, 4, rtvQ, tcid, kCbFlagDxContext);
@@ -5489,12 +5491,28 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
                               (IOByteCount)(dxW * (dxH / 2) + dxW / 2) * 4);
                 IOLog(VGPU_FB_TAG ": dx: TEMPLATE pixels first=0x%08x mid=0x%08x "
                       "(want 0xff00ff00)\n", px, mid);
+                volatile UInt32 *pixels = (volatile UInt32 *)_dxVirt;
+                const UInt32 count = dxW * dxH;
+                UInt32 mismatches = 0;
+                for (UInt32 i = 0; i < count; ++i) {
+                    if (pixels[i] != 0xFF00FF00u) ++mismatches;
+                }
+                pixelsVerified = (mismatches == 0);
+                IOLog(VGPU_FB_TAG ": dx: TEMPLATE pixel verification total%u mismatches%u last0x%08x -> %s\n",
+                      count, mismatches, pixels[count - 1], pixelsVerified ? "PASS" : "FAIL");
+                UInt32 health[3];
+                UInt32 *hp = cbCmd(health, kSvga3dCmdDxSetRasterizerState, 1);
+                *hp++ = 0xFFFFFFFF;
+                queueHealthy = cbSubmitCtx(health, (UInt32)(hp - health), rtvQ, tcid,
+                                           kCbFlagDxContext);
+                IOLog(VGPU_FB_TAG ": dx: TEMPLATE post-readback queue health -> %s\n",
+                      queueHealthy ? "COMPLETED" : "FAILED");
             }
         }
 
-        {
-            // Independent probe, deliberately last: if this errors it must not take the
-            // CLEAR/READBACK answers with it.
+        if (kDxExplore) {
+            // §66: the §65 tail probe errored after successful pixel readback.
+            // Keep it behind exploration so the verified queue stays usable.
             UInt32 si[5] = { kSvga3dCmdDxSetShaderIface, 12, tcid, stateMobId, 0x2000 };
             bool okSi = cbSubmitCtx(si, 5, rtvQ, tcid, kCbFlagDxContext);
             IOLog(VGPU_FB_TAG ": dx: TEMPLATE SET_SHADER_IFACE (q%u) -> %s\n",
@@ -5505,7 +5523,9 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
               okClr ? (okRb ? "*** DX CLEAR + READBACK ACCEPTED ***"
                             : "*** DX CLEAR ACCEPTED ***, readback refused")
                     : "CLEAR not completed (refused or skipped after a prerequisite failure)");
-        return okClr;
+        IOLog(VGPU_FB_TAG ": dx: TEMPLATE verified round trip -> %s\n",
+              pixelsVerified && queueHealthy ? "PASS" : "FAIL");
+        return okClr && okRb && pixelsVerified && queueHealthy;
     }
     return false;
 }
