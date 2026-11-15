@@ -808,7 +808,7 @@ static const UInt32 kDxTestDelayS = 30;
 //
 // The value is embedded in the banner string, so it is also covered by build.sh's
 // reachability check ("start, provider=%s [build %s]") -- a stale binary cannot pretend.
-#define VGPU_BUILD_TAG "§58b"
+#define VGPU_BUILD_TAG "§59"
 
 // How long one CB may take before we call it unanswered, and how long after that we keep
 // looking. Both are §56: the old budget was a 200M-iteration spin (~130 ms) that reported
@@ -5313,7 +5313,28 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
                     IOLog(VGPU_FB_TAG ": dx: LADDER 2 SET_DEPTHSTENCIL_STATE (invalid id) -> %s\n",
                           ladderOk ? "COMPLETED" : "REFUSED (stop here)");
                 }
-                // 3. bind the view we are about to clear, as a render target
+                // 3a. §59: the same command with the VIEW id also set to INVALID.
+                //
+                // Compare unbinding all views with binding rtv 1 using the same wire
+                // layout. A successful 3a followed by failed 3b localises the difference
+                // to valid-view binding, but does not prove a bad COTable row: surface
+                // compatibility and backend resource creation remain possible causes.
+                // A failed 3a leaves the command-level preconditions unresolved.
+                if (ladderOk) {
+                    UInt32 b_[4];
+                    UInt32 *p_ = cbCmd(b_, kSvga3dCmdDxSetRenderTargets, 2);
+                    *p_++ = 0xFFFFFFFF;                 // depthStencilViewId = none
+                    *p_++ = 0xFFFFFFFF;                 // renderTargetViewId = none
+                    ladderOk = cbSubmitCtx(b_, (UInt32)(p_ - b_), rtvQ, tcid,
+                                           kCbFlagDxContext);
+                    volatile UInt32 *h3a = (volatile UInt32 *)_cbHeaderVirt;
+                    IOLog(VGPU_FB_TAG ": dx: LADDER 3a SET_RENDER_TARGETS {rtv INVALID} -> %s "
+                          "(status %u errorOffset %u)\n",
+                          ladderOk ? "COMPLETED (unbind accepted)"
+                                   : "REFUSED (unbind failed; cause unresolved)",
+                          h3a[0], h3a[1]);
+                }
+                // 3b. bind the view we are about to clear, as a render target
                 if (ladderOk) {
                     UInt32 b_[4];
                     UInt32 *p_ = cbCmd(b_, kSvga3dCmdDxSetRenderTargets, 2);
@@ -5321,7 +5342,7 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
                     *p_++ = trtv;                       // one colour view
                     ladderOk = cbSubmitCtx(b_, (UInt32)(p_ - b_), rtvQ, tcid,
                                            kCbFlagDxContext);
-                    IOLog(VGPU_FB_TAG ": dx: LADDER 3 SET_RENDER_TARGETS {rtv %u} -> %s\n",
+                    IOLog(VGPU_FB_TAG ": dx: LADDER 3b SET_RENDER_TARGETS {rtv %u} -> %s\n",
                           trtv, ladderOk ? "COMPLETED" : "REFUSED (stop here)");
                 }
                 if (ladderOk) {

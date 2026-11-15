@@ -15,7 +15,7 @@ Usage:
     python vmxmem.py list
     python vmxmem.py <pid>
     python vmxmem.py <pid> --watch 20
-    python vmxmem.py <pid> --poke 0x1414937FC=1     # runtime gate flip (§60.4)
+    python vmxmem.py <pid> --poke <image-va>=<value>   # hazardous diagnostic write
 """
 import ctypes
 import ctypes.wintypes as wt
@@ -44,27 +44,29 @@ psapi.GetModuleBaseNameW.argtypes = [wt.HANDLE, wt.HMODULE, wt.LPWSTR, wt.DWORD]
 
 # Globals discovered this session (§48). Values are VAs under the default image base.
 GLOBALS = [
-    ("dev",         0x1413F31C0),  # [dev] = SVGA device object (NOT 0x1414931C0: 0 refs)
-    # 11-16 §60: this is NOT a "DX manager".  0x140a17350 is a hash PROBE
-    # (bucket = hash(id) & mask, count from 0x141492ED0, buckets at 0x1414930B0),
-    # and the only store is  `find_or_create(cbHeader.dxContext) -> [0x1414930A0]`
-    # inside the CB-header DX branch.  So it holds the CURRENT DX CONTEXT and is
-    # written only when a command buffer arrives with SVGA_CB_FLAG_DX_CONTEXT.
-    ("dxCtx",       0x1414930A0),  # current DX context object (NULL = no ctx bound)
-    # 0x14050a058: `cmp [0x1414937FC], 0 ; je -> status 4`.  Across all of .text
-    # there are 49 references and ZERO writes -- it can never become non-zero, so
-    # the DX branch of the CB header processor is unreachable.  Reading 0 here
-    # reproduces the STATUS 4 that every DX-flagged submission has returned.
-    ("dxGate",      0x1414937FC),  # dword; != 0 required for the DX branch
-    ("dxBuckets",   0x1414930B0),  # hash table bucket array (dxCtx lookup)
-    ("dxHashCnt",   0x141492ED0),  # hash table bucket count (/mask)
-    ("svgaEnabled", 0x14140B043),  # byte, config init = 1, gate (C)
-    ("svgaPhase",   0x14140B030),  # dword, init = 2
-    ("fenceAgeUs",  0x14140B038),  # qword from svga.maxFenceAgeUS
-    ("tkCounter1",  0x14140B068),  # compared against [block+0x40+idx*0x8028]
-    ("tkCounter2",  0x141413090),  # same, init = 1
-    ("tkLimitA",    0x14141B0B0),  # init = 0
-    ("tkLimitB",    0x14141B0B8),  # init = 0
+    ("dev",         0x1413F31C0, 8),  # SVGA device object
+    # §61: CB processing selects the current DX context here. A snapshot is not
+    # a history of submissions; NULL alone cannot establish a dispatch failure.
+    ("dxCtx",       0x1414930A0, 8),
+    # §60's no-direct-writer => always-zero inference was refuted by the user's
+    # unmodified runtime sample (gate=1). Indirect initialisation remains possible.
+    ("dxGate",      0x1414937FC, 4),
+    # The lookup uses LEA of this address: report the first inline bucket's bytes,
+    # not a pointer to an allocated array. Zero here says nothing about other buckets.
+    ("dxBucket0",   0x1414930B0, 8),
+    ("dxHashCnt",   0x141492ED0, 4),
+    # SET_RENDER_TARGETS -> 0x140a25250 -> RTV lookup 0x140a1eb30.
+    # A cache miss only falls back to reading the guest COTable when this byte
+    # is non-zero; do not confuse it with the CB-header gate.
+    ("rtvLazyGate", 0x141494261, 1),
+    ("rtvHashCnt",  0x141492D20, 4),
+    ("svgaEnabled", 0x14140B043, 1),
+    ("svgaPhase",   0x14140B030, 4),
+    ("fenceAgeUs",  0x14140B038, 8),
+    ("tkCounter1",  0x14140B068, 8),
+    ("tkCounter2",  0x141413090, 8),
+    ("tkLimitA",    0x14141B0B0, 8),
+    ("tkLimitB",    0x14141B0B8, 8),
 ]
 devFields = [
     (0xB4,  4, "b4   SVGA_REG_ENABLE shadow  <- gate: must be != 0"),
@@ -193,11 +195,11 @@ def snapshot(pid, out):
     base = module_base(h)
     out.append(f"pid {pid}  module base {base:#x}")
     got = {}
-    for name, va in GLOBALS:
-        raw = read(h, base + (va - IB), 8)
-        val = struct.unpack("<Q", raw)[0]
+    for name, va, size in GLOBALS:
+        raw = read(h, base + (va - IB), size)
+        val = int.from_bytes(raw, "little")
         got[name] = val
-        out.append(f"  [{name:12s}] @ {va:#x} = {val:#016x}")
+        out.append(f"  [{name:12s}] @ {va:#x} ({size}B) = {val:#0{2 + size * 2}x}")
     dev = got["dev"]
     if not dev:
         out.append("  dev is NULL -- nothing else to read")
@@ -209,19 +211,22 @@ def snapshot(pid, out):
         out.append(f"    +{off:#06x} = {v:#010x} ({v})   {label}")
     dm = got["dxCtx"]
     out.append(f"--- current DX context [0x1414930A0] = {dm:#x}"
-               + ("   <-- a DX context object exists" if dm else
-                  "   <-- NULL: no CB ever took the DX_CONTEXT branch"))
+               + ("   <-- non-NULL at this sample" if dm else
+                  "   <-- NULL at this sample; submission history unknown"))
     gate = got["dxGate"] & 0xFFFFFFFF
     out.append(f"--- DX header gate  [0x1414937FC] = {gate:#x}"
-               + ("   <-- DX branch reachable" if gate else
-                  "   <-- ZERO: every DX-flagged CB is answered STATUS 4"))
-    out.append(f"--- dx hash buckets  [0x1414930B0] = {got['dxBuckets']:#x}   "
-               f"count [0x141492ED0] = {got['dxHashCnt'] & 0xFFFFFFFF:#x}")
+               + ("   <-- this gate is open; other validation still applies" if gate else
+                  "   <-- this gate is closed at this sample"))
+    out.append(f"--- inline DX bucket[0] [0x1414930B0] = {got['dxBucket0']:#x}   "
+               f"count [0x141492ED0] = {got['dxHashCnt']:#x}")
+    k32.CloseHandle(h)
 
 
 WATCH_FIELDS = [
     ("dxCtx",    0x1414930A0, 8),
     ("dxGate",   0x1414937FC, 4),
+    ("dxBucket0",0x1414930B0, 8),
+    ("dxHashCnt",0x141492ED0, 4),
     ("9bc",       None, 4),
     ("ad8",       None, 4),
     ("bf0",       None, 4),
@@ -233,10 +238,8 @@ WATCH_FIELDS = [
 def watch(pid, seconds, out):
     """Sample the interesting fields continuously.
 
-    A single sample cannot tell "never created" from "created on demand and already
-    destroyed" -- and the Windows guest on this host runs DX fine while a one-shot
-    read says NULL. Repeated sampling distinguishes them: a flickering non-NULL
-    means on-demand; a constant NULL means the pointer is simply not on this path.
+    CB teardown at 0x1404cc013 clears dxCtx. A non-NULL sample can show activity;
+    all-NULL samples cannot rule it out because short batches fit between polls.
     """
     import time
     h = open_proc(pid)
@@ -266,16 +269,15 @@ def watch(pid, seconds, out):
         vals = sorted(seen[name].items(), key=lambda kv: -kv[1])
         txt = "  ".join(f"{v:#x}x{c}" for v, c in vals[:6])
         out.append(f"    {name:10s}: {txt}")
+    k32.CloseHandle(h)
 
 
 def poke(pid, pokes, out):
-    """Write dwords into the running vmx (experiment: flip a feature gate).
+    """Write dwords into the running vmx for a controlled experiment.
 
-    §60.4 established that [0x1414937FC] has no writer anywhere in .text, so the
-    DX branch of the command-buffer header processor looks unreachable.  Poking it
-    to 1 at runtime is the cheapest way to find out whether it is the *only*
-    obstacle: if the next DX-flagged submission gets past the gate, [0x1414930A0]
-    must turn non-NULL -- an effect no other experiment has ever produced.
+    This is a hazardous diagnostic operation: changing an internal host flag can
+    hang or corrupt the VM process. A gate value of 1 was already observed at
+    runtime, so the former proposal to poke this particular gate is obsolete.
     """
     h = open_proc(pid, write=True)
     base = module_base(h)
