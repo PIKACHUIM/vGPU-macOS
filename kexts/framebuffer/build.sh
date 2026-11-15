@@ -311,7 +311,10 @@ DRAW post-readback queue health
 DRAW triangle verdict
 user: fixed triangle interface
 user: fixed triangle generation
-user: administrator connection opened"
+user: administrator connection opened
+vertex: BUFFER sid4 mob14 bytes48 define+bind
+vertex: passthrough VS3
+vertex: float4 layout2"
 fi
 if sw kDxExplore 1; then
     echo "kDxExplore = 1 -> exploration markers are required"

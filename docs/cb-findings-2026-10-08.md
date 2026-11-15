@@ -5838,3 +5838,44 @@ PASS all checks
 01:20:52客体请求重启后，VNC持续显示Apple启动画面，SSH先超时后握手EOF，宿主日志无新驱动心跳。约四分钟后对实验VM执行一次hard reset恢复。查询01:20:50–01:25:10的持久日志未取得vgpu-fb或panic记录；根因未定，不能宣称已排除驱动因素，也不能把这次计为成功复测。
 
 恢复后的独立启动`kern.boottime=2026-11-16 01:25:11 CST`（客体墙钟与宿主略有偏差），01:25:41加载驱动。权限检查再次PASS；01:27:11在初始化截止前调用返回NotReady，01:27:21再运行相同10轮+跨连接+重开，generation重新从1到12，每帧同样red18432/green47104/other0/mismatch0，最终`PASS all checks`。两次成功启动共24帧、1572864像素独立比较通过；启动停滞的稳定性问题仍保留开放。
+
+## §70：用户顶点经真实 vertex buffer 绘制（2026-11-16）
+
+### ABI 和资源路径
+
+新增同步 selector2：结构输入精确56字节，`uint32 version=1, reserved=0; float positions[3][4]`；无scalar输入，输出仍为三个UInt64（generation、256、256）。仅管理员可连接。内核复制到局部UInt32数组，以IEEE754位模式检查x/y在[-1,1]、z在[0,1]、w精确+1，拒绝NaN/Inf，不在内核执行浮点运算。selector0/1保持原ABI，未知selector测试迁移到99。
+
+新路径为用户顶点→MOB14→sid4 BUFFER→input layout2→VS3→既有PS1/RTV→DRAW→READBACK。MOB14/15分别保留4KiB顶点与shader backing，首次有效selector2惰性初始化，后续原位复制48字节并发`DX_BUFFER_UPDATE {sid4,x0,width48}`。不通过修改VertexID shader常量模拟输入，不开放任意命令、物理地址或shader。
+
+协议实测参数：
+
+- BUFFER format37，flags=0x00100010（HINT_VERTEXBUFFER|BIND_VERTEX_BUFFER），size=48×1×1，mips1、multisampleCount0、mobPitch0；DEFINE_GB_SURFACE命令体36字节，经FIFO定义和绑定并等待fence。
+- layout2含一个24字节InputElementDesc：slot0、offset0、format122（R32G32B32A32_FLOAT）、per-vertex、step0、register0；DEFINE_ELEMENTLAYOUT体28字节，无count字段。
+- SET_VERTEX_BUFFERS体16字节：startBuffer0、sid4、stride16、offset0。shader/layout沿用已创建COTable，未重新初始化table。
+- VS3为60字节裸SM4 token：dcl_input v0.xyzw；dcl_output_siv o0.xyzw position；mov o0,v0；ret。无需追加signature；MOB15承载代码，shaderId3。
+- 两条绘制路径每次明确重绑VS、layout、VB和rasterizer；selector0使用VS2/layout1并解绑VB，避免受上一次selector2残留状态影响。
+
+### 构建和当前启动实测
+
+构建标签`§70-vertex-buffer`，26条既有warning、全部reachability marker通过、weak references=0。旧§69 bundle备份在客体`/var/tmp/vgpu-fb/backup-69.kext`。安装返回预期Code28，正常重启后`kern.boottime=2026-11-16 01:44:28 CST`，01:44:55.677加载新标签。01:46:25.773启动固定三角形PASS，接口READY；此次重启没有复现§69的启动停滞。
+
+01:49:44首个顶点请求中MOB14、MOB15、BUFFER define/bind、VS3、layout2全部COMPLETED，日志每项出现一次。用户程序以clang -Wall -Wextra -Werror编译，无警告；非root打开被拒绝。第一次验收17帧，补齐连续顶点和跨连接顶点测试后再验收22帧，generation连续1..39，无重启、无每帧MOB分配。
+
+| 几何 | 屏幕顶点 | 红色像素 | 绿色像素 | other / mismatch |
+|---|---|---:|---:|---:|
+| 固定VertexID三角形 | (32,224)、(224,224)、(128,32) | 18432 | 47104 | 0 / 0 |
+| 用户几何A | (40,200)、(168,200)、(40,100) | 6400 | 59136 | 0 / 0 |
+| 用户几何B | (32,32)、(192,32)、(112,192) | 12800 | 52736 | 0 / 0 |
+
+39次真实DRAW各读取并比较全部65536像素，共2555904次新帧像素比较；另每轮80个非法selector2输入均拒绝，并逐帧复读原generation/图像确认没有副作用（这160次旧帧复读不算新增DRAW）。最终工具输出PASS all checks。覆盖：
+
+- A/固定/B/固定反复切换；额外连续A→B→A，不依赖固定绘制作为中间重置。
+- 第二连接提交B，第一连接读取该generation；旧generation失效；关闭重开后固定绘制和A均通过。
+- 对三个顶点的每个分量检查NaN/Inf和越界、w不为1；错误version/reserved、55/57字节结构、错误scalar数量和非零结构输出均被拒。
+- CPU独立整数边函数参考，测试几何边不经过像素中心；每帧先清绿，GPU读回前CPU填洋红但不上传。新几何出现且旧几何消失，排除固定图像和旧CPU缓冲伪成功。
+
+### 范围与后续
+
+本节已证明应用提供的坐标经真实GPU顶点输入产生像素，仍是受限单三角形专用接口，不等于硬件OpenGL或Metal可用。尚缺通用buffer/index/texture/shader生命周期、呈现及系统用户态驱动接入。§69的启动停滞根因仍未解决；本节仅一次新启动，两个用户程序运行，不能写成两次独立启动。
+
+保留失败关闭策略：初始化即使只因本地分配失败，也会禁用全部绘制到重启；未发布命令前可恢复的内存失败尚未细分。设备可见backing仍保留至重启，无DMA停止证明、热卸载/重载和超时注入验收。后续优先接通可识别的应用级OpenGL/Metal入口，并逐项补齐其实际需要的资源与shader能力。

@@ -1,7 +1,7 @@
 /*
  * 编译：clang -Wall -Wextra -Werror -framework IOKit -framework CoreFoundation \
  *           vgpu-user-draw.c -o vgpu-user-draw
- * 运行：sudo ./vgpu-user-draw [1..1000]
+ * 运行：sudo ./vgpu-user-draw [1..1000]（默认覆盖 §69 和 §70）
  * 非管理员权限检查：./vgpu-user-draw --expect-denied
  */
 #include <IOKit/IOKitLib.h>
@@ -21,6 +21,80 @@
 #define ROW_BYTES (WIDTH * sizeof(uint32_t))
 #define RED UINT32_C(0xffff0000)
 #define GREEN UINT32_C(0xff00ff00)
+
+struct vertex_input {
+    uint32_t version;
+    uint32_t reserved;
+    float vertices[3][4];
+};
+
+_Static_assert(sizeof(float) == 4, "float must be 32 bits");
+_Static_assert(sizeof(struct vertex_input) == 56, "selector 2 input must be 56 bytes");
+
+struct image_case {
+    struct vertex_input input;
+    int64_t screen[3][2];
+    uint32_t red_pixels;
+    const char *label;
+};
+
+/* 屏幕坐标乘二；坐标均可由二进制浮点精确表示，边不经过像素中心。 */
+static const struct image_case legacy_image = {
+    { 1, 0, { { -0.75f, -0.75f, 0.0f, 1.0f },
+              { 0.75f, -0.75f, 0.0f, 1.0f },
+              { 0.0f, 0.75f, 0.0f, 1.0f } } },
+    { { 64, 448 }, { 448, 448 }, { 256, 64 } }, 18432, "selector 0"
+};
+
+static const struct image_case vertex_images[] = {
+    {
+        { 1, 0, { { -0.6875f, -0.5625f, 0.0f, 1.0f },
+                  { 0.3125f, -0.5625f, 0.5f, 1.0f },
+                  { -0.6875f, 0.21875f, 1.0f, 1.0f } } },
+        { { 80, 400 }, { 336, 400 }, { 80, 200 } }, 6400, "vertices A"
+    },
+    {
+        { 1, 0, { { -0.75f, 0.75f, 1.0f, 1.0f },
+                  { -0.125f, -0.5f, 0.5f, 1.0f },
+                  { 0.5f, 0.75f, 0.0f, 1.0f } } },
+        { { 64, 64 }, { 224, 384 }, { 384, 64 } }, 12800, "vertices B"
+    }
+};
+
+static kern_return_t call_vertices(io_connect_t connection,
+                                    const void *input, size_t input_size,
+                                    const uint64_t *scalar_input,
+                                    uint32_t scalar_input_count,
+                                    uint64_t *output, uint32_t *output_count)
+{
+    return IOConnectCallMethod(connection, 2, scalar_input, scalar_input_count,
+                               input, input_size, output, output_count,
+                               NULL, NULL);
+}
+
+static bool expect_code(const char *test, kern_return_t actual,
+                        kern_return_t expected);
+
+static bool draw_vertices(io_connect_t connection,
+                          const struct image_case *image, uint64_t *generation)
+{
+    uint64_t output[3] = { 0, 0, 0 };
+    uint32_t count = 3;
+    kern_return_t result = call_vertices(connection, &image->input,
+                                         sizeof(image->input), NULL, 0,
+                                         output, &count);
+    if (!expect_code("draw vertices", result, KERN_SUCCESS))
+        return false;
+    if (count != 3 || output[0] == 0 || output[1] != WIDTH ||
+        output[2] != HEIGHT) {
+        fprintf(stderr, "FAIL selector 2 ABI: count=%" PRIu32
+                " generation=%" PRIu64 " dimensions=%" PRIu64
+                "x%" PRIu64 "\n", count, output[0], output[1], output[2]);
+        return false;
+    }
+    *generation = output[0];
+    return true;
+}
 
 static bool expect_code(const char *test, kern_return_t actual,
                         kern_return_t expected)
@@ -85,7 +159,7 @@ static int64_t edge(int64_t ax, int64_t ay, int64_t bx, int64_t by,
 }
 
 static bool verify_image(io_connect_t connection, uint64_t generation,
-                         const char *label)
+                         const struct image_case *image, const char *label)
 {
     uint32_t red = 0, green = 0, other = 0, mismatch = 0;
     uint32_t expected_red = 0, expected_green = 0;
@@ -109,9 +183,12 @@ static bool verify_image(io_connect_t connection, uint64_t generation,
             /* 坐标乘二，用整数精确表示像素中心，独立计算三条有向边。 */
             int64_t px = 2 * (int64_t)x + 1;
             int64_t py = 2 * (int64_t)y + 1;
-            int64_t a = edge(64, 448, 448, 448, px, py);
-            int64_t b = edge(448, 448, 256, 64, px, py);
-            int64_t c = edge(256, 64, 64, 448, px, py);
+            int64_t a = edge(image->screen[0][0], image->screen[0][1],
+                             image->screen[1][0], image->screen[1][1], px, py);
+            int64_t b = edge(image->screen[1][0], image->screen[1][1],
+                             image->screen[2][0], image->screen[2][1], px, py);
+            int64_t c = edge(image->screen[2][0], image->screen[2][1],
+                             image->screen[0][0], image->screen[0][1], px, py);
             if (a == 0 || b == 0 || c == 0) {
                 fprintf(stderr, "FAIL CPU reference: sample on edge\n");
                 return false;
@@ -141,8 +218,10 @@ static bool verify_image(io_connect_t connection, uint64_t generation,
     printf("%s generation=%" PRIu64 " red=%" PRIu32 " green=%" PRIu32
            " other=%" PRIu32 " mismatch=%" PRIu32 "\n",
            label, generation, red, green, other, mismatch);
-    if (expected_red != 18432 || expected_green != 47104 ||
-        red != 18432 || green != 47104 || other != 0 || mismatch != 0) {
+    if (expected_red != image->red_pixels ||
+        expected_green != WIDTH * HEIGHT - image->red_pixels ||
+        red != expected_red || green != expected_green ||
+        other != 0 || mismatch != 0) {
         fprintf(stderr, "FAIL image totals: CPU red=%" PRIu32
                 " green=%" PRIu32 "\n", expected_red, expected_green);
         return false;
@@ -156,7 +235,7 @@ static bool check_invalid_calls(io_connect_t connection, uint64_t generation)
     uint64_t input[3] = { generation, 0, 0 };
     uint32_t pixels[WIDTH + 1];
     uint32_t count = 0;
-    kern_return_t result = IOConnectCallScalarMethod(connection, UINT32_MAX,
+    kern_return_t result = IOConnectCallScalarMethod(connection, 99,
                                                     NULL, 0, scalar, &count);
     if (!expect_code("unknown selector", result, kIOReturnUnsupported))
         return false;
@@ -194,6 +273,134 @@ static bool check_invalid_calls(io_connect_t connection, uint64_t generation)
                            kIOReturnBadArgument) &&
            expect_row_code(connection, generation, UINT64_MAX,
                            "row=UINT64_MAX", kIOReturnBadArgument);
+}
+
+static bool rejected_vertices_unchanged(io_connect_t connection,
+                                         kern_return_t result,
+                                         uint64_t generation,
+                                         const struct image_case *image,
+                                         const char *label)
+{
+    return expect_rejected(label, result) &&
+           verify_image(connection, generation, image, label);
+}
+
+static bool check_invalid_vertices(io_connect_t connection, uint64_t generation,
+                                    const struct image_case *image)
+{
+    /* 使用位模式构造非法浮点数，不依赖 NaN 运算或编译器浮点折叠。 */
+    static const struct {
+        uint32_t component;
+        uint32_t bits;
+        const char *label;
+    } bad_values[] = {
+        { 0, UINT32_C(0x7fc00000), "x NaN" },
+        { 0, UINT32_C(0x7f800000), "x +Inf" },
+        { 0, UINT32_C(0xff800000), "x -Inf" },
+        { 0, UINT32_C(0x3f800001), "x > 1" },
+        { 0, UINT32_C(0xbf800001), "x < -1" },
+        { 1, UINT32_C(0x7fc00000), "y NaN" },
+        { 1, UINT32_C(0x7f800000), "y +Inf" },
+        { 1, UINT32_C(0xff800000), "y -Inf" },
+        { 1, UINT32_C(0x3f800001), "y > 1" },
+        { 1, UINT32_C(0xbf800001), "y < -1" },
+        { 2, UINT32_C(0x7fc00000), "z NaN" },
+        { 2, UINT32_C(0x7f800000), "z +Inf" },
+        { 2, UINT32_C(0xff800000), "z -Inf" },
+        { 2, UINT32_C(0x3f800001), "z > 1" },
+        { 2, UINT32_C(0x80000001), "z < 0 (subnormal)" },
+        { 3, UINT32_C(0x7fc00000), "w NaN" },
+        { 3, UINT32_C(0x7f800000), "w +Inf" },
+        { 3, UINT32_C(0xff800000), "w -Inf" },
+        { 3, UINT32_C(0x3f7fffff), "w < 1" },
+        { 3, UINT32_C(0x3f800001), "w > 1" },
+        { 3, UINT32_C(0xbf800000), "w = -1" },
+        { 3, UINT32_C(0x00000000), "w = 0" }
+    };
+    for (uint32_t vertex = 0; vertex < 3; ++vertex) {
+        for (size_t i = 0; i < sizeof(bad_values) / sizeof(bad_values[0]); ++i) {
+            struct vertex_input input = image->input;
+            memcpy(&input.vertices[vertex][bad_values[i].component],
+                   &bad_values[i].bits, sizeof(bad_values[i].bits));
+            uint64_t output[3] = { 0, 0, 0 };
+            uint32_t count = 3;
+            char label[80];
+            (void)snprintf(label, sizeof(label), "reject vertex %" PRIu32 " %s",
+                           vertex, bad_values[i].label);
+            kern_return_t result = call_vertices(connection, &input,
+                                                 sizeof(input), NULL, 0,
+                                                 output, &count);
+            if (!rejected_vertices_unchanged(connection, result, generation,
+                                             image, label))
+                return false;
+        }
+    }
+    const uint32_t bad_versions[] = { 0, 2, UINT32_MAX };
+    const uint32_t bad_reserved[] = { 1, UINT32_MAX };
+    for (size_t field = 0; field < 2; ++field) {
+        const uint32_t *values = field == 0 ? bad_versions : bad_reserved;
+        size_t length = field == 0 ? sizeof(bad_versions) / sizeof(uint32_t) :
+                                    sizeof(bad_reserved) / sizeof(uint32_t);
+        for (size_t i = 0; i < length; ++i) {
+            struct vertex_input input = image->input;
+            if (field == 0)
+                input.version = values[i];
+            else
+                input.reserved = values[i];
+            uint64_t output[3] = { 0, 0, 0 };
+            uint32_t count = 3;
+            const char *label = field == 0 ? "reject version" : "reject reserved";
+            kern_return_t result = call_vertices(connection, &input,
+                                                 sizeof(input), NULL, 0,
+                                                 output, &count);
+            if (!rejected_vertices_unchanged(connection, result, generation,
+                                             image, label))
+                return false;
+        }
+    }
+    unsigned char bytes[sizeof(struct vertex_input) + 1] = { 0 };
+    memcpy(bytes, &image->input, sizeof(image->input));
+    const size_t bad_sizes[] = { 55, 57 };
+    for (size_t i = 0; i < sizeof(bad_sizes) / sizeof(bad_sizes[0]); ++i) {
+        uint64_t output[3] = { 0, 0, 0 };
+        uint32_t count = 3;
+        kern_return_t result = call_vertices(connection, bytes, bad_sizes[i],
+                                             NULL, 0, output, &count);
+        if (!rejected_vertices_unchanged(connection, result, generation, image,
+                                         "reject vertex structure size"))
+            return false;
+    }
+    uint64_t scalar[4] = { 0, 0, 0, 0 };
+    for (uint32_t input_count = 1; input_count <= 2; ++input_count) {
+        uint64_t output[3] = { 0, 0, 0 };
+        uint32_t count = 3;
+        kern_return_t result = call_vertices(connection, &image->input,
+                                             sizeof(image->input), scalar,
+                                             input_count, output, &count);
+        if (!rejected_vertices_unchanged(connection, result, generation, image,
+                                         "reject vertex scalar input count"))
+            return false;
+    }
+    const uint32_t bad_counts[] = { 0, 1, 2, 4 };
+    for (size_t i = 0; i < sizeof(bad_counts) / sizeof(bad_counts[0]); ++i) {
+        uint32_t count = bad_counts[i];
+        kern_return_t result = call_vertices(connection, &image->input,
+                                             sizeof(image->input), NULL, 0,
+                                             scalar, &count);
+        if (!rejected_vertices_unchanged(connection, result, generation, image,
+                                         "reject vertex scalar output count"))
+            return false;
+    }
+    uint32_t output_structure = 0;
+    size_t output_size = sizeof(output_structure);
+    uint32_t count = 3;
+    kern_return_t result = IOConnectCallMethod(connection, 2, NULL, 0,
+                                               &image->input,
+                                               sizeof(image->input), scalar,
+                                               &count, &output_structure,
+                                               &output_size);
+    return rejected_vertices_unchanged(connection, result, generation, image,
+                                       "reject vertex structure output");
 }
 
 static bool close_connection(io_connect_t *connection)
@@ -273,7 +480,43 @@ int main(int argc, char **argv)
             goto cleanup;
         char label[48];
         (void)snprintf(label, sizeof(label), "round %lu/%lu", round, rounds);
-        if (!verify_image(first, generation, label))
+        if (!verify_image(first, generation, &legacy_image, label))
+            goto cleanup;
+    }
+
+    for (unsigned long round = 1; round <= rounds; ++round) {
+        for (size_t i = 0; i < sizeof(vertex_images) / sizeof(vertex_images[0]);
+             ++i) {
+            uint64_t previous = generation;
+            const struct image_case *image = &vertex_images[i];
+            if (!draw_vertices(first, image, &generation) ||
+                !expect_row_code(first, previous, 0, "selector 2 old generation",
+                                 kIOReturnNotReady) ||
+                !verify_image(first, generation, image, image->label))
+                goto cleanup;
+            if (round == 1 && i == 0 &&
+                !check_invalid_vertices(first, generation, image))
+                goto cleanup;
+            previous = generation;
+            if (!draw(first, &generation) ||
+                !expect_row_code(first, previous, 0, "selector 0 old generation",
+                                 kIOReturnNotReady) ||
+                !verify_image(first, generation, &legacy_image,
+                              "selector 0 after vertices"))
+                goto cleanup;
+        }
+    }
+
+    for (size_t i = 0; i < 3; ++i) {
+        uint64_t previous = generation;
+        const struct image_case *image = &vertex_images[i % 2];
+        if (!draw_vertices(first, image, &generation) ||
+            !expect_row_code(first, previous, 0,
+                             "consecutive selector 2 old generation",
+                             kIOReturnNotReady) ||
+            !verify_image(first, generation, image,
+                          i == 1 ? "consecutive vertices B" :
+                                   "consecutive vertices A"))
             goto cleanup;
     }
 
@@ -284,7 +527,16 @@ int main(int argc, char **argv)
     if (!draw(second, &generation) ||
         !expect_row_code(first, previous, 0, "cross-connection old generation",
                          kIOReturnNotReady) ||
-        !verify_image(second, generation, "cross-connection"))
+        !verify_image(second, generation, &legacy_image, "cross-connection"))
+        goto cleanup;
+
+    previous = generation;
+    if (!draw_vertices(second, &vertex_images[1], &generation) ||
+        !expect_row_code(first, previous, 0,
+                         "cross-connection vertices old generation",
+                         kIOReturnNotReady) ||
+        !verify_image(first, generation, &vertex_images[1],
+                      "cross-connection vertices B read on first"))
         goto cleanup;
 
     if (!close_connection(&second))
@@ -294,7 +546,13 @@ int main(int argc, char **argv)
     result = IOServiceOpen(service, mach_task_self(), OPEN_TYPE, &first);
     if (!expect_code("reopen", result, KERN_SUCCESS) ||
         !draw(first, &generation) ||
-        !verify_image(first, generation, "reopen"))
+        !verify_image(first, generation, &legacy_image, "reopen"))
+        goto cleanup;
+    previous = generation;
+    if (!draw_vertices(first, &vertex_images[0], &generation) ||
+        !expect_row_code(first, previous, 0, "reopen vertices old generation",
+                         kIOReturnNotReady) ||
+        !verify_image(first, generation, &vertex_images[0], "reopen vertices A"))
         goto cleanup;
     status = EXIT_SUCCESS;
 

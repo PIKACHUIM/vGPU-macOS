@@ -811,7 +811,7 @@ static const UInt32 kDxTestDelayS = 90;
 //
 // The value is embedded in the banner string, so it is also covered by build.sh's
 // reachability check ("start, provider=%s [build %s]") -- a stale binary cannot pretend.
-#define VGPU_BUILD_TAG "§69-userclient"
+#define VGPU_BUILD_TAG "§70-vertex-buffer"
 
 // How long one CB may take before we call it unanswered, and how long after that we keep
 // looking. Both are §56: the old budget was a 200M-iteration spin (~130 ms) that reported
@@ -1471,6 +1471,10 @@ private:
     // Retain shader MOB backing for the device lifetime, including failure paths.
     IOBufferMemoryDescriptor *_shaderProbeMem[2] = { nullptr, nullptr };
     IOBufferMemoryDescriptor *_drawProbeMem[5] = { nullptr, nullptr, nullptr, nullptr, nullptr };
+    IOBufferMemoryDescriptor *_vertexMem[2] = { nullptr, nullptr }; // MOB14 VB / MOB15 VS; retain until reboot
+    bool _vertexReady = false;
+    bool _vertexAttempted = false;
+    bool setupVertexInput();
     IOLock *_userDrawLock = nullptr;
     IOLock *_scheduleLock = nullptr;
     bool _stopping = false; // guarded by _scheduleLock; draw state by _userDrawLock
@@ -1524,7 +1528,7 @@ public:
     void free() APPLE_KEXT_OVERRIDE;
     IOReturn newUserClient(task_t task, void *securityID, UInt32 type,
                           OSDictionary *properties, IOUserClient **handler) APPLE_KEXT_OVERRIDE;
-    IOReturn userDraw(UInt64 *generation);
+    IOReturn userDraw(UInt64 *generation, const UInt32 *vertices = nullptr);
     IOReturn userReadRow(UInt64 generation, UInt64 row, void *output);
 
     //
@@ -1564,6 +1568,7 @@ public:
                            OSObject *target = nullptr, void *reference = nullptr) APPLE_KEXT_OVERRIDE;
     static IOReturn draw(OSObject *target, void *, IOExternalMethodArguments *args);
     static IOReturn readRow(OSObject *target, void *, IOExternalMethodArguments *args);
+    static IOReturn drawVertices(OSObject *target, void *, IOExternalMethodArguments *args);
 };
 OSDefineMetaClassAndStructors(vgpuDrawUserClient, IOUserClient)
 
@@ -1606,7 +1611,8 @@ IOReturn vgpuDrawUserClient::externalMethod(uint32_t selector, IOExternalMethodA
                                            IOExternalMethodDispatch *, OSObject *, void *) {
     static IOExternalMethodDispatch methods[] = {
         { &vgpuDrawUserClient::draw,    0, 0, 3, 0 },
-        { &vgpuDrawUserClient::readRow, 2, 0, 0, 256 * sizeof(UInt32) }
+        { &vgpuDrawUserClient::readRow, 2, 0, 0, 256 * sizeof(UInt32) },
+        { &vgpuDrawUserClient::drawVertices, 0, 56, 3, 0 }
     };
     if (isInactive()) return kIOReturnNotAttached;
     if (selector >= sizeof(methods) / sizeof(methods[0])) return kIOReturnUnsupported;
@@ -1637,7 +1643,93 @@ IOReturn vgpuDrawUserClient::readRow(OSObject *target, void *, IOExternalMethodA
     return owner->userReadRow(args->scalarInput[0], args->scalarInput[1], args->structureOutput);
 }
 
-IOReturn vgpuFramebuffer::userDraw(UInt64 *generation) {
+// Version 1: two u32 header fields followed by three IEEE754 float4 positions.
+// Validate through integer bits: kext code must not use the kernel FPU.
+IOReturn vgpuDrawUserClient::drawVertices(OSObject *target, void *, IOExternalMethodArguments *args) {
+    vgpuDrawUserClient *client = OSDynamicCast(vgpuDrawUserClient, target);
+    vgpuFramebuffer *owner = client ? OSDynamicCast(vgpuFramebuffer, client->getProvider()) : nullptr;
+    if (!owner || owner->isInactive()) return kIOReturnNotAttached;
+    if (!args->structureInput) return kIOReturnBadArgument;
+    UInt32 input[14];
+    memcpy(input, args->structureInput, sizeof(input));
+    if (input[0] != 1 || input[1] != 0) return kIOReturnBadArgument;
+    for (UInt32 v = 0; v < 3; ++v) {
+        const UInt32 *p = input + 2 + v * 4;
+        if ((p[0] & 0x7FFFFFFF) > 0x3F800000 ||
+            (p[1] & 0x7FFFFFFF) > 0x3F800000 ||
+            (p[2] & 0x7FFFFFFF) > 0x3F800000 ||
+            ((p[2] & 0x80000000) && (p[2] & 0x7FFFFFFF)) ||
+            p[3] != 0x3F800000) return kIOReturnBadArgument;
+    }
+    UInt64 generation = 0;
+    IOReturn result = owner->userDraw(&generation, input + 2);
+    if (result == kIOReturnSuccess) {
+        args->scalarOutput[0] = generation;
+        args->scalarOutput[1] = 256;
+        args->scalarOutput[2] = 256;
+    }
+    return result;
+}
+
+bool vgpuFramebuffer::setupVertexInput() {
+    if (_vertexReady) return true;
+    if (_vertexAttempted || !_dxFifo || !_gbVirt) return false;
+    _vertexAttempted = true;
+    static const UInt32 vs[] = {
+        0x00010040, 15,
+        0x0300005F, 0x001010F2, 0,
+        0x04000067, 0x001020F2, 0, 1,
+        0x05000036, 0x001020F2, 0, 0x00101E46, 0,
+        0x0100003E
+    };
+    static_assert(sizeof(vs) == 60, "passthrough VS size");
+    for (UInt32 i = 0; i < 2; ++i) {
+        _vertexMem[i] = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+            kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous,
+            kGbPageBytes, 0xFFFULL);
+        if (!_vertexMem[i]) return false;
+        void *data = _vertexMem[i]->getBytesNoCopy();
+        if (!data) return false;
+        bzero(data, kGbPageBytes);
+        if (i == 1) memcpy(data, vs, sizeof(vs));
+        IOByteCount length = 0;
+        UInt64 pa = _vertexMem[i]->getPhysicalSegment(0, &length);
+        if (!pa || (pa & (kGbPageBytes - 1)) || length < kGbPageBytes) return false;
+        UInt64 ppn = pa >> kGbPageShift;
+        UInt32 mob = 14 + i, depth = kSvga3dMobFmtPt64_0;
+        volatile UInt8 *entry = (volatile UInt8 *)_gbVirt + kGbOffMobTable + mob * kGbMobEntryBytes;
+        memcpy((void *)entry, &depth, 4);
+        memcpy((void *)(entry + 4), &kGbPageBytes, 4);
+        memcpy((void *)(entry + 8), &ppn, 8);
+        __asm__ volatile ("" ::: "memory");
+        UInt32 def[7] = { kSvga3dCmdDefineGbMob64, 20, mob, depth, 0, 0, kGbPageBytes };
+        memcpy(&def[4], &ppn, 8);
+        bool ok = fifoSubmitWords(_dxFifo, def, 7) && fenceAck(_dxFifo, &_fenceSeq);
+        IOLog(VGPU_FB_TAG ": vertex: MOB%u -> %s\n", mob, ok ? "COMPLETED" : "FAILED");
+        if (!ok) return false;
+    }
+    volatile UInt8 *entry = (volatile UInt8 *)_gbVirt + kGbOffSurfaceTable + 4 * kGbSurfaceEntryBytes;
+    surfaceEntryFill(entry, 37, 0x00100010, 48, 1, 14, 0, 0);
+    ((volatile UInt32 *)entry)[3] = 0;
+    __asm__ volatile ("" ::: "memory");
+    UInt32 def[11] = { 1097, 36, 4, 0x00100010, 37, 1, 0, 0, 48, 1, 1 };
+    UInt32 bind[4] = { 1099, 8, 4, 14 };
+    bool ok = fifoSubmitWords(_dxFifo, def, 11) && fenceAck(_dxFifo, &_fenceSeq) &&
+              fifoSubmitWords(_dxFifo, bind, 4) && fenceAck(_dxFifo, &_fenceSeq);
+    IOLog(VGPU_FB_TAG ": vertex: BUFFER sid4 mob14 bytes48 define+bind -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    UInt32 shader[11] = { 1201, 12, 3, 1, sizeof(vs), 1203, 16, 1, 3, 15, 0 };
+    ok = cbSubmitCtx(shader, 11, 1, 1, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": vertex: passthrough VS3 -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    UInt32 layout[9] = { 1191, 28, 2, 0, 0, 122, 0, 0, 0 };
+    ok = cbSubmitCtx(layout, 9, 1, 1, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": vertex: float4 layout2 -> %s\n", ok ? "COMPLETED" : "FAILED");
+    _vertexReady = ok;
+    return ok;
+}
+
+IOReturn vgpuFramebuffer::userDraw(UInt64 *generation, const UInt32 *vertices) {
     if (!_userDrawLock || !generation) return kIOReturnNotReady;
     IOLockLock(_userDrawLock);
     if (_userDrawStopping || !_userDrawReady || _dxBusy || !_dxVirt) {
@@ -1645,13 +1737,27 @@ IOReturn vgpuFramebuffer::userDraw(UInt64 *generation) {
         return kIOReturnNotReady;
     }
     _dxBusy = 1;
-    // The boot probe's queue-health command unbound the rasterizer. Rebind it,
-    // clear green, and draw again using the already validated VS/PS and states.
+    bool ok = !vertices || setupVertexInput();
+    if (ok && vertices) {
+        // Previous synchronous DRAW/readback completed before the lock was released.
+        // Reuse the same 48-byte buffer without allocating per-frame MOBs.
+        memcpy(_vertexMem[0]->getBytesNoCopy(), vertices, 48);
+        __asm__ volatile ("" ::: "memory");
+        UInt32 update[5] = { 1219, 12, 4, 0, 48 };
+        ok = cbSubmitCtx(update, 5, 1, 1, kCbFlagDxContext);
+    }
+    UInt32 vs[4] = { 1150, 8, vertices ? 3u : 2u, 1 };
+    UInt32 layout[3] = { 1157, 4, vertices ? 2u : 1u };
+    UInt32 vb[6] = { 1158, 16, 0, vertices ? 4u : SVGA3D_INVALID_ID_U32, 16, 0 };
+    // Explicit bindings let fixed VertexID and vertex-buffer draws alternate.
     UInt32 raster[3] = { kSvga3dCmdDxSetRasterizerState, 4, 1 };
     UInt32 clear[7] = { kSvga3dCmdDxClearRenderTargetView, 20, kDxTemplateRtvId,
                         0, 0x3F800000, 0, 0x3F800000 };
     UInt32 draw[4] = { 1152, 8, 3, 0 };
-    bool ok = cbSubmitCtx(raster, 3, 1, 1, kCbFlagDxContext) &&
+    ok = ok && cbSubmitCtx(vs, 4, 1, 1, kCbFlagDxContext) &&
+              cbSubmitCtx(layout, 3, 1, 1, kCbFlagDxContext) &&
+              cbSubmitCtx(vb, 6, 1, 1, kCbFlagDxContext) &&
+              cbSubmitCtx(raster, 3, 1, 1, kCbFlagDxContext) &&
               cbSubmitCtx(clear, 7, 1, 1, kCbFlagDxContext) &&
               cbSubmitCtx(draw, 4, 1, 1, kCbFlagDxContext);
     if (ok) {
@@ -1665,8 +1771,8 @@ IOReturn vgpuFramebuffer::userDraw(UInt64 *generation) {
     if (ok) *generation = ++_userDrawGeneration;
     else _userDrawReady = false; // do not retry against a possibly failed queue
     _dxBusy = 0;
-    IOLog(VGPU_FB_TAG ": user: fixed triangle generation %llu -> %s\n",
-          (unsigned long long)_userDrawGeneration, ok ? "COMPLETED" : "FAILED");
+    IOLog(VGPU_FB_TAG ": user: fixed triangle generation %llu -> %s (vertex-buffer=%u)\n",
+          (unsigned long long)_userDrawGeneration, ok ? "COMPLETED" : "FAILED", vertices ? 1 : 0);
     IOLockUnlock(_userDrawLock);
     return ok ? kIOReturnSuccess : kIOReturnIOError;
 }
