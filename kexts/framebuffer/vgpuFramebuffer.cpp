@@ -364,6 +364,7 @@ enum {
 
 enum {
     kSvga3dSurfaceFormatX8R8G8B8 = 1,
+    kSvga3dSurfaceFormatB8G8R8X8Unorm = 142, // DX typed view; svga3d_types.h
 };
 
 enum {
@@ -808,7 +809,7 @@ static const UInt32 kDxTestDelayS = 30;
 //
 // The value is embedded in the banner string, so it is also covered by build.sh's
 // reachability check ("start, provider=%s [build %s]") -- a stale binary cannot pretend.
-#define VGPU_BUILD_TAG "§59"
+#define VGPU_BUILD_TAG "§62-observe"
 
 // How long one CB may take before we call it unanswered, and how long after that we keep
 // looking. Both are §56: the old budget was a 200M-iteration spin (~130 ms) that reported
@@ -5017,15 +5018,11 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
     //       uint32 validSizeInBytes;     // ★ here
     //   } SVGA3dCmdDXSetCOTable;
     //
-    // We were sending 0 for every table. A zero-byte COTable is a legal request
-    // (it is exactly how vmwgfx's vmw_cotable_scrub() *unbinds* a table:
-    // `cmd1->body.mobid = SVGA3D_INVALID_ID; cmd1->body.validSizeInBytes = 0;`),
-    // so SET_COTABLE came back ACCEPTED and looked like it had worked -- while the
-    // RTVIEW table stayed 0 bytes wide. DEFINE_RTV then had nowhere to allocate
-    // slot 1 and returned COMMAND_ERROR with errorOffset 0, which is why every
-    // payload permutation we tried failed identically: the payload was never the
-    // problem. Valid size must not exceed the MOB's own size, and our RTVIEW MOB
-    // is one 4 KiB page, so 4096 is both legal and the whole table.
+    // §62 host disassembly: validSize describes the prefix to preserve, not
+    // table capacity. Rows after that prefix are reset by SET_COTABLE. Zero
+    // with a valid MOB initializes all its rows; INVALID MOB plus zero unbinds.
+    // Preserve our prefilled RTV row by declaring the full 4 KiB page valid.
+    // This does not establish that the row passes later surface/view validation.
     const UInt32 kCotableValidBytes = kGbPageBytes;   // 4096, == the MOB we defined
     struct { UInt32 type; UInt32 mob; UInt32 validSize; } tc[12] = {
         { 0,  kCotableMobId, kCotableValidBytes },   // RTVIEW: the only one we back
@@ -5109,6 +5106,17 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
         IOLog(VGPU_FB_TAG ": dx: TEMPLATE skipped (split step failed; engine state unknown)\n");
         return false;
     }
+
+    // §62: observe shared guest backing after successful SET_COTABLE, before DX.
+    volatile UInt32 *observedRtv = (volatile UInt32 *)_cotableMem->map()->getVirtualAddress()
+                                  + trtv * 8;
+    volatile UInt32 *observedCtx = (volatile UInt32 *)_ctxStateMem->map()->getVirtualAddress();
+    __asm__ volatile ("" ::: "memory");
+    IOLog(VGPU_FB_TAG ": dx: OBSERVE COTable after SET mob%u row%u "
+          "%08x %08x %08x %08x %08x %08x %08x %08x\n",
+          observedCtx[0x19E0 / 4], trtv, observedRtv[0], observedRtv[1],
+          observedRtv[2], observedRtv[3], observedRtv[4], observedRtv[5],
+          observedRtv[6], observedRtv[7]);
 
     // ---- STEP 2: RETIRED 10-29 22:0x (§32). ---------------------------------
     //
@@ -5496,8 +5504,7 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
         IOLog(VGPU_FB_TAG ": dx: TEMPLATE verdict -> %s\n",
               okClr ? (okRb ? "*** DX CLEAR + READBACK ACCEPTED ***"
                             : "*** DX CLEAR ACCEPTED ***, readback refused")
-                    : "CLEAR refused -- the host does not run DX clears over a "
-                      "COTable-defined view either");
+                    : "CLEAR not completed (refused or skipped after a prerequisite failure)");
         return okClr;
     }
     return false;
@@ -5594,17 +5601,13 @@ bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
     }
     bzero((void *)_cotableMem->map()->getVirtualAddress(), kGbPageBytes);
 
-    // §49 (11-13): an EMPTY RTVIEW table is why nothing downstream ever worked.
-    // bzero() left the 4 KiB table full of zeroes, so rtvId 0 resolved to
-    // {sid 0, format 0, dimension 0} -- a view of nothing. Then we kept sending
-    // SVGA_3D_CMD_DX_DEFINE_RENDERTARGET_VIEW (1187) to *create* the view, and the
-    // host's handler for 1187 gates on a state object that this build never
-    // creates (measured: [0x1414930A0] == 0 across 397 samples, including in a
-    // Windows guest that runs DX fine).
-    //
-    // vm3dmp never sends 1187. Its .text contains no immediate in the whole
-    // 1185..1199 DEFINE_*_VIEW / DEFINE_*_STATE range -- it defines views by
-    // writing SVGACOTableDXRTViewEntry and binding the table with SET_COTABLE.
+    // Populate the RTVIEW row before SET_COTABLE for the host's lazy lookup.
+    // §61: a sampled NULL current context is normal after CB cleanup; it does
+    // not establish that DEFINE_RTV is unreachable. Missing immediates in a
+    // guest driver also do not establish which commands it can emit.
+    // §62: the host rejects legacy format 1 as a DX view (0x140A085B9/C0).
+    // Use typed view 142 while retaining legacy surface format 1, isolating
+    // this field from surface creation/binding and COTable transport changes.
     // Entry layout (svga3d_dx.h, pack(1)), 32 bytes:
     //     SVGA3dSurfaceId      sid;
     //     SVGA3dSurfaceFormat  format;
@@ -5615,12 +5618,11 @@ bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
         volatile UInt32 *ct =
             (volatile UInt32 *)_cotableMem->map()->getVirtualAddress();
         // rtvId kDxTemplateRtvId -> dword offset rtvId*8 (32 B entry). This MUST be the
-        // same id dxVm3dmpTemplate clears; it used to be 0 here and 1 there. The view
-        // format also has to match the surface it points at, and the surface below is
-        // defined as X8R8G8B8, not A8R8G8B8.
+        // same id dxVm3dmpTemplate clears; it used to be 0 here and 1 there.
+        // View and surface formats must be compatible, not numerically identical.
         const UInt32 e = kDxTemplateRtvId * 8;
         ct[e + 0] = surfId;                        // SVGA3dSurfaceId
-        ct[e + 1] = kSvga3dSurfaceFormatX8R8G8B8;   // SVGA3dSurfaceFormat (== surface)
+        ct[e + 1] = kSvga3dSurfaceFormatB8G8R8X8Unorm; // typed DX view, surface stays fmt 1
         ct[e + 2] = 3;                             // SVGA3D_RESOURCE_TEXTURE2D
         ct[e + 3] = 0;                             // desc.tex.mipSlice
         ct[e + 4] = 0;                             // desc.tex.firstArraySlice
@@ -5628,9 +5630,9 @@ bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
         ct[e + 6] = 0;                             // pad
         ct[e + 7] = 0;                             // pad
         __asm__ volatile ("" ::: "memory");
-        IOLog(VGPU_FB_TAG ": dx: RTV COTable entry %u written {sid %u, fmt %u X8R8G8B8, "
+        IOLog(VGPU_FB_TAG ": dx: RTV COTable entry %u written {sid %u, fmt %u B8G8R8X8_UNORM, "
               "tex2D, mip 0, array 0+1} 32 B\n", kDxTemplateRtvId, surfId,
-              kSvga3dSurfaceFormatX8R8G8B8);
+              kSvga3dSurfaceFormatB8G8R8X8Unorm);
     }
     IOByteCount ctLen = 0;
     IOVirtualAddress ctAddr = _cotableMem->getPhysicalSegment(0, &ctLen);
@@ -5690,6 +5692,12 @@ bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
     }
     IOLog(VGPU_FB_TAG ": dx: legacy DEFINE_GB_SURFACE accepted (sid %u on mob %u)\n",
       surfId, mobId);
+    // Read shared OTable after the DEFINE fence; host may replace the prefilled row.
+    volatile UInt32 *observed = (volatile UInt32 *)entry;
+    IOLog(VGPU_FB_TAG ": dx: OBSERVE surface after DEFINE sid%u fmt%u flags0x%x "
+          "mips%u ms%u size%ux%ux%u mob%u array%u pitch%u\n", surfId,
+          observed[0], observed[1], observed[2], observed[3], observed[5],
+          observed[6], observed[7], observed[8], observed[9], observed[10]);
     return true;
 }
 void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
@@ -5708,7 +5716,7 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
         }
         bool alive = dxVm3dmpTemplate(fifo, tSurf, tW, tH);
         IOLog(VGPU_FB_TAG ": dx: TEMPLATE only mode -> %s\n",
-              alive ? "*** DX MANAGER ALIVE ***" : "DX manager still absent");
+              alive ? "*** DX CLEAR ACCEPTED ***" : "DX goal not reached (see first failed step)");
         return;
     }
     // Bootstrap the CB mechanism itself (device context 0x3f).
@@ -6246,7 +6254,7 @@ gbFailed:
     if (kDxVm3dmpTemplate) {
         bool alive = dxVm3dmpTemplate(fifo, surfId, dxW, dxH);
         IOLog(VGPU_FB_TAG ": dx: TEMPLATE verdict -> %s\n",
-              alive ? "*** DX MANAGER ALIVE ***" : "DX manager still absent");
+              alive ? "*** DX CLEAR ACCEPTED ***" : "DX goal not reached (see first failed step)");
         return;
     }
 

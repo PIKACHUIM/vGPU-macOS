@@ -2171,6 +2171,8 @@ cid 1，队列 1。如果它 **ACCEPTED**，说明 `X8R8G8B8` 不是合法的 RT
 
 ### 35.4 实测结果：`STATUS 3 (errorOffset 0)`，`format` 不是卡点
 
+> **§62 更正**：下文“格式不是卡点/变量已经穷尽”撤回。0/1/2没有覆盖合法 typed DX 视图格式；本机代码明确拒绝 RTV format1。另有 §61 已撤回的 NULL 上下文归因。保留旧实验数据用于审计。
+
 一次完整的启动序列（22:23 重启，`log show --last 6m`）：
 
 ```
@@ -5592,4 +5594,53 @@ CB 处理器在 `0x14050a458` / `0x14050a4a0` 调用 `0x1404cc000`，后者执�
 
 `0x140A1EB30` 先以 `(cid<<16)|rtvId` 查缓存，缓存未命中时在 `0x140A1EB9E` 读字节 `0x141494261`：为 0 就返回 NULL；非零才调用 `0x140156CF0(ctx,type=0,id,buffer,size=32)` 读取 COTable 行，然后调用 `0x140A20120` 验证 surface、BIND_RENDER_TARGET bit24、格式/维度及子资源范围。
 
-因此剩余分叉是：缓存未命中且懒加载开关关闭；COTable 读取失败；或读出的视图行/关联 surface 验证失败。`tools/vmxmem.py` 已加入只读字段 `rtvLazyGate` 与 `rtvHashCnt`，下一次管理员读数可先区分第一项。**尚未读取该开关的运行值，不宣称根因已定位，也不修改它。**
+因此剩余分叉是：缓存未命中且懒加载开关关闭；COTable 读取失败；或读出的视图行/关联 surface 验证失败。`tools/vmxmem.py` 已加入只读字段 `rtvLazyGate` 与 `rtvHashCnt`。**随后用户只读快照得到 `rtvLazyGate=1`、`rtvHashCnt=0x800`，不支持采样时懒加载关闭；后者是桶数，不表示 RTV 1 已缓存。后续见 §62，未修改门控。**
+
+## §62 DX 视图旧格式被拒；仅改为 typed format 142 仍不足（2026-11-15）
+
+### 62.1 实际 COTable reader 和绑定语义
+
+`0x140156CF0` 是跳板，实际 reader 为 `0x1404D1350`。它检查 `ctx+0x5F51+type*4` 的 MOB ID 非 INVALID、行 ID <=65535，然后调用 `0x1404C9FB0(mob,id*entrySize,dst,entrySize)`。RTVIEW 的 entrySize=32，ID1 对应 offset32、length32。后者调用 `0x1404C7D30`，检查 MOB 存在、范围及映射；仅凭 guest 写入日志不能确认该读操作成功。
+
+`SET_COTABLE` handler `0x14055EAF0 -> 0x140558C60` 检查 validSize 的行对齐及不超过 MOB 大小。`0x140558E14–0x140558E45` 只初始化 [validSize/rowSize, mobSize/rowSize) 的行。故 validSize=4096、MOB=4096 时保留全页；validSize=0 会初始化全页，不应再解释为“容量为零”。`0x1404D1A30` 将 MOB ID 写入 DX state MOB 的 `0x19E0+type*4`，并更新已缓存 context 的 `+0x5F51+type*4`。
+
+### 62.2 格式校验的确定性问题
+
+RTV validator `0x140A20120` 先找 surface、检查 BIND_RENDER_TARGET bit24，再调用 `0x140A084D0`。视图格式由 row+4 读取，在 `0x140A085B9` 调 `0x140A08130`，返回非零则在 `0x140A085C0` 拒绝。format1 在该分类函数直接返回1，因此旧 RTV 行 `X8R8G8B8=1` 不合法。此为静态条件，不等于已捕获 §59 实际失败指令。
+
+上游 `drivers/gpu/drm/vmwgfx/device_include/svga3d_types.h` 确认 `B8G8R8X8_UNORM=142`（https://raw.githubusercontent.com/torvalds/linux/master/drivers/gpu/drm/vmwgfx/device_include/svga3d_types.h）。本机分类表对142返回0。surface格式另经 `0x140A081B0` 规范化，format1转换到116；所以 view与surface要求兼容，而非整数相等。
+
+复核修正：`0x140A201C5` 检查的是 **row+4 的格式支持位**，不是 mip 位；2D mipSlice 在 row+0xC、arraySlice在+0x10、arraySize在+0x14。surface 类型函数 `0x140A1ED50` 的返回5来自 flags bit0（cube），不是 bit24；当前非cube、depth1且bit18未置的2D surface返回3。
+
+### 62.3 单变量实测 §62-view142
+
+仅将模板 RTV row 的 format1改为142；surface格式仍1、surface定义/绑定、MOB、CB flags和顺序不变。客体构建通过（120256 bytes，26个已有警告），kmod/marker/弱引用检查通过。旧安装备份 `/var/tmp/vgpu-fb/backup-59.kext`。
+
+新启动 boottime=2026-11-15 21:00:58，21:01:26 自报 `[build §62-view142]`，21:01:56 测试：
+
+| 阶段 | 结果 |
+|---|---|
+| RTV row1 | sid3、format142、TEXTURE2D、mip0、array0+1 |
+| DEFINE_CONTEXT / BIND_CONTEXT / SET_COTABLE | COMPLETED |
+| LADDER1 / LADDER2 / 3a解绑 | COMPLETED |
+| 3b绑定RTV1 | STATUS3 / errorOffset0 |
+| CLEAR_RTV / READBACK | 未执行（前置失败） |
+
+因此 **修正视图旧格式并不足以解决当前绑定失败**，不能倒推旧格式不是错误，也不能证明读行已成功。后续 SET_SHADER_IFACE 在错误队列上无应答不作为独立证据。旧版输出“DX manager still absent”和“CLEAR refused”不能作判据，已将源码与构建 marker 改为报告目标未达成/清屏未完成。
+
+### 62.4 共享表项读回 §62-observe
+
+第二次启动添加只读观测，不改变命令序列。124368-byte 构建通过，26个已有警告、弱引用0、全部marker通过；旧安装备份 `/var/tmp/vgpu-fb/backup-62-view142.kext`。boottime=21:10:30，21:10:57.728 自报 `[build §62-observe]`；21:11:27 实测：
+
+```
+OBSERVE surface after DEFINE sid3 fmt1 flags0x1000040 mips1 ms1 size256x256x1 mob4 array1 pitch1024
+OBSERVE COTable after SET mob5 row1 00000003 0000008e 00000003 00000000 00000000 00000001 00000000 00000000
+LADDER 1/2/3a COMPLETED
+LADDER 3b REFUSED
+```
+
+context state MOB 的 `+0x19E0` 读到5，与 RTV COTable MOB一致；该字段是宿主 SET_COTABLE 路径写入的位置。RTV行仍完整，surface共享表项也仍为预填值。**这些是guest共享内存观测，不等价于宿主缓存对象/实际读取buffer的快照，不能据此排除所有MOB读取或缓存问题。**
+
+DEFINE V1 handler `0x14054F5B0` 确会构造 mobid=INVALID 的描述；但实际 helper `0x14054DB40` 在现有 surface 行 format 非零时直接拒绝，不会执行其64字节覆盖。当前先预填非零format，可能正走该路径：FIFO fence完成只证明消费进度，旧日志“DEFINE accepted”不能作为语义成功证据。`0x140544310` 是另一路整行复制函数，不能混同本次 DEFINE V1 handler。
+
+下一判别点是宿主读取是否成功、surface懒加载/格式能力及view兼容检查的具体返回。需要把guest预填状态与host缓存状态区分开，不再从单一NULL或格式同名猜根因。

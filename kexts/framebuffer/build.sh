@@ -332,11 +332,12 @@ fi
 # build fails here instead of costing a boot cycle to discover from the log.
 if sw kDxTest 1; then
     STOP="TEMPLATE verdict -> %s"
-    VERDICTS="DX CLEAR + READBACK ACCEPTED
+    VERDICTS="OBSERVE surface after DEFINE
+OBSERVE COTable after SET
+DX CLEAR + READBACK ACCEPTED
 DX CLEAR ACCEPTED
-CLEAR refused
-DX manager still absent
-DX MANAGER ALIVE"
+CLEAR not completed
+DX goal not reached"
     # The exploration verdicts describe paths that only exist when kDxExplore is on.
     if sw kDxExplore 1; then
         VERDICTS="$VERDICTS

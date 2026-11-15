@@ -153,13 +153,13 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 
 ## 当前开放问题
 
-> 最后更新：2026-11-15 夜间（§61：gate=1；§59 确认有效 RTV 绑定路径失败）
+> 最后更新：2026-11-15 夜间（§62：两个 gate 采样为1；RTV 改 typed format142 后绑定仍失败）
 
 ### 两级目标的最终状态（11-15 夜间修订）
 
 | 级 | 目标 | 状态 | 依据 |
 |---|---|---|---|
-| L1 | SVGA3D 的 **DX 命令流真正执行出像素** | ⏸ 未达成；有效 RTV 绑定路径失败 | §61：§59 实测 `SET_RENDER_TARGETS {rtv INVALID}` 完成、`{rtv 1}` 返回 STATUS 3；根因仍需从有效视图解析/绑定链定位 |
+| L1 | SVGA3D 的 **DX 命令流真正执行出像素** | ⏸ 未达成；有效 RTV 绑定路径失败 | §62：RTV format1被静态校验拒绝；单改typed format142后仍为解绑完成、有效RTV绑定STATUS3，需定位读行/surface校验 |
 | L1' | 退一步：**像素通路可用**（2D），且由驱动自证 | ✅ 已交付 | §52 色带/白框/棋盘截图 + 登录界面截图 |
 | L2a | **2D 加速的显示驱动**（copy/blit 加速） | ✅ 可达，且下层已实测 | §54.2：`RECT_COPY` 逐位正确；blit 可用；fill 不可用 |
 | L2b | **Metal / IOAccelerator** | ⛔ 不可实现（本宿主） | §55.2 `MTLCopyAllDevices == 0`；系统里没有匹配 0x15ad:0x0405 的 Metal 驱动 |
