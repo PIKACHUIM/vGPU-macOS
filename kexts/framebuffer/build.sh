@@ -250,6 +250,13 @@ cb: no completion within %u ms
 COMPLETED LATE, %u ms after the %u ms budget"
 # §57: the ladder owns its own banners. When it is on, the single-shot "CLEAR alone" line
 # is still compiled (it is the kDxLadder == 0 arm) but need not be required.
+if sw kDxGrowCotable 1; then
+    echo "kDxGrowCotable = 1 -> GROW marker is required"
+    MARKERS="$MARKERS
+SPLIT DX_GROW_COTABLE"
+else
+    echo "kDxGrowCotable = 0 -> GROW retired (§58 measured it refused)"
+fi
 if sw kDxLadder 1; then
     echo "kDxLadder = 1 -> ladder markers are required"
     MARKERS="$MARKERS

@@ -5359,3 +5359,35 @@ DXBRANCH / MATRIX 全排在真正要测的 CLEAR+READBACK **之前** —— 那�
 
 **一句话**：阻塞点从"宿主不支持 3D"缩小到"一条视图绑定命令被拒"，而前者是死路、后者是
 可以继续拆的工程问题。
+
+### §58 GROW_COTABLE 被拒：这台宿主是 DX10 代设备
+
+§57.6 的第 2 号候选当场测掉了。vmwgfx 在填充视图行之前会先发
+`SVGA_3D_CMD_DX_GROW_COTABLE {cid, mobid, type, validSizeInBytes}`（1237），
+我们直接跳到 `SET_COTABLE`；如果宿主只认自己维护的表长度，那么 `SET_COTABLE` 会
+"接受但无效"（它不校验），表内任何 id 查找仍然失败 —— 这正好是阶梯那个形状。
+
+实测：
+
+```
+dx: SPLIT DX_BIND_CONTEXT {cid 1 mob 6} -> ACCEPTED
+cb: STATUS 3 (errorOffset 0)
+dx: SPLIT DX_GROW_COTABLE {cid 1 type 0 size 4096} -> refused
+dx: SPLIT DX_SET_COTABLE {cid 1 mob 5 type 0} -> refused      <- 被上一条的 STATUS 3 带走
+```
+
+`GROW_COTABLE` 在 vGPU10.1 才加入，而这台宿主自己的钳位行就写着
+`Renderer Provides BaseCapsLevel: 9 (9,9) / ClampLevel: 7 (7,10)`。
+**结论：本设备的 DX 能力停在 10.0，没有表增长机制，`SET_COTABLE` 一次绑定就是全部。**
+
+已收回 `kDxGrowCotable = 0`（保留代码与横幅，因为"测过并被拒"和"从没测过"是两件事）。
+关闭后 §58b 完整复现 §57b：LADDER 1/2 COMPLETED，LADDER 3 `SET_RENDER_TARGETS` STATUS 3 ——
+**这条断点可重复**。
+
+于是 §57.6 的候选缩减为两条，下次直接从这里开始：
+
+1. **视图行对宿主不可见**（`_cotableMem` 的页 / MOB 注册 / PT 深度那条间接）；
+2. **`SET_RENDER_TARGETS` 的数组约定**（尾随数组 vs 固定 8 项；`SET_VIEWPORTS` /
+   `SET_SCISSORRECTS` 都有 `uint32 pad0`，这里可能也隐含一个）。
+
+两条都不需要重开死路，都只要一次启动。

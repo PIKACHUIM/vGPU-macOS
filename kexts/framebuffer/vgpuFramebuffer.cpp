@@ -317,6 +317,7 @@ enum {
     // id here; the send site is still a runner (not a gate) because 3D caps are 0.
     kSvga3dCmdDxSetShaderIface     = 1274,   // 0x4fa: {cid, ifaceMobid, prependOffset}
     kSvga3dCmdDxSetCotable         = 1207,
+    kSvga3dCmdDxGrowCotable        = 1237,   // {cid, mobid, type, validSizeInBytes}
     kSvga3dCmdDxDefineRenderTargetView = 1187,
     kSvga3dCmdDxSetRenderTargets   = 1161,
     kSvga3dCmdDxSetViewports       = 1174,
@@ -807,7 +808,7 @@ static const UInt32 kDxTestDelayS = 30;
 //
 // The value is embedded in the banner string, so it is also covered by build.sh's
 // reachability check ("start, provider=%s [build %s]") -- a stale binary cannot pretend.
-#define VGPU_BUILD_TAG "§57b"
+#define VGPU_BUILD_TAG "§58b"
 
 // How long one CB may take before we call it unanswered, and how long after that we keep
 // looking. Both are §56: the old budget was a 200M-iteration spin (~130 ms) that reported
@@ -835,6 +836,12 @@ static const UInt32 kDxExplore = 0;
 // is missing, and the only way to find it is to climb one command at a time and stop at
 // the first refusal. Off restores the single "CLEAR alone" measurement.
 static const UInt32 kDxLadder = 1;
+
+// §58: send DX_GROW_COTABLE (1237) before SET_COTABLE, as vmwgfx does.
+// Measured REFUSED (STATUS 3, errorOffset 0) on this host, and the refusal wedged the
+// queue so the following SET_COTABLE failed too. This device is DX10-era; grow is a
+// vGPU10.1 command. Off, but kept so the experiment can be repeated without rewriting it.
+static const UInt32 kDxGrowCotable = 0;
 
 // Periodic DX probe: every kProbeEveryS seconds re-submit the packed DEFINE+BIND
 // on the device queue (errors there do not wedge). Used while a host-side debugger
@@ -5077,12 +5084,27 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
     bool okBind = okDef && cbSubmitCtx(one, 5, tcid, 0, 1);
     IOLog(VGPU_FB_TAG ": dx: SPLIT DX_BIND_CONTEXT {cid %u mob %u} -> %s\n",
           tcid, stateMobId, okBind ? "ACCEPTED" : "refused");
+    // §58: GROW_COTABLE is REFUSED on this host (STATUS 3 at errorOffset 0), and because
+    // a refusal wedges the queue it also took the following SET_COTABLE with it. So the
+    // vmwgfx sequence (grow, fill rows, then bind) does not apply here: this device is
+    // DX10-era and has no COTable grow -- consistent with the host's own clamp line,
+    // "Renderer Provides BaseCapsLevel: 9 (9,9) / ClampLevel: 7 (7,10)", and with GROW
+    // being a vGPU10.1 addition. Reverted to bind-only via kDxGrowCotable; keep the code
+    // so the measurement is reproducible rather than remembered.
+    bool okGrow = okBind;
+    if (kDxGrowCotable) {
+        one[0] = kSvga3dCmdDxGrowCotable; one[1] = 16; one[2] = tcid;
+        one[3] = tc[0].mob; one[4] = tc[0].type; one[5] = tc[0].validSize;
+        okGrow = okBind && cbSubmitCtx(one, 6, tcid, 0, 1);
+        IOLog(VGPU_FB_TAG ": dx: SPLIT DX_GROW_COTABLE {cid %u type %u size %u} -> %s\n",
+              tcid, tc[0].type, tc[0].validSize, okGrow ? "ACCEPTED" : "refused");
+    }
     one[0] = kSvga3dCmdDxSetCotable; one[1] = 16; one[2] = tcid;
     one[3] = tc[0].mob; one[4] = tc[0].type; one[5] = tc[0].validSize;
-    bool okCot = okBind && cbSubmitCtx(one, 6, tcid, 0, 1);
+    bool okCot = okGrow && cbSubmitCtx(one, 6, tcid, 0, 1);
     IOLog(VGPU_FB_TAG ": dx: SPLIT DX_SET_COTABLE {cid %u mob %u type %u} -> %s\n",
           tcid, tc[0].mob, tc[0].type, okCot ? "ACCEPTED" : "refused");
-    if (!okDef || !okBind || !okCot) {
+    if (!okDef || !okBind || !okGrow || !okCot) {
         // Stop here: the batch below would only measure the wedged queue.
         IOLog(VGPU_FB_TAG ": dx: TEMPLATE skipped (split step failed; engine state unknown)\n");
         return false;
