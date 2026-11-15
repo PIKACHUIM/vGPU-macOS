@@ -308,7 +308,10 @@ DRAW 3 vertices
 DRAW READBACK
 DRAW pixels
 DRAW post-readback queue health
-DRAW triangle verdict"
+DRAW triangle verdict
+user: fixed triangle interface
+user: fixed triangle generation
+user: administrator connection opened"
 fi
 if sw kDxExplore 1; then
     echo "kDxExplore = 1 -> exploration markers are required"

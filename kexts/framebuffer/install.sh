@@ -85,8 +85,19 @@ echo "--- 5. ask for it to be built in ---"
 kmutil clear-staging >/dev/null 2>&1 || true
 # Without -z this stops at the consent gate and returns Code=27 even when the policy row
 # is in place; -z gets the request to kernelmanagerd, which re-checks approval itself.
-kmutil load -z -p "$DEST" 2>&1 | grep -oE 'Code=[0-9]+ .*' | head -1 \
-    || echo "queued (no error)"
+LOAD_STATUS=0
+LOAD_OUTPUT=$(kmutil load -z -p "$DEST" 2>&1) || LOAD_STATUS=$?
+printf '%s\n' "$LOAD_OUTPUT"
+if [ "$LOAD_STATUS" != "0" ]; then
+    # Code=28 is the expected request to reboot an already loaded kext.
+    # Every other failure (especially Code=31 link errors) must stop install.
+    if printf '%s\n' "$LOAD_OUTPUT" | grep -q 'Code=28'; then
+        echo "queued: reboot required (Code=28)"
+    else
+        echo "FATAL: kernel collection staging failed ($LOAD_STATUS)" >&2
+        exit "$LOAD_STATUS"
+    fi
+fi
 
 echo "--- 6. verify ---"
 # The collection is rebuilt at the next boot, so a count of zero here is expected on the

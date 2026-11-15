@@ -31,6 +31,8 @@
 #include <IOKit/graphics/IOFramebuffer.h>
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <IOKit/IODeviceMemory.h>
+#include <IOKit/IOUserClient.h>
+#include <IOKit/IOLocks.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/pci/IOPCIDevice.h>
 #include <kern/thread_call.h>
@@ -809,7 +811,7 @@ static const UInt32 kDxTestDelayS = 90;
 //
 // The value is embedded in the banner string, so it is also covered by build.sh's
 // reachability check ("start, provider=%s [build %s]") -- a stale binary cannot pretend.
-#define VGPU_BUILD_TAG "§68c-states"
+#define VGPU_BUILD_TAG "§69-userclient"
 
 // How long one CB may take before we call it unanswered, and how long after that we keep
 // looking. Both are §56: the old budget was a 200M-iteration spin (~130 ms) that reported
@@ -1469,6 +1471,16 @@ private:
     // Retain shader MOB backing for the device lifetime, including failure paths.
     IOBufferMemoryDescriptor *_shaderProbeMem[2] = { nullptr, nullptr };
     IOBufferMemoryDescriptor *_drawProbeMem[5] = { nullptr, nullptr, nullptr, nullptr, nullptr };
+    IOLock *_userDrawLock = nullptr;
+    IOLock *_scheduleLock = nullptr;
+    bool _stopping = false; // guarded by _scheduleLock; draw state by _userDrawLock
+    UInt32 _pendingCalls = 0; // pending plus running invocations, under _scheduleLock
+    void scheduleCall(thread_call_t call, UInt64 deadline);
+    void finishCall();
+    void stopCallbacks();
+    bool _userDrawReady = false;
+    bool _userDrawStopping = false;
+    UInt64 _userDrawGeneration = 0;
     IOBufferMemoryDescriptor *_cotableMem = nullptr;   // DX COTABLE storage (4 KiB)
     IOBufferMemoryDescriptor *_cotablePtMem = nullptr; // unused (PT64_0 needs no PT page)
     IOBufferMemoryDescriptor *_cbHeaderMem = nullptr;  // 4 KiB = 64 header slots
@@ -1509,6 +1521,11 @@ public:
     //
     bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
     void stop(IOService *provider) APPLE_KEXT_OVERRIDE;
+    void free() APPLE_KEXT_OVERRIDE;
+    IOReturn newUserClient(task_t task, void *securityID, UInt32 type,
+                          OSDictionary *properties, IOUserClient **handler) APPLE_KEXT_OVERRIDE;
+    IOReturn userDraw(UInt64 *generation);
+    IOReturn userReadRow(UInt64 generation, UInt64 row, void *output);
 
     //
     // IOFramebuffer.
@@ -1533,6 +1550,139 @@ public:
 };
 
 OSDefineMetaClassAndStructors(vgpuFramebuffer, IOFramebuffer)
+
+// §69: intentionally narrow bring-up ABI. No raw CB, MOB, or physical address
+// crosses this interface. Other connection types still belong to IOFramebuffer.
+static const UInt32 kVgpuDrawConnection = 0x56475055;
+class vgpuDrawUserClient : public IOUserClient {
+    OSDeclareDefaultStructors(vgpuDrawUserClient)
+    typedef IOUserClient super;
+public:
+    IOReturn clientClose() APPLE_KEXT_OVERRIDE;
+    IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments *arguments,
+                           IOExternalMethodDispatch *dispatch = nullptr,
+                           OSObject *target = nullptr, void *reference = nullptr) APPLE_KEXT_OVERRIDE;
+    static IOReturn draw(OSObject *target, void *, IOExternalMethodArguments *args);
+    static IOReturn readRow(OSObject *target, void *, IOExternalMethodArguments *args);
+};
+OSDefineMetaClassAndStructors(vgpuDrawUserClient, IOUserClient)
+
+IOReturn vgpuFramebuffer::newUserClient(task_t task, void *securityID, UInt32 type,
+                                      OSDictionary *properties, IOUserClient **handler) {
+    if (type != kVgpuDrawConnection)
+        return super::newUserClient(task, securityID, type, handler);
+    if (!handler) return kIOReturnBadArgument;
+    *handler = nullptr;
+    if (IOUserClient::clientHasPrivilege(task, kIOClientPrivilegeAdministrator) != kIOReturnSuccess)
+        return kIOReturnNotPrivileged;
+    vgpuDrawUserClient *client = new vgpuDrawUserClient;
+    if (!client) return kIOReturnNoMemory;
+    if (!client->initWithTask(task, securityID, type, properties)) {
+        client->release();
+        return kIOReturnError;
+    }
+    // Let IOKit serialize close/externalMethod calls for each connection.
+    client->setProperty("IOUserClientDefaultLocking", true);
+    if (!client->attach(this)) {
+        client->release();
+        return kIOReturnError;
+    }
+    if (!client->start(this)) {
+        client->detach(this);
+        client->release();
+        return kIOReturnError;
+    }
+    *handler = client;
+    IOLog(VGPU_FB_TAG ": user: administrator connection opened\n");
+    return kIOReturnSuccess;
+}
+
+IOReturn vgpuDrawUserClient::clientClose() {
+    terminate();
+    return kIOReturnSuccess;
+}
+
+IOReturn vgpuDrawUserClient::externalMethod(uint32_t selector, IOExternalMethodArguments *args,
+                                           IOExternalMethodDispatch *, OSObject *, void *) {
+    static IOExternalMethodDispatch methods[] = {
+        { &vgpuDrawUserClient::draw,    0, 0, 3, 0 },
+        { &vgpuDrawUserClient::readRow, 2, 0, 0, 256 * sizeof(UInt32) }
+    };
+    if (isInactive()) return kIOReturnNotAttached;
+    if (selector >= sizeof(methods) / sizeof(methods[0])) return kIOReturnUnsupported;
+    // This interface is synchronous; reject asynchronous references explicitly.
+    if (!args || args->asyncWakePort != MACH_PORT_NULL) return kIOReturnBadArgument;
+    return super::externalMethod(selector, args, &methods[selector], this, nullptr);
+}
+
+IOReturn vgpuDrawUserClient::draw(OSObject *target, void *, IOExternalMethodArguments *args) {
+    vgpuDrawUserClient *client = OSDynamicCast(vgpuDrawUserClient, target);
+    vgpuFramebuffer *owner = client ? OSDynamicCast(vgpuFramebuffer, client->getProvider()) : nullptr;
+    if (!owner || owner->isInactive()) return kIOReturnNotAttached;
+    UInt64 generation = 0;
+    IOReturn result = owner->userDraw(&generation);
+    if (result == kIOReturnSuccess) {
+        args->scalarOutput[0] = generation;
+        args->scalarOutput[1] = 256;
+        args->scalarOutput[2] = 256;
+    }
+    return result;
+}
+
+IOReturn vgpuDrawUserClient::readRow(OSObject *target, void *, IOExternalMethodArguments *args) {
+    vgpuDrawUserClient *client = OSDynamicCast(vgpuDrawUserClient, target);
+    vgpuFramebuffer *owner = client ? OSDynamicCast(vgpuFramebuffer, client->getProvider()) : nullptr;
+    if (!owner || owner->isInactive()) return kIOReturnNotAttached;
+    if (!args->structureOutput) return kIOReturnBadArgument;
+    return owner->userReadRow(args->scalarInput[0], args->scalarInput[1], args->structureOutput);
+}
+
+IOReturn vgpuFramebuffer::userDraw(UInt64 *generation) {
+    if (!_userDrawLock || !generation) return kIOReturnNotReady;
+    IOLockLock(_userDrawLock);
+    if (_userDrawStopping || !_userDrawReady || _dxBusy || !_dxVirt) {
+        IOLockUnlock(_userDrawLock);
+        return kIOReturnNotReady;
+    }
+    _dxBusy = 1;
+    // The boot probe's queue-health command unbound the rasterizer. Rebind it,
+    // clear green, and draw again using the already validated VS/PS and states.
+    UInt32 raster[3] = { kSvga3dCmdDxSetRasterizerState, 4, 1 };
+    UInt32 clear[7] = { kSvga3dCmdDxClearRenderTargetView, 20, kDxTemplateRtvId,
+                        0, 0x3F800000, 0, 0x3F800000 };
+    UInt32 draw[4] = { 1152, 8, 3, 0 };
+    bool ok = cbSubmitCtx(raster, 3, 1, 1, kCbFlagDxContext) &&
+              cbSubmitCtx(clear, 7, 1, 1, kCbFlagDxContext) &&
+              cbSubmitCtx(draw, 4, 1, 1, kCbFlagDxContext);
+    if (ok) {
+        volatile UInt32 *pixels = (volatile UInt32 *)_dxVirt;
+        for (UInt32 i = 0; i < 256 * 256; ++i) pixels[i] = 0xFFFF00FF;
+        __asm__ volatile ("" ::: "memory");
+        UInt32 readback[4] = { kSvga3dCmdDxReadbackSubResource, 8, 3, 0 };
+        UInt32 sync[1] = { 0 };
+        ok = cbSubmitCtx(readback, 4, 1, 1, kCbFlagDxContext) && cbSubmitCtx(sync, 0, 0, 0, 1);
+    }
+    if (ok) *generation = ++_userDrawGeneration;
+    else _userDrawReady = false; // do not retry against a possibly failed queue
+    _dxBusy = 0;
+    IOLog(VGPU_FB_TAG ": user: fixed triangle generation %llu -> %s\n",
+          (unsigned long long)_userDrawGeneration, ok ? "COMPLETED" : "FAILED");
+    IOLockUnlock(_userDrawLock);
+    return ok ? kIOReturnSuccess : kIOReturnIOError;
+}
+
+IOReturn vgpuFramebuffer::userReadRow(UInt64 generation, UInt64 row, void *output) {
+    if (!_userDrawLock || !output || row >= 256) return kIOReturnBadArgument;
+    IOLockLock(_userDrawLock);
+    IOReturn result = kIOReturnNotReady;
+    if (!_userDrawStopping && _userDrawReady && !_dxBusy && _dxVirt && generation && generation == _userDrawGeneration) {
+        __asm__ volatile ("" ::: "memory");
+        memcpy(output, (const char *)_dxVirt + row * 256 * sizeof(UInt32), 256 * sizeof(UInt32));
+        result = kIOReturnSuccess;
+    }
+    IOLockUnlock(_userDrawLock);
+    return result;
+}
 
 //
 // Log every BAR the provider exposes, then read the SVGA registers. The BAR dump is what
@@ -1962,7 +2112,7 @@ void vgpuFramebuffer::probeFifo(IOPCIDevice *pci) {
             UInt64 now = 0, delta = 0;
             clock_get_uptime(&now);
             nanoseconds_to_absolutetime((UInt64)kDxTestDelayS * 1000000000ULL, &delta);
-            thread_call_enter_delayed(_dxCall, now + delta);
+            scheduleCall(_dxCall, now + delta);
             IOLog(VGPU_FB_TAG ": dx: test scheduled in %u s\n", kDxTestDelayS);
         } else {
             IOLog(VGPU_FB_TAG ": dx: could not allocate dx thread_call\n");
@@ -2605,6 +2755,7 @@ void vgpuFramebuffer::presentTickC(thread_call_param_t param0, thread_call_param
     if (self != nullptr) {
         self->presentTick();
         self->schedulePresent();
+        self->finishCall();
     }
 }
 
@@ -2634,12 +2785,15 @@ void vgpuFramebuffer::rpcTickC(thread_call_param_t param0, thread_call_param_t p
         IOLog(VGPU_FB_TAG ": rpc: heartbeat #%u -> status 0x%x\n", self->_rpcSent, status);
     }
     // Re-arm from the callback: one live thread_call at a time, no queue build-up.
-    if (self->_rpcCall != nullptr) {
+    IOLockLock(self->_scheduleLock);
+    if (!self->_stopping && self->_rpcCall != nullptr) {
         UInt64 now = 0, delta = 0;
         clock_get_uptime(&now);
         nanoseconds_to_absolutetime(kRpcHeartbeatNs, &delta);
-        thread_call_enter_delayed(self->_rpcCall, now + delta);
+        if (!thread_call_enter_delayed(self->_rpcCall, now + delta)) ++self->_pendingCalls;
     }
+    IOLockUnlock(self->_scheduleLock);
+    self->finishCall();
 }
 
 // Start the heartbeat thread_call. Called as early as we can in start(), independently of
@@ -2660,7 +2814,7 @@ bool vgpuFramebuffer::startRpcHeartbeat(void) {
     UInt64 now = 0, delta = 0;
     clock_get_uptime(&now);
     nanoseconds_to_absolutetime(kRpcHeartbeatNs, &delta);
-    thread_call_enter_delayed(_rpcCall, now + delta);
+    scheduleCall(_rpcCall, now + delta);
     IOLog(VGPU_FB_TAG ": rpc: heartbeat armed (every %llu ms, host timeout is ~20 s)\n",
           (unsigned long long)(kRpcHeartbeatNs / 1000000ULL));
     return true;
@@ -2669,13 +2823,14 @@ bool vgpuFramebuffer::startRpcHeartbeat(void) {
 // Schedule the next present tick. thread_call_enter_delayed takes an absolute mach
 // absolute-time deadline; compute now + interval.
 void vgpuFramebuffer::schedulePresent(void) {
-    if (_presentCall == nullptr) {
-        return;
+    IOLockLock(_scheduleLock);
+    if (!_stopping && _presentCall != nullptr) {
+        UInt64 now = 0, delta = 0;
+        clock_get_uptime(&now);
+        nanoseconds_to_absolutetime((UInt64)kPresentIntervalMs * 1000000ULL, &delta);
+        if (!thread_call_enter_delayed(_presentCall, now + delta)) ++_pendingCalls;
     }
-    UInt64 now = 0, delta = 0;
-    clock_get_uptime(&now);
-    nanoseconds_to_absolutetime((UInt64)kPresentIntervalMs * 1000000ULL, &delta);
-    thread_call_enter_delayed(_presentCall, now + delta);
+    IOLockUnlock(_scheduleLock);
 }
 
 // Delayed DX test entry: runs kDxTestDelayS seconds after bring-up.
@@ -2685,26 +2840,29 @@ void vgpuFramebuffer::dxTestC(thread_call_param_t param0, thread_call_param_t pa
     if (self == nullptr) {
         return;
     }
+    IOLockLock(self->_userDrawLock);
     self->_dxBusy = 1;
     __asm__ volatile ("" ::: "memory");
     IOLog(VGPU_FB_TAG ": dx: delayed test starting (fifo=%p)\n", (void *)self->_dxFifo);
     self->dxReadbackTest(self->_dxFifo);
     __asm__ volatile ("" ::: "memory");
     self->_dxBusy = 0;
+    IOLockUnlock(self->_userDrawLock);
 
     // Arm the periodic debug probe (ping-pong pair keeps it re-arming).
     if (kProbeEveryS != 0) {
         self->armProbe(self->_probeCall);
     }
+    self->finishCall();
 }
 
 // Periodic probe: same packed DEFINE+BIND as the DX chain, on the device queue --
 // this is the submission a host-side debugger watches (status write on the CB header).
 //
-// NOTE: a thread_call CANNOT re-enter itself, so thread_call_enter_delayed() from
-// inside the running call silently does nothing -- the original self-rearming
-// probe fired exactly once per boot. Two calls ping-pong instead: probeC arms
-// _probeCall2 and probeC2 arms _probeCall.
+// Historical observation: the original self-rearming probe fired once per boot.
+// The SDK permits re-entry (including overlapping invocations), so that observation
+// is not an API guarantee. Keep the measured ping-pong arrangement: probeC arms
+// _probeCall2 and probeC2 arms _probeCall; every invocation is counted for teardown.
 void vgpuFramebuffer::probeRun(void) {
     if (_cbHeaderVirt == nullptr || _cbDataVirt == nullptr) {
         return;
@@ -2731,14 +2889,15 @@ void vgpuFramebuffer::probeRun(void) {
 }
 
 void vgpuFramebuffer::armProbe(thread_call_t call) {
-    if (call == nullptr) {
-        return;
+    IOLockLock(_scheduleLock);
+    if (!_stopping && call != nullptr) {
+        AbsoluteTime when = 0;
+        uint64_t delta = 0;
+        clock_get_uptime(&when);
+        nanoseconds_to_absolutetime((UInt64)kProbeEveryS * 1000000000ULL, &delta);
+        if (!thread_call_enter_delayed(call, when + delta)) ++_pendingCalls;
     }
-    AbsoluteTime when = 0;
-    uint64_t delta = 0;
-    clock_get_uptime(&when);
-    nanoseconds_to_absolutetime((UInt64)kProbeEveryS * 1000000000ULL, &delta);
-    thread_call_enter_delayed(call, when + delta);
+    IOLockUnlock(_scheduleLock);
 }
 
 void vgpuFramebuffer::probeC(thread_call_param_t param0, thread_call_param_t param1) {
@@ -2749,6 +2908,7 @@ void vgpuFramebuffer::probeC(thread_call_param_t param0, thread_call_param_t par
     }
     self->probeRun();
     self->armProbe(self->_probeCall2);
+    self->finishCall();
 }
 
 void vgpuFramebuffer::probeC2(thread_call_param_t param0, thread_call_param_t param1) {
@@ -2759,6 +2919,7 @@ void vgpuFramebuffer::probeC2(thread_call_param_t param0, thread_call_param_t pa
     }
     self->probeRun();
     self->armProbe(self->_probeCall);
+    self->finishCall();
 }
 
 //
@@ -5812,6 +5973,13 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
                 const bool drawOk = dxDrawProbe(fifo, rtvQ, tcid, surfId, dxW, dxH);
                 IOLog(VGPU_FB_TAG ": dx: DRAW triangle verdict -> %s\n",
                       drawOk ? "PASS" : "FAIL (see first failure/pixels)");
+                // Published under the delayed-test lock. Fixed ABI is valid only
+                // for this verified resource set, with no other CB/FIFO producer.
+                _userDrawReady = !_userDrawStopping && drawOk && !_presentCall && kProbeEveryS == 0 &&
+                                 !kDxExplore && rtvQ == 1 && tcid == 1 &&
+                                 surfId == 3 && dxW == 256 && dxH == 256;
+                IOLog(VGPU_FB_TAG ": user: fixed triangle interface %s\n",
+                      _userDrawReady ? "READY" : "DISABLED");
                 return drawOk;
             }
             return shaderOk;
@@ -7172,10 +7340,8 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
             }
             return true;
         }
-        if (status == 2) {          // QUEUE_FULL: retry after a short spin
-            IODelay(100);
-            continue;
-        }
+        // QUEUE_FULL (2) must share the wall-clock deadline below. Skipping
+        // it made a synchronous user call hold the device lock forever.
         if (status >= 3) {          // COMMAND_ERROR / CB_HEADER_ERROR / ...
             IOLog(VGPU_FB_TAG ": cb: STATUS %u (errorOffset %u) -- full header dump://n",
                   status, h[1]);
@@ -7273,6 +7439,10 @@ bool vgpuFramebuffer::start(IOService *provider) {
         return false;
     }
 
+    _userDrawLock = IOLockAlloc();
+    _scheduleLock = IOLockAlloc();
+    if (!_userDrawLock || !_scheduleLock) return false;
+
     //
     // §38.19: arm the GuestRpc heartbeat FIRST, before touching the device.
     //
@@ -7346,14 +7516,58 @@ bool vgpuFramebuffer::start(IOService *provider) {
     return true;
 }
 
+void vgpuFramebuffer::scheduleCall(thread_call_t call, UInt64 deadline) {
+    IOLockLock(_scheduleLock);
+    if (!_stopping && call && !thread_call_enter_delayed(call, deadline)) ++_pendingCalls;
+    IOLockUnlock(_scheduleLock);
+}
+
+void vgpuFramebuffer::finishCall() {
+    IOLockLock(_scheduleLock);
+    --_pendingCalls;
+    IOLockWakeup(_scheduleLock, &_pendingCalls, false);
+    IOLockUnlock(_scheduleLock);
+}
+
+void vgpuFramebuffer::stopCallbacks() {
+    if (!_scheduleLock) return;
+    IOLockLock(_scheduleLock);
+    _stopping = true;
+    thread_call_t *calls[] = { &_presentCall, &_dxCall, &_probeCall, &_probeCall2, &_rpcCall };
+    // cancel_wait is declared in this SDK but NOT exported by this kernel.
+    // Count each newly scheduled invocation before releasing the scheduler
+    // lock; cancellation or the callback's final operation consumes that count.
+    for (unsigned i = 0; i < sizeof(calls) / sizeof(calls[0]); ++i)
+        if (*calls[i] && thread_call_cancel(*calls[i])) --_pendingCalls;
+    while (_pendingCalls) IOLockSleep(_scheduleLock, &_pendingCalls, THREAD_UNINT);
+    for (unsigned i = 0; i < sizeof(calls) / sizeof(calls[0]); ++i) {
+        if (*calls[i]) {
+            thread_call_free(*calls[i]);
+            *calls[i] = nullptr;
+        }
+    }
+    IOLockUnlock(_scheduleLock);
+}
+
+void vgpuFramebuffer::free() {
+    // Also handles start() failure after the early heartbeat was armed.
+    stopCallbacks();
+    if (_userDrawLock) { IOLockFree(_userDrawLock); _userDrawLock = nullptr; }
+    if (_scheduleLock) { IOLockFree(_scheduleLock); _scheduleLock = nullptr; }
+    super::free();
+}
+
 void vgpuFramebuffer::stop(IOService *provider) {
     IOLog(VGPU_FB_TAG ": stop\n");
-
-    if (_presentCall != nullptr) {
-        thread_call_cancel(_presentCall);
-        thread_call_free(_presentCall);
-        _presentCall = nullptr;
+    if (_userDrawLock) {
+        IOLockLock(_userDrawLock);
+        _userDrawStopping = true;
+        _userDrawReady = false;
+        IOLockUnlock(_userDrawLock);
     }
+    stopCallbacks();
+    // Calls entering after the drain see _userDrawStopping; keep the lock
+    // alive until free() so a waiting client can safely return NotReady.
     _presentFifo = nullptr;
     if (_fifoMap != nullptr) {
         _fifoMap->release();
@@ -7363,6 +7577,16 @@ void vgpuFramebuffer::stop(IOService *provider) {
         _vramMap->release();
         _vramMap = nullptr;
         _vramVirt = nullptr;
+    }
+    // Device object destruction/reset is not implemented yet. Once CBs have
+    // been published, stopping CPU callbacks does not prove DMA quiescence.
+    // Deliberately retain device-visible backing until reboot (including a
+    // timed-out command), rather than returning potentially live pages.
+    if (_cbHeaderMem != nullptr) {
+        IOLog(VGPU_FB_TAG ": stop: retaining device-owned DMA backing until reboot\n");
+        if (_aperture) { _aperture->release(); _aperture = nullptr; }
+        super::stop(provider);
+        return;
     }
     if (_stduPtMem != nullptr) {
         if (_stduPtPrepared) {

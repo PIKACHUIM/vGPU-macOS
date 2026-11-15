@@ -5800,3 +5800,41 @@ DRAW triangle verdict -> PASS
 独立复测启动`kern.boottime=2026-11-16 00:48:20 CST`，00:48:43加载同一`§68c-states`，00:50:13再次得到相同的18432红/47104绿、other0、mismatches0及健康队列。两次启动均按本次boottime过滤日志，未复用旧启动结果。
 
 这是首次**VS/PS实际着色、光栅化、全像素区域读回均通过**的客体证据；不再仅限于清屏或shader对象接受。改变的状态集合消除了§68b失败，但没有分别隔离blend与depth单项贡献。MOB9–13合计20KiB均保留到重启，尚无通用资源回收/用户态提交接口。应用级硬件OpenGL和Metal仍未实现，不能据本探针声称二者可用。
+
+## §69：用户态固定三角形提交与独立像素验收（2026-11-16）
+
+### 接口与同步边界
+
+`vgpuDrawUserClient` 通过 framebuffer 的专用连接类型 `0x56475055` 暴露两个同步 selector，要求管理员权限。selector 0 无输入，返回三个 UInt64（generation、256、256）；selector 1 接收 generation/row，复制精确1024字节的一行BGRA像素。未知selector、异步调用、错误参数数量/尺寸和越界行被拒绝；其他连接类型转交IOFramebuffer原有四参数newUserClient，保持显示连接路径。
+
+接口仅在§68启动三角形像素及后续队列健康验证通过、queue1/cid1/sid3/256x256匹配、无present timer且周期probe关闭时就绪。延迟启动实验与用户提交共用设备锁，用户行读取也持此锁；generation为设备全局值，任一连接的新绘制使旧帧失效，读取失败必须丢弃整帧。每次调用重新绑定rasterizer、清绿、DRAW、CPU填洋红但不上传、READBACK及同步。失败后禁用接口，不继续复用可能仍在被设备读取的CB。
+
+### 构建及生命周期修正
+
+- 初次编译发现IOFramebuffer隐藏了五参数newUserClient重载，普通连接转交改用父类四参数版本后编译通过。
+- SDK声明的`thread_call_cancel_wait`在本客体内核不向kext导出；集合构建报Code=31及Failed to bind。改为调度锁下计数待执行/执行中回调，用公开thread_call_cancel取消待执行项，IOLockSleep/Wakeup等待运行项完成。五类回调均禁止停止后重排，停止后再释放映射，锁直到free才释放。
+- 原install.sh管道掩盖了Code=31；现保留完整kmutil输出/退出码，仅Code=28（需要重启）作为预期非零结果，其余立即失败。
+- CB状态QUEUE_FULL原先continue跳过超时，现纳入统一wall-clock期限，避免同步用户请求永久持锁。
+- 设备对象销毁/复位仍未实现。停止CPU回调不等于DMA停止，因此CB启用后stop保留设备可见backing到重启；这是明确的资源保留局限，不能声称支持热卸载/重载。并发stop及超时注入尚未实测。
+
+修正版构建26条既有警告、marker全通过、weak references=0；安装Code=28。`tools/vgpu-user-draw.c`以`clang -Wall -Wextra -Werror -framework IOKit -framework CoreFoundation`编译，无警告。
+
+### 第一次启动实测
+
+`kern.boottime=2026-11-16 01:18:01 CST`，01:18:28.985加载`§69-userclient`。非root打开返回NotPrivileged；01:18:43管理员调用时尚处90秒延迟窗口，返回NotReady，属于预期行为。01:20:04运行10轮+第二连接+关闭后重开，总计12次用户触发绘制：
+
+```text
+round 1/10 generation=1 red=18432 green=47104 other=0 mismatch=0
+round 10/10 generation=10 red=18432 green=47104 other=0 mismatch=0
+cross-connection generation=11 red=18432 green=47104 other=0 mismatch=0
+reopen generation=12 red=18432 green=47104 other=0 mismatch=0
+PASS all checks
+```
+
+12帧均逐行读取全部65536像素，用户态以三条有向边的cross product计算像素中心归属，独立于内核的绝对值不等式判据。同时通过generation0、旧generation（含跨连接）、未知selector、错误scalar数量、错误结构输出长度、row256/UINT64_MAX拒绝检查。这里证明的是应用进程→自研IOUserClient→DX→像素读回；尚未接入OpenGL framework或Metal设备/驱动插件。
+
+### 独立复测与启动异常
+
+01:20:52客体请求重启后，VNC持续显示Apple启动画面，SSH先超时后握手EOF，宿主日志无新驱动心跳。约四分钟后对实验VM执行一次hard reset恢复。查询01:20:50–01:25:10的持久日志未取得vgpu-fb或panic记录；根因未定，不能宣称已排除驱动因素，也不能把这次计为成功复测。
+
+恢复后的独立启动`kern.boottime=2026-11-16 01:25:11 CST`（客体墙钟与宿主略有偏差），01:25:41加载驱动。权限检查再次PASS；01:27:11在初始化截止前调用返回NotReady，01:27:21再运行相同10轮+跨连接+重开，generation重新从1到12，每帧同样red18432/green47104/other0/mismatch0，最终`PASS all checks`。两次成功启动共24帧、1572864像素独立比较通过；启动停滞的稳定性问题仍保留开放。

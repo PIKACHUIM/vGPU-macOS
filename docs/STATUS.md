@@ -155,13 +155,13 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 
 ## 当前开放问题
 
-> 最后更新：2026-11-16（§68c：DX三角形两次独立启动全65536像素区域校验通过，读回后队列健康；应用级硬件OpenGL/Metal仍未实现）
+> 最后更新：2026-11-16（§69：受限IOUserClient用户态触发绘制与独立全像素验收通过；应用级硬件OpenGL/Metal仍未实现）
 
 ### 两级目标的最终状态（11-15 夜间修订）
 
 | 级 | 目标 | 状态 | 依据 |
 |---|---|---|---|
-| L1 | SVGA3D 的 **DX 命令流真正执行出像素** | 清屏与VS/PS三角形读回通过 | §68c有效blend/depth对象消除DRAW拒绝；红18432、绿47104、other0、mismatches0，全65536像素吻合；读回后队列健康。资源回收及用户态提交仍待实现 |
+| L1 | SVGA3D 的 **DX 命令流真正执行出像素** | 清屏与VS/PS三角形读回通过 | §68c有效blend/depth对象消除DRAW拒绝；红18432、绿47104、other0、mismatches0，全65536像素吻合；读回后队列健康。§69固定绘制/行读回用户态接口通过；通用资源提交、回收及图形API接入仍待实现 |
 | L1' | 退一步：**像素通路可用**（2D），且由驱动自证 | ✅ 已交付 | §52 色带/白框/棋盘截图 + 登录界面截图 |
 | L2a | **2D 加速的显示驱动**（copy/blit 加速） | ✅ 可达，且下层已实测 | §54.2：`RECT_COPY` 逐位正确；blit 可用；fill 不可用 |
 | L2b | **Metal / IOAccelerator** | 尚未实现；继续研究 | §55.2实测无Metal设备；§65已打通底层DX清屏，不能再据旧派发失败断言不可实现；仍缺完整渲染及macOS加速驱动接口 |
@@ -245,7 +245,7 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 | **`RECT_COPY`（矩形复制）** | ✅ **可用** | §54.2 `src 0xffffff00, dst 0xff00ff00 -> 0xffffff00`，与源像素逐位相同 |
 | `FRONT_ROP_FILL`（纯色填充） | ❌ 四种 rop（CC/F0/00/FF）四个矩形，前后全部一致 | §54.2 |
 | 屏幕 → GMRFB（回读） | ❌ 拿不到 fence、从不完成 | §53.2 |
-| 3D 三角形 / 着色器 | §68c首次VS/PS光栅化全像素验证通过 | 有效blend/depth状态后DRAW/READBACK完成；红18432、绿47104、other0、mismatches0；尚未接入用户态API |
+| 3D 三角形 / 着色器 | §68c首次VS/PS光栅化全像素验证通过 | 有效blend/depth状态后DRAW/READBACK完成；红18432、绿47104、other0、mismatches0；§69专用IOUserClient重复提交、跨连接失效、重开及独立像素校验通过；尚未接入OpenGL/Metal |
 
 > ⚠️ **§56 撤回了本节对 3D 的判断**。「派发器缺席」来自一个线格式错位的批次：
 > 四条命令里三条 `size` 与结构体不符，而宿主只按 `size` 跳、不校验，于是错位的是**下一条**
