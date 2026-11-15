@@ -5644,3 +5644,23 @@ context state MOB 的 `+0x19E0` 读到5，与 RTV COTable MOB一致；该字段�
 DEFINE V1 handler `0x14054F5B0` 确会构造 mobid=INVALID 的描述；但实际 helper `0x14054DB40` 在现有 surface 行 format 非零时直接拒绝，不会执行其64字节覆盖。当前先预填非零format，可能正走该路径：FIFO fence完成只证明消费进度，旧日志“DEFINE accepted”不能作为语义成功证据。`0x140544310` 是另一路整行复制函数，不能混同本次 DEFINE V1 handler。
 
 下一判别点是宿主读取是否成功、surface懒加载/格式能力及view兼容检查的具体返回。需要把guest预填状态与host缓存状态区分开，不再从单一NULL或格式同名猜根因。
+
+## §63 surface 与 RTV 同为142仍失败；发现非多采样表项的 count 矛盾（2026-11-15）
+
+相对 §62-observe 仅将模板 surface 的共享表项及 DEFINE payload 格式改为142；RTV142、flags、几何、MOB和命令顺序保持。旧安装备份 `/var/tmp/vgpu-fb/backup-62-observe.kext` 并经 diff 比对一致。安装124368-byte二进制，弱引用0，Code=28后重启；boottime=21:21:20，21:21:46.733自报 `[build §63-surface142]`。
+
+21:22:16 实测：
+
+```
+OBSERVE surface after DEFINE sid3 fmt142 flags0x1000040 mips1 ms1 size256x256x1 mob4 array1 pitch1024
+OBSERVE COTable after SET mob5 row1 00000003 0000008e 00000003 00000000 00000000 00000001 00000000 00000000
+LADDER 1/2/3a COMPLETED
+LADDER 3b SET_RENDER_TARGETS {rtv 1} STATUS3 / errorOffset0
+CLEAR_RTV not attempted
+```
+
+21:22:46 heartbeat #30 status0，SSH正常。故将两种格式统一为142仍不足；失败后的SET_SHADER_IFACE超时不作独立归因。
+
+继续反汇编：RTV验证器经 `0x1404D1B30` 查surface缓存，miss转 `0x140A0D2B0`。后者从type1 OTable读64B描述，在启用相应检查时调用 `0x140A0BDF0`。该验证器在 `0x140A0C07A` 检查flags bit32；未置时，`0x140A0C081–0x140A0C085` 要求描述 `+0x0C` 的multisampleCount为0，否则返回false。当前flags=0x1000040（bit32未置）却ms=1，构成确定的字段矛盾；尚未捕获运行态实际到达此分支，不能直接宣称这是唯一根因。
+
+下一轮只对DX模板把共享表项及DEFINE payload的multisampleCount改为0，保持142/142与其他属性不变。暂不改共享helper的其他调用者，以免同时改变显示通路。

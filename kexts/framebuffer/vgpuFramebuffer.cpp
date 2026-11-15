@@ -809,7 +809,7 @@ static const UInt32 kDxTestDelayS = 30;
 //
 // The value is embedded in the banner string, so it is also covered by build.sh's
 // reachability check ("start, provider=%s [build %s]") -- a stale binary cannot pretend.
-#define VGPU_BUILD_TAG "§62-observe"
+#define VGPU_BUILD_TAG "§63-surface142"
 
 // How long one CB may take before we call it unanswered, and how long after that we keep
 // looking. Both are §56: the old budget was a 200M-iteration spin (~130 ms) that reported
@@ -5606,8 +5606,8 @@ bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
     // not establish that DEFINE_RTV is unreachable. Missing immediates in a
     // guest driver also do not establish which commands it can emit.
     // §62: the host rejects legacy format 1 as a DX view (0x140A085B9/C0).
-    // Use typed view 142 while retaining legacy surface format 1, isolating
-    // this field from surface creation/binding and COTable transport changes.
+    // §62 changed only the view to142 and still failed. §63 also uses surface
+    // format142 to isolate legacy-surface format compatibility from transport.
     // Entry layout (svga3d_dx.h, pack(1)), 32 bytes:
     //     SVGA3dSurfaceId      sid;
     //     SVGA3dSurfaceFormat  format;
@@ -5622,7 +5622,7 @@ bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
         // View and surface formats must be compatible, not numerically identical.
         const UInt32 e = kDxTemplateRtvId * 8;
         ct[e + 0] = surfId;                        // SVGA3dSurfaceId
-        ct[e + 1] = kSvga3dSurfaceFormatB8G8R8X8Unorm; // typed DX view, surface stays fmt 1
+        ct[e + 1] = kSvga3dSurfaceFormatB8G8R8X8Unorm; // typed DX view
         ct[e + 2] = 3;                             // SVGA3D_RESOURCE_TEXTURE2D
         ct[e + 3] = 0;                             // desc.tex.mipSlice
         ct[e + 4] = 0;                             // desc.tex.firstArraySlice
@@ -5680,11 +5680,11 @@ bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
     //
     // §45: the fix that was applied here by hand is now surfaceEntryFill()/defineGbSurfaceFrame()
     // at the top of the file, shared with the STDU arm -- which still had the old bug.
-    surfaceEntryFill(entry, kSvga3dSurfaceFormatX8R8G8B8, sflags,
+    surfaceEntryFill(entry, kSvga3dSurfaceFormatB8G8R8X8Unorm, sflags,
                      dxW, dxH, mobId, dxW * 4, 0);
     __asm__ volatile ("" ::: "memory");
 
-    defineGbSurfaceFrame(words, surfId, sflags, kSvga3dSurfaceFormatX8R8G8B8, dxW, dxH);
+    defineGbSurfaceFrame(words, surfId, sflags, kSvga3dSurfaceFormatB8G8R8X8Unorm, dxW, dxH);
     if (!fifoSubmitWords(fifo, words, kSvgaDefineGbSurfaceWords) ||
         !fenceAck(fifo, &_fenceSeq)) {
     IOLog(VGPU_FB_TAG ": dx: legacy DEFINE_GB_SURFACE refused\n");
