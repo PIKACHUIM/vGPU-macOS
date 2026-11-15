@@ -153,13 +153,13 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 
 ## 当前开放问题
 
-> 最后更新：2026-11-15 夜间（§64：count=0仍失败；下一判别点为未置bit12时mobPitch必须为0）
+> 最后更新：2026-11-15 夜间（§65：DX RTV绑定、清屏及读回成功，首/中像素均为预期绿色；完整像素复测待完成）
 
 ### 两级目标的最终状态（11-15 夜间修订）
 
 | 级 | 目标 | 状态 | 依据 |
 |---|---|---|---|
-| L1 | SVGA3D 的 **DX 命令流真正执行出像素** | ⏸ 未达成；有效 RTV 绑定路径失败 | §64：surface/RTV均142、count=0仍在有效RTV绑定STATUS3；发现未置bit12却mobPitch=1024，下一轮验证mobPitch=0 |
+| L1 | SVGA3D 的 **DX 命令流真正执行出像素** | 已取得清屏像素证据，待完整复测 | §65：surface/RTV142、ms0、mobPitch0；RTV绑定/CLEAR/READBACK完成，首/中像素0xff00ff00；尾部探索探针仍失败 |
 | L1' | 退一步：**像素通路可用**（2D），且由驱动自证 | ✅ 已交付 | §52 色带/白框/棋盘截图 + 登录界面截图 |
 | L2a | **2D 加速的显示驱动**（copy/blit 加速） | ✅ 可达，且下层已实测 | §54.2：`RECT_COPY` 逐位正确；blit 可用；fill 不可用 |
 | L2b | **Metal / IOAccelerator** | ⛔ 不可实现（本宿主） | §55.2 `MTLCopyAllDevices == 0`；系统里没有匹配 0x15ad:0x0405 的 Metal 驱动 |

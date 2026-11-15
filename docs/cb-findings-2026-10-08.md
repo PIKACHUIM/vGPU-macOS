@@ -5672,3 +5672,22 @@ CLEAR_RTV not attempted
 21:26:59读回surface为fmt142/flags0x1000040/mips1/ms0/256x256x1/mob4/array1/pitch1024，RTV行及context COTable MOB5保持；LADDER 1/2/3a完成，3b仍STATUS3/errorOffset0，CLEAR跳过。说明ms0不足以解决全部问题，不等于ms1原本合法。
 
 继续核对surface验证器：`0x140A0C4A3`检查flags bit12，未置时跳到`0x140A0C56B`，要求描述+0x28的mobPitch为0；当前flags未置bit12而pitch1024，是另一处确定的描述矛盾。下一轮相对§64只把DX模板mobPitch改0；这与屏幕寄存器BYTES_PER_LINE不同，不应混为显示pitch限制。
+
+## §65 首次 DX CLEAR + READBACK 取得预期绿色像素（2026-11-15）
+
+`§65-pitch0` 相对§64只将模板surfaceEntryFill的pitch参数1024改0；surface/RTV格式142、multisampleCount0、flags0x1000040保持。构建26个已有警告、marker通过、弱引用0；旧安装备份 `/var/tmp/vgpu-fb/backup-64-ms0.kext`。boottime=21:30:46，21:31:20.784确认新标签。
+
+21:31:50.818–.834实测：
+
+```
+OBSERVE surface after DEFINE sid3 fmt142 flags0x1000040 mips1 ms0 size256x256x1 mob4 array1 pitch0
+LADDER 1/2/3a COMPLETED
+LADDER 3b SET_RENDER_TARGETS {rtv 1} COMPLETED
+LADDER 4 CLEAR_RTV COMPLETED (status1 errorOffset0)
+TEMPLATE READBACK {sid3} ACCEPTED
+TEMPLATE pixels first=0xff00ff00 mid=0xff00ff00 (want0xff00ff00)
+```
+
+这是首个DX命令执行与预期像素读回的联合证据，不再仅有COMPLETED状态。相对§64的单变量变化表明，当前组合中mobPitch1024是剩余阻塞之一；不能反推此前ms1或legacy视图格式1合法。21:32:20 heartbeat#30 status0，SSH正常。
+
+尾部独立SET_SHADER_IFACE仍STATUS3，发生在成功读回之后，不推翻清屏像素结果；下一轮将其隔离到探索开关，增加全65536像素校验与队列健康检查，并新启动复测。当前只验证首/中两点，尚不宣称完整绘制流水线、Metal、硬件OpenGL或屏幕呈现已实现。
