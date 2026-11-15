@@ -5391,3 +5391,142 @@ dx: SPLIT DX_SET_COTABLE {cid 1 mob 5 type 0} -> refused      <- 被上一条的
    `SET_SCISSORRECTS` 都有 `uint32 pad0`，这里可能也隐含一个）。
 
 两条都不需要重开死路，都只要一次启动。
+
+---
+
+## §60 撤回 §57.2：`[0x1414930A0]` 不是「DX 管理器」，而 DX 分支在二进制层面不可达（2026-11-15 深夜）
+
+§57.2 把「单条 `SET_TOPOLOGY` → COMPLETED」当成了「DX 派发存在」的证据，并据此把断点
+归到 `SET_RENDER_TARGETS` 一行上。这一节推翻那个判据：**那条 COMPLETED 是空转**。
+
+### 60.1 那个全局到底是什么
+
+宿主侧 `vmxmem.py` 的实测（用户提供）是 `[0x1414930A0] = 0`，而所有门控字段健康。当时
+的解释是「DX 管理器从未被创建」。把写入点反汇编出来之后，那个解释不成立：
+
+```
+0x14050a04e  test r8b, 2                ; r8b = CB header 的 dword @ +0x10 = flags
+0x14050a052  je   0x14050a20d           ; 没有 DX_CONTEXT 位 -> 走普通命令流
+0x14050a058  cmp  dword ptr [0x1414937FC], 0
+0x14050a05f  je   0x14050a222           ; 门为 0 -> ebx = 4，整批按 STATUS 4 结束
+0x14050a06e  movd ecx, xmm0             ; ecx = CB header 的 dword @ +0x24 = dxContext
+0x14050a072  call 0x140a17350           ; find_or_create(dxContext)
+0x14050a077  mov  [0x1414930A0], rax    ; <-- 全二进制唯一一处真写入
+0x14050a07e  test rax, rax
+0x14050a081  je   0x14050a222
+```
+
+`0x140a17350` 内部是**哈希探测**，不是构造：
+
+```
+mov  r9d, [0x141492ED0]     ; 桶数量
+shr  edx, 0x10
+imul r8d, edx, 0x83         ; hash 高位
+lea  eax, [rax + rax*4]     ; hash 低位 * 5
+add  r8d, eax
+and  r8d, r9d - 1           ; & (count-1)
+lea  rcx, [0x1414930B0]     ; 桶数组
+call 0x140a0df40            ; 探测
+test rax, rax ; jne ret
+jmp  0x140a15b90            ; 未命中 -> 插入
+```
+
+所以 `[0x1414930A0]` 存的是「**当前 DX 上下文对象**」，键是 `cbHeader.dxContext`，
+**只有一条带 `SVGA_CB_FLAG_DX_CONTEXT` 的 command buffer 被提交时才会被赋值**。
+`DX_DEFINE_CONTEXT` 不碰它 —— 这就解释了为什么那次启动里 DEFINE_CONTEXT 跑过、
+它仍然是 0。
+
+字段偏移也对得上我们自己的 `cbSubmitCtx`：`+16 = flags`、`+36 = dxContext`、
+`+20 = length`、`+24 = ptr.pa`。
+
+### 60.2 那道 header 校验的现在时：`FC` 是我们自己补丁的产物
+
+同一个函数的入口校验在 `0x140087c90`：
+
+```
+test dword ptr [rbp - 0x59], 0xfffffffc    ; [rbp-0x59] = header + 0x10 = flags
+jne  <reject>
+```
+
+盘上 `vmware-vmx.exe` 的文件偏移 **0x87293** 正是这条指令 imm32 的首字节：
+
+```
+vmware-vmx.exe               0x87290: f7 45 a7 fc ff ff ff   ; mask 0xFFFFFFFC
+vmware-vmx.exe.bak-dxflag    0x87290: f7 45 a7 fe ff ff ff   ; mask 0xFFFFFFFE
+```
+
+所以 **§15 的描述对原版是准确的**（原版只放行 bit0，bit1 一律 CB_HEADER_ERROR），
+是 §19 的 1 字节补丁 `FE→FC` 把 bit1 放开的，而且补丁**现在仍在位**。
+这一条不是撤回，而是澄清：补丁有效，`flags = 3` 现在能过 header 校验，所以 STATUS 4
+不来自这里。
+
+现在的开关组合也是对的：`kCbKeepDxContext = 1`、`kCbMobMode = 0`、
+`kCbFlagDxContext = 2` → 实发 `flags = 3`（NO_IRQ | DX_CONTEXT）。
+注意 PA 形式下 **不能再带 bit2**（`SVGA_CB_FLAG_MOB`），`0xFFFFFFFC` 会拒 ——
+这大概就是当年「flags=5/7 被拒」的真实原因。
+
+### 60.3 三条路全断
+
+| 发出什么 | 走到哪 | 结果 |
+|---|---|---|
+| `flags` 带 bit1（我们的现状，3） | `0x14050a058` 的门 | 门恒为 0 → `ebx=4` → **STATUS 4** |
+| `flags` 不带 bit1、`dxContext != 0` | `0x14050a20d` 读 +0x24，非 0 | `ebx=4` → **STATUS 4** |
+| `flags` 不带 bit1、`dxContext == 0` | 普通命令流，逐条进 handler | handler 里 `mov rbx,[0x1414930A0]; test; je bail` → `eax=0x101` |
+
+第三条解释了 §57.2 / §57.4 的全部现象：`[0x1414930A0]` 只可能被第一条路赋值，而第一条
+路死在门上，于是它**永远是 NULL**，于是每个 handler 一进门就退。`SET_TOPOLOGY`、
+`SET_RASTERIZER_STATE` 那种「通过」，是 handler 只把 id 记进状态块、不做任何设备工作
+的分支 —— 它们不需要上下文，所以成功；`SET_RENDER_TARGETS` 要把 rtv id 解析成表面，
+需要上下文，所以 STATUS 3。**这不是「命令不支持」，是「没有上下文」。**
+
+### 60.4 关键：那道门没有任何指令写它
+
+对 `0x1414937FC` 做全 `.text` 引用扫描（`tools/rev/vmx-refs2.py`，重同步版）：
+
+```
+--- 49 refs into [0x1414937fc, 0x141493800)
+   42 x  cmp dword ptr [rip + ...], 0     ; 读
+    7 x  mov eax, dword ptr [rip + ...]   ; 读
+    0 x  任何形式的写
+```
+
+镜像里这个 VA 落在零初始化区（virtual size > raw size），也就是**加载时 0，之后没人改**。
+`cmp X, 0 ; je 拒绝` 意味着它必须非零才能放行 → **DX 分支在这个 vmx 构建里是死代码**。
+
+把窗口放大到 `[0x1414937F0, 0x141493810)` 也没有候选：这 52 条引用里唯一的写是
+`mov byte ptr [0x1414937F4], bl`（`0x1404c0bf2`），落在门前 8 字节，与我们这个 dword
+无关。也就是说这一小片是一组独立的小标志，**别的标志有人在写，这个没有**。
+
+这条结论有一个必须说明的漏洞：我的扫描只看得见「指令里直接出现该地址」的写。
+如果这个变量长在一个大结构体里，代码通过 `lea reg, [结构体基址]` + `mov [reg+off]`
+或者整块 `memcpy` 写它，扫描就看不见。所以它是**强证据，不是判决**。
+
+判决只需要一次读数：**在客体重启后读 `[0x1414937FC]`**。
+
+- 读到 0 → 门从未打开，DX 在本宿主上不可达，DX 线应整体关闭；
+- 读到非 0 → 门是开的，那么 STATUS 4 只能来自 `find_or_create` 失败或掩码之外的校验，
+  需要重头看那两处。
+
+`tools/vmxmem.py` 已把这三个地址加进快照（`dxCtx` / `dxGate` / `dxBuckets`），并把
+`dxManager` 这个误导性的名字改成了 `dxCtx`。
+
+### 60.5 状态表（覆盖 §57.7）
+
+| 项 | §57.7 的说法 | 现在 | 依据 |
+|---|---|---|---|
+| DX 命令派发 | ✅ 存在 | ❌ **未成立** | §60.3：COMPLETED 的是不需要上下文的分支 |
+| DX 状态类命令 | ✅ | ✅ 但**空转** | handler 只写状态块，不等价于派发 |
+| DX 视图绑定 | ❌ 断在 `SET_RENDER_TARGETS` | ❌ 断在**上下文为空** | §60.1 / §60.3 |
+| `GROW_COTABLE` 被拒 | DX10 代设备 | 同（§58 另有解释：也可能是没有上下文） | §58 |
+| 宿主 DX 分支可达 | 未考察 | ⏸ 待 `[0x1414937FC]` 一次读数 | §60.4 |
+
+### 60.6 这轮得到的方法论
+
+- **「某条命令 COMPLETED」不等于「这条命令被处理了」**。宿主的 handler 普遍是
+  `查上下文 → 有就干活 / 没有就退`，退的返回值有的算成功有的算失败，靠 CB 状态区分
+  不了「干了」和「跳过了」。要证明真派发，必须有一个**与命令无关的旁证**（这里是
+  `[0x1414930A0]` 是否被赋值）。
+- **一个全局的名字会绑死整条推理链**。`dxManager` 这个名字让三轮都绕着「怎么创建
+  管理器」转；它其实是「当前上下文」，而创建它的唯一入口是一条 CB 标志位。
+- **静态扫描的盲区要主动声明**（§60.4）。「没有写指令」在有大结构体拷贝的世界里不是
+  判决，只是强证据 —— 所以给了那个一次读数的判决实验。

@@ -14,6 +14,8 @@ where base is the first module in the process (the exe itself).
 Usage:
     python vmxmem.py list
     python vmxmem.py <pid>
+    python vmxmem.py <pid> --watch 20
+    python vmxmem.py <pid> --poke 0x1414937FC=1     # runtime gate flip (§60.4)
 """
 import ctypes
 import ctypes.wintypes as wt
@@ -23,6 +25,9 @@ import sys
 IB = 0x140000000
 PROCESS_QUERY_INFORMATION = 0x0400
 PROCESS_VM_READ = 0x0010
+PROCESS_VM_WRITE = 0x0020
+PROCESS_VM_OPERATION = 0x0008
+PAGE_READWRITE = 0x04
 
 k32 = ctypes.WinDLL("kernel32", use_last_error=True)
 psapi = ctypes.WinDLL("psapi", use_last_error=True)
@@ -40,7 +45,19 @@ psapi.GetModuleBaseNameW.argtypes = [wt.HANDLE, wt.HMODULE, wt.LPWSTR, wt.DWORD]
 # Globals discovered this session (§48). Values are VAs under the default image base.
 GLOBALS = [
     ("dev",         0x1413F31C0),  # [dev] = SVGA device object (NOT 0x1414931C0: 0 refs)
-    ("dxManager",   0x1414930A0),  # the pointer DEFINE_RTV gates on
+    # 11-16 §60: this is NOT a "DX manager".  0x140a17350 is a hash PROBE
+    # (bucket = hash(id) & mask, count from 0x141492ED0, buckets at 0x1414930B0),
+    # and the only store is  `find_or_create(cbHeader.dxContext) -> [0x1414930A0]`
+    # inside the CB-header DX branch.  So it holds the CURRENT DX CONTEXT and is
+    # written only when a command buffer arrives with SVGA_CB_FLAG_DX_CONTEXT.
+    ("dxCtx",       0x1414930A0),  # current DX context object (NULL = no ctx bound)
+    # 0x14050a058: `cmp [0x1414937FC], 0 ; je -> status 4`.  Across all of .text
+    # there are 49 references and ZERO writes -- it can never become non-zero, so
+    # the DX branch of the CB header processor is unreachable.  Reading 0 here
+    # reproduces the STATUS 4 that every DX-flagged submission has returned.
+    ("dxGate",      0x1414937FC),  # dword; != 0 required for the DX branch
+    ("dxBuckets",   0x1414930B0),  # hash table bucket array (dxCtx lookup)
+    ("dxHashCnt",   0x141492ED0),  # hash table bucket count (/mask)
     ("svgaEnabled", 0x14140B043),  # byte, config init = 1, gate (C)
     ("svgaPhase",   0x14140B030),  # dword, init = 2
     ("fenceAgeUs",  0x14140B038),  # qword from svga.maxFenceAgeUS
@@ -145,8 +162,11 @@ def enable_debug_privilege():
     return True, "ok"
 
 
-def open_proc(pid):
-    h = k32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
+def open_proc(pid, write=False):
+    access = PROCESS_QUERY_INFORMATION | PROCESS_VM_READ
+    if write:
+        access |= PROCESS_VM_WRITE | PROCESS_VM_OPERATION
+    h = k32.OpenProcess(access, False, pid)
     if not h:
         raise OSError(f"OpenProcess({pid}) failed: {ctypes.get_last_error()}")
     return h
@@ -187,13 +207,21 @@ def snapshot(pid, out):
         raw = read(h, dev + off, size)
         v = struct.unpack({1: "<B", 2: "<H", 4: "<I"}[size], raw)[0]
         out.append(f"    +{off:#06x} = {v:#010x} ({v})   {label}")
-    dm = got["dxManager"]
-    out.append(f"--- DX manager [0x1414930A0] = {dm:#x}"
-               + ("   <-- CREATED" if dm else "   <-- NULL (DEFINE_RTV will fail)"))
+    dm = got["dxCtx"]
+    out.append(f"--- current DX context [0x1414930A0] = {dm:#x}"
+               + ("   <-- a DX context object exists" if dm else
+                  "   <-- NULL: no CB ever took the DX_CONTEXT branch"))
+    gate = got["dxGate"] & 0xFFFFFFFF
+    out.append(f"--- DX header gate  [0x1414937FC] = {gate:#x}"
+               + ("   <-- DX branch reachable" if gate else
+                  "   <-- ZERO: every DX-flagged CB is answered STATUS 4"))
+    out.append(f"--- dx hash buckets  [0x1414930B0] = {got['dxBuckets']:#x}   "
+               f"count [0x141492ED0] = {got['dxHashCnt'] & 0xFFFFFFFF:#x}")
 
 
 WATCH_FIELDS = [
-    ("dxManager", 0x1414930A0, 8),
+    ("dxCtx",    0x1414930A0, 8),
+    ("dxGate",   0x1414937FC, 4),
     ("9bc",       None, 4),
     ("ad8",       None, 4),
     ("bf0",       None, 4),
@@ -240,6 +268,37 @@ def watch(pid, seconds, out):
         out.append(f"    {name:10s}: {txt}")
 
 
+def poke(pid, pokes, out):
+    """Write dwords into the running vmx (experiment: flip a feature gate).
+
+    §60.4 established that [0x1414937FC] has no writer anywhere in .text, so the
+    DX branch of the command-buffer header processor looks unreachable.  Poking it
+    to 1 at runtime is the cheapest way to find out whether it is the *only*
+    obstacle: if the next DX-flagged submission gets past the gate, [0x1414930A0]
+    must turn non-NULL -- an effect no other experiment has ever produced.
+    """
+    h = open_proc(pid, write=True)
+    base = module_base(h)
+    for va, size, val in pokes:
+        addr = base + (va - IB)
+        old = wt.DWORD(0)
+        k32.VirtualProtectEx(ctypes.c_void_p(addr), ctypes.c_size_t(size),
+                             PAGE_READWRITE, ctypes.byref(old))
+        before = int.from_bytes(read(h, addr, size), "little")
+        buf = val.to_bytes(size, "little")
+        wrote = ctypes.c_size_t(0)
+        ok = k32.WriteProcessMemory(h, ctypes.c_void_p(addr), buf, size,
+                                    ctypes.byref(wrote))
+        after = int.from_bytes(read(h, addr, size), "little")
+        out.append(f"  poke [{va:#x}] {size}B: {before:#x} -> {after:#x}"
+                   + ("   ok" if (ok and after == val)
+                      else f"   FAILED err={ctypes.get_last_error()}"))
+    gate = int.from_bytes(read(h, base + (0x1414937FC - IB), 4), "little")
+    ctx = int.from_bytes(read(h, base + (0x1414930A0 - IB), 8), "little")
+    out.append(f"--- after poke: dxGate = {gate:#x}   dxCtx = {ctx:#x}"
+               + ("   <-- DX branch is now REACHABLE" if gate else ""))
+
+
 def main():
     argv = sys.argv[1:]
     if not argv:
@@ -259,6 +318,13 @@ def main():
         i = argv.index("--watch")
         secs = int(argv[i + 1])
         argv = argv[:i] + argv[i + 2:]
+    pokes = []
+    while "--poke" in argv:
+        i = argv.index("--poke")
+        spec = argv[i + 1]
+        argv = argv[:i] + argv[i + 2:]
+        lhs, rhs = spec.split("=")
+        pokes.append((int(lhs, 16), 4, int(rhs, 0)))
     if argv[0] == "all":
         pids = list_vmx()
     else:
@@ -268,7 +334,9 @@ def main():
     out.append(f"SeDebugPrivilege: {why}")
     for pid in pids:
         try:
-            if secs:
+            if pokes:
+                poke(pid, pokes, out)
+            elif secs:
                 watch(pid, secs, out)
             else:
                 snapshot(pid, out)
