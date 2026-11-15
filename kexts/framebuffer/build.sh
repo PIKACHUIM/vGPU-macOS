@@ -245,7 +245,40 @@ TEMPLATE only mode
 TEMPLATE entered
 SPLIT DX_DEFINE_CONTEXT
 dx: 1187 intentionally NOT sent
-dx: RTV COTable entry %u written"
+dx: RTV COTable entry %u written
+cb: no completion within %u ms
+COMPLETED LATE, %u ms after the %u ms budget"
+# §57: the ladder owns its own banners. When it is on, the single-shot "CLEAR alone" line
+# is still compiled (it is the kDxLadder == 0 arm) but need not be required.
+if sw kDxLadder 1; then
+    echo "kDxLadder = 1 -> ladder markers are required"
+    MARKERS="$MARKERS
+dx: LADDER 1 SET_RASTERIZER_STATE
+dx: LADDER 2 SET_DEPTHSTENCIL_STATE
+dx: LADDER 3 SET_RENDER_TARGETS
+dx: LADDER 4 CLEAR_RTV
+dx: LADDER stopped"
+else
+    # The single-shot arm is the only place these two exist, so it owns them.
+    echo "kDxLadder = 0 -> single CLEAR measurement is required"
+    MARKERS="$MARKERS
+dx: CLEAR alone
+NO ANSWER"
+fi
+# §57: the exploration batches are behind kDxExplore, so their banners are required only
+# when that switch is on. A build that turns exploration on without them cannot measure.
+if sw kDxExplore 1; then
+    echo "kDxExplore = 1 -> exploration markers are required"
+    MARKERS="$MARKERS
+dx: BISECT legacy SVGA_3D_CMD_CLEAR
+dx: SURVEY status %u errorOffset %u
+dx: DXBRANCH empty DX batch
+dx: MATRIX b) SET_TOPOLOGY alone
+dx: MATRIX a) DEFINE_CONTEXT
+device after it -> %s"
+else
+    echo "kDxExplore = 0 -> exploration retired, markers not required"
+fi
 else
     echo "kDxTest = 0 -> DX template retired, markers not required"
 fi
@@ -261,8 +294,29 @@ for m in $MARKERS; do
         MISSING=$((MISSING + 1))
     fi
 done
+
+# Build tag banner (§56). Unconditional, and deliberately NOT part of MARKERS: several
+# experiment branches REPLACE $MARKERS outright (the 2d2 and plain-framebuffer paths), so a
+# shared entry would be silently dropped in exactly the configurations that matter.
+# Note the direction of this check: the ones above prove the code we wrote is reachable,
+# this one makes the boot tell us WHICH code it is running -- a stale auxiliary kernel
+# collection can otherwise run yesterday's binary while /Library/Extensions holds today's.
+# grep -F: the banner contains "[build %s]", and in a BRE that is a bracket expression
+# (one character out of {b,u,i,l,d,space,%,s}) -- it matched nothing and failed the build.
+if grep -aqF -- "start, provider=%s [build %s]" "$BUNDLE/Contents/MacOS/$NAME"; then
+    TAG=$(grep -aoE '#define VGPU_BUILD_TAG "[^"]+"' "$SWITCHES" \
+          | sed -e 's/.*"\(.*\)"/\1/')
+    echo "present: build tag banner (VGPU_BUILD_TAG = ${TAG:-<missing>})"
+    if [ -z "$TAG" ]; then
+        echo "MISSING: VGPU_BUILD_TAG in $SWITCHES" >&2
+        MISSING=$((MISSING + 1))
+    fi
+else
+    echo "MISSING: start banner does not carry the build tag" >&2
+    MISSING=$((MISSING + 1))
+fi
+
 # Stop banner: the last line of the experiment.
-#
 # The message argument of IOLog is a format string, so "TEMPLATE verdict -> %s"
 # is stored verbatim in the binary -- a substring grep does see it. What a grep
 # can NOT see is the branch it selects, so both verdict literals are checked:
@@ -275,6 +329,14 @@ DX CLEAR ACCEPTED
 CLEAR refused
 DX manager still absent
 DX MANAGER ALIVE"
+    # The exploration verdicts describe paths that only exist when kDxExplore is on.
+    if sw kDxExplore 1; then
+        VERDICTS="$VERDICTS
+COMPLETED (device alive: the DX batch was dropped, not a stall)
+STALLED (the DX branch wedged the command processor)
+DEAD
+alive"
+    fi
     for m in "$STOP" $VERDICTS; do
         if grep -aq -- "$m" "$BUNDLE/Contents/MacOS/$NAME"; then
             echo "present: $m"

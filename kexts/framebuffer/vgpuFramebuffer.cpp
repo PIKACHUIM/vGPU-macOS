@@ -448,7 +448,20 @@ static const UInt32 kGbStage = 0;
 // even the legacy SVGA_3D_CMD_CLEAR(1057) all return COMMAND_ERROR at errorOffset 0.
 // Nothing is gained by re-running it every boot; flip this back to 1 to reproduce, and
 // remember it must never run together with kGbStage = 5.
-static const UInt32 kDxTest = 0;
+//
+// 11-15 §56: back ON, because §51's conclusion was drawn from a batch whose WIRE FORMAT
+// was wrong. Three of its four DX commands declared a body size that does not match the
+// struct (SET_TOPOLOGY and SET_RASTERIZER_STATE declared 8 bytes for a 4-byte body,
+// SET_DEPTHSTENCIL_STATE 12 for 8), and the legacy CLEAR declared 20 bytes while delivering
+// only 16 -- so the host parsed the next command at the wrong offset in every case. The
+// host does not validate size against the struct, it just skips `size` bytes, so a wrong
+// size cannot fail the command it belongs to; it corrupts the framing of the NEXT one.
+// That is exactly consistent with "everything refused at errorOffset 0".
+// All four are now built through cbCmd(), which derives size from the body word count.
+// The two host-side facts that make a rerun worth a boot: DEVCAP DXCONTEXT/SM41/GL43 all
+// read 1 (so the device really is a vGPU10 part with DX), and vmware-vmx logs
+// "SVGA3dCaps: host, at power on (3d enabled)".
+static const UInt32 kDxTest = 1;
 
 // §50 (11-14): DEFINE_RTV (1187) is not merely useless on this host, it is actively
 // destructive. Its STATUS 3 wedges the command-buffer queue, so *everything* submitted
@@ -722,6 +735,34 @@ static const UInt32 kCbMobId = 6;      // GB MOB id holding CB payloads
 // and the host answered without ever looking at the payload.
 static const UInt32 kCbFlagDxContext = 2;
 
+// ---- CB command framing helper (11-15, §56) --------------------------------
+//
+// SVGA3dCmdHeader is {id, size} with size = BODY bytes, and the body is exactly
+// the struct from svga3d_cmd.h / svga3d_dx.h. Every command in this file used to
+// spell id and size out by hand, and that is the single most expensive class of
+// bug in this project:
+//
+//   * §53: RECT_COPY / FRONT_ROP_FILL / UPDATE were given a size word that does
+//     not exist in their structs, so every argument shifted one dword and the
+//     "engine does nothing" verdict was actually a wrong-rectangle verdict.
+//   * §51: SET_TOPOLOGY and SET_RASTERIZER_STATE got size 8 for a 4-byte body,
+//     SET_DEPTHSTENCIL_STATE got 12 for an 8-byte body, and the legacy CLEAR was
+//     submitted 4 of its 5 body words.
+//
+// The host does NOT validate size against the struct -- it merely skips `size`
+// bytes and parses what follows. So a wrong size never fails the command; it
+// silently re-frames the NEXT one, which is why errorOffset kept pointing at
+// "byte 0" and we kept blaming the dispatcher.
+//
+// cbCmd() derives size from the body word count so the two cannot disagree, and
+// returns the write cursor for the body. Body sizes below come from the headers
+// verbatim; the comment on each call is the struct it must match.
+static inline UInt32 *cbCmd(UInt32 *p, UInt32 id, UInt32 bodyWords) {
+    p[0] = id;
+    p[1] = bodyWords * (UInt32)sizeof(UInt32);
+    return p + 2;
+}
+
 // 10-29 20:29: which branch of the host's CB handler a DX batch takes is decided by
 // bit1 alone (0x14050a04e test r8b,2). With the bit set the host runs
 // lookup-or-create(dxContext) and -- if that succeeds -- creates the DX manager object
@@ -753,6 +794,47 @@ static const UInt32 kCbKeepDxContext = 1;
 // Delay before the DX test runs (seconds after kext bring-up). Gives SSH/logd time
 // to be fully live so results survive an MKS wedge.
 static const UInt32 kDxTestDelayS = 30;
+
+// Which binary is this? Bump on every build that matters, and log it first thing.
+//
+// 11-15 §56: a boot ran code that provably is not what /Library/Extensions contained --
+// the installed Mach-O had the new DXBRANCH strings, the kernel logged every other line
+// of the same function, and the new block never ran. The auxiliary kernel collection is
+// rebuilt at boot from /Library/Extensions, but install.sh can only *stage* the request
+// (kmutil load answers Code=28 "requires a reboot", which is the normal path), so nothing
+// guarantees the collection that booted is the one holding this file. A build tag makes
+// that a one-line read instead of an inference from absence of output.
+//
+// The value is embedded in the banner string, so it is also covered by build.sh's
+// reachability check ("start, provider=%s [build %s]") -- a stale binary cannot pretend.
+#define VGPU_BUILD_TAG "§57b"
+
+// How long one CB may take before we call it unanswered, and how long after that we keep
+// looking. Both are §56: the old budget was a 200M-iteration spin (~130 ms) that reported
+// "status 0" as a refusal, and an empty DX batch completing instantly proves the branch is
+// fine -- so the duration is the variable that has to be ruled out before anything else.
+static const UInt32 kCbWaitMs = 3000;      // wall-clock budget for one CB
+static const UInt32 kCbLatePollMs = 1000;  // spacing of the post-budget late checks
+static const UInt32 kCbLatePolls = 2;      // 2 x 1000 ms = 2 s of extra grace
+// Compare absolute times against this after clock_get_uptime; set up in cbSubmitCtx.
+static const UInt32 kCbFastSpinMs = 2;     // hot-spin this long before the first IOSleep
+
+// §57: the exploration batches (BISECT / SURVEY / DXBRANCH / MATRIX) are retired from the
+// production boot and kept behind this switch.
+//
+// Reason, measured in §56e: one lone SET_TOPOLOGY through the DX branch COMPLETES (status
+// 1), so DX dispatch works; but a batch that answers STATUS 3 leaves the queue unable to
+// answer anything afterwards for at least 5 s ("device after it -> DEAD"). Every probe that
+// can fail therefore spends the boot's single pristine queue, and they were all running
+// before the CLEAR/READBACK they exist to explain. Set this to 1 only on a boot whose
+// purpose is the probe itself.
+static const UInt32 kDxExplore = 0;
+
+// §57: the ladder. On by default because CLEAR_RTV alone answers STATUS 3 while
+// SET_TOPOLOGY alone completes -- the open question is which prerequisite the host thinks
+// is missing, and the only way to find it is to climb one command at a time and stop at
+// the first refusal. Off restores the single "CLEAR alone" measurement.
+static const UInt32 kDxLadder = 1;
 
 // Periodic DX probe: every kProbeEveryS seconds re-submit the packed DEFINE+BIND
 // on the device queue (errors there do not wedge). Used while a host-side debugger
@@ -940,6 +1022,12 @@ static const UInt32 SVGA3D_INVALID_ID_U32 = 0xFFFFFFFFu;
 // 64-byte SVGACBHeader describing a command payload, submitted by writing
 // its physical address into the COMMAND registers.
 static const UInt32 kCbDataBytes = 64 * 1024;
+
+// §56: one CB header is 64 bytes (SVGACommandBufferHeader is 64 B and must be 64-aligned);
+// the header page holds 64 of them, used in rotation so a late status cannot be mistaken
+// for the current submission's. See cbInit / cbSubmitCtx.
+static const UInt32 kCbHeaderBytes = 64;
+static const UInt32 kCbHeaderSlots = 64;
 
 // Periodic full-screen re-present interval, in milliseconds. The GMRFB points straight at
 // the framebuffer in BAR1, so each present is a host-side DMA with no guest copy; the cost
@@ -1365,9 +1453,12 @@ private:
     IOPCIDevice              *_pci = nullptr;          // for register access in cbSubmit
     IOBufferMemoryDescriptor *_cotableMem = nullptr;   // DX COTABLE storage (4 KiB)
     IOBufferMemoryDescriptor *_cotablePtMem = nullptr; // unused (PT64_0 needs no PT page)
-    IOBufferMemoryDescriptor *_cbHeaderMem = nullptr;  // 64 B, contiguous
-    volatile UInt8           *_cbHeaderVirt = nullptr;
-    UInt64                    _cbHeaderPA = 0;
+    IOBufferMemoryDescriptor *_cbHeaderMem = nullptr;  // 4 KiB = 64 header slots
+    volatile UInt8           *_cbHeaderVirt = nullptr; // CURRENT slot (see cbSubmitCtx)
+    UInt64                    _cbHeaderPA = 0;         // CURRENT slot PA
+    volatile UInt8           *_cbHeaderBaseVirt = nullptr;  // slot 0
+    UInt64                    _cbHeaderBasePA = 0;
+    UInt32                    _cbHeaderSlot = 0;
     IOBufferMemoryDescriptor *_cbDataMem = nullptr;    // 64 KiB, contiguous
     volatile UInt8           *_cbDataVirt = nullptr;
     UInt64                    _cbDataPA = 0;
@@ -5019,6 +5110,84 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
         okTpl = okSync;
     }
     if (okTpl) {
+        // ---- §56 DXBRANCH: is the stall about the COMMANDS or about the BRANCH? ----
+        //
+        // §56 measured two batches that never got an answer at all -- the four-command
+        // survey (headers 1160/1164/1163/1176) and SET_SHADER_IFACE (1274) -- with
+        // cbHeader.status left at 0 (NONE) after a 460 ms poll. Nothing in common between
+        // those command ids except that every one of them was sent with dxContext != 0 and
+        // the DX_CONTEXT flag set. Everything sent with dxContext = 0 in the SAME boot
+        // (DEFINE_CONTEXT 1143, BIND_CONTEXT 1145, SET_COTABLE 1207) was ACCEPTED, and one
+        // of those three is a context-management command just like 1274.
+        //
+        // So the variable under test is the branch, not the command. The clean way to ask
+        // is an EMPTY batch: zero payload words, nothing to dispatch, only the header that
+        // selects the branch. If an empty DX batch still fails to complete, no command
+        // content can be responsible -- the host stopped inside the branch itself.
+        //
+        // The plain sync immediately after is what separates the two failures that both
+        // look like "no answer": a dropped batch (device alive, next CB completes) versus a
+        // wedged command processor (everything after it stalls too). That distinction also
+        // decides whether the frozen scanout seen in §56 is caused by this at all.
+        if (kDxExplore) {
+            bool okEmpty = cbSubmitCtx(nullptr, 0, tcid, tcid, kCbFlagDxContext);
+            volatile UInt32 *hd = (volatile UInt32 *)_cbHeaderVirt;
+            IOLog(VGPU_FB_TAG ": dx: DXBRANCH empty DX batch {dxContext %u, DX bit} -> %s "
+                  "(status %u errorOffset %u)\n",
+                  tcid, okEmpty ? "COMPLETED" : "NO ANSWER", hd[0], hd[1]);
+            bool okAfter = cbSubmitCtx(sync, 0, 0, 0, 1);
+            IOLog(VGPU_FB_TAG ": dx: DXBRANCH plain sync AFTER it -> %s\n",
+                  okAfter ? "COMPLETED (device alive: the DX batch was dropped, not a stall)"
+                          : "STALLED (the DX branch wedged the command processor)");
+        }
+
+        // ---- §56e MATRIX: change one variable at a time -------------------------
+        //
+        // §56d answered the branch question: an EMPTY DX batch completes (status 1), so the
+        // header path and the dxContext lookup are fine, while every batch with DX payload
+        // is still at status 0 after 5 s (3 s budget + 2 s late polls). Two hypotheses left:
+        //
+        //   (i)  the branch stalls on ANY payload  -- the empty batch was a false negative
+        //   (ii) only the render/state handlers stall
+        //
+        // (b) is asked first and (a) is deliberately LAST, because (a) re-defines the
+        //     template's own context and may well be what breaks it: a probe that can only
+        //     damage later measurements must not run before them.
+        //
+        // (b) smallest possible DX render command: a lone SET_TOPOLOGY, 3 words total, no
+        //     COTable, no view, no resource, no COT row -- nothing left that could be the
+        //     thing the host is missing.
+        // (a) the COMMAND held constant: DEFINE_CONTEXT (1143) was ACCEPTED on the plain
+        //     branch a few lines above this block, in this same boot, with body {cid 1}.
+        //     Re-sending the identical body through the DX branch changes only the branch.
+        if (kDxExplore) {
+            // (b) smallest DX render command.
+            UInt32 mx2[3];
+            UInt32 *mp2 = cbCmd(mx2, kSvga3dCmdDxSetTopology, 1);
+            *mp2++ = 1;              // SVGA3D_PRIMITIVE_TRIANGLELIST
+            bool okB = cbSubmitCtx(mx2, (UInt32)(mp2 - mx2), tcid, tcid, kCbFlagDxContext);
+            volatile UInt32 *hb = (volatile UInt32 *)_cbHeaderVirt;
+            IOLog(VGPU_FB_TAG ": dx: MATRIX b) SET_TOPOLOGY alone -> %s "
+                  "(status %u errorOffset %u)\n",
+                  okB ? "COMPLETED" : "NO ANSWER", hb[0], hb[1]);
+            bool okB2 = cbSubmitCtx(sync, 0, 0, 0, 1);
+            IOLog(VGPU_FB_TAG ": dx: MATRIX b) device after it -> %s\n",
+                  okB2 ? "alive" : "DEAD");
+
+            // (a) same command and same body, DX branch.
+            UInt32 mx[3];
+            UInt32 *mp = cbCmd(mx, kSvga3dCmdDxDefineContext, 1);
+            *mp++ = tcid;            // byte-identical to the plain-branch call above
+            bool okA = cbSubmitCtx(mx, (UInt32)(mp - mx), tcid, tcid, kCbFlagDxContext);
+            volatile UInt32 *ha = (volatile UInt32 *)_cbHeaderVirt;
+            IOLog(VGPU_FB_TAG ": dx: MATRIX a) DEFINE_CONTEXT {cid %u} via DX branch -> %s "
+                  "(status %u errorOffset %u)\n",
+                  tcid, okA ? "COMPLETED" : "NO ANSWER", ha[0], ha[1]);
+            bool okA2 = cbSubmitCtx(sync, 0, 0, 0, 1);
+            IOLog(VGPU_FB_TAG ": dx: MATRIX a) device after it -> %s\n",
+                  okA2 ? "alive" : "DEAD");
+        }
+
         // ---- STEP 3: one shot, format = A8R8G8B8 (§34.4). -----------------------
         // §34 established that cbContext is not "which queue carries this CB" but
         // "which queue this DX context is bound to", and that queue 1 is the only queue
@@ -5063,7 +5232,112 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
 
         bool okClr = false;
         {
-            // ---- §51 BISECTION: is the transport or the DX dispatcher at fault? ----
+            // ---- §57: the goal measurement, FIRST, alone, on a pristine queue ------
+            //
+            // §56e established two things that make the previous ordering (probes first,
+            // goal last) actively wrong:
+            //   * a lone SET_TOPOLOGY through the DX branch COMPLETES with status 1, so
+            //     this host dispatches DX render commands and §51's "no dispatcher" is
+            //     withdrawn;
+            //   * after ANY DX command that answers STATUS 3, the queue stops answering
+            //     altogether -- the plain sync right after it stayed at status 0 for the
+            //     full 5 s and every later submit did too ("device after it -> DEAD").
+            //
+            // So the exploration batches were spending the one pristine queue this boot
+            // has, before the CLEAR/READBACK they exist to explain had ever run. The
+            // order below is the fix: one command, its own CB, then the sync, then the
+            // readback -- and the exploration moves behind kDxExplore.
+            UInt32 clr[7];
+            UInt32 *cp = cbCmd(clr, kSvga3dCmdDxClearRenderTargetView, 5);
+            *cp++ = trtv;
+            { float g[4] = { 0.0f, 1.0f, 0.0f, 1.0f }; memcpy(cp, g, 16); cp += 4; }
+            const UInt32 clrWords = (UInt32)(cp - clr);
+
+            if (kDxLadder) {
+                // ---- §57 LADDER: which prerequisite is CLEAR_RTV missing? -----------
+                //
+                // Facts this boot starts from: SET_TOPOLOGY (1160) alone COMPLETES;
+                // CLEAR_RTV (1176) alone on the same pristine queue answers STATUS 3 at
+                // errorOffset 0. So dispatch works and the difference is what the command
+                // needs. Climb in dependency order, one command per CB, stop at the first
+                // refusal -- a STATUS 3 leaves the queue unable to answer anything for at
+                // least 5 s (§56e), so every step must be its own submission and the
+                // ladder must never continue past a failure.
+                //
+                // The ladder is written out flat on purpose. The first version of this
+                // block built a little table of {id, body, name} and indexed it; that is
+                // the same shape as the hand-written sizes of §51/§53 -- one indirection
+                // between the bytes and the intent, and the log stops being readable.
+                bool ladderOk = true;
+
+                // 1. a state command that resolves an id through a COTable
+                {
+                    UInt32 b_[3];
+                    UInt32 *p_ = cbCmd(b_, kSvga3dCmdDxSetRasterizerState, 1);
+                    *p_++ = 0xFFFFFFFF;                 // SVGA3D_INVALID_ID
+                    ladderOk = cbSubmitCtx(b_, (UInt32)(p_ - b_), rtvQ, tcid,
+                                           kCbFlagDxContext);
+                    IOLog(VGPU_FB_TAG ": dx: LADDER 1 SET_RASTERIZER_STATE (invalid id) -> %s\n",
+                          ladderOk ? "COMPLETED" : "REFUSED (stop here)");
+                }
+                // 2. the other state command, also an invalid id
+                if (ladderOk) {
+                    UInt32 b_[4];
+                    UInt32 *p_ = cbCmd(b_, kSvga3dCmdDxSetDepthStencilState, 2);
+                    *p_++ = 0xFFFFFFFF;                 // depthStencilId
+                    *p_++ = 0;                          // stencilRef
+                    ladderOk = cbSubmitCtx(b_, (UInt32)(p_ - b_), rtvQ, tcid,
+                                           kCbFlagDxContext);
+                    IOLog(VGPU_FB_TAG ": dx: LADDER 2 SET_DEPTHSTENCIL_STATE (invalid id) -> %s\n",
+                          ladderOk ? "COMPLETED" : "REFUSED (stop here)");
+                }
+                // 3. bind the view we are about to clear, as a render target
+                if (ladderOk) {
+                    UInt32 b_[4];
+                    UInt32 *p_ = cbCmd(b_, kSvga3dCmdDxSetRenderTargets, 2);
+                    *p_++ = 0xFFFFFFFF;                 // depthStencilViewId = none
+                    *p_++ = trtv;                       // one colour view
+                    ladderOk = cbSubmitCtx(b_, (UInt32)(p_ - b_), rtvQ, tcid,
+                                           kCbFlagDxContext);
+                    IOLog(VGPU_FB_TAG ": dx: LADDER 3 SET_RENDER_TARGETS {rtv %u} -> %s\n",
+                          trtv, ladderOk ? "COMPLETED" : "REFUSED (stop here)");
+                }
+                if (ladderOk) {
+                    okClr = cbSubmitCtx(clr, clrWords, rtvQ, tcid, kCbFlagDxContext);
+                    volatile UInt32 *hl = (volatile UInt32 *)_cbHeaderVirt;
+                    IOLog(VGPU_FB_TAG ": dx: LADDER 4 CLEAR_RTV after a full ladder -> %s "
+                          "(status %u errorOffset %u)\n",
+                          okClr ? "COMPLETED" : "REFUSED", hl[0], hl[1]);
+                } else {
+                    IOLog(VGPU_FB_TAG ": dx: LADDER stopped -- CLEAR_RTV not attempted, the "
+                          "queue is already unable to answer\n");
+                }
+            } else {
+            okClr = cbSubmitCtx(clr, clrWords, rtvQ, tcid, kCbFlagDxContext);
+            {
+                volatile UInt32 *hc = (volatile UInt32 *)_cbHeaderVirt;
+                IOLog(VGPU_FB_TAG ": dx: CLEAR alone {rtv %u, 7 words, size 20} -> %s "
+                      "(status %u errorOffset %u)\n",
+                      trtv, okClr ? "COMPLETED" : "NO ANSWER", hc[0], hc[1]);
+            }
+            }
+            if (okClr) {
+                okClr = cbSubmitCtx(sync, 0, 0, 0, 1);
+            }
+            IOLog(VGPU_FB_TAG ": dx: TEMPLATE CLEAR_RTV {rtv %u green, dxContext %u} -> %s\n",
+                  trtv, tcid, okClr ? "ACCEPTED" : "refused");
+        }
+
+        if (kDxExplore) {
+            bool okSurvey = false;
+            {
+                // ---- §51 BISECTION: is the transport or the DX dispatcher at fault? ----
+                // Kept for the record and for a dedicated exploration boot; superseded by
+                // §56e's lone SET_TOPOLOGY, which completes. Runs only behind kDxExplore.
+                //
+                // §56 note: this control was never valid either. Legacy SVGA_3D_CMD_CLEAR is
+                // a FIFO command -- no driver sends it through the CB -- so STATUS 3 at
+                // offset 0 says "no CB handler for 1057", not "no 3D dispatch".
             //
             // Everything measured so far says: context-management DX commands are
             // accepted, every DX *render/state* command comes back COMMAND_ERROR at
@@ -5078,47 +5352,56 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
             // COTable, no DX context and no view. If it is accepted, dispatch works and
             // the failure is DX-specific; if it is refused at byte 0 as well, the CB
             // path never reaches a 3D renderer at all.
-            UInt32 lc[6];
-            lc[0] = kSvga3dCmdClear;        // 1057
-            lc[1] = 20;                     // body: cid, clearFlag, color, depth, stencil
-            lc[2] = tcid;
-            lc[3] = 1;                      // SVGA3D_CLEAR_COLOR
-            lc[4] = 0xFF00FF00u;            // green
-            // depth/stencil are floats/uints in one 8-byte tail; keep both inert.
-            lc[5] = 0x3F800000u;            // depth = 1.0f
-            bool okLegacy = cbSubmitCtx(lc, 6, tcid, 0, 1);
-            IOLog(VGPU_FB_TAG ": dx: BISECT legacy SVGA_3D_CMD_CLEAR {cid %u} -> %s\n",
+            // §56: reframed with cbCmd. SVGA3dCmdClear is
+            //   {cid, clearFlag, color, depth, stencil}  = 5 body words = 20 bytes.
+            // §51 sent only the first four body words with size 20, i.e. it declared
+            // 20 bytes and delivered 16, so the host read the next dword of our array
+            // (past the end of the submission) as the stencil value.
+            UInt32 lc[7];
+            {
+                UInt32 *lp = cbCmd(lc, kSvga3dCmdClear, 5);
+                *lp++ = tcid;
+                *lp++ = 1;                  // SVGA3D_CLEAR_COLOR
+                *lp++ = 0xFF00FF00u;        // green
+                *lp++ = 0x3F800000u;        // depth = 1.0f
+                *lp++ = 0;                  // stencil
+            }
+            bool okLegacy = cbSubmitCtx(lc, 7, tcid, 0, 1);
+            IOLog(VGPU_FB_TAG ": dx: BISECT legacy SVGA_3D_CMD_CLEAR {cid %u, 7 words, "
+                  "size 20} -> %s\n",
                   tcid, okLegacy ? "ACCEPTED (3D dispatch works -> DX-specific problem)"
                                  : "refused (no 3D dispatch through CB at all)");
 
-            // ---- §51 GRADED SURVEY: one CB, four commands, errorOffset names the first
-            // that the host refuses:
-            //   byte  0  SET_TOPOLOGY (trianglelist)      no COTable, no resources
-            //   byte 12  SET_RASTERIZER_STATE (none)      no COTable
-            //   byte 24  SET_DEPTHSTENCIL_STATE (none)    no COTable
-            //   byte 40  CLEAR_RTV {rtv 1, green}         needs the RTVIEW COTable row
+            // ---- §51 GRADED SURVEY, §56 sizes ----
+            // One CB, four commands; errorOffset names the first the host refuses.
+            // Bodies straight from svga3d_dx.h:
+            //   1160 SET_TOPOLOGY           {topology}                 1 word
+            //   1164 SET_RASTERIZER_STATE   {rasterizerId}             1 word
+            //   1163 SET_DEPTHSTENCIL_STATE {depthStencilId, stencilRef} 2 words
+            //   1176 CLEAR_RTV              {rtvId, rgba[4]}           5 words
+            // Command lengths are 3/3/4/7 words, so the offsets are 0 / 12 / 24 / 40.
+            // (The array layout never depended on the declared sizes -- only what the host
+            // believes it should skip does, which is why the old sizes produced the same
+            // offsets yet still mis-framed every command.)
             UInt32 sv[24];
-            UInt32 n = 0;
-            const UInt32 offTopo = n * 4;
-            sv[n++] = kSvga3dCmdDxSetTopology;
-            sv[n++] = 8;
-            sv[n++] = 1;                    // SVGA3D_PRIMITIVE_TRIANGLELIST
-            const UInt32 offRast = n * 4;
-            sv[n++] = kSvga3dCmdDxSetRasterizerState;
-            sv[n++] = 8;
-            sv[n++] = 0xFFFFFFFF;           // SVGA3D_INVALID_ID
-            const UInt32 offDs = n * 4;
-            sv[n++] = kSvga3dCmdDxSetDepthStencilState;
-            sv[n++] = 12;
-            sv[n++] = 0xFFFFFFFF;           // depthStencilId
-            sv[n++] = 0;                    // stencilRef
-            const UInt32 offClr = n * 4;
-            sv[n++] = kSvga3dCmdDxClearRenderTargetView;
-            sv[n++] = 20;
-            sv[n++] = trtv;
+            UInt32 *sp = sv;
+            const UInt32 offTopo = (UInt32)(sp - sv) * 4;
+            sp = cbCmd(sp, kSvga3dCmdDxSetTopology, 1);
+            *sp++ = 1;                      // SVGA3D_PRIMITIVE_TRIANGLELIST
+            const UInt32 offRast = (UInt32)(sp - sv) * 4;
+            sp = cbCmd(sp, kSvga3dCmdDxSetRasterizerState, 1);
+            *sp++ = 0xFFFFFFFF;             // SVGA3D_INVALID_ID
+            const UInt32 offDs = (UInt32)(sp - sv) * 4;
+            sp = cbCmd(sp, kSvga3dCmdDxSetDepthStencilState, 2);
+            *sp++ = 0xFFFFFFFF;             // depthStencilId
+            *sp++ = 0;                      // stencilRef
+            const UInt32 offClr = (UInt32)(sp - sv) * 4;
+            sp = cbCmd(sp, kSvga3dCmdDxClearRenderTargetView, 5);
+            *sp++ = trtv;
             { float g[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
-              memcpy(&sv[n], g, 16); n += 4; }
-            okClr = cbSubmitCtx(sv, n, rtvQ, tcid, kCbFlagDxContext);
+              memcpy(sp, g, 16); sp += 4; }
+            const UInt32 svWords = (UInt32)(sp - sv);
+            okSurvey = cbSubmitCtx(sv, svWords, rtvQ, tcid, kCbFlagDxContext);
             {
                 volatile UInt32 *hd = (volatile UInt32 *)_cbHeaderVirt;
                 const UInt32 st = hd[0];
@@ -5130,15 +5413,14 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
                                 : (eo == offClr)       ? "CLEAR_RTV"
                                 :                        "none / unknown offset";
                 IOLog(VGPU_FB_TAG ": dx: SURVEY status %u errorOffset %u -> first "
-                      "refused: %s  (offsets %u/%u/%u/%u)\n",
-                      st, eo, who, offTopo, offRast, offDs, offClr);
+                      "refused: %s  (%u words, offsets %u/%u/%u/%u)\n",
+                      st, eo, who, svWords, offTopo, offRast, offDs, offClr);
             }
-            if (okClr) {
-                okClr = cbSubmitCtx(sync, 0, 0, 0, 1);
+            if (okSurvey) {
+                okSurvey = cbSubmitCtx(sync, 0, 0, 0, 1);
             }
-            IOLog(VGPU_FB_TAG ": dx: TEMPLATE CLEAR_RTV {rtv %u green, dxContext %u} -> %s\n",
-                  trtv, tcid, okClr ? "ACCEPTED" : "refused");
         }
+        }   // if (kDxExplore)
 
         bool okRb = false;
         if (okClr) {
@@ -6236,15 +6518,26 @@ bool vgpuFramebuffer::cbMobSetup(volatile UInt32 *fifo) {
 }
 
 bool vgpuFramebuffer::cbInit(void) {
+    // §56: one page of headers, 64 bytes each, used in rotation.
+    //
+    // A single shared header is a self-deception machine once a batch can go unanswered:
+    // we time out, give up, submit the NEXT batch into the same 64 bytes, and if the host
+    // eventually gets round to finishing the OLD one it writes COMPLETED into the header
+    // the new batch is polling. Since the zeroing before each submit cannot distinguish
+    // "this batch done" from "the previous batch finally done", the new batch is reported
+    // as a success it never earned. Rotating slots makes each answer belong to exactly one
+    // submission -- the page is 4 KiB and the host reads one header per command, so 64
+    // slots is 64 in-flight batches before slot 0 comes round again.
     _cbHeaderMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
-        kernel_task, kIODirectionInOut, 64, 0x3F);
+        kernel_task, kIODirectionInOut, 4096, 0x3F);
     _cbDataMem = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
         kernel_task, kIODirectionInOut, kCbDataBytes, 0xFFFULL);
     if (_cbHeaderMem == nullptr || _cbDataMem == nullptr) {
         IOLog(VGPU_FB_TAG ": cb: allocation failed\n");
         return false;
     }
-    _cbHeaderVirt = (volatile UInt8 *)_cbHeaderMem->map()->getVirtualAddress();
+    _cbHeaderBaseVirt = (volatile UInt8 *)_cbHeaderMem->map()->getVirtualAddress();
+    _cbHeaderVirt = _cbHeaderBaseVirt;
     _cbDataVirt = (volatile UInt8 *)_cbDataMem->map()->getVirtualAddress();
     // Host-side debug marker: never touched by the host (beyond CB length), used by
     // a host debugger to locate this buffer in the VMX address space and thereby
@@ -6260,15 +6553,17 @@ bool vgpuFramebuffer::cbInit(void) {
         IOLog(VGPU_FB_TAG ": cb: header PA not 64-aligned\n");
         return false;
     }
-    _cbHeaderPA = (UInt64)pa;
+    _cbHeaderBasePA = (UInt64)pa;
+    _cbHeaderPA = _cbHeaderBasePA;
     pa = _cbDataMem->getPhysicalSegment(0, &len);
     if (pa == 0 || (pa & 0x3F) != 0) {
         IOLog(VGPU_FB_TAG ": cb: data PA not 64-aligned\n");
         return false;
     }
     _cbDataPA = (UInt64)pa;
-    IOLog(VGPU_FB_TAG ": cb: header @ %llx, data @ %llx\n",
-          (unsigned long long)_cbHeaderPA, (unsigned long long)_cbDataPA);
+    IOLog(VGPU_FB_TAG ": cb: header @ %llx (%u slots of 64 B), data @ %llx\n",
+          (unsigned long long)_cbHeaderBasePA, kCbHeaderSlots,
+          (unsigned long long)_cbDataPA);
 
     // Guest driver identity. NOTE: the original comment here claimed "vm3dmp writes exactly
     // this at init" -- it does not, and never did. The host driver writes no register above
@@ -6332,6 +6627,15 @@ bool vgpuFramebuffer::cbInit(void) {
 bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 cbContext,
                                   UInt32 dxContext, UInt32 flags) {
     const UInt32 byteCount = wordCount * sizeof(UInt32);
+    // §56: claim the next header slot FIRST, so that every read of _cbHeaderVirt below --
+    // here and in the observers at the call sites -- sees this submission's own header.
+    // See cbInit for why a shared header invents false completions once a batch can stall.
+    if (_cbHeaderBaseVirt != nullptr) {
+        const UInt32 slot = _cbHeaderSlot % kCbHeaderSlots;
+        _cbHeaderSlot++;
+        _cbHeaderVirt = _cbHeaderBaseVirt + (IOByteCount)slot * kCbHeaderBytes;
+        _cbHeaderPA = _cbHeaderBasePA + (UInt64)slot * kCbHeaderBytes;
+    }
     // Every early exit below used to be silent, and a silent `false` is indistinguishable
     // from "the host said no" at the call site. The 10-29 template run printed
     // "-> refused" with NO status/timeout line, so the CB was never even submitted; the
@@ -6476,7 +6780,23 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
                       (UInt32)(_cbHeaderPA & 0xFFFFFFFFu) | (cbContext & 0x3F));
 
     // Poll for completion (NO_IRQ): status changes from 0 (NONE).
-    for (UInt32 spin = 0; spin < 200000000u; spin++) {
+    //
+    // §56: this used to be `for (spin < 200000000)` with no delay -- a pure register-write
+    // spin of about 130 ms on this host. Two consequences, and the second one invalidated a
+    // conclusion: (a) the budget was a spin count, not a duration, so it moved whenever the
+    // loop body changed, and (b) 130 ms is nowhere near enough for a batch the host defers
+    // to its DX scheduler, so "header status still 0" was read as "the host refuses DX"
+    // when it only meant "we stopped looking". An EMPTY DX-flagged batch completes
+    // immediately (§56 DXBRANCH), which proves the branch itself is fine and makes the
+    // duration the next variable to rule out.
+    //
+    // Now: a wall-clock budget, hot-spin for the first 2 ms (the normal case completes in
+    // microseconds and must not pay for IOSleep), then yield.
+    UInt64 pollT0 = 0, pollBudget = 0, pollFastSpin = 0;
+    clock_get_uptime(&pollT0);
+    nanoseconds_to_absolutetime((UInt64)kCbWaitMs * 1000000ULL, &pollBudget);
+    nanoseconds_to_absolutetime((UInt64)kCbFastSpinMs * 1000000ULL, &pollFastSpin);
+    for (;;) {
         UInt32 status = h[0];
         if (status == 1) {          // SVGA_CB_STATUS_COMPLETED
             if (kCbDump) {
@@ -6500,17 +6820,39 @@ bool vgpuFramebuffer::cbSubmitCtx(const UInt32 *cmds, UInt32 wordCount, UInt32 c
             }
             return false;
         }
+        UInt64 now = 0;
+        clock_get_uptime(&now);
+        if (now - pollT0 > pollBudget) {
+            break;
+        }
+        if (now - pollT0 > pollFastSpin) {
+            IOSleep(1);
+        }
     }
-    IOLog(VGPU_FB_TAG ": cb: timeout waiting for completion (header flags %u%s) -- "
-          "header dump://n", h[4],
-          (h[4] & kCbFlagDxContext) ? ", DX stream: vm3dmp fire-and-forgets these, so the "
-                                      "plain sync that follows is the real verdict" : "");
+    IOLog(VGPU_FB_TAG ": cb: no completion within %u ms (header flags %u%s) -- "
+          "header dump://n", kCbWaitMs, h[4],
+          (h[4] & kCbFlagDxContext) ? ", DX stream" : "");
     for (int d = 0; d < 4; d++) {
         IOLog(VGPU_FB_TAG ": cb hdr[%2u..%2u] %08x %08x %08x %08x %08x %08x %08x %08x\n",
               d * 8, d * 8 + 7,
               h[d * 8 + 0], h[d * 8 + 1], h[d * 8 + 2], h[d * 8 + 3],
               h[d * 8 + 4], h[d * 8 + 5], h[d * 8 + 6], h[d * 8 + 7]);
     }
+
+    // Late arrival check. The budget above is a judgement call; this is the measurement
+    // that makes it honest. A batch the host only got around to after our deadline looks
+    // exactly like one it never ran, and that is precisely the distinction §56 turns on.
+    for (UInt32 i = 1; i <= kCbLatePolls; i++) {
+        IOSleep(kCbLatePollMs);
+        if (h[0] == 1) {
+            IOLog(VGPU_FB_TAG ": cb[%llu] COMPLETED LATE, %u ms after the %u ms budget "
+                  "(errorOffset %u) -- the host does run this, only slower than we looked\n",
+                  (unsigned long long)(_cbId - 1), i * kCbLatePollMs, kCbWaitMs, h[1]);
+            return true;
+        }
+    }
+    IOLog(VGPU_FB_TAG ": cb[%llu] still unanswered %u ms after the budget -- status stays %u\n",
+          (unsigned long long)(_cbId - 1), kCbLatePolls * kCbLatePollMs, h[0]);
     return false;
 }
 
@@ -6553,9 +6895,11 @@ void vgpuFramebuffer::fifoDump(volatile UInt32 *fifo, const char *when) {
 }
 
 bool vgpuFramebuffer::start(IOService *provider) {
-    IOLog(VGPU_FB_TAG ": start, provider=%s\n",
+    // First line of every boot, deliberately: it names the binary. See VGPU_BUILD_TAG.
+    IOLog(VGPU_FB_TAG ": start, provider=%s [build %s]\n",
           provider != nullptr && provider->getMetaClass() != nullptr
-              ? provider->getMetaClass()->getClassName() : "(null)");
+              ? provider->getMetaClass()->getClassName() : "(null)",
+          VGPU_BUILD_TAG);
 
     if (!super::start(provider)) {
         IOLog(VGPU_FB_TAG ": super::start() returned false\n");

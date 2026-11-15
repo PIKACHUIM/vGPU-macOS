@@ -5163,3 +5163,199 @@ Panicked task: pid 188 contextstored
 
 **一句话**：这台虚拟机可以提供"能显示、能软件渲染 GL 2.1"的图形栈；Metal 缺的不是
 配置项，而是一台有 3D 执行后端的设备。
+
+---
+
+## §56 撤回 §51：线格式错了，而且"超时"根本不是判据（2026-11-15）
+
+§51 的结论是「这台宿主从不派发 3D 渲染命令」。**该结论作废。** 它是三个方法论错误叠出来的，
+而且这一次错误不在推理里，在**字节**里。
+
+### 56.1 SVGA3dCmdHeader.size 是 body 字节数 —— 四条命令三条写错
+
+`svga3d_cmd.h:333` 的定义没有任何歧义：
+
+```c
+typedef struct { uint32 id; uint32 size; } SVGA3dCmdHeader;   // size = body 字节数
+```
+
+宿主的解析器**不拿 size 和结构体比对**，它只是按 `size` 跳过。所以 size 写错不会让这条命令
+报错，只会让**下一条命令从错误的偏移开始解析**。§51 那四条：
+
+| 命令 | 结构体 body | §51 写的 size | 结果 |
+|---|---|---|---|
+| `DX_SET_TOPOLOGY` 1160 | `{topology}` = 4 | 8 | 多吃一个字 |
+| `DX_SET_RASTERIZER_STATE` 1164 | `{rasterizerId}` = 4 | 8 | 多吃一个字 |
+| `DX_SET_DEPTHSTENCIL_STATE` 1163 | `{id, stencilRef}` = 8 | 12 | 多吃一个字 |
+| `SVGA_3D_CMD_CLEAR` 1057 | `{cid, flag, color, depth, stencil}` = 20 | 20 ✅ | 但只交了 16 字节 |
+
+最后一条最能说明问题：它声明 20 字节、实际只提供 4 个字，宿主读 stencil 时读到了数组之外。
+这正是"每条都 STATUS 3 / errorOffset 0"的来源 —— 第一条的 size 就把后面全部错位，而报告
+偏移时宿主只认它自己算出来的那条边界。
+
+**修法不是改数字，是让数字不可能写错**：新增 `cbCmd(p, id, bodyWords)`，size 由 body 字数
+推出，调用方只负责 body。同时把 payload 直接从 CB 头的 dump 里核对：
+`00000421 00000014 00000001 00000001 ff00ff00 3f800000 00000000`（1057 / 20 / cid 1 /
+CLEAR_COLOR / 绿 / depth 1.0 / stencil 0），逐字节对得上。
+
+> 这是本项目第三次同类错误（§53 的 `RECT_COPY` / `FRONT_ROP_FILL` / `UPDATE` 多塞了长度字）。
+> 教训重复出现说明它不是疏忽，是**缺一个不让人手写长度的构造器**。
+
+### 56.2 修正后结果变了：从"逐条拒绝"变成"根本没应答"
+
+同一个测试、同一个二进制结构，只改线格式，CB 头的表现完全不同：
+
+| | 修正前（§51） | 修正后（§56） |
+|---|---|---|
+| 4 条 DX 命令一批 | `STATUS 3`, errorOffset 0 | header status **保持 0**，从不写 |
+| `SET_SHADER_IFACE` 单条 | `STATUS 3` | header status 保持 0 |
+
+"status 一直是 0"不是"拒绝"，是"我们没等到"。而当时判定它是拒绝的代码，把 `status != 1`
+一律叫 refused —— 一个连 `SVGA_CB_STATUS_NONE` 都没区分的判据。
+
+### 56.3 轮询是 200000000 次自旋，不是时间预算
+
+原来的等待循环是 `for (spin < 200000000)`，没有 delay，实测约 **130 ms**。两个后果：
+
+1. 预算是**循环次数**，改一行循环体它就变了；
+2. 130 ms 对宿主可能推迟处理的批次远远不够，于是"没等到"被读成"被拒绝"。
+
+改成墙面时钟 3 s 预算 + 超时后每 1 s 复查一次、共 2 s（`kCbWaitMs` / `kCbLatePollMs`）。
+前 2 ms 仍然热自旋（正常路径是微秒级，不该为它付 `IOSleep`）。
+
+复查机制是有意义的，因为它区分"慢"和"没有"：§56d 里 SURVEY 与 SET_SHADER_IFACE 都是
+**3 s + 2 s 之后 status 仍是 0**，从此"不是慢"这句话有依据了。
+
+### 56.4 单一头页会凭空制造"完成"
+
+所有 CB 共用一个 64 字节头。一旦某批可以不答，就出现这个序列：超时 → 放弃 → 下一批写进同一
+64 字节 → 宿主这时才把上一批的 COMPLETED 写进去 → 我们把它读成"这一批完成了"。
+每次提交前清零**不能**区分这两者。
+
+改成**一页 64 个槽轮转**，每次提交先领自己的槽，答案就不会张冠李戴。这条不是猜测：调查过程中
+真的出现过"新加的可达代码没打印、而同函数其他行都打印"的现象，让我先怀疑了二进制，
+顺带把这类"状态归属"隐患一起修掉。
+
+### 56.5 构建标签：那次启动跑的确实不是我们以为的二进制
+
+现象：源码里可达、`strings` 在 `/Library/Extensions` 的二进制里能查到 2 处 `DXBRANCH`、
+同函数其它 IOLog 全都打印了，**只有新块没有输出**。
+
+原因是 aux KC：`install.sh` 只能把请求**排队**（`kmutil load` 返回 `Code=28 requires a reboot`，
+这是正常路径），集合在下一次启动时由 kernelmanagerd 从 `/Library/Extensions` 重建 —— 但
+没有任何保证说"这次启动用的集合里有这个文件"。加一条构建标签横幅：
+
+```
+vgpu-fb: start, provider=IOPCIDevice [build §57b]
+```
+
+并且 `build.sh` 无条件校验它（不放进 `$MARKERS`：2d2 / plain-framebuffer 那几条分支会**整体
+覆盖** `$MARKERS`，共享项在正好要紧的配置里会被悄悄丢掉）。加完之后 §56c 那条启动自报
+`[build §56c]`，此前那次启动没有标签可比对 —— 这个盲区从此关掉。
+
+### 56.6 撤回"DX 批次冻住扫描输出"
+
+第一次跑修正版时，屏幕冻在启动进度 35%，两次截图**逐字节相同**，而客体的 RPC 心跳还在打，
+所以我当时归因给"DX 批次把宿主 svga 线程卡住了"。
+
+**不成立。** 后面两次启动（§56c / §56d）跑的是同一段 DX 测试，桌面/登录界面全程正常刷新
+（两张相隔 20 s 的截图 MD5 不同，1.8 MB 的完整桌面）。
+
+更可能的解释是**我们自己的自旋**：旧代码在 thread_call 里连跑三次 200M 次不带 delay 的循环，
+而那一刻正好是 WindowServer 起来的当口。换成 `IOSleep` 之后就没再出现 —— 这只是相关性，
+但比"宿主卡死"更符合已知事实，且**可以解释为什么心跳还在**。
+
+### 56.7 本轮更正表
+
+| §51 的说法 | 现在的状态 | 依据 |
+|---|---|---|
+| "宿主从不派发 3D 渲染命令" | **作废** | §57.2：`SET_TOPOLOGY` 单条 COMPLETED |
+| "四条 DX 命令都被拒在 offset 0" | **作废** | §56.1 线格式错位 |
+| "legacy CLEAR 也被拒 ⇒ 传输层不行" | **作废** | 这个对照本身无效：legacy 3D 走 FIFO，没有驱动用 CB 发它 |
+| "DX manager 仍然缺席" | **待定** | 结论来自错位批次，需在正确批次上重测 |
+
+---
+
+## §57 DX 派发存在；断点定位到"第一个解析 COTable 的命令"（2026-11-15）
+
+### 57.1 空批次完成 ⇒ 分支与 dxContext 查找都没问题
+
+只带 CB 头、零字节载荷的 DX 批次（`dxContext=1`、DX 位已置）**立刻 COMPLETED (status 1)**，
+紧随其后的普通 sync 也 COMPLETED。所以：
+
+- 头的 `DX_CONTEXT` 位被接受；
+- `dxContext != 0` 的 lookup-or-create 路径不卡；
+- "分支本身卡死"这个假设被自己的实验否掉。
+
+### 57.2 单条 `SET_TOPOLOGY` 完成 ⇒ §51 的核心结论作废
+
+`DX_SET_TOPOLOGY (1160)` 单条、独立 CB、干净队列：**COMPLETED (status 1, errorOffset 0)**。
+
+这台宿主**会**派发 DX 命令。§51 那张"设备没有 3D"的结论表，是错位批次 + 130 ms 预算 + 单一
+头页三件事合起来的产物。
+
+### 57.3 任何 STATUS 3 之后，队列在 5 s 内彻底不再应答
+
+这是决定实验顺序的硬约束，§56e 量得很清楚：
+
+```
+MATRIX a) DEFINE_CONTEXT via DX branch -> NO ANSWER (status 3 errorOffset 0)
+MATRIX a) device after it -> DEAD          <- 紧跟的普通 sync，status 停在 0 满 5 s
+```
+
+所以**探针本身会花掉这次启动唯一的一条干净队列**。而修正前的代码把 BISECT / SURVEY /
+DXBRANCH / MATRIX 全排在真正要测的 CLEAR+READBACK **之前** —— 那些"解释性"实验一直在消耗
+它们本该解释的那个测量。修法：目标测量提到最前（`dx: CLEAR alone`），探索批次压到
+`kDxExplore` 后面，默认关。
+
+### 57.4 阶梯：断在第 3 级
+
+`CLEAR_RTV` 单条在干净队列上得到 `STATUS 3 / errorOffset 0`。逐级上爬，每条独立 CB，出错即停：
+
+| 级 | 命令 | 结果 |
+|---|---|---|
+| 1 | `SET_RASTERIZER_STATE` {INVALID_ID} | **COMPLETED** |
+| 2 | `SET_DEPTHSTENCIL_STATE` {INVALID_ID, 0} | **COMPLETED** |
+| 3 | `SET_RENDER_TARGETS` {dsv=INVALID, rtv 1} | **STATUS 3 / offset 0** |
+| 4 | `CLEAR_RTV` | 未尝试（第 3 级失败后队列已不可用，按设计停） |
+
+第 1、2 级证明：状态类命令通过，**即便它要解析一个 COTable 里的 id**（INVALID_ID 也是 id）。
+第 3 级是第一个真正去**取一行有效视图数据**的命令，它失败。
+
+### 57.5 已经排除掉的候选
+
+| 候选 | 为什么不是它 |
+|---|---|
+| 命令号写错 | 1160/1163/1164/1176/1207 逐个对过 `svga3d_cmd.h` |
+| body size 写错 | §56.1 已改由 `cbCmd()` 推出，payload dump 逐字核对 |
+| COTable `type` 用错 | `SVGA_COTABLE_RTVIEW = 0`（`svga3d_types.h:1493`），我们发的就是 0 |
+| `validSizeInBytes` 太小 | 发的是 4096，等于整页 MOB |
+| 表面没有 render-target 用途 | `sflags = SURFACE_HINT_RENDERTARGET \| SURFACE_BIND_RENDER_TARGET`（`1<<24`） |
+| 缺 DX 能力 | `DEVCAP DXCONTEXT=1 SM41=1 GL43=1`；宿主日志 `SVGA3dCaps: host, at power on (3d enabled)` |
+
+### 57.6 下一个候选（未测）
+
+按可能性排序，每条都只要一次启动：
+
+1. **视图行对宿主不可见**：绑定的 COTable MOB 与我们写入条目的页是不是同一页。
+   `_cotableMem` 的 PPN 注册成 MOB、`SET_COTABLE` 绑 `kCotableMobId`，路径上有一处
+   `ctEntryOff = kCotableMobId * kGbMobEntryBytes` 的间接，PT 深度写错会让宿主把 PPN 表
+   当表内容读 —— 现象正是"表是空的"。
+2. **需要先 `DX_GROW_COTABLE` (1237)**：vmwgfx 是先 grow 再填行，我们直接写行。
+3. **`SET_RENDER_TARGETS` 的数组约定**：头文件里 `SVGA3dCmdDXSetRenderTargets` 只有
+   `depthStencilViewId` 一个字段加尾随数组，但 `SET_VIEWPORTS` / `SET_SCISSORRECTS` 都有
+   `uint32 pad0`。若这里也隐含 pad，`rtv 1` 会被读成一个越界 id。
+
+### 57.7 这一轮的状态
+
+| 项 | 状态 | 依据 |
+|---|---|---|
+| 显示（纯 framebuffer） | ✅ | 登录界面 / 桌面多次确认 |
+| DX 命令派发 | ✅ **存在** | §57.2 |
+| DX 状态类命令 | ✅ | §57.4 第 1、2 级 |
+| DX 视图绑定（渲染前置） | ❌ 断在第 3 级 | §57.4 |
+| CLEAR + READBACK（出像素） | ⏸ 未测（队列前提未满足） | §57.4 |
+| Metal / 硬件加速 GL | ❌ 结论不变 | §55 |
+
+**一句话**：阻塞点从"宿主不支持 3D"缩小到"一条视图绑定命令被拒"，而前者是死路、后者是
+可以继续拆的工程问题。
