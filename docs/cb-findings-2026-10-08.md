@@ -5879,3 +5879,34 @@ PASS all checks
 本节已证明应用提供的坐标经真实GPU顶点输入产生像素，仍是受限单三角形专用接口，不等于硬件OpenGL或Metal可用。尚缺通用buffer/index/texture/shader生命周期、呈现及系统用户态驱动接入。§69的启动停滞根因仍未解决；本节仅一次新启动，两个用户程序运行，不能写成两次独立启动。
 
 保留失败关闭策略：初始化即使只因本地分配失败，也会禁用全部绘制到重启；未发布命令前可恢复的内存失败尚未细分。设备可见backing仍保留至重启，无DMA停止证明、热卸载/重载和超时注入验收。后续优先接通可识别的应用级OpenGL/Metal入口，并逐项补齐其实际需要的资源与shader能力。
+
+## §71：系统图形API验收失败语义与接入缺口（2026-11-16）
+
+### 修正探针假成功
+
+原gl_probe.c和metal_probe.m无论失败都退出0，不能用于最终目标验收。现OpenGL默认/软件模式仅作诊断；仅强制accelerated + NoRecovery上下文、实际virtualScreen的accelerated属性非0、红色中心与黑色背景像素都正确且无GL/CGL错误时返回0。增加对象清理和上下文恢复检查。Metal逐项检查设备、library/function/pipeline/buffer/queue/encoder，要求command buffer Completed且无error，全部16个float均为42才返回0；这仍只是compute验收，不代表render pipeline通过。
+
+两探针在客体clang以-Wall -Wextra -Werror构建通过（GL关闭系统已弃用API警告）。当前SSH会话实测：
+
+```text
+software: virtualScreen=0 kCGLPFAAccelerated=0
+software: RENDERER=Apple Software Renderer
+software: centre(32,32)=255,0,0,255 background(4,60)=0,0,0,255 -> OPENGL RASTERISES
+accelerated: CGLChoosePixelFormat failed (invalid CoreGraphics connection), npix=0
+GL process exit = 1
+MTLCopyAllDevices count = 0
+FAIL: Metal device enumeration returned no devices
+Metal process exit = 1
+```
+
+软件GL像素正确不计入硬件成功；默认CGL也返回invalid CoreGraphics connection。独立环境观察：ioreg查询IOAccelerator为空，/dev/console属主root，launchctl gui/501不存在。因此CGL失败有未登录Aqua会话的条件限制，不能仅凭该错误断言驱动不支持；Metal零设备及无加速器服务分别记录。
+
+### 接入取证与阻塞
+
+当前仅IOFramebuffer personality，专用管理员IOUserClient不是标准GL用户客户端；普通应用权限、独立context/资源及任意绘制状态尚缺。§70固定256×256、固定红色PS和每次清绿也不能冒充任意OpenGL语义。
+
+客体实际存在ICL/KBL与AMD X4000/X5000/X6000的GLDriver.bundle目录。HD4000目录不存在；KBL的Info.plist声明AppleIntelKBLGraphicsGLDriver执行文件，但磁盘MacOS目录只有libigdmd.dylib，主映像需要进一步在进程/dyld shared cache中定位，不能由磁盘缺文件推断驱动不存在。
+
+尝试用客体LLDB启动自有glprobe观察GLD入口，收到`non-interactive debug session, cannot get permission to debug processes`，本轮未绕过许可或更改系统调试权限。VMsvga2 SourceForge源码页面被Cloudflare拦截，未取得可复用GLD ABI。下一实验应取得目标系统真实驱动发现/加载契约，再实现最小服务和诊断GLD插件，验收系统CGL实际调用插件，不以替换系统gl符号、renderer字符串或独立shim冒充接入。
+
+Apple历史官方文档明确存在第三方GLD plug-in接口：https://developer.apple.com/library/archive/documentation/GraphicsImaging/Conceptual/OpenGL-MacProgGuide/opengl_pg_concepts/opengl_pg_concepts.html 。这不证明现代macOS兼容，但足以校正ARCHITECTURE.md中“Apple GL不挂外部GL驱动”的无条件断言。该文旧有“模板已有/OpenGL免费获得”等条目保留为历史假设并添加显著校正；当前OpenGL硬件与Metal设备目标均未完成。

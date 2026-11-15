@@ -155,7 +155,7 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 
 ## 当前开放问题
 
-> 最后更新：2026-11-16（§70：用户顶点经真实VB、input layout与透传VS绘制，三种几何共39帧全像素验收通过；应用级硬件OpenGL/Metal仍未实现）
+> 最后更新：2026-11-16（§70：用户顶点真实VB绘制39帧全像素通过；§71：修正系统API探针失败退出码，软件GL像素通过、硬件CGL受会话限制失败、Metal零设备；硬件OpenGL/Metal仍未实现）
 
 ### 两级目标的最终状态（11-15 夜间修订）
 
