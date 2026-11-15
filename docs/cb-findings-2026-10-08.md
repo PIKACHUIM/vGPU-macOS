@@ -5712,3 +5712,47 @@ backing MOB在setup时由CPU预填洋红0xffff00ff，成功读回后全部65536�
 **L1的清屏像素门槛已达成。** 证据覆盖DX上下文、COTable懒加载RTV绑定、渲染目标清屏、MOB读回和后续队列响应；不覆盖三角形光栅化、shader、资源上传、显示呈现或应用级Metal/硬件OpenGL。未新增宿主补丁，既有FE→FC仍是环境前提。
 
 后续优先复用此健康基线做shader/三角形绘制；显式DEFINE_RTV、规范的DEFINE/BIND资源生命周期及共享helper其他调用者的旧ms/pitch字段需分别复测，不应把历史FIFO fence误作语义成功。
+
+## §67：最小 SM4 PS 对象生命周期（2026-11-15）
+
+### 协议与实验设计
+
+本轮从§66基线继续。Mesa源码核实了三处容易混淆的协议细节：
+
+- DX shader使用MOB里的原始SM4 token流，不是DXBC容器，也不是旧版SHADER_DEFINE的inline字节码。`DX_DEFINE_SHADER`(1201) body仅12B `{shaderId,type,sizeInBytes}`；`DX_BIND_SHADER`(1203) body16B `{cid,shid,mobid,offset}`。两条含header共44B。
+- `SVGA_COTABLE_DXSHADER=10`，每项32B `{type,sizeInBytes,offsetInBytes,mobid,pad[4]}`。旧tc[]注释把type3–11错标为UAV/VB/IB等，现按协议纠正；此前只发送type0，故这些注释不影响§66结果。
+- Mesa SM4路径signature长度为0；token流头两个DWORD分别是版本和总DWORD数。`ps_4_0; dcl_output o0.xyzw; mov o0,l(1,0,0,1); ret`共14 DWORD/56B。opcode分别为101/54/62，指令长度3/8/1；常量红色仅是shader内容，本轮不发DRAW，不能据对象接受声称画出了红色。
+
+证据来源（均为本轮实际读取的实现）：
+
+- [Mesa svga_cmd_vgpu10.c](https://android.googlesource.com/platform/external/mesa3d/+/refs/heads/main/src/gallium/drivers/svga/svga_cmd_vgpu10.c)：`SVGA3D_vgpu10_DefineAndBindShader`、`SetShader`、`DestroyShader`。
+- [Mesa svga_shader.c](https://android.googlesource.com/platform/external/mesa3d/+/refs/heads/main/src/gallium/drivers/svga/svga_shader.c)：`define_gb_shader_vgpu10`，长度为codeLen+signatureLen。
+- [Mesa vmw_shader.c](https://android.googlesource.com/platform/external/mesa3d/+/refs/heads/main/src/gallium/winsys/svga/drm/vmw_shader.c)：MOB顺序复制code与可选signature。
+- [Mesa svga_tgsi_vgpu10.c](https://android.googlesource.com/platform/external/mesa3d/+/refs/heads/main/src/gallium/drivers/svga/svga_tgsi_vgpu10.c)与[VGPU10ShaderTokens.h](https://android.googlesource.com/platform/external/mesa3d/+/refs/heads/main/src/gallium/drivers/svga/include/VGPU10ShaderTokens.h)：版本、长度、PS颜色输出、立即数与指令编码。
+
+探针先要求§66全部像素及queue health通过，然后分配两个4KiB PT64_0 MOB：7为shader COTable、8为code。type10以validSize0初始化，再同一CB发DEFINE+BIND，随后单独SET/UNSET/DESTROY/queue health；首个失败立即返回，保留backing直到设备生命周期结束，避免失败后释放宿主仍可能引用的页。独立开关`kDxShaderProbe=1`，`kDxExplore=0`；延迟90s，构建标签`§67-shader`。没有新增宿主补丁。
+
+### 验证
+
+客体编译链接通过，所有新旧可达性marker存在，安装检查weak references=0；AuxKC暂存返回预期Code=28。宿主读取真实源码中的psRed数组验证14 DWORD以及3/8/1指令边界通过；`git diff --check`通过。
+
+本次`kern.boottime`为2026-11-15 23:40:49，驱动23:41:26加载并打印`[build §67-shader]`；90秒延迟后23:42:56执行。日志查询限定在本次启动之后：
+
+```
+TEMPLATE pixel verification total65536 mismatches0 last0xff00ff00 -> PASS
+TEMPLATE post-readback queue health -> COMPLETED
+TEMPLATE verified round trip -> PASS
+SHADER MOB 7 FIFO fence -> COMPLETED
+SHADER MOB 8 FIFO fence -> COMPLETED
+SHADER SET_COTABLE type10 mob7 valid0 -> COMPLETED
+SHADER DEFINE+BIND PS1 mob8 bytes56 -> COMPLETED
+SHADER SET PS1 -> COMPLETED
+SHADER UNSET PS -> COMPLETED
+SHADER DESTROY PS1 -> COMPLETED
+SHADER lifecycle queue health -> COMPLETED
+SHADER lifecycle verdict -> PASS (no DRAW)
+```
+
+**本轮净结果：最小PS的显式DEFINE/BIND/SET/UNSET/DESTROY对象生命周期完成，且§66清屏读回基线保留。** 这里第一次获得shader对象链的实际客体执行证据；不能把接受/选择shader扩展为已验证编译、光栅化或红色像素输出（实现可能推迟到DRAW）。下一步在此基础上加入VS与确定性三角形，补齐viewport、拓扑、栅格化/混合状态并做区域像素校验。Metal/硬件OpenGL应用级接口仍未实现。
+
+资源约束：两个新增MOB合计8KiB，本轮成功与失败均保留backing以免宿主悬挂引用；这个单次启动探针不支持热卸载/反复创建，正式资源管理需补DESTROY_GB_MOB和设备静止后的回收。

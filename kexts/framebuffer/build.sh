@@ -275,6 +275,17 @@ NO ANSWER"
 fi
 # §57: the exploration batches are behind kDxExplore, so their banners are required only
 # when that switch is on. A build that turns exploration on without them cannot measure.
+if sw kDxShaderProbe 1; then
+    MARKERS="$MARKERS
+SHADER probe begin
+SHADER SET_COTABLE
+SHADER DEFINE+BIND
+SHADER SET PS1
+SHADER UNSET PS
+SHADER DESTROY PS1
+SHADER lifecycle queue health
+SHADER lifecycle verdict"
+fi
 if sw kDxExplore 1; then
     echo "kDxExplore = 1 -> exploration markers are required"
     MARKERS="$MARKERS

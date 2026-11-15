@@ -161,7 +161,7 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 
 | 级 | 目标 | 状态 | 依据 |
 |---|---|---|---|
-| L1 | SVGA3D 的 **DX 命令流真正执行出像素** | 清屏读回门槛已达成 | §65/§66两次启动成功；§66全65536像素0xff00ff00、mismatches0，后续DX状态命令完成；三角形绘制待验证 |
+| L1 | SVGA3D 的 **DX 命令流真正执行出像素** | 清屏读回门槛已达成，最小PS对象生命周期通过 | §65–§67启动验证；全65536像素0xff00ff00、mismatches0；§67 DXSHADER COTable与PS DEFINE/BIND/SET/UNSET/DESTROY完成；尚无DRAW/着色像素证据 |
 | L1' | 退一步：**像素通路可用**（2D），且由驱动自证 | ✅ 已交付 | §52 色带/白框/棋盘截图 + 登录界面截图 |
 | L2a | **2D 加速的显示驱动**（copy/blit 加速） | ✅ 可达，且下层已实测 | §54.2：`RECT_COPY` 逐位正确；blit 可用；fill 不可用 |
 | L2b | **Metal / IOAccelerator** | 尚未实现；继续研究 | §55.2实测无Metal设备；§65已打通底层DX清屏，不能再据旧派发失败断言不可实现；仍缺完整渲染及macOS加速驱动接口 |
@@ -213,7 +213,9 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 
 ---
 
-### P0-3D ✅ 已关闭（11-14，见 `cb-findings` §49–§51）
+### P0-3D 历史关闭判决（11-14；已由§56、§65/§66撤回）
+
+> 以下保留当时的调查记录，不代表当前状态。§66已验证DX清屏及全部65536像素读回，不能再据本节推断宿主无3D派发能力。
 
 上面的宿主侧补丁路线**全部作废**，不需要再往 `vmware-vmx.exe` 上打任何补丁。理由不是
 "又猜了一次"，而是客体侧把问题问死了。四条可复现的事实：
@@ -243,7 +245,7 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 | **`RECT_COPY`（矩形复制）** | ✅ **可用** | §54.2 `src 0xffffff00, dst 0xff00ff00 -> 0xffffff00`，与源像素逐位相同 |
 | `FRONT_ROP_FILL`（纯色填充） | ❌ 四种 rop（CC/F0/00/FF）四个矩形，前后全部一致 | §54.2 |
 | 屏幕 → GMRFB（回读） | ❌ 拿不到 fence、从不完成 | §53.2 |
-| 3D 三角形 / 着色器 | ⏸ 尚未出像素；有效 RTV 绑定失败 | §61.2：解绑 `rtv INVALID` 成功、绑定 `rtv 1` STATUS 3；失败归因未定 |
+| 3D 三角形 / 着色器 | 待验证；有效RTV绑定与清屏读回已通过 | §65/§66修正surface字段后全65536像素绿色；§67推进shader对象生命周期 |
 
 > ⚠️ **§56 撤回了本节对 3D 的判断**。「派发器缺席」来自一个线格式错位的批次：
 > 四条命令里三条 `size` 与结构体不符，而宿主只按 `size` 跳、不校验，于是错位的是**下一条**
@@ -350,7 +352,7 @@ present 定时器（心跳仍在），驱动退化成一台纯 framebuffer。验
 | **`kFbStage=5 + kGbStage=0`（当前出货）** | **legacy screen-object 呈现，画面可用** |
 | `kFbStage=0` | 只读 kext，宿主自己扫 VRAM，显示正常但驱动不参与 |
 | `kFbStage=3 + kGbStage=5` | STDU 实验（宿主不采样 surface，屏幕必黑） |
-| `kFbStage=2 + kGbStage=4 + kDxTest=1` | DX/CB 实验（headless，SSH 活） |
+| `kFbStage=2 + kGbStage=4 + kDxTest=1` | DX/CB 实验（headless，SSH 活；§67先复核全像素清屏，再跑SM4 PS对象生命周期，不发DRAW） |
 | `kStduEnableHide=1` | 写 `ENABLE\|HIDE` → 宿主 `SVGA hiding SVGA`、建 Screen 0(640x480) |
 
 11-12 新增（§47）：

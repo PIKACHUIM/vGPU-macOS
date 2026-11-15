@@ -795,7 +795,7 @@ static const UInt32 kCbKeepDxContext = 1;
 
 // Delay before the DX test runs (seconds after kext bring-up). Gives SSH/logd time
 // to be fully live so results survive an MKS wedge.
-static const UInt32 kDxTestDelayS = 30;
+static const UInt32 kDxTestDelayS = 90;
 
 // Which binary is this? Bump on every build that matters, and log it first thing.
 //
@@ -809,7 +809,7 @@ static const UInt32 kDxTestDelayS = 30;
 //
 // The value is embedded in the banner string, so it is also covered by build.sh's
 // reachability check ("start, provider=%s [build %s]") -- a stale binary cannot pretend.
-#define VGPU_BUILD_TAG "§66-verify"
+#define VGPU_BUILD_TAG "§67-shader"
 
 // How long one CB may take before we call it unanswered, and how long after that we keep
 // looking. Both are §56: the old budget was a 200M-iteration spin (~130 ms) that reported
@@ -831,6 +831,8 @@ static const UInt32 kCbFastSpinMs = 2;     // hot-spin this long before the firs
 // before the CLEAR/READBACK they exist to explain. Set this to 1 only on a boot whose
 // purpose is the probe itself.
 static const UInt32 kDxExplore = 0;
+// §67: shader object lifecycle only; enabled after the §66 pixel/queue baseline.
+static const UInt32 kDxShaderProbe = 1;
 
 // §57: the ladder. On by default because CLEAR_RTV alone answers STATUS 3 while
 // SET_TOPOLOGY alone completes -- the open question is which prerequisite the host thinks
@@ -1382,6 +1384,7 @@ private:
     void stduScreenDma(volatile UInt32 *fifo);     // §38.14
     bool dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId, UInt32 dxW, UInt32 dxH);
     bool dxTemplateSetupSurface(volatile UInt32 *fifo, UInt32 surfId, UInt32 mobId, UInt32 dxW, UInt32 dxH);
+    bool dxShaderProbe(volatile UInt32 *fifo, UInt32 queue, UInt32 cid);
     void dxReadbackTest(volatile UInt32 *fifo);
     void stduReadbackProbe(void);
 
@@ -1459,6 +1462,8 @@ private:
     IOBufferMemoryDescriptor *_surfPtMem = nullptr; // DX test surface PT page (dedicated)
     // Command buffer submission state.
     IOPCIDevice              *_pci = nullptr;          // for register access in cbSubmit
+    // Retain shader MOB backing for the device lifetime, including failure paths.
+    IOBufferMemoryDescriptor *_shaderProbeMem[2] = { nullptr, nullptr };
     IOBufferMemoryDescriptor *_cotableMem = nullptr;   // DX COTABLE storage (4 KiB)
     IOBufferMemoryDescriptor *_cotablePtMem = nullptr; // unused (PT64_0 needs no PT page)
     IOBufferMemoryDescriptor *_cbHeaderMem = nullptr;  // 4 KiB = 64 header slots
@@ -4948,6 +4953,82 @@ void vgpuFramebuffer::stduBringUp(volatile UInt32 *fifo) {
 // Returns true when the single DEFINE_RTV was accepted, i.e. the host really did
 // create the DX manager for us.
 // =====================================================================
+// §67: raw SM4 tokens (Mesa VGPU10ShaderTokens.h / svga_tgsi_vgpu10.c).
+// No DXBC container: ps_4_0; dcl_output o0.xyzw; mov o0, l(1,0,0,1); ret.
+// Object acceptance is NOT evidence of shader execution; this probe issues no DRAW.
+bool vgpuFramebuffer::dxShaderProbe(volatile UInt32 *fifo, UInt32 queue, UInt32 cid) {
+    static const UInt32 psRed[] = {
+        0x00000040, 14,
+        0x03000065, 0x001020F2, 0,
+        0x08000036, 0x001020F2, 0, 0x00004002,
+        0x3F800000, 0, 0, 0x3F800000,
+        0x0100003E
+    };
+    static_assert(sizeof(psRed) == 56, "SM4 probe size");
+    const UInt32 tableMob = 7, codeMob = 8, shaderId = 1, psType = 2;
+    if (_gbVirt == nullptr || _shaderProbeMem[0] || _shaderProbeMem[1]) return false;
+    IOLog(VGPU_FB_TAG ": dx: SHADER probe begin (PS SM4, 56 B, no DRAW)\n");
+    for (UInt32 i = 0; i < 2; ++i) {
+        _shaderProbeMem[i] = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+            kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous,
+            kGbPageBytes, 0xFFFULL);
+        if (!_shaderProbeMem[i]) return false;
+        void *data = _shaderProbeMem[i]->getBytesNoCopy();
+        if (!data) return false;
+        bzero(data, kGbPageBytes);
+        if (i == 1) memcpy(data, psRed, sizeof(psRed));
+        IOByteCount length = 0;
+        UInt64 pa = _shaderProbeMem[i]->getPhysicalSegment(0, &length);
+        if (!pa || (pa & (kGbPageBytes - 1)) || length < kGbPageBytes) return false;
+        UInt64 ppn = pa >> kGbPageShift;
+        const UInt32 mob = i == 0 ? tableMob : codeMob;
+        UInt32 depth = kSvga3dMobFmtPt64_0;
+        volatile UInt8 *entry = (volatile UInt8 *)_gbVirt + kGbOffMobTable
+                                 + mob * kGbMobEntryBytes;
+        memcpy((void *)entry, &depth, 4);
+        memcpy((void *)(entry + 4), &kGbPageBytes, 4);
+        memcpy((void *)(entry + 8), &ppn, 8);
+        __asm__ volatile ("" ::: "memory");
+        UInt32 def[7] = { kSvga3dCmdDefineGbMob64, 20, mob, depth, 0, 0, kGbPageBytes };
+        memcpy(&def[4], &ppn, 8);
+        bool ready = fifoSubmitWords(fifo, def, 7) && fenceAck(fifo, &_fenceSeq);
+        IOLog(VGPU_FB_TAG ": dx: SHADER MOB %u FIFO fence -> %s\n",
+              mob, ready ? "COMPLETED" : "FAILED");
+        if (!ready) return false;
+    }
+    // Fresh table: validSize=0 requests initialization (not a zero capacity).
+    // §62 established this distinction; no prefilled shader entry is imported here.
+    UInt32 table[6] = { kSvga3dCmdDxSetCotable, 16, cid, tableMob, 10, 0 };
+    bool ok = cbSubmitCtx(table, 6, queue, 0, 1);
+    IOLog(VGPU_FB_TAG ": dx: SHADER SET_COTABLE type10 mob7 valid0 -> %s\n",
+          ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    // Mesa SVGA3D_vgpu10_DefineAndBindShader: exactly 44 bytes, no inline code.
+    UInt32 defineBind[11] = { 1201, 12, shaderId, psType, sizeof(psRed),
+                             1203, 16, cid, shaderId, codeMob, 0 };
+    ok = cbSubmitCtx(defineBind, 11, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: SHADER DEFINE+BIND PS1 mob8 bytes56 -> %s\n",
+          ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    UInt32 set[4] = { 1150, 8, shaderId, psType };
+    ok = cbSubmitCtx(set, 4, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: SHADER SET PS1 -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    set[2] = SVGA3D_INVALID_ID_U32;
+    ok = cbSubmitCtx(set, 4, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: SHADER UNSET PS -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    UInt32 destroy[3] = { 1202, 4, shaderId };
+    ok = cbSubmitCtx(destroy, 3, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: SHADER DESTROY PS1 -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    UInt32 health[3] = { kSvga3dCmdDxSetRasterizerState, 4, SVGA3D_INVALID_ID_U32 };
+    ok = cbSubmitCtx(health, 3, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: SHADER lifecycle queue health -> %s\n",
+          ok ? "COMPLETED" : "FAILED");
+    return ok;
+}
+
 bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
                                       UInt32 dxW, UInt32 dxH) {
     // First statement on purpose: if this line is missing from the log the function was
@@ -5028,15 +5109,15 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
         { 0,  kCotableMobId, kCotableValidBytes },   // RTVIEW: the only one we back
         { 1,  SVGA3D_INVALID_ID_U32, 0 },  // DepthStencilView
         { 2,  SVGA3D_INVALID_ID_U32, 0 },  // SRV
-        { 3,  SVGA3D_INVALID_ID_U32, 0 },  // UAV
-        { 4,  SVGA3D_INVALID_ID_U32, 0 },  // VB
-        { 5,  SVGA3D_INVALID_ID_U32, 0 },  // IB
-        { 6,  SVGA3D_INVALID_ID_U32, 0 },  // SO
-        { 7,  SVGA3D_INVALID_ID_U32, 0 },  // StreamOut
-        { 8,  SVGA3D_INVALID_ID_U32, 0 },  // BlendState
-        { 9,  SVGA3D_INVALID_ID_U32, 0 },  // DepthStencilState
-        { 10, SVGA3D_INVALID_ID_U32, 0 },  // RasterizerState
-        { 11, SVGA3D_INVALID_ID_U32, 0 },  // ElementLayout
+        { 3,  SVGA3D_INVALID_ID_U32, 0 },  // ElementLayout
+        { 4,  SVGA3D_INVALID_ID_U32, 0 },  // BlendState
+        { 5,  SVGA3D_INVALID_ID_U32, 0 },  // DepthStencilState
+        { 6,  SVGA3D_INVALID_ID_U32, 0 },  // RasterizerState
+        { 7,  SVGA3D_INVALID_ID_U32, 0 },  // Sampler
+        { 8,  SVGA3D_INVALID_ID_U32, 0 },  // StreamOutput
+        { 9,  SVGA3D_INVALID_ID_U32, 0 },  // DXQuery
+        { 10, SVGA3D_INVALID_ID_U32, 0 },  // DXShader
+        { 11, SVGA3D_INVALID_ID_U32, 0 },  // UAView (beyond DX10_MAX)
     };
     // 8 dwords of DEFINE+BIND plus 12 cotables at 6 dwords each = 80. The array used to
     // be tpl[64], so the last two cotables (and n itself, on this frame) were written
@@ -5525,7 +5606,14 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
                     : "CLEAR not completed (refused or skipped after a prerequisite failure)");
         IOLog(VGPU_FB_TAG ": dx: TEMPLATE verified round trip -> %s\n",
               pixelsVerified && queueHealthy ? "PASS" : "FAIL");
-        return okClr && okRb && pixelsVerified && queueHealthy;
+        const bool baselineOk = okClr && okRb && pixelsVerified && queueHealthy;
+        if (kDxShaderProbe && baselineOk) {
+            const bool shaderOk = dxShaderProbe(fifo, rtvQ, tcid);
+            IOLog(VGPU_FB_TAG ": dx: SHADER lifecycle verdict -> %s (no DRAW)\n",
+                  shaderOk ? "PASS" : "FAIL (stopped at first failure)");
+            return shaderOk;
+        }
+        return baselineOk;
     }
     return false;
 }
