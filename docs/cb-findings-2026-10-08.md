@@ -5664,3 +5664,11 @@ CLEAR_RTV not attempted
 继续反汇编：RTV验证器经 `0x1404D1B30` 查surface缓存，miss转 `0x140A0D2B0`。后者从type1 OTable读64B描述，在启用相应检查时调用 `0x140A0BDF0`。该验证器在 `0x140A0C07A` 检查flags bit32；未置时，`0x140A0C081–0x140A0C085` 要求描述 `+0x0C` 的multisampleCount为0，否则返回false。当前flags=0x1000040（bit32未置）却ms=1，构成确定的字段矛盾；尚未捕获运行态实际到达此分支，不能直接宣称这是唯一根因。
 
 下一轮只对DX模板把共享表项及DEFINE payload的multisampleCount改为0，保持142/142与其他属性不变。暂不改共享helper的其他调用者，以免同时改变显示通路。
+
+## §64 非多采样count改0仍不足；mobPitch也违反未置bit12的约束（2026-11-15）
+
+`§64-ms0` 仅覆盖DX模板的surface entry[3]与DEFINE words[6]为0；构建26个已有警告、marker通过、弱引用0。旧安装备份 `/var/tmp/vgpu-fb/backup-63-surface142.kext`，boottime=21:26:04，21:26:29.815新标签确认。
+
+21:26:59读回surface为fmt142/flags0x1000040/mips1/ms0/256x256x1/mob4/array1/pitch1024，RTV行及context COTable MOB5保持；LADDER 1/2/3a完成，3b仍STATUS3/errorOffset0，CLEAR跳过。说明ms0不足以解决全部问题，不等于ms1原本合法。
+
+继续核对surface验证器：`0x140A0C4A3`检查flags bit12，未置时跳到`0x140A0C56B`，要求描述+0x28的mobPitch为0；当前flags未置bit12而pitch1024，是另一处确定的描述矛盾。下一轮相对§64只把DX模板mobPitch改0；这与屏幕寄存器BYTES_PER_LINE不同，不应混为显示pitch限制。

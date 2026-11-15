@@ -809,7 +809,7 @@ static const UInt32 kDxTestDelayS = 30;
 //
 // The value is embedded in the banner string, so it is also covered by build.sh's
 // reachability check ("start, provider=%s [build %s]") -- a stale binary cannot pretend.
-#define VGPU_BUILD_TAG "§63-surface142"
+#define VGPU_BUILD_TAG "§64-ms0"
 
 // How long one CB may take before we call it unanswered, and how long after that we keep
 // looking. Both are §56: the old budget was a 200M-iteration spin (~130 ms) that reported
@@ -5682,9 +5682,13 @@ bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
     // at the top of the file, shared with the STDU arm -- which still had the old bug.
     surfaceEntryFill(entry, kSvga3dSurfaceFormatB8G8R8X8Unorm, sflags,
                      dxW, dxH, mobId, dxW * 4, 0);
+    // §64: host 0x140A0C081 rejects nonzero multisampleCount without flags bit32.
+    // Isolate this correction to the DX template; leave display helpers unchanged.
+    ((volatile UInt32 *)entry)[3] = 0;
     __asm__ volatile ("" ::: "memory");
 
     defineGbSurfaceFrame(words, surfId, sflags, kSvga3dSurfaceFormatB8G8R8X8Unorm, dxW, dxH);
+    words[6] = 0; // matching non-multisampled DEFINE descriptor
     if (!fifoSubmitWords(fifo, words, kSvgaDefineGbSurfaceWords) ||
         !fenceAck(fifo, &_fenceSeq)) {
     IOLog(VGPU_FB_TAG ": dx: legacy DEFINE_GB_SURFACE refused\n");
