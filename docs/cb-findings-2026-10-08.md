@@ -5756,3 +5756,47 @@ SHADER lifecycle verdict -> PASS (no DRAW)
 **本轮净结果：最小PS的显式DEFINE/BIND/SET/UNSET/DESTROY对象生命周期完成，且§66清屏读回基线保留。** 这里第一次获得shader对象链的实际客体执行证据；不能把接受/选择shader扩展为已验证编译、光栅化或红色像素输出（实现可能推迟到DRAW）。下一步在此基础上加入VS与确定性三角形，补齐viewport、拓扑、栅格化/混合状态并做区域像素校验。Metal/硬件OpenGL应用级接口仍未实现。
 
 资源约束：两个新增MOB合计8KiB，本轮成功与失败均保留backing以免宿主悬挂引用；这个单次启动探针不支持热卸载/反复创建，正式资源管理需补DESTROY_GB_MOB和设备静止后的回收。
+
+## §68：VertexID 三角形与 DRAW 前置状态（2026-11-16）
+
+### §68a：全部状态接受，首个 DRAW 被拒
+
+从§66/§67成功基线继续，新增`dxDrawProbe`，只在清屏全像素验证、PS生命周期均通过后执行。VS为54 DWORD的SM4原始token流：`dcl_input_siv v0.x, vertex_id`、`dcl_output_siv o0, position`、两次IEQ/MOVC和RET，按VertexID 0/1/2输出(-0.75,-0.75,0,1)、(0,0.75,0,1)、(0.75,-0.75,0,1)。PS复用§67的常量红色代码，重建已销毁的PS1。
+
+协议依据为Mesa `svga_tgsi_vgpu10.c`的`TGSI_SEMANTIC_VERTEXID`分支与`emit_input_declaration`/`emit_output_declaration`，及`VGPU10ShaderTokens.h`的操作码、操作数位域。宿主独立解析真实C++数组，确认54 DWORD以及4/4/2/7/15/7/12/1指令边界；解释实际token得到上述三个顶点。此检查仅验证编码和本地语义，不代替宿主shader执行证据。
+
+新增MOB9承载VS，MOB10承载type6 rasterizer COTable；显式DEFINE/SET solid、no-cull状态；设置VS/PS、TRIANGLELIST、default blend/sampleMask=0xffffffff、256x256 viewport。§68a使用INVALID input layout，无VB。计划在DRAW完成后将读回MOB填洋红色，再READBACK，并用整数像素中心边界检查全部65536像素：预期18432红、47104绿，无像素中心恰好在三角形边界。
+
+实测启动`kern.boottime=2026-11-16 00:17:30 CST`，00:17:57加载`[build §68-draw]`，00:19:27执行90秒延迟实验。§66和§67基线通过；MOB9/10、raster COTable、DEFINE/SET raster、重建PS、DEFINE/BIND VS、SET VS/PS、SET_INPUT_LAYOUT(INVALID)、TOPOLOGY、BLEND、VIEWPORT全部COMPLETED。首个`DX_DRAW=1152 {vertexCount=3,startVertexLocation=0}`，CB39，返回`STATUS 3 / errorOffset 0`，立即停止，**没有执行DRAW后的READBACK，没有三角形像素证据**。
+
+同一轮宿主对所有graphics-shader COTable `SET_INPUT_LAYOUT(INVALID)`返回COMPLETED，仍不能据此认为它满足draw。上游 Mesa 的`SVGA3D_vgpu10_DefineElementLayout(swc,count,id,elements)`发包长度为`sizeof(cmd)+count*sizeof(desc)`，VertexID-only shader 可使用明确的零元素layout；据此做单一变量对照。
+
+构建及marker检查通过，26条既有警告，weak references=0，安装Code=28。首轮SFTP因Git Bash转换`/var/tmp/...`路径而ENOENT，远端目录实际存在；加`MSYS_NO_PATHCONV=1`后上传成功。
+
+### §68b：零元素 input layout 对照
+
+上游`SVGA3D_vgpu10_DefineElementLayout`按`4 + count*sizeof(desc)`发包，count0的body只有layout ID。对照增加MOB11/type3 COTable，`DEFINE_ELEMENTLAYOUT {id1,count0}`后SET id1，替换§68a的INVALID layout；其余VS/PS、状态、DRAW与像素判据保持不变。
+
+实测启动`kern.boottime=2026-11-16 00:22:26 CST`，加载`§68b-layout`。§66/§67基线、MOB11、type3 COTable、零元素DEFINE_ELEMENTLAYOUT和SET_INPUT_LAYOUT(1)全部完成；首个DRAW仍返回`STATUS 3 / errorOffset 0`。立即停止，无DRAW后READBACK，无三角形像素证据。结论仅为：补零元素layout不足以使当前绘制通过，不能据此证明所有layout条件均满足。
+
+### §68c：有效 blend/depth 状态对象对照
+
+只读复核当前宿主`vmware-vmx.exe`：文件偏移`0xbdcff0`的函数指针为`0x14055C4D0`，同表项`+12`为`0x480=1152`；相邻表项命令号为1151/1153。该DRAW handler要求读取8字节，再调用`0x140A24700`，与协议的vertexCount/startVertexLocation吻合；此前另一份报告的`0x14055B0D0`和44字节包长是错误映射，不能作为DRAW证据。
+
+`0x140A24700`先取当前context，携带mask `0x3ffff`调用`0x140A18D90`，校验false时返回`0x101`；通过后才调用绘制后端并返回`0x100`。`0x140A18D90`状态校验器在`0x140A18E2F`读取`context+0x5c04`，ID为-1时跳到`0x140A18E65`返回false；后续`0x140A18EEE`调用`0x140A121E0`验证depth/stencil。这与当前SET_BLEND(INVALID)及§66遗留的SET_DEPTHSTENCIL_STATE(INVALID)冲突；静态拒绝条件不等于已确认本轮运行首先命中的分支。
+
+新增MOB12/type4 blend与MOB13/type5 depth COTable，validSize=0初始化；DEFINE_BLEND(1193)的body为104字节：id、4字节flags、8个12字节perRT，blend关闭、ONE/ZERO/ADD、RGBA write mask；DEFINE_DEPTHSTENCIL_STATE(1195)的body为20字节：id和16个uint8字段，depth/stencil关闭，休眠字段保留合法ALWAYS/KEEP枚举。分别单条CB定义/绑定id1，其余VS/PS、layout、DRAW和像素判据不变。构建标签`§68c-states`，构建与新增marker通过，26条既有警告，weak references=0，安装Code=28。
+
+实测新启动`kern.boottime=2026-11-16 00:45:17 CST`，00:45:40加载`§68c-states`，00:47:10执行延迟探针。§66/§67通过；全部新增COTable/DEFINE/SET完成，DRAW首次完成，READBACK和随后的同步完成：
+
+```text
+DRAW 3 vertices -> COMPLETED
+DRAW READBACK -> COMPLETED
+DRAW pixels red18432 green47104 other0 expectedRed18432 mismatches0 center0xffff0000 corner0xff00ff00 -> PASS
+DRAW post-readback queue health -> COMPLETED
+DRAW triangle verdict -> PASS
+```
+
+独立复测启动`kern.boottime=2026-11-16 00:48:20 CST`，00:48:43加载同一`§68c-states`，00:50:13再次得到相同的18432红/47104绿、other0、mismatches0及健康队列。两次启动均按本次boottime过滤日志，未复用旧启动结果。
+
+这是首次**VS/PS实际着色、光栅化、全像素区域读回均通过**的客体证据；不再仅限于清屏或shader对象接受。改变的状态集合消除了§68b失败，但没有分别隔离blend与depth单项贡献。MOB9–13合计20KiB均保留到重启，尚无通用资源回收/用户态提交接口。应用级硬件OpenGL和Metal仍未实现，不能据本探针声称二者可用。

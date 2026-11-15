@@ -286,6 +286,30 @@ SHADER DESTROY PS1
 SHADER lifecycle queue health
 SHADER lifecycle verdict"
 fi
+if sw kDxDrawProbe 1; then
+    MARKERS="$MARKERS
+DRAW probe begin
+DRAW SET_COTABLE
+DRAW DEFINE_RASTERIZER
+DRAW SET_RASTERIZER
+DRAW DEFINE+BIND PS1
+DRAW DEFINE+BIND VS2
+DRAW SET VS2
+DRAW SET PS1
+DRAW DEFINE_ELEMENTLAYOUT
+DRAW SET_INPUT_LAYOUT
+DRAW SET_TOPOLOGY
+DRAW DEFINE_BLEND
+DRAW SET_BLEND
+DRAW DEFINE_DEPTH
+DRAW SET_DEPTH
+DRAW SET_VIEWPORT
+DRAW 3 vertices
+DRAW READBACK
+DRAW pixels
+DRAW post-readback queue health
+DRAW triangle verdict"
+fi
 if sw kDxExplore 1; then
     echo "kDxExplore = 1 -> exploration markers are required"
     MARKERS="$MARKERS

@@ -809,7 +809,7 @@ static const UInt32 kDxTestDelayS = 90;
 //
 // The value is embedded in the banner string, so it is also covered by build.sh's
 // reachability check ("start, provider=%s [build %s]") -- a stale binary cannot pretend.
-#define VGPU_BUILD_TAG "§67-shader"
+#define VGPU_BUILD_TAG "§68c-states"
 
 // How long one CB may take before we call it unanswered, and how long after that we keep
 // looking. Both are §56: the old budget was a 200M-iteration spin (~130 ms) that reported
@@ -833,6 +833,8 @@ static const UInt32 kCbFastSpinMs = 2;     // hot-spin this long before the firs
 static const UInt32 kDxExplore = 0;
 // §67: shader object lifecycle only; enabled after the §66 pixel/queue baseline.
 static const UInt32 kDxShaderProbe = 1;
+// §68: shader-generated triangle; run only after the §67 lifecycle passes.
+static const UInt32 kDxDrawProbe = 1;
 
 // §57: the ladder. On by default because CLEAR_RTV alone answers STATUS 3 while
 // SET_TOPOLOGY alone completes -- the open question is which prerequisite the host thinks
@@ -1385,6 +1387,8 @@ private:
     bool dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId, UInt32 dxW, UInt32 dxH);
     bool dxTemplateSetupSurface(volatile UInt32 *fifo, UInt32 surfId, UInt32 mobId, UInt32 dxW, UInt32 dxH);
     bool dxShaderProbe(volatile UInt32 *fifo, UInt32 queue, UInt32 cid);
+    bool dxDrawProbe(volatile UInt32 *fifo, UInt32 queue, UInt32 cid,
+                     UInt32 surfId, UInt32 width, UInt32 height);
     void dxReadbackTest(volatile UInt32 *fifo);
     void stduReadbackProbe(void);
 
@@ -1464,6 +1468,7 @@ private:
     IOPCIDevice              *_pci = nullptr;          // for register access in cbSubmit
     // Retain shader MOB backing for the device lifetime, including failure paths.
     IOBufferMemoryDescriptor *_shaderProbeMem[2] = { nullptr, nullptr };
+    IOBufferMemoryDescriptor *_drawProbeMem[5] = { nullptr, nullptr, nullptr, nullptr, nullptr };
     IOBufferMemoryDescriptor *_cotableMem = nullptr;   // DX COTABLE storage (4 KiB)
     IOBufferMemoryDescriptor *_cotablePtMem = nullptr; // unused (PT64_0 needs no PT page)
     IOBufferMemoryDescriptor *_cbHeaderMem = nullptr;  // 4 KiB = 64 header slots
@@ -5029,6 +5034,198 @@ bool vgpuFramebuffer::dxShaderProbe(volatile UInt32 *fifo, UInt32 queue, UInt32 
     return ok;
 }
 
+// §68: shader-only 256x256 triangle. Mesa's emit_system_value_declaration
+// uses DCL_INPUT_SIV/NAME_VERTEX_ID for a VS system input. Coordinates below
+// map to screen (32,224), (128,32), (224,224); no VB or index buffer is read.
+// Retain MOB pages on every exit: failed queues cannot safely destroy them.
+bool vgpuFramebuffer::dxDrawProbe(volatile UInt32 *fifo, UInt32 queue, UInt32 cid,
+                                  UInt32 surfId, UInt32 width, UInt32 height) {
+    static const UInt32 vsTriangle[] = {
+        0x00010040, 54,                       // vs_4_0, 54 DWORDs
+        0x04000061, 0x00101012, 0, 6,          // dcl_input_siv v0.x, vertex_id
+        0x04000067, 0x001020F2, 0, 1,          // dcl_output_siv o0.xyzw, position
+        0x02000068, 2,                        // dcl_temps 2
+        0x07000020, 0x00100012, 0, 0x0010100A, 0, 0x00004001, 1,
+        // ieq r0.x, v0.x, l(1); movc r1, r0.x, top, bottom-left
+        0x0F000037, 0x001000F2, 1, 0x0010000A, 0,
+        0x00004002, 0, 0x3F400000, 0, 0x3F800000,
+        0x00004002, 0xBF400000, 0xBF400000, 0, 0x3F800000,
+        0x07000020, 0x00100012, 0, 0x0010100A, 0, 0x00004001, 2,
+        // ieq r0.x, v0.x, l(2); movc o0, r0.x, bottom-right, r1
+        0x0C000037, 0x001020F2, 0, 0x0010000A, 0,
+        0x00004002, 0x3F400000, 0xBF400000, 0, 0x3F800000,
+        0x00100E46, 1,
+        0x0100003E
+    };
+    static_assert(sizeof(vsTriangle) == 216, "SM4 triangle VS size");
+    if (width != 256 || height != 256 || !_dxVirt || !_gbVirt ||
+        !_shaderProbeMem[0] || !_shaderProbeMem[1] ||
+        _drawProbeMem[0] || _drawProbeMem[1] || _drawProbeMem[2] ||
+        _drawProbeMem[3] || _drawProbeMem[4]) return false;
+    IOLog(VGPU_FB_TAG ": dx: DRAW probe begin (VS VertexID, 256x256)\n");
+    // MOB9 = VS, MOB10 = rasterizer, MOB11 = layout, MOB12/13 = blend/depth.
+    // Retain every MOB until reboot; a failed CB may leave its objects referenced.
+    for (UInt32 i = 0; i < 5; ++i) {
+        _drawProbeMem[i] = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+            kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous,
+            kGbPageBytes, 0xFFFULL);
+        if (!_drawProbeMem[i]) return false;
+        void *data = _drawProbeMem[i]->getBytesNoCopy();
+        if (!data) return false;
+        bzero(data, kGbPageBytes);
+        if (i == 0) memcpy(data, vsTriangle, sizeof(vsTriangle));
+        IOByteCount length = 0;
+        UInt64 pa = _drawProbeMem[i]->getPhysicalSegment(0, &length);
+        if (!pa || (pa & (kGbPageBytes - 1)) || length < kGbPageBytes) return false;
+        UInt64 ppn = pa >> kGbPageShift;
+        UInt32 mob = 9 + i, depth = kSvga3dMobFmtPt64_0;
+        volatile UInt8 *entry = (volatile UInt8 *)_gbVirt + kGbOffMobTable
+                                 + mob * kGbMobEntryBytes;
+        memcpy((void *)entry, &depth, 4);
+        memcpy((void *)(entry + 4), &kGbPageBytes, 4);
+        memcpy((void *)(entry + 8), &ppn, 8);
+        __asm__ volatile ("" ::: "memory");
+        UInt32 def[7] = { kSvga3dCmdDefineGbMob64, 20, mob, depth, 0, 0, kGbPageBytes };
+        memcpy(&def[4], &ppn, 8);
+        bool ready = fifoSubmitWords(fifo, def, 7) && fenceAck(fifo, &_fenceSeq);
+        IOLog(VGPU_FB_TAG ": dx: DRAW MOB %u FIFO fence -> %s\n",
+              mob, ready ? "COMPLETED" : "FAILED");
+        if (!ready) return false;
+    }
+    UInt32 table[6] = { kSvga3dCmdDxSetCotable, 16, cid, 10, 6, 0 };
+    bool ok = cbSubmitCtx(table, 6, queue, 0, 1);
+    IOLog(VGPU_FB_TAG ": dx: DRAW SET_COTABLE raster type6 mob10 -> %s\n",
+          ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    // Each new state operation is a separate CB; stop at its first failure.
+    // SVGA3dCmdDXDefineRasterizerState has 32B packed body, no v2 field.
+    UInt32 raster[10] = { 1197, 32, 1, 0x00000103, 0, 0, 0, 1, 0x3F800000, 0 };
+    ok = cbSubmitCtx(raster, 10, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: DRAW DEFINE_RASTERIZER solid/no-cull -> %s\n",
+          ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    UInt32 rs[3] = { kSvga3dCmdDxSetRasterizerState, 4, 1 };
+    ok = cbSubmitCtx(rs, 3, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: DRAW SET_RASTERIZER 1 -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    // §67 destroyed PS1; recreate it against the retained 56B MOB8 code.
+    UInt32 ps[11] = { 1201, 12, 1, 2, 56, 1203, 16, cid, 1, 8, 0 };
+    ok = cbSubmitCtx(ps, 11, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: DRAW DEFINE+BIND PS1 -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    UInt32 vs[11] = { 1201, 12, 2, 1, sizeof(vsTriangle), 1203, 16, cid, 2, 9, 0 };
+    ok = cbSubmitCtx(vs, 11, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: DRAW DEFINE+BIND VS2 -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    UInt32 vsSet[4] = { 1150, 8, 2, 1 };
+    ok = cbSubmitCtx(vsSet, 4, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: DRAW SET VS2 -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    UInt32 psSet[4] = { 1150, 8, 1, 2 };
+    ok = cbSubmitCtx(psSet, 4, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: DRAW SET PS1 -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    // §68a's INVALID layout SET completed, but DRAW failed. Mesa creates a
+    // zero-element layout even for VertexID-only VS; isolate that difference.
+    UInt32 layoutTable[6] = { kSvga3dCmdDxSetCotable, 16, cid, 11, 3, 0 };
+    ok = cbSubmitCtx(layoutTable, 6, queue, 0, 1);
+    IOLog(VGPU_FB_TAG ": dx: DRAW SET_COTABLE layout type3 mob11 -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    UInt32 layoutDef[3] = { 1191, 4, 1 };
+    ok = cbSubmitCtx(layoutDef, 3, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: DRAW DEFINE_ELEMENTLAYOUT zero-elements -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    UInt32 layout[3] = { 1157, 4, 1 };
+    ok = cbSubmitCtx(layout, 3, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: DRAW SET_INPUT_LAYOUT 1 -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    UInt32 topology[3] = { kSvga3dCmdDxSetTopology, 4, 1 };
+    ok = cbSubmitCtx(topology, 3, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: DRAW SET_TOPOLOGY trianglelist -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    // SET(INVALID) succeeds as an unbind, but the host DRAW validator rejects
+    // a missing blend/depth object. Define real disabled states before DRAW.
+    UInt32 blendTable[6] = { kSvga3dCmdDxSetCotable, 16, cid, 12, 4, 0 };
+    ok = cbSubmitCtx(blendTable, 6, queue, 0, 1);
+    IOLog(VGPU_FB_TAG ": dx: DRAW SET_COTABLE blend type4 mob12 -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    // Packed body: id + 4 flag/pad bytes + eight 12-byte per-RT entries = 104B.
+    UInt32 blendDef[28] = { 1193, 104, 1, 0 };
+    for (UInt32 i = 0; i < 8; ++i) {
+        blendDef[4 + i * 3] = 0x01010200; // disabled, ONE, ZERO, ADD
+        blendDef[5 + i * 3] = 0x0F010102; // ONE, ZERO, ADD, RGBA write mask
+        blendDef[6 + i * 3] = 0;          // logic op disabled, padding zero
+    }
+    ok = cbSubmitCtx(blendDef, 28, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: DRAW DEFINE_BLEND disabled/RGBA -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    UInt32 blend[8] = { 1162, 24, 1, 0x3F800000,
+                        0x3F800000, 0x3F800000, 0x3F800000, 0xFFFFFFFF };
+    ok = cbSubmitCtx(blend, 8, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: DRAW SET_BLEND 1/all-samples -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    UInt32 depthTable[6] = { kSvga3dCmdDxSetCotable, 16, cid, 13, 5, 0 };
+    ok = cbSubmitCtx(depthTable, 6, queue, 0, 1);
+    IOLog(VGPU_FB_TAG ": dx: DRAW SET_COTABLE depth type5 mob13 -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    // Packed 20B body: id plus 16 one-byte fields. Depth/stencil disabled;
+    // dormant comparison/op fields still contain valid ALWAYS/KEEP enums.
+    UInt32 depthDef[7] = { 1195, 20, 1, 0x00080000, 0xFFFF0000,
+                          0x08010101, 0x08010101 };
+    ok = cbSubmitCtx(depthDef, 7, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: DRAW DEFINE_DEPTH disabled/stencil-disabled -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    UInt32 depthSet[4] = { kSvga3dCmdDxSetDepthStencilState, 8, 1, 0 };
+    ok = cbSubmitCtx(depthSet, 4, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: DRAW SET_DEPTH 1 -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    // The RTV remains bound from §66; no depth/stencil view is required.
+    UInt32 viewport[9] = { kSvga3dCmdDxSetViewports, 28, 0, 0, 0,
+                           0x43800000, 0x43800000, 0, 0x3F800000 };
+    ok = cbSubmitCtx(viewport, 9, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: DRAW SET_VIEWPORT 256x256 -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    UInt32 draw[4] = { 1152, 8, 3, 0 };
+    ok = cbSubmitCtx(draw, 4, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: DRAW 3 vertices -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    // CPU marker is never uploaded: readback must replace every pixel.
+    volatile UInt32 *pixels = (volatile UInt32 *)_dxVirt;
+    for (UInt32 i = 0; i < width * height; ++i) pixels[i] = 0xFFFF00FF;
+    __asm__ volatile ("" ::: "memory");
+    UInt32 rb[4] = { kSvga3dCmdDxReadbackSubResource, 8, surfId, 0 };
+    ok = cbSubmitCtx(rb, 4, queue, cid, kCbFlagDxContext);
+    UInt32 sync[1] = { 0 };
+    if (ok) ok = cbSubmitCtx(sync, 0, 0, 0, 1);
+    IOLog(VGPU_FB_TAG ": dx: DRAW READBACK -> %s\n", ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    __asm__ volatile ("" ::: "memory");
+    UInt32 red = 0, green = 0, other = 0, mismatches = 0, expectedRed = 0;
+    for (UInt32 y = 0; y < height; ++y) {
+        for (UInt32 x = 0; x < width; ++x) {
+            // Integer pixel-center edge test; no sample lies on an edge.
+            SInt32 dx = (SInt32)(2 * x + 1) - 256;
+            if (dx < 0) dx = -dx;
+            const bool inside = (2 * y + 1 < 448) &&
+                                ((SInt32)(2 * y + 1) - 64 > 2 * dx);
+            if (inside) ++expectedRed;
+            const UInt32 px = pixels[y * width + x];
+            if (px == 0xFFFF0000) ++red;
+            else if (px == 0xFF00FF00) ++green;
+            else ++other;
+            if (px != (inside ? 0xFFFF0000u : 0xFF00FF00u)) ++mismatches;
+        }
+    }
+    IOLog(VGPU_FB_TAG ": dx: DRAW pixels red%u green%u other%u expectedRed%u mismatches%u center0x%08x corner0x%08x -> %s\n",
+          red, green, other, expectedRed, mismatches, pixels[128 * 256 + 128], pixels[0],
+          mismatches == 0 ? "PASS" : "FAIL");
+    UInt32 health[3] = { kSvga3dCmdDxSetRasterizerState, 4, SVGA3D_INVALID_ID_U32 };
+    bool healthy = cbSubmitCtx(health, 3, queue, cid, kCbFlagDxContext);
+    IOLog(VGPU_FB_TAG ": dx: DRAW post-readback queue health -> %s\n",
+          healthy ? "COMPLETED" : "FAILED");
+    return mismatches == 0 && expectedRed != 0 && healthy;
+}
+
 bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
                                       UInt32 dxW, UInt32 dxH) {
     // First statement on purpose: if this line is missing from the log the function was
@@ -5611,6 +5808,12 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
             const bool shaderOk = dxShaderProbe(fifo, rtvQ, tcid);
             IOLog(VGPU_FB_TAG ": dx: SHADER lifecycle verdict -> %s (no DRAW)\n",
                   shaderOk ? "PASS" : "FAIL (stopped at first failure)");
+            if (shaderOk && kDxDrawProbe) {
+                const bool drawOk = dxDrawProbe(fifo, rtvQ, tcid, surfId, dxW, dxH);
+                IOLog(VGPU_FB_TAG ": dx: DRAW triangle verdict -> %s\n",
+                      drawOk ? "PASS" : "FAIL (see first failure/pixels)");
+                return drawOk;
+            }
             return shaderOk;
         }
         return baselineOk;
