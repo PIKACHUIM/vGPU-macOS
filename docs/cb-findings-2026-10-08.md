@@ -6128,3 +6128,32 @@ read的format可规范化、目标指针受裁剪与pack行步长调整；PBO分
 Float设置arg4能力区+0x6e为1，clear通过显式数据块，因此它不能证明+0x6e为0时硬件render[0]如何读clear状态。arg6=B保存到context+0x1040，update从B+0x4a0/+0x4a8读取draw/read FBO句柄；FBO句柄不在H里。默认目标尺寸通过AttachDrawable的第五参数输出，FBO尺寸则另走附件描述，不能统一硬编码。
 
 完整机器地址、关键字节及客体证据SHA在`out/gld-shared-state-research.txt`。本轮恢复的是可保留指针和稀疏字段视图；没有实现完整context资源、FBO描述、销毁/同步或硬件API插件。
+
+## §75：GLD framebuffer/texture生命周期与Metal type-5握手（2026-11-16）
+
+本节只追加静态调用点证据。目标仍为macOS 15.7.3 / 24G419 x86_64；没有安装或调用GLD插件、没有修改驱动、没有重启客体，也没有把静态ABI研究视为API可用。
+
+### 75.1 framebuffer句柄生命周期已闭合，descriptor生产者未闭合
+
+`out/gld-framebuffer-lifecycle-research.txt`确认GLEngine为每插件保留独立的8字节GLD framebuffer句柄槽。GLD create将不透明句柄写入调用者提供的槽；draw/read状态更新按条件调用`gldLoadFramebuffer(share-group, handle)`；解绑单独调用unbind；销毁后GLEngine清零句柄槽。Float的私有句柄对象保存两个descriptor指针，但其分配大小和字段不能外推为公共ABI。
+
+Float的Load会从句柄对象+8取得descriptor首指针Q，检查Q+0xb2/+0xb4两个u16值不超过0x4000，并依据附件/纹理层状态执行真实纹理层加载。尚未找到Q及这两个尺寸字段的生产者；也未证明descriptor所有权、完整类型或尺寸语义。因此不能把这些偏移映射到GLEngine FBO，也不能硬编码尺寸以绕过完整性检查。
+
+### 75.2 texture对象关系与backing仍是阻塞项
+
+`out/gld-texture-resource-research.txt`确认GL name、GLEngine纹理对象、mip-level descriptor和每插件GLD texture handle是不同对象；FBO附件引用上层纹理对象与level，GLD FBO handle与texture handle分别清理。尚未恢复attachment如何在GLD侧解析到texture level、`gldCreateTexture`/`gldLoadTexture`的调用参数、backing分配、GPU地址、pitch/rowbytes、同步和所有权。
+
+因此现有DX顶点/渲染目标样板不足以构成OpenGL通用资源层；现在实现纹理或FBO GLD回调仍会猜测调用参数和内存契约。优先取证点是GLEngine中`gldLoadTexture`的实际间接调用及参数来源、`_gleFramebufferTexture`附件记录的读写、Q与尺寸字段的写入者，并以目标Float消费者交叉核验。
+
+### 75.3 Metal type-5初始化握手已恢复到调用方要求
+
+`out/metal-device-contract-research.txt`确认Metal客户端以API属性字符串`Metal`调用`_IOAccelDeviceCreateWithAPIProperty`，后者用`IOServiceOpen` type 5打开服务，并以struct selectors 9、2、0、7依次声明API、取得初始描述、获取共享页/配置数据。调用方提供的输出容量分别为600、64、24字节；这些容量不是服务端正式结构定义。当前`vgpuAccelerator`对type 5仍返回Unsupported。
+
+服务端selector结构、版本/长度检查、后续资源/command queue/event协议以及Metal插件发现和信任链均未恢复。不能通过返回零填充响应或仅令type-5 open成功伪造Metal设备；即使设备对象初始化成功也不代表compute/render执行可用。GLD的bundle属性和ABI不适用于Metal。
+
+### 75.4 当前判定与下一步
+
+- OpenGL：renderer与pixel-format字段消费者、clear/read/finish路径已有证据；FBO句柄生命周期有进展，但descriptor生产者、texture backing和GLD bundle可信加载仍阻塞。没有自研GLD插件或硬件CGL验收。
+- Metal：只恢复到type-5初始化调用方协议；服务端握手和后续设备执行协议未知。没有标准Metal设备。
+- 系统级3D仍未完成。专用IOUserClient绘制、软件OpenGL基线、accelerator服务关联或诊断bundle加载均不能代替系统OpenGL/Metal验收。
+- 继续只读恢复GLD纹理load/attachment及FBO descriptor生产者，另从Metal loader实际发现路径恢复属性读取与插件信任条件；在协议足够完整且安全回滚条件明确前，不安装负载插件或重启客体。
