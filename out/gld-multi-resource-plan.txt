@@ -1,0 +1,286 @@
+双独立颜色 backing 的最小扩展方案（本地只读研究交付）
+日期：2026-11-16
+仓库：D:/Codes/vGPU-macOS
+范围：两个独立 256×256 颜色表面、真实 alpha、同步私有 selector。
+状态：方案及本地头/代码证据；未修改主 kext、未构建安装、未重启、未运行 GPU。
+本文所有新增 selector、ID 及流程均为建议，尚未实现或实机验证。
+并行代理可能继续修改文件，以下行号是调查时快照，实施前用函数名复核。
+
+1. 可直接实施的选择
+
+继续使用已工作的 DX context 1 / CB queue 1、现有 shader/state/VB；只新增两套颜色资源。
+物理资源池固定两个槽位，一次启动只定义一次。每槽各自拥有 262144 字节数据和 4096 字节 PT 页；不得共享数据页或 PT 页。
+两槽统一使用 SVGA3D_B8G8R8A8_UNORM=141，surface 描述与 RTV typed format 一致；用户态转换读出实际 A 字节。
+既有 selector0..3 和 BGRX sid3/RTV1 继续作为回归对象。新增 ABI 不把它们包装成独立资源。
+首版逻辑 CREATE/RELEASE 复用预定义槽位；RELEASE 不执行未经验证的 GPU 对象销毁，不释放设备可见 DMA 页。
+每次 CREATE 都由 GPU 清透明黑并 READBACK+sync，成功后才发布新 handle/generation=1，防止跨连接继承旧图像。
+所有新旧 GPU 提交共享现有 _userDrawLock；任一设备提交失败全局关闭用户提交，不能只关闭出错的槽位。
+此选择支持最多两个同时存活的新资源，不表示两个硬件 context 或并行 GPU 队列。
+
+2. 现状证据和精确修改点
+
+kexts/framebuffer/vgpuFramebuffer.cpp：
+  :1834 externalMethod dispatch：selector0 draw，1 readRow，2 drawVertices，3 clear。
+  :1877 drawVertices：56 字节，version1，整数位模式校验三 float4，禁止内核 FPU。
+  :1907 clear：24 字节，version1/byteSize24，返回三个 scalar generation/256/256。
+  :1989 userClear：有限 [0,1] RGBA 校验，允许负零。
+  :1999 userSubmit：设备锁；固定 RTV1、sid3、_dxVirt、_userDrawGeneration。
+  :2016..2033 显式选择 VS/layout/VB/raster；目前没有为每次用户提交重绑颜色目标。
+  :2035..2044 CPU 判别填充、sid3 READBACK、空 plain CB sync；成功才增加全局 generation，失败置 ready=false。
+  :2056 userReadRow：generation 必须非零且等于全局最新值，row<256，拷贝1024字节。
+  :1927 setupVertexInput：VB sid4、MOB14/15、VS3、layout2；不能占用这些 ID。
+  :5507 dxShaderProbe：MOB7/8；:5584 dxDrawProbe：MOB9..13，使用已验证 VS/PS、blend/depth/raster 状态。
+  :5772 dxVm3dmpTemplate：context1、state MOB6，12288字节，RTV COTable MOB5。
+  :5830..5924 SET_COTABLE prefix 语义及初始化；GROW 被禁用。
+  :6064..6081 DEFINE_RTV 为关闭的历史实验；目前走预填 RTV COTable 行，不依赖1187。
+  :6153..6175 SET_RENDERTARGETS 的 unbind/bind 已有成功路径。
+  :6297..6331 启动全图 READBACK/像素验证；:6360..6362 发布用户 READY 的门槛。
+  :6383 dxTemplateSetupSurface：当前函数把单表面、RTV页、可选CB MOB setup混在一起，不能简单调用两次；会覆盖 _dxMem/_surfPtMem/_cotableMem 并重定义 MOB5。
+  :6436..6453 数据 MOB OTable + DEFINE；:6479..6492 RTV32字节行；:6530..6558 surface64字节行与 DEFINE。
+  :7393 cbMobSetup：kCbMobMode=0 时立即返回；若启用会占用 MOB6，与 state MOB6冲突。
+  :7544 cbSubmitCtx：同步轮询/timeout/错误返回；其 header 和 payload 是共享对象，不允许每资源各持一把锁后并发调用。
+  :7942 stop：阻止新调用、等待 opening clients、drain callback；:7965..7973 未证明 DMA 静止时保留 backing 到重启。
+
+kexts/gld-surface/vgpu_surface.c：
+  :8 vgpu_surface 只有 connection/mutex/refcount，没有 GPU resource handle。
+  :33 open 限定256×256/BGRX，只打开连接；多个实例不会创建独立 backing。
+  :106 clear 使用selector3；:134 read_row使用selector1。
+  :145 read 先校验pack/capacity、读临时buffer、最终复验generation，成功才写目标；应保留这个保证。
+  :180..185 BGRX->RGBA 中 A恒255。新增BGRA路径必须复制row[source+3]。
+
+kexts/gld-context/vgpu_context.c（并行代理所有，本文未修改）：
+  :16 share 持唯一surface；:18 image仅desc/generation；:23全局leased_image。
+  :121 image_create、:193 load 强制单image lease。
+  :268 clear、:298 read、:318 flush 都访问share唯一surface。
+  后续必须把surface所有权移到image，clear按draw->image、read按read->image路由。
+  删除全局lease前必须已有两个真实backing，否则只会产生两个别名。
+  flush必须记录并强持有最后一次成功提交的image以及其handle/generation；不能在FBO换绑后只用数字generation或当前draw找资源。
+  context完成状态中的generation是针对最后提交resource的值，不能跨image比较大小；可另存本地提交序号用于排序。
+
+3. 本地上游头核对（命令body长度不含8字节命令头）
+
+refs/svga-hdr/svga3d_cmd.h：
+  :103 DESTROY_GB_MOB=1094；:107..109 DEFINE/DESTROY/BIND_GB_SURFACE=1097/1098/1099。
+  :155 DEFINE_GB_MOB64=1135；:184 DX_SET_RENDERTARGETS=1161。
+  :199 DX_CLEAR_RENDERTARGET_VIEW=1176；:206 DX_READBACK_SUBRESOURCE=1183。
+  :210..211 DX_DEFINE/DESTROY_RENDERTARGET_VIEW=1187/1188；:230 DX_SET_COTABLE=1207。
+  :939起 OTable MOB16字节、surface64字节；不是历史注释中的surface72字节。
+  :1133 DestroyGBMob {u32 mobid}，4字节。
+  :1139 DefineGBMob64 {u32 mobid,u32 ptDepth,u64 base,u32 sizeInBytes}，packed20字节。
+  :1163 DefineGBSurface v1 {sid,flags32,format,mips,msCount,autogen,size{w,h,d}}，36字节。
+  :1220 DestroyGBSurface {sid}，4字节；:1226 BindGBSurface {sid,mobid}，8字节。
+refs/svga-hdr/svga3d_dx.h：
+  :386 SetRenderTargets 固定头只有depthStencilViewId，颜色view IDs在可变尾部；单颜色body8字节。
+  :566 ClearRenderTargetView {rtvId,float4}，20字节。
+  :729 ReadbackSubResource {sid,subResource}，8字节。
+  :907 RTV desc的texture字段为mipSlice/firstArraySlice/arraySize。
+  :929 RTV COTable entry为sid/format/dimension/desc/pad[2]，32字节。
+  :939 DefineRenderTargetView body28字节；:951 DestroyRenderTargetView body4字节。
+  :1555 SET_COTABLE {cid,mobid,type,validSizeInBytes}，16字节；GROW同长不代表宿主支持。
+refs/svga-hdr/svga3d_types.h：
+  :45 TEXTURE2D=3；:234 RGBA8_UNORM=68；:310 BGRA8_UNORM=141；:311 BGRX8_UNORM=142。
+  :1493 RTVIEW COTable type=0；:1518..1520 PT64_0/1/2=4/5/6。
+
+证据边界：
+  当前成功的sid3 template在:6383..6568没有显式1099；预写surface OTable包含mobid，随后DEFINE，实测CLEAR/READBACK成功。
+  其他flat/STDU路径(:4601、:5295)及VB路径(:1969)存在显式BIND，但不能据此证明sid3隐式依赖这些不同sid的BIND。
+  先前口头“当前模板必须经BIND才有backing”的说法撤回。
+  新资源采用显式DEFINE+BIND是本地协议头支持的待验证方案；首个新增bind必须单命令/fence，失败立即停止。
+  格式141有明确枚举证据，尚无本报告产生的目标宿主alpha实测证据；不得失败后悄悄退回142再宣称支持alpha。
+  文档§65/66证明142 clear/readback；§68c证明真实draw；不能把它们写成141或双表面已通过。
+
+4. ID隔离、表容量与内存
+
+已占用或必须保留：
+  sid1/2 GB/flat/STDU，sid3固定DX，sid4用户顶点buffer。
+  MOB1数据，2 STDU，3旧context，4固定DX颜色，5 RTV COTable，6 context state/关闭的CB MOB模式，7..15 shader/state/VB。
+  MOB102/103 flat readback/shadow；_stduMobId+100的动态readback也不能侵占。
+  DX cid1、queue1保留；shader/layout/state是各自独立ID空间，不能与surface/MOB混为一表。
+建议保留：
+  pool[0] = {sid16, mob32, rtv16}；pool[1] = {sid17, mob33, rtv17}。
+  RTV ID仅在cid1/type0命名空间有效，不新增RTV MOB。
+  表界限：surface ID<64、MOB ID<1024；RTV MOB5为4096字节，32字节/row，rtv16/17位于512/544字节，均在128行内。
+  两个颜色backing合计524288字节，PT合计8192字节，总532480字节（520KiB），不含小对象/已有表。
+  每PT先清零，再填64个PPN64；物理段必须非零、页对齐、segLen>=4096；PT物理段也需覆盖整页。
+  一次map保存IOMemoryMap/VA，失败正确unmap/release；不要复制现有多次map且遗失map对象的习惯。
+  如使用prepare/complete，记录prepare成功状态；发布设备后的complete/release只在已证明静止时执行。
+  检查ID未被新增并行代码占用，增加编译期容量断言；启用任何探索/周期present/其他CB使用模式时拒绝发布多资源READY。
+  必须保持kCbMobMode=0；不能在本补丁顺手开启MOB6模式。
+
+5. 启动预置与COTable策略
+
+建议在dxTemplateSetupSurface中拆出“分配一个颜色slot+填MOB/surface表+define”最小内部函数；旧成员和旧sid3保持原调用。
+RTV MOB5只分配一次。其第一次SET_COTABLE之前，填入原RTV1和新RTV16/17，全部padding清零。
+每个新row = {sid16或17,141,3, 0,0,1, 0,0}。
+沿用当前validSizeInBytes=4096保存全部预填内容；这里4096是保留前缀，实际容量来自MOB大小。
+不要在用户CREATE时直接改已被宿主缓存的RTV行，不用GROW，也不重复SET_COTABLE来碰运气刷新缓存。
+两个slot在第一次SET_COTABLE之前全部预置完毕；任一slot分配/define/bind失败都不发布多资源READY。
+
+每槽设备初始化顺序（每条检查结果，首次bring-up保持独立命令与日志）：
+  a. 分配数据/PT，页表清零、填PPN，写MOB OTable row {5,262144,ptPPN}。
+  b. FIFO {1135,20,mob,5,ptPPN_lo,ptPPN_hi,262144}，等待fence。
+  c. surfaceEntryFill(...,format141, HINT_RENDERTARGET|BIND_RENDER_TARGET,256,256,mob,0,0)。
+     其默认msCount=1必须覆盖为0；mips1，depth1，mobPitch0，autogen沿成功模板，非sRGB、非MSAA。
+  d. DEFINE v1 {1097,36,sid,flags32,141,1,0,autogen,256,256,1}，FIFO+fence。
+  e. BIND {1099,8,sid,mob}，FIFO+fence（新增路径待验证，不能表述成旧模板已发送）。
+  f. 等cid1/MOB5初次SET完成及既有shader/state基线成功后，GPU清透明黑+READBACK+plain sync验证可工作。
+  g. READY发布后供逻辑CREATE租用；空闲槽不允许用户读，CREATE仍重新GPU清零以实现跨owner隔离。
+
+不把两次调用原dxTemplateSetupSurface作为方案：它还重分配RTV页、可能调用cbMobSetup、覆盖单例指针。
+
+6. 新私有selector ABI v1（建议4..8；原0..3保持数字与语义）
+
+全部固定宽度、小端、同步、零scalar输入和输出；头均u32 version=1,u32 byteSize=精确整包长度。
+字段偏移用static_assert核对，不传指针、size_t、IO地址、MOB/sid/rtv等内部ID；u64必须8字节对齐。
+每个selector同时检查dispatch固定尺寸与结构内byteSize；未知version/flag/reserved拒绝，不截断解析新版本。
+拒绝asyncWakePort、非零asyncReferenceCount、structureInputDescriptor/structureOutputDescriptor；仅接受对应固定inline结构。
+请求先memcpy到内核局部结构再验证。输出先清零，仅成功填写；失败不向调用者承诺输出内容有效。
+
+selector4 CREATE：request32 / response64。
+  request偏移：0 version,4 byteSize,8 width,12 height,16 format,20 flags,24 samples,28 reserved，均u32。
+  只接受width=height=256、format=141、flags=0、samples=0、reserved=0。
+  response ResourceInfo64：
+    0 version(u32),4 byteSize=64(u32),8 handle(u64),16 generation(u64),
+    24 width(u32),28 height(u32),32 format(u32),36 rowBytes=1024(u32),
+    40 backingBytes=262144(u32),44 flags(u32),48 reserved[2](u64[2])。
+  flags bit0=实际存储alpha，bit1=同步快照已完成，bit2=固定池/逻辑释放；v1值7，其他位0。
+  CREATE占空闲槽，GPU CLEAR透明黑+READBACK+sync成功后响应generation1；无槽返回NoResources。
+
+selector5 RELEASE：request24 / response24。
+  request = header8,handle(u64 @8),reserved(u64 @16)=0。
+  response = header8,handle(u64 @8),flags(u32 @16)=1,reserved(u32 @20)=0。
+  flags1表示仅完成逻辑撤销/槽位归还，不表示已DESTROY硬件对象或归还物理内存。
+  同一锁下撤销handle、清owner/committed generation；不能因保留物理资源而保留旧handle可读。
+  重复RELEASE/未知handle返回NotFound；跨连接命中的handle返回NotPermitted。
+  设备FAILED时仍允许纯CPU逻辑RELEASE；不触发任何补救GPU命令。
+
+selector6 SUBMIT：request96 / response32。
+  request偏移：0 version,4 byteSize=96,8 opcode(u32),12 flags(u32)=0,
+    16 handle(u64),24 expectedGeneration(u64),32 rgbaBits[4](u32),48 verticesBits[12](u32)。
+  opcode1=CLEAR（vertices全0）；2=FIXED_TRIANGLE（vertices全0）；3=VERTEX_TRIANGLE。
+  全部opcode的rgbaBits表示提交前的整表面清除颜色；draw输出仍为现有固定红色PS，不声称用户shader支持。
+  rgba复用[0,1]有限整数位检查；opcode3坐标复用selector2范围/w=1检查；未使用字段必须全0。
+  expectedGeneration必须非零且等于此资源最新完成generation（锁内比较）；无通配0，不匹配返回NotReady且不提交。
+  response = header8,handle(u64 @8),generation(u64 @16),width(u32 @24),height(u32 @28)。
+  即使颜色相同，成功提交仍generation+1；UINT64_MAX时返回NoResources，禁止回绕成0。
+
+selector7 READ_ROW：request32 / response1056。
+  request = header8,handle(u64 @8),generation(u64 @16),row(u32 @24),reserved(u32 @28)=0。
+  response前32字节 = header8,handle(u64 @8),generation(u64 @16),row(u32 @24),rowBytes=1024(u32 @28)，随后pixels[1024]。
+  row<256，generation非零并等于该handle的最新完成值；在设备锁内复制该slot独立backing，不发GPU命令。
+  pixels字节序为B,G,R,A；A为真正存储内容。行顺序沿现有readback，不在此ABI假称已转换OpenGL原点。
+
+selector8 GET_INFO：request24 / response64。
+  request同RELEASE；response同ResourceInfo64，查询不改变generation、不提交GPU。
+  用于最终generation复验、flush对特定resource的检查；设备FAILED时返回NotReady，不允许冒充有效快照。
+
+建议错误约定：
+  malformed版本/尺寸/保留/非法数值/row/handle0：BadArgument；未知opcode/格式/尺寸能力：Unsupported。
+  owner连接关闭：NotAttached/NotOpen（沿当前边界）；查无非零handle：NotFound；owner不符：NotPermitted。
+  stale generation、未READY或设备FAILED：NotReady；提交首次失败：IOError；无可用槽/计数耗尽：NoResources。
+  所有这些用户输入拒绝发生在任何GPU/OTable写入之前，不应使健康队列FAILED。
+
+7. 所有权、generation和并发
+
+设备对象保存两个slot；用户client对象获得设备分配的单调ownerToken；不能以task PID/裸client指针当可复用owner标识。
+每次成功租用分配设备范围单调非零u64 handle；连接关闭后不复用旧handle，即使同一槽位被重租用也分配新值。
+ownerToken/handle计数回绕即拒绝新建；它们不是保密凭证，安全来自client身份与slot.ownerToken比较。
+跨连接共享不支持；share group应复用同一连接/自己的image对象引用，不导出可绕过owner检查的handle。
+逻辑持有链为framebuffer->image->vgpu_surface->connection+resource handle；内核slot强持有backing/map。
+相同数字generation可同时出现在A和B，身份必须是(owner,handle,generation)，不能只存一个全局generation。
+A提交不改变B generation，不使B逐行read失效；A提交只使A旧generation失效。
+逐行读取不是跨调用事务：相同resource被另一线程改写时下一行/最终GET_INFO必须失败；用户态先临时缓冲、最终验证再commit。
+另一resource的提交不应导致本资源读失败。slot重新CREATE后代号不同，旧handle+旧generation永不能命中新对象。
+新旧submit、CPU读、CREATE、RELEASE、close、READY/FAILED状态更新统一用_userDrawLock。
+保持现有copyOwner retain/release；ownerLock只用于取owner/closing，然后释放再取设备锁；close同样先置closing、释放ownerLock再撤销设备slots，避免反向锁序。
+已有在途调用若先取得设备锁可完成；close返回前须撤销该owner全部资源，后续调用锁内检查closing/owner状态并拒绝。
+不要持已失效client裸指针等待GPU；slot只存ownerToken。_userDrawStopping检查沿现有stop策略。
+
+8. 每次SUBMIT命令序列和旧selector回归
+
+锁内检查owner/handle/expectedGeneration/设备READY；预验证全部字段及计数上限，标记busy。
+必须每次显式SET_RENDERTARGETS，即使同一resource连续提交也不依赖前一调用状态：
+  {1161,8,INVALID_ID,slot.rtv}，通过cbSubmitCtx(...,queue1,cid1,kCbFlagDxContext)。
+  clear {1176,20,slot.rtv,R,G,B,A}。
+  draw分支复用现有userSubmit中的VS/layout/VB/raster及需要的固定状态；vertex分支更新sid4的48字节VB。
+  只在CLEAR/可选DRAW成功后，将该slot的CPU回读页填判别值（如0x7e5aa5c3），编译屏障。
+  {1183,8,slot.sid,0}；随后cbSubmitCtx(sync,0,0,0,1)。
+  全链成功后slot.generation++，response填handle/gen/尺寸；其余资源generation不变。
+  任一步失败立即设备FAILED，停止后续命令；没有“restore后再试”。
+
+必须同时修正旧userSubmit入口：GPU命令前显式{1161,8,INVALID_ID,RTV1}。
+旧clear虽然按RTV直接操作，旧draw必须恢复RTV1，否则会画进最后的新槽。不能仅在新submit末尾做restore而假设永远执行成功。
+新submit也每次显式bind以抵御旧selector改变状态；viewport/尺寸均256，可复用现有状态。
+新路径不得改写_dxVirt/_userDrawGeneration；旧selector1不应看见新slot像素。
+旧selector0..3成功不增加新slot generation，反之亦然；全局GPU失败则两者一起NotReady。
+
+9. 生命周期、失败处理与真正销毁的后续边界
+
+slot状态：未分配 -> 预置设备对象/无owner -> 正在CREATE清零 -> LIVE -> 逻辑RELEASE -> 无owner。
+任一设备提交失败：设备READY->FAILED不可逆到本次设备生命周期结束；所有LIVE快照失效，不再读页或提交sync探活。
+发布前纯CPU分配失败可以完整释放尚未发布的对象；已写OTable/向FIFO发布过的backing保守标记deviceVisible。
+DEFINE/BIND/fence可能超时但实际已执行，不按“返回false=宿主未见”回收；连同PT页、映射、OTable、CB页保留。
+逻辑CREATE失败不发布handle；若涉及GPU失败即设备FAILED，不能把槽位交给下一个连接重试。
+close只撤销owner的handle并归还物理slot；下一次CREATE GPU清零成功前不允许读旧backing。
+stop沿用当前保留设备可见页直到重启策略，必须把新slot数组纳入该保留路径，防止析构容器自动release DMA descriptor。
+固定池避免每次CREATE持续分配泄漏，最多520KiB新增backing；不宣称支持热卸载或GPU reset恢复。
+
+以后若要真正GPU回收，应单独验证并闭合以下顺序，不混进首版逻辑RELEASE：
+  设备锁下阻止资源新引用；等待此前工作完成；SET_RENDERTARGETS解除绑定；
+  DX_DESTROY_RENDERTARGET_VIEW(1188/body4) + 完成sync；
+  GB surface绑定解除（1099到INVALID_MOB的宿主接受情况需验证）；
+  DESTROY_GB_SURFACE(1098/body4)、DESTROY_GB_MOB(1094/body4)，各自完成及DMA静止后才释放PT/数据。
+  显式销毁隐式COTable加载view是否支持，以及表行后续可复用如何刷新，均仍待验证。
+  不能把旧SurfaceDestroy=1041用作GB销毁，不能把CPU callback drain当作DMA静止证明。
+  任何销毁失败都转FAILED+隔离保留，不能继续销毁其依赖；不能在坏队列上强制回收页。
+
+10. 用户态接入补丁顺序
+
+第一步仅内核池+selector，并用独立probe验证，不触碰系统GLD ABI。
+第二步vgpu_surface：保存handle/format/尺寸，open调用CREATE；clear/read改用6/7；close先RELEASE再IOServiceClose。
+  每个surface可各开连接，亦可以后由share持连接；首版可保留现有每surface一连接实现并由内核全局pool限制2个。
+  CREATE返回64字节逐字段验证；无新selector必须Unsupported，不能静默落回全局旧surface并宣称独立。
+  GET_INFO作为最后快照复验；BGRA->RGBA复制真实alpha，原BGRX模式继续固定255以维护旧契约。
+第三步context/image：每image拥有surface，把单image lease改成显式pool容量错误；draw/read分离验证。
+  完成记录强引用最后提交image，释放/换绑不能让flush检查错误资源；dirty/failed只在完整提交成功后清。
+  保留外层用户目标缓冲“失败不修改”保证、pack overflow检查及H/B借用视图读取边界。
+第四步再把独立对象链接到已核对的GLD入口；本方案不扩大GLD槽签名或OpenGL/Metal完成范围。
+
+11. 真实GPU最小验收（交给主代理串行执行；本研究未执行）
+
+每个新增协议阶段独立构建/启动验证，沿本次boottime过滤日志；先确认已有固定draw/clear/readback基线和队列健康。
+首次141/surface显式bind/RTV16新路径必须记录每条命令的queue/cid/id、status、errorOffset和fence结果，首次失败即停。
+不能用旧启动日志、CPU写入成功或CB COMPLETED单独当像素成功。
+
+最小数据验收：
+  1. CREATE A/B：不同非零handle，Info width/height256、format141、rowBytes1024、bytes262144、flags7；generation均1，65536像素均透明黑。
+  2. A清{1,0,0,0}，B清{0,1,0,1}；逐行比较全图：A小端字0x00ff0000，B为0xff00ff00，零差异。
+  3. B重复清{0,1,0,0.5}：预期BGRA字节00 ff 00 80、小端字0x8000ff00；目标规范/宿主量化如有差异应先核对，不能盲目放宽整字比较。
+     端点alpha0/1必须精确；0.5测试独立检验中间值、通道与未强制opaque。B与A使用不同非magenta判别填充。
+  4. B清{0,0,1,0.25}：预期BGRA ff 00 00 40、0x400000ff；提交B不改变A handle/generation/像素。
+  5. 仅A画固定三角形，clear背景{0,1,0,0}；现有PS输出红/alpha1，blend禁用、write mask0x0f。
+     用现有独立CPU三角形判据全图验证18432红opaque/47104绿transparent；B的65536像素与generation保持。
+  6. 交错旧selector0/2/3、新A/B、旧selector1；确认draw目标总是正确，无隐式RTV状态串扰。
+  7. A成功提交后A旧generation读/submit失败；相同数值B generation不能跨handle使用；B更新期间A逐行read仍成功。
+  8. 同connection可租两个；第三CREATE NoResources且无GPU命令。不同connection不能用A handle读/清/释放。
+  9. RELEASE A后旧handle全部NotFound；新租C使用新handle，generation1、全透明黑、无旧A数据；重复release失败不伤队列。
+     connection关闭自动撤销其全部handle；关闭/submit竞争按锁序完成，无use-after-free；进程退出后可重开租用。
+  10. 错版本/byteSize/尺寸/format/samples/reserved、NaN/Inf/越界颜色、row256、gen0、未知opcode都在提交前拒绝；随后合法B操作继续成功。
+  11. 用户态surface/context整图、非原点rect(37,83,101,119)、五种pack、drawA/readB、换绑及flush资源关联验证；所有padding/guard bytes保持。
+
+失败门槛验证：
+  先用CPU可控的本地测试替身验证submit函数返回false后ready失效、generation不发布、后续入口不再发命令和DMA页保留。
+  不为验证失败路径主动向真实GPU发送已知毒化命令；如自然发生timeout/status错误，仅采集该次证据并停止。
+  真实GPU结果应分别报告“141 clear alpha通过”“双backing隔离通过”“draw路由通过”“逻辑生命周期通过”；未验证项目明确标出。
+
+12. 实施前检查清单
+
+  [ ] 用当前主线确认selector4..8尚未被其他补丁占用。
+  [ ] 确认sid16/17、MOB32/33、RTV16/17在当前所有启用模式空闲，容量断言通过。
+  [ ] 所有请求/响应sizeof及offsetof断言，dispatch尺寸与用户态共享声明一致。
+  [ ] 两槽不覆写旧单例成员，RTV页只分配/初次SET一次；预填行都在保留prefix内。
+  [ ] 新旧submit每次绑定各自RTV；per-resource generation和device FAILED状态分开。
+  [ ] CREATE GPU清零后发布；close/RELEASE旧handle失效；设备可见页进入stop保留路径。
+  [ ] 按现有kext构建脚本检查弱引用/marker/栈大小（避免大局部数组触发chkstk），再由主代理安排实机。
+
+本报告仅新增本文件，没有修改主kext、用户态模块或其他代理的未提交改动。

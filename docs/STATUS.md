@@ -4,7 +4,7 @@
 > macOS 客户机内实现 GPU 直通驱动栈。目标是最终支持 macOS 应用级 3D 加速
 > （Metal 对象层 → IOAccelerator）。
 
-> 最新进度：见 `docs/cb-findings-2026-10-08.md` §81。已核验现有客体记录及对应源码SHA：真实GPU context/FBO桥接普通与ASan/UBSan各103项通过；pixel导出、分配失败注入、adapter、parser分别342/351/323/28154项，两种构建均零失败。surface显式零临时容量防护后的静态分析无告警，历史日志和旧hash保留。Metal只读发现诊断在MRC/ARC下停于G1_NO_METAL_PLUGIN_NAME；负向候选仅编译/链接及静态检查，未动态运行。新双资源内核补丁尚未完成完整SDK构建和GPU验收；源码上传被工具安全拒绝阻塞，同时出现Socket is closed，工具未给具体规则，不能确定两者因果。texture/defaultobjects另行推进，本轮不宣称验证。当前安装的§78诊断bundle仍明确拒绝设备；标准硬件OpenGL/Metal均未实现。
+> 最新进度：见 `docs/cb-findings-2026-10-08.md` §81–82。§81已提交推送d882962：真实GPU context/FBO普通与ASan/UBSan各103项；pixel导出/分配注入/adapter/parser各342/351/323/28154项，源码SHA与日志匹配。双独立BGRA资源内核及selector4..8已实现，修复关闭flags探针后缺少context0启动的回归；实际方法CPU替身263020次检查及抽取方法内核选项编译通过，尚未完整SDK构建或GPU验收。源码上传收到安全拒绝及Socket is closed，未提供具体规则，已停止重试。Metal发现仍在G1缺少MetalPluginName；负向候选未动态运行。当前安装的§78诊断bundle仍拒绝设备；标准硬件OpenGL/Metal未实现。
 
 ## 环境与工具
 

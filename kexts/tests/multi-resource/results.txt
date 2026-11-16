@@ -1,0 +1,34 @@
+多资源 CPU 验证（本地、无 GPU/虚拟机执行）
+source: kexts/framebuffer/vgpuFramebuffer.cpp
+source SHA-256 (原始文件字节): 05286799519ba772f1a8bbef0f28969c1744f0aef93a646030d50f281b4250c1
+命令采用 JSON argv；每个数组元素为独立参数，不经 shell 解释。
+cwd: c:\Users\Pika\WorkBuddy\2026-10-25-00-32-41
+入口 argv: ["C:\\Users\\Pika\\.workbuddy\\binaries\\python\\versions\\3.13.12\\python.exe", "D:\\Codes\\vGPU-macOS\\kexts\\tests\\multi-resource\\validate_multi_resource.py", "--zig", "C:/Users/Pika/WorkBuddy/2026-10-25-00-32-41/.validation-tools/ziglang/zig.exe", "--node", "C:/Users/Pika/.workbuddy/binaries/node/versions/22.22.2-6/node.exe", "--result", "D:/Codes/vGPU-macOS/kexts/tests/multi-resource/results.txt"]
+Python: 3.13.14
+临时产物: C:\Users\Pika\AppData\Local\Temp\vgpu-multi-resource-tgysitr1
+validate_multi_resource.py SHA-256: 7fccfff9969d09a8abafa66de17b3aedb1794fd39da8ad739126a6e7d4ddc6a1
+run_multi_resource_cpu_test.js SHA-256: e13586d9e5cded0c02435eb268e9c0e0f8384c8e13b52b7ba935712c7cdcbdae
+提取方法: 16；ABI static_assert: 8
+提取函数及类型 SHA-256 (UTF-8/LF): e7a4d2d70608c229f04e2c1b1ea9544b963a97add7ed2bd5dc0504514aa2560c
+环境覆盖: ZIG_GLOBAL_CACHE_DIR=C:\Users\Pika\AppData\Local\Temp\vgpu-multi-resource-tgysitr1\zig-global-cache
+环境覆盖: ZIG_LOCAL_CACHE_DIR=C:\Users\Pika\AppData\Local\Temp\vgpu-multi-resource-tgysitr1\zig-local-cache
+断言边界: 263020 次 CHECK 包含 256*1024=262144 次清零字节检查、256 次读行成功检查，以及 620 次其他 CHECK（含 fixture 检查）。
+C++ assert（锁/命令约束）与 ABI 编译期 static_assert 不计入 263020；JS 另检验成功回调及分配全部回收。
+覆盖: 双资源隔离、owner/handle/generation、参数拒绝、提交/flush/回读失败关闭、目标路由及未发布资源清理。
+限制: CPU 替身只模拟端点颜色和单像素 draw，不验证 GPU 光栅化、浮点量化、真实 IOKit/DMA/fence、并发时序或完整 kext 链接加载。
+macOS 对象编译仅验证提取方法及 ABI，不代表完整驱动构建。
+argv: ["C:/Users/Pika/WorkBuddy/2026-10-25-00-32-41/.validation-tools/ziglang/zig.exe", "version"]
+exit: 0
+0.17.1
+argv: ["C:/Users/Pika/.workbuddy/binaries/node/versions/22.22.2-6/node.exe", "--version"]
+exit: 0
+v22.22.2
+argv: ["C:/Users/Pika/WorkBuddy/2026-10-25-00-32-41/.validation-tools/ziglang/zig.exe", "c++", "-target", "wasm32-freestanding", "-std=c++17", "-O0", "-fno-exceptions", "-fno-rtti", "-fsanitize-trap=all", "-nostdlib", "C:\\Users\\Pika\\AppData\\Local\\Temp\\vgpu-multi-resource-tgysitr1\\multi_resource_cpu_test_wasm.cpp", "-Wl,--no-entry", "-Wl,--export=run_tests", "-Wl,--export=__heap_base", "-Wl,--initial-memory=134217728", "-o", "C:\\Users\\Pika\\AppData\\Local\\Temp\\vgpu-multi-resource-tgysitr1\\multi_resource_cpu_test.wasm"]
+exit: 0
+argv: ["C:/Users/Pika/.workbuddy/binaries/node/versions/22.22.2-6/node.exe", "D:\\Codes\\vGPU-macOS\\kexts\\tests\\multi-resource\\run_multi_resource_cpu_test.js", "C:\\Users\\Pika\\AppData\\Local\\Temp\\vgpu-multi-resource-tgysitr1\\multi_resource_cpu_test.wasm"]
+exit: 0
+通过 263020 次断言；实际提取的资源方法，CPU 替身，不是 GPU 验收。
+CPU 替身分配已全部回收。
+argv: ["C:/Users/Pika/WorkBuddy/2026-10-25-00-32-41/.validation-tools/ziglang/zig.exe", "c++", "-target", "x86_64-macos-none", "-std=c++17", "-O0", "-fno-exceptions", "-fno-rtti", "-nostdinc", "-mkernel", "-fapple-kext", "-DKERNEL", "-fno-sanitize=all", "-Wframe-larger-than=1024", "-Werror", "-c", "C:\\Users\\Pika\\AppData\\Local\\Temp\\vgpu-multi-resource-tgysitr1\\multi_resource_methods_macos.cpp", "-o", "C:\\Users\\Pika\\AppData\\Local\\Temp\\vgpu-multi-resource-tgysitr1\\multi_resource_methods_macos.o"]
+exit: 0
+结果: PASS；CPU 运行、分配回收及 macOS 提取方法对象编译通过。

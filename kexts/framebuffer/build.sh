@@ -333,6 +333,18 @@ fi
 else
     echo "kDxTest = 0 -> DX template retired, markers not required"
 fi
+# Each enabled resource-pool phase must survive into the actual kext binary.
+if sw kDxMultiResource 1; then
+    MARKERS="$MARKERS
+resource: BGRA pool interface
+resource: START_STOP context0
+resource: pre-SET_COTABLE pool setup failed closed
+resource: slot %u DEFINE_GB_MOB64
+resource: slot %u DEFINE_GB_SURFACE
+resource: slot %u BIND_GB_SURFACE
+resource: zero slot%u sid%u rtv%u queue1 cid1 begin
+resource: zero slot%u 65536 transparent pixels verified"
+fi
 # §73：服务关联独立于 GPU 实验开关，始终检查发布与撤销代码。
 MARKERS="$MARKERS
 accelerator: linked IOAccelTypes=%s IOAccelIndex=0

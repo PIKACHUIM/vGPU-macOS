@@ -486,6 +486,138 @@ static const UInt32 kDxSendDefineRtv = 0;
 // The row used to be written at index 0 while the clear targeted index 1, so even a
 // working CLEAR would have referenced an all-zero view.
 static const UInt32 kDxTemplateRtvId = 1;
+static constexpr UInt32 kResourceSurfaceIds[2] = { 16, 17 };
+static constexpr UInt32 kResourceMobIds[2] = { 32, 33 };
+static constexpr UInt32 kResourceRtvIds[2] = { 16, 17 };
+static const UInt32 kResourceFormatBgra8 = 141;
+static const UInt32 kResourceBytes = 256 * 256 * 4;
+static const UInt32 kResourceRowBytes = 256 * 4;
+static const UInt32 kResourcePixelCount = 256 * 256;
+static const UInt32 kResourceAbiVersion = 1;
+static const UInt32 kResourceInfoFlags = 7;
+struct VgpuResourceRequest {
+    UInt32 version, byteSize, width, height, format, flags, samples, reserved;
+};
+struct VgpuResourceInfo {
+    UInt32 version, byteSize;
+    UInt64 handle, generation;
+    UInt32 width, height, format, rowBytes, backingBytes, flags;
+    UInt64 reserved[2];
+};
+struct VgpuResourceReleaseRequest {
+    UInt32 version, byteSize;
+    UInt64 handle, reserved;
+};
+struct VgpuResourceReleaseResponse {
+    UInt32 version, byteSize;
+    UInt64 handle;
+    UInt32 flags, reserved;
+};
+struct VgpuResourceSubmitRequest {
+    UInt32 version, byteSize, opcode, flags;
+    UInt64 handle, expectedGeneration;
+    UInt32 rgbaBits[4], verticesBits[12];
+};
+struct VgpuResourceSubmitResponse {
+    UInt32 version, byteSize;
+    UInt64 handle, generation;
+    UInt32 width, height;
+};
+struct VgpuResourceReadRequest {
+    UInt32 version, byteSize;
+    UInt64 handle, generation;
+    UInt32 row, reserved;
+};
+struct VgpuResourceReadResponse {
+    UInt32 version, byteSize;
+    UInt64 handle, generation;
+    UInt32 row, rowBytes;
+    UInt8 pixels[kResourceRowBytes];
+};
+static_assert(sizeof(VgpuResourceRequest) == 32 && alignof(VgpuResourceRequest) == 4 &&
+    __builtin_offsetof(VgpuResourceRequest, version) == 0 &&
+    __builtin_offsetof(VgpuResourceRequest, byteSize) == 4 &&
+    __builtin_offsetof(VgpuResourceRequest, width) == 8 &&
+    __builtin_offsetof(VgpuResourceRequest, height) == 12 &&
+    __builtin_offsetof(VgpuResourceRequest, format) == 16 &&
+    __builtin_offsetof(VgpuResourceRequest, flags) == 20 &&
+    __builtin_offsetof(VgpuResourceRequest, samples) == 24 &&
+    __builtin_offsetof(VgpuResourceRequest, reserved) == 28, "resource request ABI");
+static_assert(sizeof(VgpuResourceInfo) == 64 && alignof(VgpuResourceInfo) == 8 &&
+    __builtin_offsetof(VgpuResourceInfo, version) == 0 &&
+    __builtin_offsetof(VgpuResourceInfo, byteSize) == 4 &&
+    __builtin_offsetof(VgpuResourceInfo, handle) == 8 &&
+    __builtin_offsetof(VgpuResourceInfo, generation) == 16 &&
+    __builtin_offsetof(VgpuResourceInfo, width) == 24 &&
+    __builtin_offsetof(VgpuResourceInfo, height) == 28 &&
+    __builtin_offsetof(VgpuResourceInfo, format) == 32 &&
+    __builtin_offsetof(VgpuResourceInfo, rowBytes) == 36 &&
+    __builtin_offsetof(VgpuResourceInfo, backingBytes) == 40 &&
+    __builtin_offsetof(VgpuResourceInfo, flags) == 44 &&
+    __builtin_offsetof(VgpuResourceInfo, reserved) == 48, "resource info ABI");
+static_assert(sizeof(VgpuResourceReleaseRequest) == 24 && alignof(VgpuResourceReleaseRequest) == 8 &&
+    __builtin_offsetof(VgpuResourceReleaseRequest, version) == 0 &&
+    __builtin_offsetof(VgpuResourceReleaseRequest, byteSize) == 4 &&
+    __builtin_offsetof(VgpuResourceReleaseRequest, handle) == 8 &&
+    __builtin_offsetof(VgpuResourceReleaseRequest, reserved) == 16, "release request ABI");
+static_assert(sizeof(VgpuResourceReleaseResponse) == 24 && alignof(VgpuResourceReleaseResponse) == 8 &&
+    __builtin_offsetof(VgpuResourceReleaseResponse, version) == 0 &&
+    __builtin_offsetof(VgpuResourceReleaseResponse, byteSize) == 4 &&
+    __builtin_offsetof(VgpuResourceReleaseResponse, handle) == 8 &&
+    __builtin_offsetof(VgpuResourceReleaseResponse, flags) == 16 &&
+    __builtin_offsetof(VgpuResourceReleaseResponse, reserved) == 20, "release response ABI");
+static_assert(sizeof(VgpuResourceSubmitRequest) == 96 && alignof(VgpuResourceSubmitRequest) == 8 &&
+    __builtin_offsetof(VgpuResourceSubmitRequest, version) == 0 &&
+    __builtin_offsetof(VgpuResourceSubmitRequest, byteSize) == 4 &&
+    __builtin_offsetof(VgpuResourceSubmitRequest, opcode) == 8 &&
+    __builtin_offsetof(VgpuResourceSubmitRequest, flags) == 12 &&
+    __builtin_offsetof(VgpuResourceSubmitRequest, handle) == 16 &&
+    __builtin_offsetof(VgpuResourceSubmitRequest, expectedGeneration) == 24 &&
+    __builtin_offsetof(VgpuResourceSubmitRequest, rgbaBits) == 32 &&
+    __builtin_offsetof(VgpuResourceSubmitRequest, verticesBits) == 48, "submit request ABI");
+static_assert(sizeof(VgpuResourceSubmitResponse) == 32 && alignof(VgpuResourceSubmitResponse) == 8 &&
+    __builtin_offsetof(VgpuResourceSubmitResponse, version) == 0 &&
+    __builtin_offsetof(VgpuResourceSubmitResponse, byteSize) == 4 &&
+    __builtin_offsetof(VgpuResourceSubmitResponse, handle) == 8 &&
+    __builtin_offsetof(VgpuResourceSubmitResponse, generation) == 16 &&
+    __builtin_offsetof(VgpuResourceSubmitResponse, width) == 24 &&
+    __builtin_offsetof(VgpuResourceSubmitResponse, height) == 28, "submit response ABI");
+static_assert(sizeof(VgpuResourceReadRequest) == 32 && alignof(VgpuResourceReadRequest) == 8 &&
+    __builtin_offsetof(VgpuResourceReadRequest, version) == 0 &&
+    __builtin_offsetof(VgpuResourceReadRequest, byteSize) == 4 &&
+    __builtin_offsetof(VgpuResourceReadRequest, handle) == 8 &&
+    __builtin_offsetof(VgpuResourceReadRequest, generation) == 16 &&
+    __builtin_offsetof(VgpuResourceReadRequest, row) == 24 &&
+    __builtin_offsetof(VgpuResourceReadRequest, reserved) == 28, "read request ABI");
+static_assert(sizeof(VgpuResourceReadResponse) == 1056 && alignof(VgpuResourceReadResponse) == 8 &&
+    __builtin_offsetof(VgpuResourceReadResponse, version) == 0 &&
+    __builtin_offsetof(VgpuResourceReadResponse, byteSize) == 4 &&
+    __builtin_offsetof(VgpuResourceReadResponse, handle) == 8 &&
+    __builtin_offsetof(VgpuResourceReadResponse, generation) == 16 &&
+    __builtin_offsetof(VgpuResourceReadResponse, row) == 24 &&
+    __builtin_offsetof(VgpuResourceReadResponse, rowBytes) == 28 &&
+    __builtin_offsetof(VgpuResourceReadResponse, pixels) == 32, "read response ABI");
+
+struct VgpuResourceOwner {
+    UInt64 token;
+    VgpuResourceOwner *next;
+    // client 的 free/stop 在销毁此原子标志前，必须在设备锁下撤销本项。
+    const UInt32 *closing;
+};
+
+struct VgpuColorResource {
+    IOBufferMemoryDescriptor *data = nullptr;
+    IOBufferMemoryDescriptor *pt = nullptr;
+    IOMemoryMap *dataMap = nullptr;
+    IOMemoryMap *ptMap = nullptr;
+    void *virt = nullptr;
+    bool dataPrepared = false;
+    bool ptPrepared = false;
+    UInt64 owner = 0;
+    UInt64 handle = 0;
+    UInt64 generation = 0;
+    bool deviceVisible = false;
+};
 
 // kStduPaint overlays a known pattern (red border, green top half, blue bottom half) on
 // the surface every present tick, ON TOP of the VRAM->surface copy.
@@ -695,8 +827,8 @@ static const UInt32 kCbDump = 1;
 // traverse THIS validator (the only gate we have ever seen write status 4), or do
 // they take a different submission path? COMPLETED = this is the only gate;
 // status 4 = flags=2 never reaches this code, i.e. another path exists.
-// Device queue (0x3f) only: device-queue errors never wedge the queue.
-static const UInt32 kFlagsProbe = 1;
+// Keep the template and resource initialization on a pristine command queue.
+static const UInt32 kFlagsProbe = 0;
 
 // 2026-10-25: packed-CB variant of the RTV test ({BIND,RTV} etc). It failed while
 // the host still rejected flags bit1 and costs 3 queue-0 error slots, so it is off
@@ -814,7 +946,7 @@ static const UInt32 kDxTestDelayS = 90;
 //
 // The value is embedded in the banner string, so it is also covered by build.sh's
 // reachability check ("start, provider=%s [build %s]") -- a stale binary cannot pretend.
-#define VGPU_BUILD_TAG "§78-gld-discovery"
+#define VGPU_BUILD_TAG "multi-resource-v1-unverified"
 
 // How long one CB may take before we call it unanswered, and how long after that we keep
 // looking. Both are §56: the old budget was a 200M-iteration spin (~130 ms) that reported
@@ -840,6 +972,7 @@ static const UInt32 kDxExplore = 0;
 static const UInt32 kDxShaderProbe = 1;
 // §68: shader-generated triangle; run only after the §67 lifecycle passes.
 static const UInt32 kDxDrawProbe = 1;
+static const UInt32 kDxMultiResource = 1;
 
 // §57: the ladder. On by default because CLEAR_RTV alone answers STATUS 3 while
 // SET_TOPOLOGY alone completes -- the open question is which prerequisite the host thinks
@@ -1080,7 +1213,7 @@ static const IOByteCount kGbPageBytes        = 4096;
 static const UInt32     kGbPageShift         = 12;
 static const UInt32     kGbDataPages         = 4;    // 16 KiB data MOB -> needs PT64_1
 static const UInt32     kGbMobTableEntries   = 1024; // 16 KiB
-static const UInt32     kGbSurfaceTableEnts  = 64;   // 64 * 72 = 4608 bytes
+static const UInt32     kGbSurfaceTableEnts  = 64;   // 64 entries in a 4 KiB table
 
 // Sizes derived from the SVGAOTable*Entry structures (both `#pragma pack(push, 1)`).
 //
@@ -1094,6 +1227,14 @@ static const UInt32     kGbSurfaceTableEnts  = 64;   // 64 * 72 = 4608 bytes
 // surfaceEntryFill), not its size. Keep the size, fix the fill.
 static const UInt32 kGbMobEntryBytes         = 16;   // {ptDepth(4) sizeInBytes(4) base(8)}
 static const UInt32 kGbSurfaceEntryBytes     = 64;   // SVGAOTableSurfaceEntry, packed
+static_assert(kGbSurfaceTableEnts * kGbSurfaceEntryBytes == kGbPageBytes,
+              "surface table must fit one mapped page");
+static_assert(kResourceSurfaceIds[0] < kGbSurfaceTableEnts &&
+              kResourceSurfaceIds[1] < kGbSurfaceTableEnts, "surface table capacity");
+static_assert(kResourceMobIds[0] < kGbMobTableEntries &&
+              kResourceMobIds[1] < kGbMobTableEntries, "MOB table capacity");
+static_assert(kResourceRtvIds[0] * 32 + 32 <= kGbPageBytes &&
+              kResourceRtvIds[1] * 32 + 32 <= kGbPageBytes, "RTV table capacity");
 
 // Offsets inside the single contiguous working buffer the kext allocates.
 static const IOByteCount kGbOffPtOtable      = 0x0000;
@@ -1107,6 +1248,18 @@ static const IOByteCount kGbOffDxCtxTable    = 0xD000;
 static const IOByteCount kGbOffPtSt          = 0xE000;
 static const IOByteCount kGbOffStTable       = 0xF000;
 static const IOByteCount kGbWorkingBytes     = 0x10000;
+static_assert(kGbOffSurfaceTable + kGbSurfaceTableEnts * kGbSurfaceEntryBytes <= kGbOffData,
+              "surface table allocation overlap");
+static_assert(kGbOffMobTable + kGbMobTableEntries * kGbMobEntryBytes <= kGbOffSurfaceTable,
+              "MOB table allocation overlap");
+static_assert(kResourceBytes / kGbPageBytes * sizeof(UInt64) <= kGbPageBytes,
+              "color page table capacity");
+// 独占已验证的模板队列；新开关必须与构建后 resource 标记检查一同核验。
+static_assert(!kDxMultiResource || (kDxTest && kDxTemplateOnly && kDxVm3dmpTemplate &&
+              kDxShaderProbe && kDxDrawProbe && kCbKeepDxContext && kCbMobMode == 0 &&
+              !kDxExplore && !kFlagsProbe && !kPackedTest && !kDxSendDefineRtv &&
+              !kDxGrowCotable && kProbeEveryS == 0 && kProbe2D == 0 &&
+              kGbStage == 0 && kSkipScreenObject), "multi-resource requires exclusive template mode");
 
 // DX context object table: SVGAOTableDXContextEntry {uint32 cid; SVGAMobId mobid;} = 8 bytes.
 static const UInt32     kGbDxCtxTableEnts    = 256;  // 2 KiB at 8B/entry (host otables[5].count)
@@ -1467,8 +1620,10 @@ private:
     UInt32                   _ctxMobId = 3;
     IOBufferMemoryDescriptor *_dxMem = nullptr;     // DX test surface memory
     void                    *_dxVirt = nullptr;
+    IOMemoryMap *_dxDataMap = nullptr;
     IOBufferMemoryDescriptor *_dxPtMem = nullptr;   // context MOB 3 PT page (gbBringUp, must stay alive)
     IOBufferMemoryDescriptor *_surfPtMem = nullptr; // DX test surface PT page (dedicated)
+    IOMemoryMap *_surfPtMap = nullptr;
     // Command buffer submission state.
     IOPCIDevice              *_pci = nullptr;          // for register access in cbSubmit
     // Retain shader MOB backing for the device lifetime, including failure paths.
@@ -1491,8 +1646,33 @@ private:
     IOReturn createDrawUserClient(task_t task, void *securityID, UInt32 type,
                                  OSDictionary *properties, IOUserClient **handler);
     UInt64 _userDrawGeneration = 0;
-    IOReturn userSubmit(UInt64 *generation, const UInt32 *vertices, const UInt32 *clearColor);
+    VgpuColorResource _colorResources[2];
+    VgpuResourceOwner *_resourceOwners = nullptr;
+    bool resourceOwnerOpen(UInt64 token);
+    UInt64 _nextOwnerToken = 0;
+    UInt64 _nextResourceHandle = 0;
+    bool _resourceBackendReady = false;
+    bool _resourceBackendFailed = false;
+public:
+    IOReturn registerResourceOwner(UInt64 *token, const UInt32 *closing);
+    void revokeResourceOwner(UInt64 token);
+    IOReturn resourceCreate(UInt64 owner, const VgpuResourceRequest *request, VgpuResourceInfo *info);
+    IOReturn resourceRelease(UInt64 owner, const VgpuResourceReleaseRequest *request,
+                             VgpuResourceReleaseResponse *response);
+    IOReturn resourceSubmit(UInt64 owner, const VgpuResourceSubmitRequest *request,
+                            VgpuResourceSubmitResponse *response);
+    IOReturn resourceRead(UInt64 owner, const VgpuResourceReadRequest *request,
+                          VgpuResourceReadResponse *response);
+    IOReturn resourceInfo(UInt64 owner, const VgpuResourceReleaseRequest *request,
+                          VgpuResourceInfo *info);
+private:
+    bool setupColorResource(volatile UInt32 *fifo, UInt32 slot);
+    bool clearColorResource(UInt32 slot);
+    void releaseUnpublishedColors();
+    VgpuColorResource *findColorResource(UInt64 owner, UInt64 handle);
+    IOReturn userSubmit(UInt64 owner, UInt64 *generation, const UInt32 *vertices, const UInt32 *clearColor);
     IOBufferMemoryDescriptor *_cotableMem = nullptr;   // DX COTABLE storage (4 KiB)
+    IOMemoryMap *_cotableMap = nullptr;
     IOBufferMemoryDescriptor *_cotablePtMem = nullptr; // unused (PT64_0 needs no PT page)
     IOBufferMemoryDescriptor *_cbHeaderMem = nullptr;  // 4 KiB = 64 header slots
     volatile UInt8           *_cbHeaderVirt = nullptr; // CURRENT slot (see cbSubmitCtx)
@@ -1535,9 +1715,9 @@ public:
     void free() APPLE_KEXT_OVERRIDE;
     IOReturn newUserClient(task_t task, void *securityID, UInt32 type,
                           OSDictionary *properties, IOUserClient **handler) APPLE_KEXT_OVERRIDE;
-    IOReturn userDraw(UInt64 *generation, const UInt32 *vertices = nullptr);
-    IOReturn userClear(UInt64 *generation, const UInt32 *rgba);
-    IOReturn userReadRow(UInt64 generation, UInt64 row, void *output);
+    IOReturn userDraw(UInt64 owner, UInt64 *generation, const UInt32 *vertices = nullptr);
+    IOReturn userClear(UInt64 owner, UInt64 *generation, const UInt32 *rgba);
+    IOReturn userReadRow(UInt64 owner, UInt64 generation, UInt64 row, void *output);
 
     //
     // IOFramebuffer.
@@ -1718,8 +1898,9 @@ class vgpuDrawUserClient : public IOUserClient {
 private:
     IOLock *_ownerLock = nullptr;
     vgpuFramebuffer *_owner = nullptr;
-    bool _closing = false;
-    vgpuFramebuffer *copyOwner();
+    UInt32 _closing = 0;
+    UInt64 _ownerToken = 0;
+    vgpuFramebuffer *copyOwner(UInt64 *token = nullptr);
 public:
     bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
     void stop(IOService *provider) APPLE_KEXT_OVERRIDE;
@@ -1732,6 +1913,11 @@ public:
     static IOReturn readRow(OSObject *target, void *, IOExternalMethodArguments *args);
     static IOReturn drawVertices(OSObject *target, void *, IOExternalMethodArguments *args);
     static IOReturn clear(OSObject *target, void *, IOExternalMethodArguments *args);
+    static IOReturn resourceCreate(OSObject *target, void *, IOExternalMethodArguments *args);
+    static IOReturn resourceRelease(OSObject *target, void *, IOExternalMethodArguments *args);
+    static IOReturn resourceSubmit(OSObject *target, void *, IOExternalMethodArguments *args);
+    static IOReturn resourceRead(OSObject *target, void *, IOExternalMethodArguments *args);
+    static IOReturn resourceInfo(OSObject *target, void *, IOExternalMethodArguments *args);
 };
 OSDefineMetaClassAndStructors(vgpuDrawUserClient, IOUserClient)
 
@@ -1791,42 +1977,63 @@ bool vgpuDrawUserClient::start(IOService *provider) {
     if (!owner) return false;
     _ownerLock = IOLockAlloc();
     if (!_ownerLock || !super::start(provider)) return false;
+    UInt64 token = 0;
+    if (owner->registerResourceOwner(&token, &_closing) != kIOReturnSuccess) {
+        super::stop(provider);
+        return false;
+    }
     owner->retain();
     _owner = owner;
+    _ownerToken = token;
     return true;
 }
 
-vgpuFramebuffer *vgpuDrawUserClient::copyOwner() {
+vgpuFramebuffer *vgpuDrawUserClient::copyOwner(UInt64 *token) {
     if (!_ownerLock) return nullptr;
     IOLockLock(_ownerLock);
-    vgpuFramebuffer *owner = (!_closing && !isInactive()) ? _owner : nullptr;
-    if (owner) owner->retain();
+    vgpuFramebuffer *owner = (!__atomic_load_n(&_closing, __ATOMIC_ACQUIRE) && !isInactive()) ? _owner : nullptr;
+    if (owner) {
+        owner->retain();
+        if (token) *token = _ownerToken;
+    }
     IOLockUnlock(_ownerLock);
     return owner;
 }
 
 void vgpuDrawUserClient::stop(IOService *provider) {
     IOLockLock(_ownerLock);
-    _closing = true;
+    __atomic_store_n(&_closing, 1u, __ATOMIC_RELEASE);
     vgpuFramebuffer *owner = _owner;
+    UInt64 token = _ownerToken;
     _owner = nullptr;
+    _ownerToken = 0;
     IOLockUnlock(_ownerLock);
+    if (owner && token) owner->revokeResourceOwner(token);
     super::stop(provider);
     if (owner) owner->release();
 }
 
 void vgpuDrawUserClient::free() {
-    if (_owner) { _owner->release(); _owner = nullptr; }
+    if (_owner) {
+        _owner->revokeResourceOwner(_ownerToken);
+        _owner->release(); _owner = nullptr;
+    }
     if (_ownerLock) { IOLockFree(_ownerLock); _ownerLock = nullptr; }
     super::free();
 }
 
 IOReturn vgpuDrawUserClient::clientClose() {
+    vgpuFramebuffer *owner = nullptr;
+    UInt64 token = 0;
     if (_ownerLock) {
         IOLockLock(_ownerLock);
-        _closing = true;
+        __atomic_store_n(&_closing, 1u, __ATOMIC_RELEASE);
+        owner = _owner;
+        token = _ownerToken;
+        if (owner) owner->retain();
         IOLockUnlock(_ownerLock);
     }
+    if (owner) { owner->revokeResourceOwner(token); owner->release(); }
     terminate();
     return kIOReturnSuccess;
 }
@@ -1837,21 +2044,29 @@ IOReturn vgpuDrawUserClient::externalMethod(uint32_t selector, IOExternalMethodA
         { &vgpuDrawUserClient::draw,    0, 0, 3, 0 },
         { &vgpuDrawUserClient::readRow, 2, 0, 0, 256 * sizeof(UInt32) },
         { &vgpuDrawUserClient::drawVertices, 0, 56, 3, 0 },
-        { &vgpuDrawUserClient::clear, 0, 24, 3, 0 }
+        { &vgpuDrawUserClient::clear, 0, 24, 3, 0 },
+        { &vgpuDrawUserClient::resourceCreate, 0, sizeof(VgpuResourceRequest), 0, sizeof(VgpuResourceInfo) },
+        { &vgpuDrawUserClient::resourceRelease, 0, sizeof(VgpuResourceReleaseRequest), 0, sizeof(VgpuResourceReleaseResponse) },
+        { &vgpuDrawUserClient::resourceSubmit, 0, sizeof(VgpuResourceSubmitRequest), 0, sizeof(VgpuResourceSubmitResponse) },
+        { &vgpuDrawUserClient::resourceRead, 0, sizeof(VgpuResourceReadRequest), 0, sizeof(VgpuResourceReadResponse) },
+        { &vgpuDrawUserClient::resourceInfo, 0, sizeof(VgpuResourceReleaseRequest), 0, sizeof(VgpuResourceInfo) }
     };
     if (isInactive()) return kIOReturnNotAttached;
     if (selector >= sizeof(methods) / sizeof(methods[0])) return kIOReturnUnsupported;
     // This interface is synchronous; reject asynchronous references explicitly.
-    if (!args || args->asyncWakePort != MACH_PORT_NULL) return kIOReturnBadArgument;
+    if (!args || args->asyncWakePort != MACH_PORT_NULL || args->asyncReferenceCount != 0 ||
+        args->structureInputDescriptor || args->structureOutputDescriptor)
+        return kIOReturnBadArgument;
     return super::externalMethod(selector, args, &methods[selector], this, nullptr);
 }
 
 IOReturn vgpuDrawUserClient::draw(OSObject *target, void *, IOExternalMethodArguments *args) {
     vgpuDrawUserClient *client = OSDynamicCast(vgpuDrawUserClient, target);
-    vgpuFramebuffer *owner = client ? client->copyOwner() : nullptr;
+    UInt64 token = 0;
+    vgpuFramebuffer *owner = client ? client->copyOwner(&token) : nullptr;
     if (!owner) return kIOReturnNotAttached;
     UInt64 generation = 0;
-    IOReturn result = owner->isInactive() ? kIOReturnNotAttached : owner->userDraw(&generation);
+    IOReturn result = owner->isInactive() ? kIOReturnNotAttached : owner->userDraw(token, &generation);
     owner->release();
     if (result == kIOReturnSuccess) {
         args->scalarOutput[0] = generation;
@@ -1864,10 +2079,11 @@ IOReturn vgpuDrawUserClient::draw(OSObject *target, void *, IOExternalMethodArgu
 IOReturn vgpuDrawUserClient::readRow(OSObject *target, void *, IOExternalMethodArguments *args) {
     vgpuDrawUserClient *client = OSDynamicCast(vgpuDrawUserClient, target);
     if (!args->structureOutput) return kIOReturnBadArgument;
-    vgpuFramebuffer *owner = client ? client->copyOwner() : nullptr;
+    UInt64 token = 0;
+    vgpuFramebuffer *owner = client ? client->copyOwner(&token) : nullptr;
     if (!owner) return kIOReturnNotAttached;
     IOReturn result = owner->isInactive() ? kIOReturnNotAttached :
-        owner->userReadRow(args->scalarInput[0], args->scalarInput[1], args->structureOutput);
+        owner->userReadRow(token, args->scalarInput[0], args->scalarInput[1], args->structureOutput);
     owner->release();
     return result;
 }
@@ -1888,10 +2104,11 @@ IOReturn vgpuDrawUserClient::drawVertices(OSObject *target, void *, IOExternalMe
             ((p[2] & 0x80000000) && (p[2] & 0x7FFFFFFF)) ||
             p[3] != 0x3F800000) return kIOReturnBadArgument;
     }
-    vgpuFramebuffer *owner = client ? client->copyOwner() : nullptr;
+    UInt64 token = 0;
+    vgpuFramebuffer *owner = client ? client->copyOwner(&token) : nullptr;
     if (!owner) return kIOReturnNotAttached;
     UInt64 generation = 0;
-    IOReturn result = owner->isInactive() ? kIOReturnNotAttached : owner->userDraw(&generation, input + 2);
+    IOReturn result = owner->isInactive() ? kIOReturnNotAttached : owner->userDraw(token, &generation, input + 2);
     owner->release();
     if (result == kIOReturnSuccess) {
         args->scalarOutput[0] = generation;
@@ -1911,10 +2128,11 @@ IOReturn vgpuDrawUserClient::clear(OSObject *target, void *, IOExternalMethodArg
         return kIOReturnBadArgument;
     memcpy(input, args->structureInput, sizeof(input));
     if (input[0] != 1 || input[1] != sizeof(input)) return kIOReturnBadArgument;
-    vgpuFramebuffer *owner = client ? client->copyOwner() : nullptr;
+    UInt64 token = 0;
+    vgpuFramebuffer *owner = client ? client->copyOwner(&token) : nullptr;
     if (!owner) return kIOReturnNotAttached;
     UInt64 generation = 0;
-    IOReturn result = owner->isInactive() ? kIOReturnNotAttached : owner->userClear(&generation, input + 2);
+    IOReturn result = owner->isInactive() ? kIOReturnNotAttached : owner->userClear(token, &generation, input + 2);
     owner->release();
     if (result == kIOReturnSuccess) {
         args->scalarOutput[0] = generation;
@@ -1922,6 +2140,66 @@ IOReturn vgpuDrawUserClient::clear(OSObject *target, void *, IOExternalMethodArg
         args->scalarOutput[2] = 256;
     }
     return result;
+}
+
+IOReturn vgpuDrawUserClient::resourceCreate(OSObject *target, void *, IOExternalMethodArguments *args) {
+    vgpuDrawUserClient *c = OSDynamicCast(vgpuDrawUserClient, target);
+    if (!c || !args->structureInput || args->structureInputSize != sizeof(VgpuResourceRequest) ||
+        !args->structureOutput || args->structureOutputSize != sizeof(VgpuResourceInfo)) return kIOReturnBadArgument;
+    VgpuResourceRequest req; VgpuResourceInfo out; memcpy(&req, args->structureInput, sizeof(req));
+    UInt64 token = 0; vgpuFramebuffer *fb = c->copyOwner(&token); if (!fb) return kIOReturnNotAttached;
+    IOReturn rc = fb->resourceCreate(token, &req, &out); fb->release();
+    if (rc == kIOReturnSuccess) memcpy(args->structureOutput, &out, sizeof(out));
+    return rc;
+}
+
+IOReturn vgpuDrawUserClient::resourceRelease(OSObject *target, void *, IOExternalMethodArguments *args) {
+    vgpuDrawUserClient *c = OSDynamicCast(vgpuDrawUserClient, target);
+    if (!c || !args->structureInput || args->structureInputSize != sizeof(VgpuResourceReleaseRequest) ||
+        !args->structureOutput || args->structureOutputSize != sizeof(VgpuResourceReleaseResponse)) return kIOReturnBadArgument;
+    VgpuResourceReleaseRequest req; VgpuResourceReleaseResponse out; memcpy(&req, args->structureInput, sizeof(req));
+    UInt64 token = 0; vgpuFramebuffer *fb = c->copyOwner(&token); if (!fb) return kIOReturnNotAttached;
+    IOReturn rc = fb->resourceRelease(token, &req, &out); fb->release();
+    if (rc == kIOReturnSuccess) memcpy(args->structureOutput, &out, sizeof(out));
+    return rc;
+}
+
+IOReturn vgpuDrawUserClient::resourceSubmit(OSObject *target, void *, IOExternalMethodArguments *args) {
+    vgpuDrawUserClient *c = OSDynamicCast(vgpuDrawUserClient, target);
+    if (!c || !args->structureInput || args->structureInputSize != sizeof(VgpuResourceSubmitRequest) ||
+        !args->structureOutput || args->structureOutputSize != sizeof(VgpuResourceSubmitResponse)) return kIOReturnBadArgument;
+    VgpuResourceSubmitRequest req; VgpuResourceSubmitResponse out; memcpy(&req, args->structureInput, sizeof(req));
+    UInt64 token = 0; vgpuFramebuffer *fb = c->copyOwner(&token); if (!fb) return kIOReturnNotAttached;
+    IOReturn rc = fb->resourceSubmit(token, &req, &out); fb->release();
+    if (rc == kIOReturnSuccess) memcpy(args->structureOutput, &out, sizeof(out));
+    return rc;
+}
+
+IOReturn vgpuDrawUserClient::resourceRead(OSObject *target, void *, IOExternalMethodArguments *args) {
+    vgpuDrawUserClient *c = OSDynamicCast(vgpuDrawUserClient, target);
+    if (!c || !args->structureInput || args->structureInputSize != sizeof(VgpuResourceReadRequest) ||
+        !args->structureOutput || args->structureOutputSize != sizeof(VgpuResourceReadResponse)) return kIOReturnBadArgument;
+    VgpuResourceReadRequest req;
+    memcpy(&req, args->structureInput, sizeof(req));
+    UInt64 token = 0;
+    vgpuFramebuffer *fb = c->copyOwner(&token);
+    if (!fb) return kIOReturnNotAttached;
+    // 使用 IOKit 的内核 inline 输出缓冲，避免在内核栈上放置整行像素。
+    IOReturn rc = fb->resourceRead(token, &req,
+        static_cast<VgpuResourceReadResponse *>(args->structureOutput));
+    fb->release();
+    return rc;
+}
+
+IOReturn vgpuDrawUserClient::resourceInfo(OSObject *target, void *, IOExternalMethodArguments *args) {
+    vgpuDrawUserClient *c = OSDynamicCast(vgpuDrawUserClient, target);
+    if (!c || !args->structureInput || args->structureInputSize != sizeof(VgpuResourceReleaseRequest) ||
+        !args->structureOutput || args->structureOutputSize != sizeof(VgpuResourceInfo)) return kIOReturnBadArgument;
+    VgpuResourceReleaseRequest req; VgpuResourceInfo out; memcpy(&req, args->structureInput, sizeof(req));
+    UInt64 token = 0; vgpuFramebuffer *fb = c->copyOwner(&token); if (!fb) return kIOReturnNotAttached;
+    IOReturn rc = fb->resourceInfo(token, &req, &out); fb->release();
+    if (rc == kIOReturnSuccess) memcpy(args->structureOutput, &out, sizeof(out));
+    return rc;
 }
 
 bool vgpuFramebuffer::setupVertexInput() {
@@ -1982,26 +2260,31 @@ bool vgpuFramebuffer::setupVertexInput() {
     return ok;
 }
 
-IOReturn vgpuFramebuffer::userDraw(UInt64 *generation, const UInt32 *vertices) {
-    return userSubmit(generation, vertices, nullptr);
+IOReturn vgpuFramebuffer::userDraw(UInt64 owner, UInt64 *generation, const UInt32 *vertices) {
+    return userSubmit(owner, generation, vertices, nullptr);
 }
 
-IOReturn vgpuFramebuffer::userClear(UInt64 *generation, const UInt32 *rgba) {
+IOReturn vgpuFramebuffer::userClear(UInt64 owner, UInt64 *generation, const UInt32 *rgba) {
     if (!rgba) return kIOReturnBadArgument;
     for (UInt32 i = 0; i < 4; ++i) {
         UInt32 magnitude = rgba[i] & 0x7FFFFFFF;
         if (magnitude > 0x3F800000 || ((rgba[i] & 0x80000000) && magnitude))
             return kIOReturnBadArgument;
     }
-    return userSubmit(generation, nullptr, rgba);
+    return userSubmit(owner, generation, nullptr, rgba);
 }
 
-IOReturn vgpuFramebuffer::userSubmit(UInt64 *generation, const UInt32 *vertices, const UInt32 *clearColor) {
+IOReturn vgpuFramebuffer::userSubmit(UInt64 owner, UInt64 *generation, const UInt32 *vertices, const UInt32 *clearColor) {
     if (!_userDrawLock || !generation) return kIOReturnNotReady;
     IOLockLock(_userDrawLock);
+    if (!resourceOwnerOpen(owner)) { IOLockUnlock(_userDrawLock); return kIOReturnNotOpen; }
     if (_userDrawStopping || !_userDrawReady || _dxBusy || !_dxVirt) {
         IOLockUnlock(_userDrawLock);
         return kIOReturnNotReady;
+    }
+    if (_userDrawGeneration == ~(UInt64)0) {
+        IOLockUnlock(_userDrawLock);
+        return kIOReturnNoResources;
     }
     _dxBusy = 1;
     bool ok = !vertices || setupVertexInput();
@@ -2017,10 +2300,12 @@ IOReturn vgpuFramebuffer::userSubmit(UInt64 *generation, const UInt32 *vertices,
     UInt32 layout[3] = { 1157, 4, vertices ? 2u : 1u };
     UInt32 vb[6] = { 1158, 16, 0, vertices ? 4u : SVGA3D_INVALID_ID_U32, 16, 0 };
     // Explicit bindings let fixed VertexID and vertex-buffer draws alternate.
+    UInt32 bindRtv[4] = { kSvga3dCmdDxSetRenderTargets, 8, SVGA3D_INVALID_ID_U32, kDxTemplateRtvId };
     UInt32 raster[3] = { kSvga3dCmdDxSetRasterizerState, 4, 1 };
     UInt32 clear[7] = { kSvga3dCmdDxClearRenderTargetView, 20, kDxTemplateRtvId,
                         0, 0x3F800000, 0, 0x3F800000 };
     UInt32 draw[4] = { 1152, 8, 3, 0 };
+    ok = ok && cbSubmitCtx(bindRtv, 4, 1, 1, kCbFlagDxContext);
     if (clearColor) {
         memcpy(clear + 3, clearColor, 4 * sizeof(UInt32));
         ok = ok && cbSubmitCtx(clear, 7, 1, 1, kCbFlagDxContext);
@@ -2041,7 +2326,11 @@ IOReturn vgpuFramebuffer::userSubmit(UInt64 *generation, const UInt32 *vertices,
         ok = cbSubmitCtx(readback, 4, 1, 1, kCbFlagDxContext) && cbSubmitCtx(sync, 0, 0, 0, 1);
     }
     if (ok) *generation = ++_userDrawGeneration;
-    else _userDrawReady = false; // do not retry against a possibly failed queue
+    else {
+        _userDrawReady = false;
+        _resourceBackendReady = false;
+        _resourceBackendFailed = true;
+    }
     _dxBusy = 0;
     if (clearColor)
         IOLog(VGPU_FB_TAG ": user: clear-only generation %llu -> %s\n",
@@ -2053,9 +2342,10 @@ IOReturn vgpuFramebuffer::userSubmit(UInt64 *generation, const UInt32 *vertices,
     return ok ? kIOReturnSuccess : kIOReturnIOError;
 }
 
-IOReturn vgpuFramebuffer::userReadRow(UInt64 generation, UInt64 row, void *output) {
+IOReturn vgpuFramebuffer::userReadRow(UInt64 owner, UInt64 generation, UInt64 row, void *output) {
     if (!_userDrawLock || !output || row >= 256) return kIOReturnBadArgument;
     IOLockLock(_userDrawLock);
+    if (!resourceOwnerOpen(owner)) { IOLockUnlock(_userDrawLock); return kIOReturnNotOpen; }
     IOReturn result = kIOReturnNotReady;
     if (!_userDrawStopping && _userDrawReady && !_dxBusy && _dxVirt && generation && generation == _userDrawGeneration) {
         __asm__ volatile ("" ::: "memory");
@@ -2064,6 +2354,231 @@ IOReturn vgpuFramebuffer::userReadRow(UInt64 generation, UInt64 row, void *outpu
     }
     IOLockUnlock(_userDrawLock);
     return result;
+}
+
+VgpuColorResource *vgpuFramebuffer::findColorResource(UInt64 owner, UInt64 handle) {
+    if (!owner || !handle) return nullptr;
+    for (UInt32 i = 0; i < 2; ++i)
+        if (_colorResources[i].owner == owner && _colorResources[i].handle == handle)
+            return &_colorResources[i];
+    return nullptr;
+}
+
+bool vgpuFramebuffer::resourceOwnerOpen(UInt64 token) {
+    for (VgpuResourceOwner *p = _resourceOwners; p; p = p->next)
+        if (p->token == token) return !__atomic_load_n(p->closing, __ATOMIC_ACQUIRE);
+    return false;
+}
+
+IOReturn vgpuFramebuffer::registerResourceOwner(UInt64 *token, const UInt32 *closing) {
+    if (!token || !closing || !_userDrawLock) return kIOReturnBadArgument;
+    VgpuResourceOwner *entry = (VgpuResourceOwner *)IOMalloc(sizeof(VgpuResourceOwner));
+    if (!entry) return kIOReturnNoMemory;
+    IOLockLock(_userDrawLock);
+    if (_userDrawStopping || _nextOwnerToken == ~(UInt64)0) {
+        IOReturn result = _userDrawStopping ? kIOReturnNotReady : kIOReturnNoResources;
+        IOLockUnlock(_userDrawLock);
+        IOFree(entry, sizeof(*entry));
+        return result;
+    }
+    *token = entry->token = ++_nextOwnerToken;
+    entry->closing = closing;
+    entry->next = _resourceOwners;
+    _resourceOwners = entry;
+    IOLockUnlock(_userDrawLock);
+    return kIOReturnSuccess;
+}
+
+void vgpuFramebuffer::revokeResourceOwner(UInt64 token) {
+    if (!token || !_userDrawLock) return;
+    IOLockLock(_userDrawLock);
+    VgpuResourceOwner **link = &_resourceOwners;
+    while (*link && (*link)->token != token) link = &(*link)->next;
+    if (*link) {
+        VgpuResourceOwner *entry = *link;
+        *link = entry->next;
+        IOFree(entry, sizeof(*entry));
+    }
+    for (UInt32 i = 0; i < 2; ++i) {
+        VgpuColorResource &r = _colorResources[i];
+        if (r.owner == token) { r.owner = 0; r.handle = 0; r.generation = 0; }
+    }
+    IOLockUnlock(_userDrawLock);
+}
+
+static void fillResourceInfo(VgpuResourceInfo *info, UInt64 handle, UInt64 generation) {
+    bzero(info, sizeof(*info));
+    info->version = kResourceAbiVersion; info->byteSize = sizeof(*info);
+    info->handle = handle; info->generation = generation;
+    info->width = 256; info->height = 256; info->format = kResourceFormatBgra8;
+    info->rowBytes = kResourceRowBytes; info->backingBytes = kResourceBytes;
+    info->flags = kResourceInfoFlags;
+}
+
+IOReturn vgpuFramebuffer::resourceCreate(UInt64 owner, const VgpuResourceRequest *request, VgpuResourceInfo *info) {
+    if (!request || !info) return kIOReturnBadArgument;
+    if (request->version != kResourceAbiVersion || request->byteSize != sizeof(*request) ||
+        request->flags || request->reserved) return kIOReturnBadArgument;
+    if (request->width != 256 || request->height != 256 ||
+        request->format != kResourceFormatBgra8 || request->samples) return kIOReturnUnsupported;
+    IOLockLock(_userDrawLock);
+    if (!resourceOwnerOpen(owner)) { IOLockUnlock(_userDrawLock); return kIOReturnNotOpen; }
+    if (_userDrawStopping || !_resourceBackendReady || _resourceBackendFailed || !_dxFifo ||
+        !_userDrawReady || _dxBusy) { IOLockUnlock(_userDrawLock); return kIOReturnNotReady; }
+    if (_nextResourceHandle == ~(UInt64)0) { IOLockUnlock(_userDrawLock); return kIOReturnNoResources; }
+    VgpuColorResource *r = nullptr;
+    UInt32 slot = 0;
+    for (; slot < 2; ++slot) if (!_colorResources[slot].owner) { r = &_colorResources[slot]; break; }
+    if (!r) { IOLockUnlock(_userDrawLock); return kIOReturnNoResources; }
+    _dxBusy = 1;
+    const bool ok = clearColorResource(slot);
+    if (ok) {
+        r->owner = owner; r->handle = ++_nextResourceHandle; r->generation = 1;
+        fillResourceInfo(info, r->handle, r->generation);
+    } else {
+        _resourceBackendFailed = true; _resourceBackendReady = false; _userDrawReady = false;
+    }
+    _dxBusy = 0;
+    IOLockUnlock(_userDrawLock);
+    return ok ? kIOReturnSuccess : kIOReturnIOError;
+}
+
+IOReturn vgpuFramebuffer::resourceRelease(UInt64 owner, const VgpuResourceReleaseRequest *request,
+                                           VgpuResourceReleaseResponse *response) {
+    if (!request || !response || request->version != 1 || request->byteSize != sizeof(*request) ||
+        !request->handle || request->reserved) return kIOReturnBadArgument;
+    IOLockLock(_userDrawLock);
+    if (!resourceOwnerOpen(owner)) { IOLockUnlock(_userDrawLock); return kIOReturnNotOpen; }
+    VgpuColorResource *r = findColorResource(owner, request->handle);
+    if (!r) {
+        IOReturn e = kIOReturnNotFound;
+        for (UInt32 i = 0; i < 2; ++i) if (_colorResources[i].handle == request->handle) e = kIOReturnNotPermitted;
+        IOLockUnlock(_userDrawLock); return e;
+    }
+    r->owner = 0; r->handle = 0; r->generation = 0;
+    bzero(response, sizeof(*response)); response->version = 1; response->byteSize = sizeof(*response);
+    response->handle = request->handle; response->flags = 1;
+    IOLockUnlock(_userDrawLock);
+    return kIOReturnSuccess;
+}
+
+IOReturn vgpuFramebuffer::resourceInfo(UInt64 owner, const VgpuResourceReleaseRequest *request, VgpuResourceInfo *info) {
+    if (!request || !info || request->version != 1 || request->byteSize != sizeof(*request) ||
+        !request->handle || request->reserved) return kIOReturnBadArgument;
+    IOLockLock(_userDrawLock);
+    if (!resourceOwnerOpen(owner)) { IOLockUnlock(_userDrawLock); return kIOReturnNotOpen; }
+    VgpuColorResource *r = findColorResource(owner, request->handle);
+    IOReturn result = kIOReturnNotReady;
+    if (_resourceBackendReady && !_resourceBackendFailed && !_userDrawStopping && r)
+        { fillResourceInfo(info, r->handle, r->generation); result = kIOReturnSuccess; }
+    else if (r) result = kIOReturnNotReady;
+    else {
+        result = kIOReturnNotFound;
+        for (UInt32 i = 0; i < 2; ++i)
+            if (_colorResources[i].handle == request->handle) result = kIOReturnNotPermitted;
+    }
+    IOLockUnlock(_userDrawLock);
+    return result;
+}
+
+IOReturn vgpuFramebuffer::resourceRead(UInt64 owner, const VgpuResourceReadRequest *request,
+                                        VgpuResourceReadResponse *response) {
+    if (!request || !response || request->version != 1 || request->byteSize != sizeof(*request) ||
+        !request->handle || !request->generation || request->row >= 256 || request->reserved)
+        return kIOReturnBadArgument;
+    IOLockLock(_userDrawLock);
+    if (!resourceOwnerOpen(owner)) { IOLockUnlock(_userDrawLock); return kIOReturnNotOpen; }
+    VgpuColorResource *r = findColorResource(owner, request->handle);
+    IOReturn result = kIOReturnNotReady;
+    if (!_userDrawStopping && _resourceBackendReady && !_resourceBackendFailed && r &&
+        request->generation == r->generation) {
+        bzero(response, sizeof(*response)); response->version = 1; response->byteSize = sizeof(*response);
+        response->handle = r->handle; response->generation = r->generation;
+        response->row = request->row; response->rowBytes = kResourceRowBytes;
+        __asm__ volatile ("" ::: "memory");
+        memcpy(response->pixels, (const UInt8 *)r->virt + request->row * kResourceRowBytes, kResourceRowBytes);
+        result = kIOReturnSuccess;
+    } else if (!r) {
+        result = kIOReturnNotFound;
+        for (UInt32 i = 0; i < 2; ++i)
+            if (_colorResources[i].handle == request->handle) result = kIOReturnNotPermitted;
+    }
+    IOLockUnlock(_userDrawLock);
+    return result;
+}
+
+IOReturn vgpuFramebuffer::resourceSubmit(UInt64 owner, const VgpuResourceSubmitRequest *request,
+                                          VgpuResourceSubmitResponse *response) {
+    if (!request || !response || request->version != 1 || request->byteSize != sizeof(*request) ||
+        request->flags || !request->handle || !request->expectedGeneration) return kIOReturnBadArgument;
+    if (request->opcode < 1 || request->opcode > 3) return kIOReturnUnsupported;
+    for (UInt32 i = 0; i < 4; ++i) {
+        UInt32 m = request->rgbaBits[i] & 0x7FFFFFFF;
+        if (m > 0x3F800000 || ((request->rgbaBits[i] & 0x80000000) && m)) return kIOReturnBadArgument;
+    }
+    if (request->opcode != 3) {
+        for (UInt32 i = 0; i < 12; ++i) if (request->verticesBits[i]) return kIOReturnBadArgument;
+    } else {
+        for (UInt32 v = 0; v < 3; ++v) {
+            const UInt32 *p = request->verticesBits + v * 4;
+            if ((p[0] & 0x7FFFFFFF) > 0x3F800000 ||
+                (p[1] & 0x7FFFFFFF) > 0x3F800000 ||
+                (p[2] & 0x7FFFFFFF) > 0x3F800000 ||
+                ((p[2] & 0x80000000) && (p[2] & 0x7FFFFFFF)) ||
+                p[3] != 0x3F800000) return kIOReturnBadArgument;
+        }
+    }
+    IOLockLock(_userDrawLock);
+    if (!resourceOwnerOpen(owner)) { IOLockUnlock(_userDrawLock); return kIOReturnNotOpen; }
+    VgpuColorResource *r = findColorResource(owner, request->handle);
+    if (!r) {
+        IOReturn e = kIOReturnNotFound;
+        for (UInt32 i = 0; i < 2; ++i) if (_colorResources[i].handle == request->handle) e = kIOReturnNotPermitted;
+        IOLockUnlock(_userDrawLock); return e;
+    }
+    if (!_userDrawReady || !_resourceBackendReady || _resourceBackendFailed || _userDrawStopping || _dxBusy ||
+        request->expectedGeneration != r->generation) { IOLockUnlock(_userDrawLock); return kIOReturnNotReady; }
+    if (r->generation == ~(UInt64)0) { IOLockUnlock(_userDrawLock); return kIOReturnNoResources; }
+    _dxBusy = 1;
+    UInt32 slot = (r == &_colorResources[1]) ? 1 : 0;
+    bool ok = request->opcode != 3 || setupVertexInput();
+    if (ok && request->opcode == 3) {
+        memcpy(_vertexMem[0]->getBytesNoCopy(), request->verticesBits, 48);
+        __asm__ volatile ("" ::: "memory");
+        UInt32 update[5] = { 1219, 12, 4, 0, 48 };
+        ok = cbSubmitCtx(update, 5, 1, 1, kCbFlagDxContext);
+    }
+    UInt32 target[4] = { kSvga3dCmdDxSetRenderTargets, 8, SVGA3D_INVALID_ID_U32, kResourceRtvIds[slot] };
+    UInt32 clear[7] = { kSvga3dCmdDxClearRenderTargetView, 20, kResourceRtvIds[slot], 0, 0, 0, 0 };
+    memcpy(clear + 3, request->rgbaBits, sizeof(request->rgbaBits));
+    ok = ok && cbSubmitCtx(target, 4, 1, 1, kCbFlagDxContext) && cbSubmitCtx(clear, 7, 1, 1, kCbFlagDxContext);
+    if (ok && request->opcode != 1) {
+        UInt32 vs[4] = { 1150, 8, request->opcode == 3 ? 3u : 2u, 1 };
+        UInt32 layout[3] = { 1157, 4, request->opcode == 3 ? 2u : 1u };
+        UInt32 vb[6] = { 1158, 16, 0, request->opcode == 3 ? 4u : SVGA3D_INVALID_ID_U32, 16, 0 };
+        UInt32 raster[3] = { kSvga3dCmdDxSetRasterizerState, 4, 1 };
+        UInt32 draw[4] = { 1152, 8, 3, 0 };
+        ok = cbSubmitCtx(vs, 4, 1, 1, kCbFlagDxContext) && cbSubmitCtx(layout, 3, 1, 1, kCbFlagDxContext) &&
+             cbSubmitCtx(vb, 6, 1, 1, kCbFlagDxContext) && cbSubmitCtx(raster, 3, 1, 1, kCbFlagDxContext) &&
+             cbSubmitCtx(draw, 4, 1, 1, kCbFlagDxContext);
+    }
+    if (ok) {
+        volatile UInt32 *pixels = (volatile UInt32 *)r->virt;
+        for (UInt32 i = 0; i < kResourcePixelCount; ++i) pixels[i] = 0x7E5AA5C3;
+        __asm__ volatile ("" ::: "memory");
+        // 判别值写完后才交给设备；READBACK 完成后不再有 CPU 脏写入。
+        ok = r->data->performOperation(kIOMemoryIncoherentIOFlush, 0, kResourceBytes) == kIOReturnSuccess;
+        UInt32 rb[4] = { kSvga3dCmdDxReadbackSubResource, 8, kResourceSurfaceIds[slot], 0 };
+        UInt32 sync[1] = { 0 };
+        ok = ok && cbSubmitCtx(rb, 4, 1, 1, kCbFlagDxContext) && cbSubmitCtx(sync, 0, 0, 0, 1);
+        if (ok) ok = r->data->performOperation(kIOMemoryIncoherentIOFlush, 0, kResourceBytes) == kIOReturnSuccess;
+    }
+    if (ok) {
+        ++r->generation; bzero(response, sizeof(*response)); response->version = 1; response->byteSize = sizeof(*response);
+        response->handle = r->handle; response->generation = r->generation; response->width = 256; response->height = 256;
+    } else { _resourceBackendFailed = true; _resourceBackendReady = false; _userDrawReady = false; }
+    _dxBusy = 0; IOLockUnlock(_userDrawLock);
+    return ok ? kIOReturnSuccess : kIOReturnIOError;
 }
 
 //
@@ -3227,6 +3742,10 @@ void vgpuFramebuffer::dxTestC(thread_call_param_t param0, thread_call_param_t pa
     __asm__ volatile ("" ::: "memory");
     IOLog(VGPU_FB_TAG ": dx: delayed test starting (fifo=%p)\n", (void *)self->_dxFifo);
     self->dxReadbackTest(self->_dxFifo);
+    if (kDxMultiResource && !self->_resourceBackendReady) {
+        self->_resourceBackendFailed = true;
+        self->_userDrawReady = false;
+    }
     __asm__ volatile ("" ::: "memory");
     self->_dxBusy = 0;
     IOLockUnlock(self->_userDrawLock);
@@ -5929,7 +6448,7 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
     }
 
     // §62: observe shared guest backing after successful SET_COTABLE, before DX.
-    volatile UInt32 *observedRtv = (volatile UInt32 *)_cotableMem->map()->getVirtualAddress()
+    volatile UInt32 *observedRtv = (volatile UInt32 *)_cotableMap->getVirtualAddress()
                                   + trtv * 8;
     volatile UInt32 *observedCtx = (volatile UInt32 *)_ctxStateMem->map()->getVirtualAddress();
     __asm__ volatile ("" ::: "memory");
@@ -6357,12 +6876,21 @@ bool vgpuFramebuffer::dxVm3dmpTemplate(volatile UInt32 *fifo, UInt32 surfId,
                       drawOk ? "PASS" : "FAIL (see first failure/pixels)");
                 // Published under the delayed-test lock. Fixed ABI is valid only
                 // for this verified resource set, with no other CB/FIFO producer.
-                _userDrawReady = !_userDrawStopping && drawOk && !_presentCall && kProbeEveryS == 0 &&
+                _userDrawReady = !_userDrawStopping && !_resourceBackendFailed && drawOk && !_presentCall && kProbeEveryS == 0 &&
                                  !kDxExplore && rtvQ == 1 && tcid == 1 &&
                                  surfId == 3 && dxW == 256 && dxH == 256;
+                if (_userDrawReady && kDxMultiResource && !_resourceBackendFailed) {
+                    _resourceBackendReady = clearColorResource(0) && clearColorResource(1);
+                    if (!_resourceBackendReady) {
+                        _resourceBackendFailed = true;
+                        _userDrawReady = false;
+                    }
+                }
+                IOLog(VGPU_FB_TAG ": resource: BGRA pool interface %s\n",
+                      _resourceBackendReady ? "READY" : "DISABLED");
                 IOLog(VGPU_FB_TAG ": user: fixed triangle interface %s\n",
                       _userDrawReady ? "READY" : "DISABLED");
-                return drawOk;
+                return drawOk && (!kDxMultiResource || _resourceBackendReady);
             }
             return shaderOk;
         }
@@ -6404,8 +6932,11 @@ bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
     IOLog(VGPU_FB_TAG ": dx: surface memory alloc failed\n");
     return false;
     }
-    bzero((void *)_dxMem->map()->getVirtualAddress(), dxBytes);
-    _dxVirt = (void *)_dxMem->map()->getVirtualAddress();
+    _dxDataMap = _dxMem->map();
+    if (!_dxDataMap) return false;
+    _dxVirt = (void *)_dxDataMap->getVirtualAddress();
+    if (!_dxVirt) return false;
+    bzero(_dxVirt, dxBytes);
     {
     // Discriminator fill: the GB-context CLEAR uses WHITE; if readback returns
     // magenta, CLEAR did not render (or readback is a no-op); if white, the
@@ -6415,7 +6946,9 @@ bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
         fill[i] = 0xFFFF00FF;
     }
     }
-    volatile UInt64 *pt = (volatile UInt64 *)_surfPtMem->map()->getVirtualAddress();
+    _surfPtMap = _surfPtMem->map();
+    if (!_surfPtMap) return false;
+    volatile UInt64 *pt = (volatile UInt64 *)_surfPtMap->getVirtualAddress();
     IOByteCount segLen = 0;
     IOVirtualAddress ptAddr = _surfPtMem->getPhysicalSegment(0, &segLen);
     if (ptAddr == 0) {
@@ -6460,7 +6993,9 @@ bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
     IOLog(VGPU_FB_TAG ": dx: cotable mob alloc failed\n");
     return false;
     }
-    bzero((void *)_cotableMem->map()->getVirtualAddress(), kGbPageBytes);
+    _cotableMap = _cotableMem->map();
+    if (!_cotableMap) return false;
+    bzero((void *)_cotableMap->getVirtualAddress(), kGbPageBytes);
 
     // Populate the RTVIEW row before SET_COTABLE for the host's lazy lookup.
     // §61: a sampled NULL current context is normal after CB cleanup; it does
@@ -6477,7 +7012,7 @@ bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
     //     uint32 pad[2];
     {
         volatile UInt32 *ct =
-            (volatile UInt32 *)_cotableMem->map()->getVirtualAddress();
+            (volatile UInt32 *)_cotableMap->getVirtualAddress();
         // rtvId kDxTemplateRtvId -> dword offset rtvId*8 (32 B entry). This MUST be the
         // same id dxVm3dmpTemplate clears; it used to be 0 here and 1 there.
         // View and surface formats must be compatible, not numerically identical.
@@ -6490,6 +7025,13 @@ bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
         ct[e + 5] = 1;                             // desc.tex.arraySize
         ct[e + 6] = 0;                             // pad
         ct[e + 7] = 0;                             // pad
+        if (kDxMultiResource) {
+            for (UInt32 i = 0; i < 2; ++i) {
+                volatile UInt32 *row = ct + kResourceRtvIds[i] * 8;
+                row[0] = kResourceSurfaceIds[i]; row[1] = kResourceFormatBgra8; row[2] = 3;
+                row[3] = 0; row[4] = 0; row[5] = 1; row[6] = 0; row[7] = 0;
+            }
+        }
         __asm__ volatile ("" ::: "memory");
         IOLog(VGPU_FB_TAG ": dx: RTV COTable entry %u written {sid %u, fmt %u B8G8R8X8_UNORM, "
               "tex2D, mip 0, array 0+1} 32 B\n", kDxTemplateRtvId, surfId,
@@ -6564,9 +7106,136 @@ bool vgpuFramebuffer::dxTemplateSetupSurface(volatile UInt32 *fifo,
           "mips%u ms%u size%ux%ux%u mob%u array%u pitch%u\n", surfId,
           observed[0], observed[1], observed[2], observed[3], observed[5],
           observed[6], observed[7], observed[8], observed[9], observed[10]);
+    if (kDxMultiResource && (!setupColorResource(fifo, 0) || !setupColorResource(fifo, 1))) {
+        releaseUnpublishedColors();
+        _resourceBackendFailed = true;
+        _userDrawReady = false;
+        IOLog(VGPU_FB_TAG ": resource: pre-SET_COTABLE pool setup failed closed\n");
+        return false;
+    }
     return true;
 }
+
+bool vgpuFramebuffer::clearColorResource(UInt32 slot) {
+    if (slot >= 2 || !_colorResources[slot].virt) return false;
+    VgpuColorResource &r = _colorResources[slot];
+    IOLog(VGPU_FB_TAG ": resource: zero slot%u sid%u rtv%u queue1 cid1 begin\n",
+          slot, kResourceSurfaceIds[slot], kResourceRtvIds[slot]);
+    UInt32 target[4] = { kSvga3dCmdDxSetRenderTargets, 8, SVGA3D_INVALID_ID_U32, kResourceRtvIds[slot] };
+    UInt32 clear[7] = { kSvga3dCmdDxClearRenderTargetView, 20, kResourceRtvIds[slot], 0, 0, 0, 0 };
+    bool ok = cbSubmitCtx(target, 4, 1, 1, kCbFlagDxContext) && cbSubmitCtx(clear, 7, 1, 1, kCbFlagDxContext);
+    if (!ok) return false;
+    volatile UInt32 *pixels = (volatile UInt32 *)r.virt;
+    for (UInt32 i = 0; i < kResourcePixelCount; ++i) pixels[i] = 0x7E5AA5C3;
+    __asm__ volatile ("" ::: "memory");
+    if (r.data->performOperation(kIOMemoryIncoherentIOFlush, 0, kResourceBytes) != kIOReturnSuccess)
+        return false;
+    UInt32 rb[4] = { kSvga3dCmdDxReadbackSubResource, 8, kResourceSurfaceIds[slot], 0 };
+    UInt32 sync[1] = { 0 };
+    ok = cbSubmitCtx(rb, 4, 1, 1, kCbFlagDxContext) && cbSubmitCtx(sync, 0, 0, 0, 1);
+    if (!ok || r.data->performOperation(kIOMemoryIncoherentIOFlush, 0, kResourceBytes) != kIOReturnSuccess)
+        return false;
+    __asm__ volatile ("" ::: "memory");
+    for (UInt32 i = 0; i < kResourcePixelCount; ++i) {
+        if (pixels[i] != 0) {
+            IOLog(VGPU_FB_TAG ": resource: zero slot%u pixel%u got0x%08x -> FAILED\n", slot, i, pixels[i]);
+            return false;
+        }
+    }
+    IOLog(VGPU_FB_TAG ": resource: zero slot%u 65536 transparent pixels verified\n", slot);
+    return true;
+}
+
+void vgpuFramebuffer::releaseUnpublishedColors() {
+    for (UInt32 i = 0; i < 2; ++i) {
+        VgpuColorResource &r = _colorResources[i];
+        if (r.deviceVisible) continue;
+        if (r.dataMap) { r.dataMap->release(); r.dataMap = nullptr; }
+        if (r.ptMap) { r.ptMap->release(); r.ptMap = nullptr; }
+        if (r.data) {
+            if (r.dataPrepared) { r.data->complete(kIODirectionInOut); r.dataPrepared = false; }
+            r.data->release(); r.data = nullptr;
+        }
+        if (r.pt) {
+            if (r.ptPrepared) { r.pt->complete(kIODirectionInOut); r.ptPrepared = false; }
+            r.pt->release(); r.pt = nullptr;
+        }
+        r.virt = nullptr;
+    }
+}
+
+bool vgpuFramebuffer::setupColorResource(volatile UInt32 *fifo, UInt32 slot) {
+    if (slot >= 2 || !_gbVirt || !_cotableMem || !_dxFifo) return false;
+    VgpuColorResource &resource = _colorResources[slot];
+    if (resource.deviceVisible) return false;
+    resource.data = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+        kernel_task, kIODirectionInOut, kResourceBytes, 0xFFFULL);
+    resource.pt = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+        kernel_task, kIODirectionInOut | kIOMemoryPhysicallyContiguous, kGbPageBytes, 0xFFFULL);
+    if (!resource.data || !resource.pt) return false;
+    if (resource.data->prepare(kIODirectionInOut) != kIOReturnSuccess) return false;
+    resource.dataPrepared = true;
+    if (resource.pt->prepare(kIODirectionInOut) != kIOReturnSuccess) return false;
+    resource.ptPrepared = true;
+    resource.dataMap = resource.data->map();
+    resource.ptMap = resource.pt->map();
+    if (!resource.dataMap || !resource.ptMap) return false;
+    resource.virt = (void *)resource.dataMap->getVirtualAddress();
+    volatile UInt64 *pt = (volatile UInt64 *)resource.ptMap->getVirtualAddress();
+    if (!resource.virt || !pt) return false;
+    bzero(resource.virt, kResourceBytes);
+    bzero((void *)pt, kGbPageBytes);
+    IOByteCount length = 0;
+    UInt64 ptPa = resource.pt->getPhysicalSegment(0, &length);
+    if (!ptPa || (ptPa & (kGbPageBytes - 1)) || length < kGbPageBytes) return false;
+    for (UInt32 i = 0; i < kResourceBytes / kGbPageBytes; ++i) {
+        UInt64 pa = resource.data->getPhysicalSegment((IOByteCount)i * kGbPageBytes, &length);
+        if (!pa || (pa & (kGbPageBytes - 1)) || length < kGbPageBytes) return false;
+        pt[i] = pa >> kGbPageShift;
+    }
+    __asm__ volatile ("" ::: "memory");
+    if (resource.pt->performOperation(kIOMemoryIncoherentIOFlush, 0, kGbPageBytes) != kIOReturnSuccess)
+        return false;
+    const UInt32 sid = kResourceSurfaceIds[slot], mob = kResourceMobIds[slot];
+    volatile UInt8 *mobEntry = (volatile UInt8 *)_gbVirt + kGbOffMobTable + mob * kGbMobEntryBytes;
+    const UInt32 depth = kSvga3dMobFmtPt64_1;
+    const UInt32 bytes = kResourceBytes;
+    const UInt64 ptPpn = ptPa >> kGbPageShift;
+    // OTable 也已对设备可见；从首次写表起禁止释放 backing/PT。
+    resource.deviceVisible = true;
+    memcpy((void *)mobEntry, &depth, 4);
+    memcpy((void *)(mobEntry + 4), &bytes, 4);
+    memcpy((void *)(mobEntry + 8), &ptPpn, 8);
+    __asm__ volatile ("" ::: "memory");
+    UInt32 command[11] = { kSvga3dCmdDefineGbMob64, 20, mob, depth, 0, 0, bytes };
+    memcpy(&command[4], &ptPpn, 8);
+    bool ok = fifoSubmitWords(fifo, command, 7) && fenceAck(fifo, &_fenceSeq);
+    IOLog(VGPU_FB_TAG ": resource: slot %u DEFINE_GB_MOB64 mob%u FIFO fence%u -> %s\n",
+          slot, mob, _fenceSeq, ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+
+    volatile UInt8 *surfaceEntry = (volatile UInt8 *)_gbVirt + kGbOffSurfaceTable + sid * kGbSurfaceEntryBytes;
+    const UInt64 surfaceFlags = kSvga3dSurfaceHintRenderTarget | kSvga3dSurfaceBindRenderTarget;
+    surfaceEntryFill(surfaceEntry, kResourceFormatBgra8, surfaceFlags, 256, 256, mob, 0, 0);
+    ((volatile UInt32 *)surfaceEntry)[3] = 0;
+    defineGbSurfaceFrame(command, sid, surfaceFlags, kResourceFormatBgra8, 256, 256);
+    command[6] = 0;
+    ok = fifoSubmitWords(fifo, command, kSvgaDefineGbSurfaceWords) && fenceAck(fifo, &_fenceSeq);
+    IOLog(VGPU_FB_TAG ": resource: slot %u DEFINE_GB_SURFACE sid%u fmt%u FIFO fence%u -> %s\n",
+          slot, sid, kResourceFormatBgra8, _fenceSeq, ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+    UInt32 bind[4] = { kSvga3dCmdBindGbSurface, 8, sid, mob };
+    ok = fifoSubmitWords(fifo, bind, 4) && fenceAck(fifo, &_fenceSeq);
+    IOLog(VGPU_FB_TAG ": resource: slot %u BIND_GB_SURFACE sid%u mob%u FIFO fence%u -> %s\n",
+          slot, sid, mob, _fenceSeq, ok ? "COMPLETED" : "FAILED");
+    if (!ok) return false;
+
+    __asm__ volatile ("" ::: "memory");
+    return true;
+}
+
 void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
+    if (_userDrawStopping || _resourceBackendFailed) return;
     if (!cbInit()) {
         return;
     }
@@ -6575,6 +7244,21 @@ void vgpuFramebuffer::dxReadbackTest(volatile UInt32 *fifo) {
     // wedged (one error = one dead queue), so a template submitted after any of them
     // could never be told apart from "the engine was already dead".
     if (kDxTemplateOnly) {
+        // The template's plain completion barriers need context 0 running.
+        // Previously kFlagsProbe started it as a side effect; the resource
+        // configuration disables that diagnostic, so bootstrap explicitly.
+        if (kDxMultiResource) {
+            UInt32 startstop[3] = { 1, 1, 0 };
+            const bool started = cbSubmitCtx(startstop, 3, 0x3F, 0, 1);
+            IOLog(VGPU_FB_TAG ": resource: START_STOP context0 -> %s\n",
+                  started ? "COMPLETED" : "FAILED");
+            if (!started) {
+                _resourceBackendFailed = true;
+                _resourceBackendReady = false;
+                _userDrawReady = false;
+                return;
+            }
+        }
         const UInt32 tSurf = 3, tMob = 4, tW = 256, tH = 256;
         if (!dxTemplateSetupSurface(fifo, tSurf, tMob, tW, tH)) {
             IOLog(VGPU_FB_TAG ": dx: TEMPLATE only mode aborted (surface setup failed)\n");
@@ -7934,6 +8618,12 @@ void vgpuFramebuffer::stopCallbacks() {
 void vgpuFramebuffer::free() {
     // Also handles start() failure after the early heartbeat was armed.
     stopCallbacks();
+    releaseUnpublishedColors();
+    if (_resourceOwners) {
+        VgpuResourceOwner *p = _resourceOwners;
+        while (p) { VgpuResourceOwner *next = p->next; IOFree(p, sizeof(*p)); p = next; }
+        _resourceOwners = nullptr;
+    }
     if (_userDrawLock) { IOLockFree(_userDrawLock); _userDrawLock = nullptr; }
     if (_scheduleLock) { IOLockFree(_scheduleLock); _scheduleLock = nullptr; }
     super::free();
@@ -7944,9 +8634,23 @@ void vgpuFramebuffer::stop(IOService *provider) {
     if (_userDrawLock) {
         IOLockLock(_userDrawLock);
         _userDrawStopping = true;
+        _resourceBackendReady = false;
+        _resourceBackendFailed = true;
         _userDrawReady = false;
         while (_openingDrawClients)
             IOLockSleep(_userDrawLock, &_openingDrawClients, THREAD_UNINT);
+        VgpuResourceOwner *owners = _resourceOwners;
+        _resourceOwners = nullptr;
+        while (owners) {
+            VgpuResourceOwner *next = owners->next;
+            IOFree(owners, sizeof(*owners));
+            owners = next;
+        }
+        for (UInt32 i = 0; i < 2; ++i) {
+            _colorResources[i].owner = 0;
+            _colorResources[i].handle = 0;
+            _colorResources[i].generation = 0;
+        }
         IOLockUnlock(_userDrawLock);
     }
     stopCallbacks();
@@ -7966,8 +8670,13 @@ void vgpuFramebuffer::stop(IOService *provider) {
     // been published, stopping CPU callbacks does not prove DMA quiescence.
     // Deliberately retain device-visible backing until reboot (including a
     // timed-out command), rather than returning potentially live pages.
-    if (_cbHeaderMem != nullptr) {
+    releaseUnpublishedColors();
+    if (_cbHeaderMem != nullptr || _colorResources[0].deviceVisible || _colorResources[1].deviceVisible) {
         IOLog(VGPU_FB_TAG ": stop: retaining device-owned DMA backing until reboot\n");
+        // 成员均为裸指针；保留现有拥有引用即可，不重复 retain 或 complete。
+        for (UInt32 i = 0; i < 2; ++i)
+            if (_colorResources[i].deviceVisible)
+                IOLog(VGPU_FB_TAG ": stop: retaining color slot %u backing/PT until reboot\n", i);
         if (_aperture) { _aperture->release(); _aperture = nullptr; }
         super::stop(provider);
         return;
@@ -7994,6 +8703,9 @@ void vgpuFramebuffer::stop(IOService *provider) {
         _ctxPage->release();
         _ctxPage = nullptr;
     }
+    if (_dxDataMap) { _dxDataMap->release(); _dxDataMap = nullptr; }
+    if (_surfPtMap) { _surfPtMap->release(); _surfPtMap = nullptr; }
+    if (_cotableMap) { _cotableMap->release(); _cotableMap = nullptr; }
     if (_dxMem != nullptr) {
         _dxMem->release();
         _dxMem = nullptr;

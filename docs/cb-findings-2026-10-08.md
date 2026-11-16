@@ -6364,4 +6364,28 @@ texture/defaultobjects由其他任务继续处理，本节没有核验其实现�
 
 本轮对context/pixel/surface相关日志和runner、Metal证据及两份状态文档进行本地凭据扫描和命中复核，未在所审查日志/runner中发现真实凭据字面值；runner中的password参数读取环境，不是硬编码秘密。发现既有 `docs/STATUS.md:14` 含明文凭据，主任务已从当前文件移除并改为本地环境配置说明，未回显内容。未改写历史提交；扫描不是对整个仓库及历史提交的无秘密保证。
 
-`kexts/gld-context/gpu-raw.log` 被 `.gitignore` 的 `*.log` 规则忽略，若主任务纳入本轮证据，应精确指定该文件，不扩大到全部日志。保留历史原文及旧hash；不要将二进制、截图、凭据配置或尚未验收的其他任务产物混入本轮已验证文件集合。
+`kexts/gld-context/gpu-raw.log` 被 `.gitignore` 的 `*.log` 规则忽略，主任务已精确纳入该文件，未扩大到全部日志。§81成果提交 `d882962e5b940da9f083d0879e822d470badadb7`，已推送且远端main SHA一致。历史原文及旧hash保留。
+
+## §82：双独立BGRA资源后端实现与本地验证（2026-11-16，实机待验收）
+
+### 82.1 代码与所有权
+
+`vgpuFramebuffer.cpp` 增加两个256×256 BGRA141资源，独立数据页/PT与映射，使用sid16/17、MOB32/33、RTV16/17，新增内存520KiB。selector4..8分别为CREATE、RELEASE、SUBMIT、READ_ROW、GET_INFO；固定大小/version/保留字段校验。设备内单调owner/handle、每资源generation；关闭撤销连接的全部资源。CREATE真实GPU清透明黑、READBACK、sync及65536像素检查全部成功后才发布句柄。所有新旧提交使用同一设备锁，提交失败全局关闭；设备可见DMA页保留至重启，RELEASE只逻辑归还槽位。
+
+新旧提交各自显式绑定RTV，防止交错操作串目标。旧selector0..3及其单目标generation保留；surface/context用户态仍是已验收旧单目标实现，尚未切换新资源接口。该补丁没有安装、重启或产生真实双资源像素结果，格式141、显式BIND与RTV16/17仍需宿主验收。
+
+### 82.2 审查发现的启动依赖与修复
+
+新配置关闭 `kFlagsProbe` 后，template-only路径失去原探针副作用提供的 `START_STOP_CONTEXT{enable=1,context=0}`。后续plain sync仍使用context0，可能在全新设备状态下超时。已在template-only双资源分支、任何surface setup之前显式发送 `{1,1,0}` 到device context0x3f、dxContext0、flags1，失败立即全局关闭并返回。独立二次审查确认此P1已消除；具体宿主执行结果未测。
+
+`build.sh` 按 `kDxMultiResource` 增加启动、MOB/surface DEFINE、BIND、透明清零及READY等可达性marker。shell语法和diff检查通过；未获得完整kext，不能宣称二进制marker或完整链接通过。
+
+### 82.3 可复现本地测试及严格边界
+
+`kexts/tests/multi-resource/validate_multi_resource.py` 从当前内核源码提取16个实际方法及8组ABI断言；Node执行Wasm CPU替身。263020次CHECK通过，其中262144次是清零字节检查、256次是逐行返回检查、620次为其他检查。覆盖owner/handle/generation、参数拒绝、独立目标路由、逐阶段失败关闭、逻辑释放/重租及未发布DMA清理；分配全部回收。只模拟端点颜色和单像素draw，不证明光栅化、alpha量化、真实并发、IOKit/DMA/fence。
+
+主任务复跑通过，并将抽取方法编译检查补齐 `-mkernel -fapple-kext -DKERNEL -fno-sanitize=all -Wframe-larger-than=1024 -Werror`。x86_64 macOS对象编译成功；仍使用替身声明，不是完整SDK编译。源码SHA256 `05286799519ba772f1a8bbef0f28969c1744f0aef93a646030d50f281b4250c1`；精确命令及脚本SHA见同目录results.txt。此前40位 `035b9806f415448eebc157fc54a2d0c3670415dc` 是旧工作树的Git blob SHA-1，不是文件SHA256。
+
+### 82.4 当前实机阻塞
+
+上传隔离构建目录的操作收到安全拒绝及禁止等价重试提示，命令同时报 `OSError: Socket is closed`；安全提示未给具体资源，原始元数据 sandboxDenied=false，不能据此断言网络或某项规则是根因。未重试上传、未换通道规避，后续两次串联上传未执行。首个上传已进入写入阶段，客体可能存在部分文件，不能将其视为有效构建输入。需要恢复该操作的授权通路后，重新核验源码完整性、完整SDK构建和当前启动内GPU验收。
