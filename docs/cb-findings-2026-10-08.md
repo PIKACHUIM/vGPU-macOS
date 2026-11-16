@@ -6292,3 +6292,25 @@ create失败不会调用DestroyDevice；正常释放先destroy D，再terminate�
 RGBA8普通CPU read需每次读取当前pack，先用current_stride，否则按row_length和alignment算行步长，再计入skip_rows/skip_pixels；pixels已含上层裁剪偏移，不能重复加入。glFinish普通路径调用FlushContext及WaitForContext。完整A能力消费者、texture/FBO backing、clear状态和dispatch仍未闭合。
 
 下一实现目标为真实GPU固定表面clear/read桥接及无length像素格式适配，然后实现命名颜色FBO的最小系统路径。当前系统仍运行§78拒绝设备的诊断bundle；标准硬件OpenGL和Metal均未完成。
+
+## §80：真实GPU表面桥接与非均匀回读（2026-11-16）
+
+### 80.1 固定表面与事务性快照
+
+新增 `kexts/gld-surface/vgpu_surface.c/.h` 及真实GPU测试。自有C API通过实际accelerator连接调用selector3清屏和selector1逐行回读，支持引用计数、关闭、显式rect、RGBA8输出及pack。底层仍只有一个256×256 B8G8R8X8_UNORM目标；多个连接共享该目标，不是独立资源，输出alpha恒255，不宣称backing保存alpha。
+
+read检查行长/stride/alignment/skip的全部乘加和容量、地址上界，先读入临时缓冲、转换BGRX→RGBA，最后再次验证相同generation，然后才写调用方有效像素区域。任何读取或generation错误都不部分写目标。成功是最终校验时的一致快照；其他连接随后仍可提交，不能承诺返回时仍为全局最新帧。
+
+### 80.2 真实像素、pack及失败原子性验证
+
+普通与ASan/UBSan均严格编译通过，surface与故障探针各0 failures。两种非平凡GPU clear输出分别为RGBA(64,191,32,255)与(223,32,159,255)，每帧65536像素全比较；子区域、alignment 1/2/4/8、显式非对齐stride、重叠行、skip/padding/guards逐字节通过。非root真实IOServiceOpen拒绝，非法参数/NaN/溢出/容量少1字节拒绝且原目标保持。
+
+新增非对称selector2三角形A/B，仅probe直接提交，不扩大产品API。CPU以独立整数叉积计算期望，A红6400/绿59136，B红12800/绿52736。普通generation80/81、sanitized98/99；整图及非原点rect(37,83,101,119)五种pack均RGB/alpha/全缓冲差异0。真实验证了x/y位置、通道转换与padding，不把selector1行顺序等同于已完成OpenGL原点适配。
+
+确定性交错测试在第4行、以及第256行读取后通过第二连接实际clear，下一次真实selector1返回NotReady，全部262144目标字节及guards保持canary；另有返回尺寸/元数据故障注入。两个并发测试各12次stale均未部分发布结果。初轮及补测完整日志保留，源码、runner和日志SHA均由主代理核对，详见 `kexts/gld-surface/results.txt`。
+
+### 80.3 系统接入边界与下一步
+
+本轮运行中驱动仍为§78-gld-discovery，UUID `8B1934DE-99CC-3439-844A-1A05F3E935D8`，启动时间未改变；没有安装或重启。该桥接不是Apple GLD导出，也不是公开CGL/Metal验收。
+
+context研究已闭合：GLEngine在CreateContext返回后初始化H默认状态；初始化先创建11个默认texture及sampler/program；FBO加载可直接触发附件backing准备，不必等待单独gldLoadTexture。无图像默认对象应先提供真实元数据生命周期，再在materialization检查格式。证据见 `out/gld-context-init-required-verified.txt`，已随e258ca5提交。像素格式系统包装及真实context/FBO对象链正在复核；多资源、alpha backing、shader、完整绘制状态和标准API集成仍开放。

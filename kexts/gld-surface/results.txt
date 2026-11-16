@@ -1,0 +1,85 @@
+独立用户态 GPU surface bridge 实测结果
+日期：2026-11-16
+
+交付边界
+这是本模块自有 C API，经 IOServiceOpen(vgpuAccelerator, 0x56475055) 使用现有驱动 selector 3 clear 与 selector 1 readRow；不是系统 OpenGL，不导出任何 Apple GLD ABI，也不接入 GLEngine。
+只有内核现有的一个 256x256 B8G8R8X8_UNORM 目标。多个 surface 句柄只是不同连接，互相覆盖同一目标，不是多资源。open 拒绝其他尺寸及 RGBA8 backing。读取输出仅 RGBA8，X 字节不代表 alpha，输出 alpha 恒为 255。clear 的 alpha 虽传给 GPU，但此 backing 不存储 alpha。
+没有改驱动、安装、重启或 git 操作。宿主新增文件仅在指定目录和指定 probe 路径；客体仅使用 /var/tmp/vgpu-gld-surface-20261116 保存测试源码及可执行文件。
+
+运行环境与驱动身份
+macOS 15.7.3 / 24G419，x86_64，Apple clang 17.0.0 (clang-1700.0.13.5)。
+测试前后 kern.boottime 均为 sec=1794815120,usec=47049，Mon Nov 16 15:45:20 2026。
+kmutil 运行中 com.vgpu.framebuffer 1.0.0 UUID：8B1934DE-99CC-3439-844A-1A05F3E935D8。
+已安装 /Library/Extensions/VGPUFramebuffer.kext/Contents/MacOS/vgpuFramebuffer 的 dwarfdump UUID 与运行中 UUID 一致。
+该二进制 SHA256：227dc5d2173c59f6518ee511ddc2a4547b3a700583b70181b68c7180d47d07bf。
+构建 tag：§78-gld-discovery；strings 的可打印 ASCII 部分为 78-gld-discovery。源码定义对应完整 tag。
+IORegistry：vgpuAccelerator active，CFBundleIdentifier=com.vgpu.framebuffer；IOGLBundleName=VGPUDriverDiagnostic。
+初始 dmesg 环形日志没有返回启动 build 行，不能以缺失的启动日志冒充证明；以上使用已加载 UUID 与磁盘二进制 UUID/hash/tag 关联。首次测试后 dmesg 记录 clear-only generation 62..79 -> COMPLETED；本轮测试后为 110..127 -> COMPLETED。
+
+接口和地址规则
+vgpu_surface_open/retain/release/close/clear/read，声明与约束见 vgpu_surface.h。
+read 每次显式接收 rect、output_format、pack 和 destination capacity。
+stride = stride_bytes 非零 ? stride_bytes : align_up((row_length 非零 ? row_length : width)*4,alignment)。
+offset = skip_rows*stride + skip_pixels*4；第 j 行位于 offset+j*stride。
+alignment 仅接受 1/2/4/8。显式 stride 覆盖 row_length，可不对齐。允许重叠行，按递增行号复制，与公式一致。
+矩形必须非空且完全在 256x256 内；不裁剪、不重复加裁剪偏移、不翻转行。零面积返回 BadArgument（未提供隐式成功空操作）。
+所有乘加、align_up、最终 extent/capacity/目标地址上界经检查；先完成全部临时缓冲读取和转换，再读一次同 generation 的行作为最终校验，然后复制有效行，保留 padding。
+本连接 mutex 串行化 IO 与 close；分配、参数检查、最终目标复制在锁外。其他连接仍能提交，读取通过 generation 拒绝旧帧，不把某次 clear 的颜色当作读回结果。
+成功快照的时间点为最终 selector 1 校验；校验之后其他连接可以开始新提交，API 不承诺到函数返回或任意未来时间仍是当前 generation。纯用户态接口无法锁住其他进程的整个提交期。
+每个并发调用者须保有引用，最后 release 关闭连接并销毁 mutex；close 幂等且后续操作返回 NotOpen。调用者须保证输入/输出内存真实有效且调用期间不并发修改，不能把虚报 capacity 当作可写内存证明。禁止用 pthread cancellation 中断同步 API。
+
+实际验证
+普通构建及 ASan+UBSan 构建均使用：
+clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -pedantic -g -O1 vgpu_surface.c gld_surface_probe.c -framework IOKit -framework CoreFoundation -pthread
+sanitizer 另加 -fsanitize=address,undefined -fno-omit-frame-pointer；运行设置 ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1。
+两轮均 surface probe failures=0，无 sanitizer 诊断。
+本轮 UTC 2026-11-16T08:37:00.207629+00:00 开始。普通 clear：A generation=82，B=83；sanitized clear：A=100，B=101。首次运行的 A/B 为36/37与52/53，原始日志保留。
+A clear=(0.25,0.75,0.125,0.375)，输出 RGBA=(64,191,32,255)。
+B clear=(0.875,0.125,0.625,0.75)，输出 RGBA=(223,32,159,255)。
+每种 clear 比较全部 65536 像素的四个通道，并比较整个目标分配区，包括前后32字节 canary；不是仅检查采样点。
+子区域 x=17,y=29,w=13,h=9：row_length=19、skip_rows=3、skip_pixels=2；alignment 1/2/4 得 stride=76，alignment 8 得 stride=80。所有117像素以及所有 skip/padding/guards 逐字节匹配。
+显式 stride=93、row_length=SIZE_MAX、skip_rows=2、skip_pixels=5 验证覆盖优先级；重叠 stride=4 及 (255,255,1,1) 最后像素通过。
+补充非均匀图像验证：probe 单独打开 vgpuAccelerator 连接，直接调用既有 selector2 提交 tools/vgpu-user-draw.c 的 vertices A/B；没有给产品 bridge 增加 API。输入56字节，验证输出count=3、非零generation与256x256尺寸，读取全部经 vgpu_surface_read。
+CPU 期望使用独立整数叉积：像素中心=(2*x+1,2*y+1)，固定参考顶点屏幕坐标乘二。A={{80,400},{336,400},{80,200}}；B={{64,64},{224,384},{384,64}}。所有采样点的叉积均非零，避免栅格边界归属歧义；期望红色RGBA=(255,0,0,255)，背景绿色RGBA=(0,255,0,255)。期望值不来自GPU读回数据。
+普通 triangle generations=80/81；sanitized=98/99。两轮每张整图逐像素核对65536个RGBA，A红6400/绿59136，B红12800/绿52736；RGB mismatch、alpha mismatch、整缓冲 byte mismatch 均为0。
+非原点矩形=(37,83,101,119)，每种pack逐像素核对12019个RGBA。A红6049/绿5970，B红5128/绿6891，保证矩形内同时有红绿且横纵位置非均匀。row_length=109、skip_rows=3、skip_pixels=2，alignment=1/2/4时stride=436，alignment=8时stride=440；另测row_length=SIZE_MAX、显式stride=453、skip_rows=2、skip_pixels=5、alignment=8。
+每个三角形共1次整图与5次非原点pack读取；每次预填0xa5并比较整个分配区，涵盖全部有效RGBA、skip、行padding和前后各32字节guard，全部byte mismatch=0。真实GPU验证了非均匀x/y源坐标、无额外翻转、BGRX到RGBA转换以及alpha恒255；坐标仍按selector1行顺序，不宣称OpenGL原点语义。
+本轮未出现非预期外部stale；并发与注入测试中的预期stale见下文。runner失败会记录命令退出码与RUN FAILED，不自动重试或把失败改记成功。
+非法尺寸、RGBA8 backing、输出格式、空/越界/UINT32_MAX 矩形、非法 alignment、row_length/skip/stride/末地址溢出、容量少1字节、零generation 均拒绝且整个目标 canary 不变。
+NaN、正负无穷、超1及负subnormal clear 拒绝，generation 输出不变，随后完整读回证明 GPU 帧未改变。
+两连接相互提交，旧 generation 返回 kIOReturnNotReady，新 generation 可从另一连接读回完整帧。
+普通与 sanitized 并发线程测试各 stale=12、complete_snapshots=0，所有 stale 目标完全未写，线程12次真实clear均完成。
+非root进程真实 IOServiceOpen 返回 kIOReturnNotPrivileged，输出句柄 NULL；不是本模块按 uid 伪造拒绝。
+retain、worker release、双重 close、closed read/clear 拒绝、最终 release、重新 open/clear/full read 均通过；本轮reopen generations=97 / 115（首次51 / 67）。
+
+故障注入与确定性真实交错
+fault_probe.c 仅在专门测试构建中以 -DIOConnectCallMethod=surface_test_call 替换调用名，wrapper 通过 dlsym 调用真实 IOKit；产品构建没有注入入口。
+在真实 clear 成功后注入 output count=2/4、width=255、height=257、generation=0，产品拒绝且 generation 输出不变。
+在已成功读3行后注入行长度1023/1025或 IO error，返回 0xe00002ca，全部262144目标字节与guards仍为canary。
+mode9 在第4行真实读完后通过另一连接执行真实 selector3 clear，随后同generation读失败，返回0xe00002d8；目标全部不变。
+mode10 在第256行真实读完后通过另一连接执行真实 clear，最终附加行校验检测stale并返回0xe00002d8；目标全部不变。
+上述两项不是伪造 stale 返回：wrapper 真实改变 GPU generation，下一次真实 selector1 返回 NotReady。
+fault probe failures=0，ASan+UBSan 无诊断。
+未测试设备热拔除、内核队列故障恢复及 allocator 分配失败；未宣称支持其他格式、PBO、纹理/FBO资源、深度/stencil、区域clear、窗口呈现、系统 OpenGL 或 Apple GLD ABI。
+
+原始证据与复现
+test-output.txt 保存实际编译命令、源码 hash、普通/非root/sanitized/注入运行结果、启动时间和内核 clear-only 日志。
+旧工作区 Python：C:/Users/Pika/WorkBuddy/2026-09-27-20-30-43/.venv/Scripts/python.exe。
+复现：上述 python 运行 kexts/gld-surface/run_tests.py；脚本复用 tools/mssh.py，不打印凭据。ROOT使用parents[2]定位仓库。本轮完整执行驱动UUID/hash/tag采集、普通/非root/ASan+UBSan/故障注入以及前后启动时间检查，所有命令EXIT 0，日志末尾ALL REQUESTED RUNS COMPLETED。runner追加UTC起始时间、自己的SHA256、完整命令和退出码，首次原始日志保留不重写。
+
+本次运行所用源码 SHA256
+71785e22ade2c92c61f9126136507b99f40b550367a72a5fb03a125712a5663e  vgpu_surface.h
+1614f82fecfc2b503b4932a80926e93e150cdb70a70554023877843568d87b62  vgpu_surface.c
+f6def4db0c5dfe88bb0c877c51f37e38280d8dd065d8addad2fb5c7cdb24e150  ../probes/gld_surface_probe.c
+7b00e50e05379feb001398b371c268184da25490ff30f51a11f80621358a7b1f  fault_probe.c
+7d8c41e8205875d9a5d6e2a03a4672375800ff854e68b0b1943f5bc9f54e8e0f  run_tests.py
+9025c6ea2256b09e75c74ec05a2972b3e65ae0ecca076cc8d6aa39c9302e31ac  test-output.txt（首次日志与本轮追加日志）
+
+文件列表
+kexts/gld-surface/vgpu_surface.h
+kexts/gld-surface/vgpu_surface.c
+kexts/gld-surface/fault_probe.c
+kexts/gld-surface/run_tests.py
+kexts/gld-surface/test-output.txt
+kexts/gld-surface/results.txt
+kexts/probes/gld_surface_probe.c

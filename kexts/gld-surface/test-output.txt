@@ -1,0 +1,765 @@
+SHA256 71785e22ade2c92c61f9126136507b99f40b550367a72a5fb03a125712a5663e vgpu_surface.h
+pushed D:\Codes\vGPU-macOS\kexts\gld-surface\vgpu_surface.h -> /var/tmp/vgpu-gld-surface-20261116/vgpu_surface.h (2350 bytes)
+SHA256 1614f82fecfc2b503b4932a80926e93e150cdb70a70554023877843568d87b62 vgpu_surface.c
+pushed D:\Codes\vGPU-macOS\kexts\gld-surface\vgpu_surface.c -> /var/tmp/vgpu-gld-surface-20261116/vgpu_surface.c (7509 bytes)
+SHA256 7e1649147db9f3770db58ce0a6e52186b4dfb7e960d471b7576b795b1828edd6 gld_surface_probe.c
+pushed D:\Codes\vGPU-macOS\kexts\probes\gld_surface_probe.c -> /var/tmp/vgpu-gld-surface-20261116/gld_surface_probe.c (10518 bytes)
+SHA256 7b00e50e05379feb001398b371c268184da25490ff30f51a11f80621358a7b1f fault_probe.c
+pushed D:\Codes\vGPU-macOS\kexts\gld-surface\fault_probe.c -> /var/tmp/vgpu-gld-surface-20261116/fault_probe.c (3692 bytes)
+ProductName:		macOS
+ProductVersion:		15.7.3
+BuildVersion:		24G419
+kern.boottime: { sec = 1794815120, usec = 47049 } Mon Nov 16 15:45:20 2026
+Apple clang version 17.0.0 (clang-1700.0.13.5)
+Target: x86_64-apple-darwin24.6.0
+Thread model: posix
+InstalledDir: /Library/Developer/CommandLineTools/usr/bin
++-o vgpuAccelerator  <class vgpuAccelerator, id 0x10000045e, registered, matched, active, busy 0 (394 ms), retain 6>
+    {
+      "IOProbeScore" = 0
+      "CFBundleIdentifier" = "com.vgpu.framebuffer"
+      "IOMatchCategory" = "IOAccelerator"
+      "IOClass" = "vgpuAccelerator"
+      "IOPersonalityPublisher" = "com.vgpu.framebuffer"
+      "IOProviderClass" = "vgpuFramebuffer"
+      "CFBundleIdentifierKernel" = "com.vgpu.framebuffer"
+      "IOGLBundleName" = "VGPUDriverDiagnostic"
+    }
+    
+
+  102    0 0xffffff7f96a8c000 0x1affc    0x1affc    com.vgpu.framebuffer (1.0.0) 8B1934DE-99CC-3439-844A-1A05F3E935D8 <101 7 6 3>
+  127    0 0xffffff7f96aaa000 0x2ff2     0x2ff2     com.vgpu.probe (1.0.0) 4C504A2E-C4D0-33AC-9EF4-1246F9BA6078 <18 7 6 3>
+No variant specified, falling back to release
+cd /var/tmp/vgpu-gld-surface-20261116 && clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -pedantic -g -O1 vgpu_surface.c gld_surface_probe.c -framework IOKit -framework CoreFoundation -pthread -o surface-probe
+PASS IOServiceOpen vgpuAccelerator type 0x56475055
+PASS GPU nontrivial clear
+PASS nonzero changed generation
+generation=36 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS all 65536 RGBA pixels including alpha=255 and guards
+generation=36 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=36 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=36 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=36 rect=17,29,13,9 stride=80 bytes=940 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=36 rect=17,29,13,9 stride=93 bytes=1002 pixels=117
+PASS explicit unaligned stride overrides row_length
+generation=36 rect=17,29,13,9 stride=4 bytes=92 pixels=117
+PASS overlapping rows follow increasing row order
+generation=36 rect=255,255,1,1 stride=4 bytes=4 pixels=1
+PASS last source pixel
+PASS GPU nontrivial clear
+PASS nonzero changed generation
+generation=37 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS all 65536 RGBA pixels including alpha=255 and guards
+generation=37 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=37 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=37 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=37 rect=17,29,13,9 stride=80 bytes=940 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=37 rect=17,29,13,9 stride=93 bytes=1002 pixels=117
+PASS explicit unaligned stride overrides row_length
+generation=37 rect=17,29,13,9 stride=4 bytes=92 pixels=117
+PASS overlapping rows follow increasing row order
+generation=37 rect=255,255,1,1 stride=4 bytes=4 pixels=1
+PASS last source pixel
+PASS stale generation rejected
+PASS failure leaves entire destination unchanged
+PASS reject width
+PASS reject height
+PASS reject RGBA8 backing
+PASS reject output format
+PASS failure leaves entire destination unchanged
+PASS zero generation
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS capacity one byte short
+PASS failure leaves entire destination unchanged
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+generation=37 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS invalid requests preserve current GPU frame
+PASS second connection shares target
+PASS other connection clear
+PASS cross-connection stale generation
+PASS failure leaves entire destination unchanged
+generation=38 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS cross-connection current generation
+PASS worker retains connection
+PASS start concurrent submitter
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent worker completes
+concurrency stale=12 complete_snapshots=0
+PASS old generation after concurrent submissions
+PASS failure leaves entire destination unchanged
+PASS close
+PASS idempotent close
+PASS closed read rejected
+PASS failure leaves entire destination unchanged
+PASS closed clear rejected
+PASS reopen
+PASS clear after reopen
+generation=51 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS reopen full frame
+surface probe failures=0
+PASS non-root process
+PASS real IOServiceOpen denied
+PASS failed open returns NULL
+cd /var/tmp/vgpu-gld-surface-20261116 && clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -pedantic -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer vgpu_surface.c gld_surface_probe.c -framework IOKit -framework CoreFoundation -pthread -o surface-probe-sanitized
+PASS IOServiceOpen vgpuAccelerator type 0x56475055
+PASS GPU nontrivial clear
+PASS nonzero changed generation
+generation=52 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS all 65536 RGBA pixels including alpha=255 and guards
+generation=52 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=52 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=52 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=52 rect=17,29,13,9 stride=80 bytes=940 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=52 rect=17,29,13,9 stride=93 bytes=1002 pixels=117
+PASS explicit unaligned stride overrides row_length
+generation=52 rect=17,29,13,9 stride=4 bytes=92 pixels=117
+PASS overlapping rows follow increasing row order
+generation=52 rect=255,255,1,1 stride=4 bytes=4 pixels=1
+PASS last source pixel
+PASS GPU nontrivial clear
+PASS nonzero changed generation
+generation=53 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS all 65536 RGBA pixels including alpha=255 and guards
+generation=53 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=53 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=53 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=53 rect=17,29,13,9 stride=80 bytes=940 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=53 rect=17,29,13,9 stride=93 bytes=1002 pixels=117
+PASS explicit unaligned stride overrides row_length
+generation=53 rect=17,29,13,9 stride=4 bytes=92 pixels=117
+PASS overlapping rows follow increasing row order
+generation=53 rect=255,255,1,1 stride=4 bytes=4 pixels=1
+PASS last source pixel
+PASS stale generation rejected
+PASS failure leaves entire destination unchanged
+PASS reject width
+PASS reject height
+PASS reject RGBA8 backing
+PASS reject output format
+PASS failure leaves entire destination unchanged
+PASS zero generation
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS capacity one byte short
+PASS failure leaves entire destination unchanged
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+generation=53 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS invalid requests preserve current GPU frame
+PASS second connection shares target
+PASS other connection clear
+PASS cross-connection stale generation
+PASS failure leaves entire destination unchanged
+generation=54 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS cross-connection current generation
+PASS worker retains connection
+PASS start concurrent submitter
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent worker completes
+concurrency stale=12 complete_snapshots=0
+PASS old generation after concurrent submissions
+PASS failure leaves entire destination unchanged
+PASS close
+PASS idempotent close
+PASS closed read rejected
+PASS failure leaves entire destination unchanged
+PASS closed clear rejected
+PASS reopen
+PASS clear after reopen
+generation=67 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS reopen full frame
+surface probe failures=0
+cd /var/tmp/vgpu-gld-surface-20261116 && clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -pedantic -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -DIOConnectCallMethod=surface_test_call vgpu_surface.c fault_probe.c -framework IOKit -framework CoreFoundation -pthread -o fault-probe
+PASS injected clear metadata mode=1 output unchanged
+PASS injected clear metadata mode=2 output unchanged
+PASS injected clear metadata mode=3 output unchanged
+PASS injected clear metadata mode=4 output unchanged
+PASS injected clear metadata mode=8 output unchanged
+PASS mode=5 rows=4 return=0xe00002ca all destination and guards unchanged
+PASS mode=6 rows=4 return=0xe00002ca all destination and guards unchanged
+PASS mode=7 rows=4 return=0xe00002ca all destination and guards unchanged
+PASS mode=9 rows=4 return=0xe00002d8 all destination and guards unchanged
+PASS mode=10 rows=256 return=0xe00002d8 all destination and guards unchanged
+fault probe failures=0 (metadata faults injected; modes 9/10 real GPU interleaving)
+kern.boottime: { sec = 1794815120, usec = 47049 } Mon Nov 16 15:45:20 2026
+[ 2386.350667]: vgpu-fb: user: clear-only generation 62 -> COMPLETED
+[ 2386.352012]: vgpu-fb: user: clear-only generation 63 -> COMPLETED
+[ 2386.353349]: vgpu-fb: user: clear-only generation 64 -> COMPLETED
+[ 2386.355300]: vgpu-fb: user: clear-only generation 65 -> COMPLETED
+[ 2386.356752]: vgpu-fb: user: clear-only generation 66 -> COMPLETED
+[ 2386.363276]: vgpu-fb: user: clear-only generation 67 -> COMPLETED
+[ 2387.100127]: vgpu-fb: user: clear-only generation 68 -> COMPLETED
+[ 2387.101734]: vgpu-fb: user: clear-only generation 69 -> COMPLETED
+[ 2387.103016]: vgpu-fb: user: clear-only generation 70 -> COMPLETED
+[ 2387.104436]: vgpu-fb: user: clear-only generation 71 -> COMPLETED
+[ 2387.105805]: vgpu-fb: user: clear-only generation 72 -> COMPLETED
+[ 2387.106965]: vgpu-fb: user: clear-only generation 73 -> COMPLETED
+[ 2387.109022]: vgpu-fb: user: clear-only generation 74 -> COMPLETED
+[ 2387.110579]: vgpu-fb: user: clear-only generation 75 -> COMPLETED
+[ 2387.114763]: vgpu-fb: user: clear-only generation 76 -> COMPLETED
+[ 2387.116414]: vgpu-fb: user: clear-only generation 77 -> COMPLETED
+[ 2387.118390]: vgpu-fb: user: clear-only generation 78 -> COMPLETED
+[ 2387.121740]: vgpu-fb: user: clear-only generation 79 -> COMPLETED
+ALL REQUESTED RUNS COMPLETED
+
+RUN UTC 2026-11-16T08:37:00.207629+00:00
+SHA256 7d8c41e8205875d9a5d6e2a03a4672375800ff854e68b0b1943f5bc9f54e8e0f run_tests.py
+COMMAND sudo=False test -d /var/tmp && mkdir -p /var/tmp/vgpu-gld-surface-20261116
+EXIT 0
+SHA256 71785e22ade2c92c61f9126136507b99f40b550367a72a5fb03a125712a5663e vgpu_surface.h
+pushed D:\Codes\vGPU-macOS\kexts\gld-surface\vgpu_surface.h -> /var/tmp/vgpu-gld-surface-20261116/vgpu_surface.h (2350 bytes)
+SHA256 1614f82fecfc2b503b4932a80926e93e150cdb70a70554023877843568d87b62 vgpu_surface.c
+pushed D:\Codes\vGPU-macOS\kexts\gld-surface\vgpu_surface.c -> /var/tmp/vgpu-gld-surface-20261116/vgpu_surface.c (7509 bytes)
+SHA256 f6def4db0c5dfe88bb0c877c51f37e38280d8dd065d8addad2fb5c7cdb24e150 gld_surface_probe.c
+pushed D:\Codes\vGPU-macOS\kexts\probes\gld_surface_probe.c -> /var/tmp/vgpu-gld-surface-20261116/gld_surface_probe.c (16603 bytes)
+SHA256 7b00e50e05379feb001398b371c268184da25490ff30f51a11f80621358a7b1f fault_probe.c
+pushed D:\Codes\vGPU-macOS\kexts\gld-surface\fault_probe.c -> /var/tmp/vgpu-gld-surface-20261116/fault_probe.c (3692 bytes)
+COMMAND sudo=False sw_vers; sysctl kern.boottime; clang --version; ioreg -r -c vgpuAccelerator -l
+ProductName:		macOS
+ProductVersion:		15.7.3
+BuildVersion:		24G419
+kern.boottime: { sec = 1794815120, usec = 47049 } Mon Nov 16 15:45:20 2026
+Apple clang version 17.0.0 (clang-1700.0.13.5)
+Target: x86_64-apple-darwin24.6.0
+Thread model: posix
+InstalledDir: /Library/Developer/CommandLineTools/usr/bin
++-o vgpuAccelerator  <class vgpuAccelerator, id 0x10000045e, registered, matched, active, busy 0 (394 ms), retain 6>
+    {
+      "IOProbeScore" = 0
+      "CFBundleIdentifier" = "com.vgpu.framebuffer"
+      "IOMatchCategory" = "IOAccelerator"
+      "IOClass" = "vgpuAccelerator"
+      "IOPersonalityPublisher" = "com.vgpu.framebuffer"
+      "IOProviderClass" = "vgpuFramebuffer"
+      "CFBundleIdentifierKernel" = "com.vgpu.framebuffer"
+      "IOGLBundleName" = "VGPUDriverDiagnostic"
+    }
+    
+
+EXIT 0
+COMMAND sudo=True kmutil showloaded --list-only | /usr/bin/grep -i vgpu; /sbin/dmesg | /usr/bin/grep -E 'vgpu-fb.*(build|clear-only)' | /usr/bin/tail -12
+  102    0 0xffffff7f96a8c000 0x1affc    0x1affc    com.vgpu.framebuffer (1.0.0) 8B1934DE-99CC-3439-844A-1A05F3E935D8 <101 7 6 3>
+  127    0 0xffffff7f96aaa000 0x2ff2     0x2ff2     com.vgpu.probe (1.0.0) 4C504A2E-C4D0-33AC-9EF4-1246F9BA6078 <18 7 6 3>
+[ 2387.100127]: vgpu-fb: user: clear-only generation 68 -> COMPLETED
+[ 2387.101734]: vgpu-fb: user: clear-only generation 69 -> COMPLETED
+[ 2387.103016]: vgpu-fb: user: clear-only generation 70 -> COMPLETED
+[ 2387.104436]: vgpu-fb: user: clear-only generation 71 -> COMPLETED
+[ 2387.105805]: vgpu-fb: user: clear-only generation 72 -> COMPLETED
+[ 2387.106965]: vgpu-fb: user: clear-only generation 73 -> COMPLETED
+[ 2387.109022]: vgpu-fb: user: clear-only generation 74 -> COMPLETED
+[ 2387.110579]: vgpu-fb: user: clear-only generation 75 -> COMPLETED
+[ 2387.114763]: vgpu-fb: user: clear-only generation 76 -> COMPLETED
+[ 2387.116414]: vgpu-fb: user: clear-only generation 77 -> COMPLETED
+[ 2387.118390]: vgpu-fb: user: clear-only generation 78 -> COMPLETED
+[ 2387.121740]: vgpu-fb: user: clear-only generation 79 -> COMPLETED
+No variant specified, falling back to release
+EXIT 0
+COMMAND sudo=False dwarfdump --uuid /Library/Extensions/VGPUFramebuffer.kext/Contents/MacOS/vgpuFramebuffer; shasum -a 256 /Library/Extensions/VGPUFramebuffer.kext/Contents/MacOS/vgpuFramebuffer; strings /Library/Extensions/VGPUFramebuffer.kext/Contents/MacOS/vgpuFramebuffer | /usr/bin/grep -E '(78-|clear-only|gld-discovery)'
+UUID: 8B1934DE-99CC-3439-844A-1A05F3E935D8 (x86_64) /Library/Extensions/VGPUFramebuffer.kext/Contents/MacOS/vgpuFramebuffer
+227dc5d2173c59f6518ee511ddc2a4547b3a700583b70181b68c7180d47d07bf  /Library/Extensions/VGPUFramebuffer.kext/Contents/MacOS/vgpuFramebuffer
+78-gld-discovery
+vgpu-fb: user: clear-only generation %llu -> %s
+EXIT 0
+cd /var/tmp/vgpu-gld-surface-20261116 && clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -pedantic -g -O1 vgpu_surface.c gld_surface_probe.c -framework IOKit -framework CoreFoundation -pthread -o surface-probe
+COMMAND sudo=False cd /var/tmp/vgpu-gld-surface-20261116 && clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -pedantic -g -O1 vgpu_surface.c gld_surface_probe.c -framework IOKit -framework CoreFoundation -pthread -o surface-probe
+EXIT 0
+COMMAND sudo=True /var/tmp/vgpu-gld-surface-20261116/surface-probe
+PASS IOServiceOpen vgpuAccelerator type 0x56475055
+PASS triangle service matching
+PASS triangle accelerator service
+PASS probe-only selector 2 connection
+PASS actual selector 2 user vertices
+PASS selector 2 generation and dimensions
+vertices A generation=80 rect=0,0,256,256 stride=1024 bytes=262144 expected_red=6400 expected_green=59136 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices A generation=80 rect=37,83,101,119 stride=436 bytes=53168 expected_red=6049 expected_green=5970 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices A generation=80 rect=37,83,101,119 stride=436 bytes=53168 expected_red=6049 expected_green=5970 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices A generation=80 rect=37,83,101,119 stride=436 bytes=53168 expected_red=6049 expected_green=5970 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices A generation=80 rect=37,83,101,119 stride=440 bytes=53652 expected_red=6049 expected_green=5970 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices A generation=80 rect=37,83,101,119 stride=453 bytes=54784 expected_red=6049 expected_green=5970 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+PASS actual selector 2 user vertices
+PASS selector 2 generation and dimensions
+vertices B generation=81 rect=0,0,256,256 stride=1024 bytes=262144 expected_red=12800 expected_green=52736 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices B generation=81 rect=37,83,101,119 stride=436 bytes=53168 expected_red=5128 expected_green=6891 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices B generation=81 rect=37,83,101,119 stride=436 bytes=53168 expected_red=5128 expected_green=6891 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices B generation=81 rect=37,83,101,119 stride=436 bytes=53168 expected_red=5128 expected_green=6891 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices B generation=81 rect=37,83,101,119 stride=440 bytes=53652 expected_red=5128 expected_green=6891 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices B generation=81 rect=37,83,101,119 stride=453 bytes=54784 expected_red=5128 expected_green=6891 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+PASS close selector 2 connection
+PASS GPU nontrivial clear
+PASS nonzero changed generation
+generation=82 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS all 65536 RGBA pixels including alpha=255 and guards
+generation=82 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=82 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=82 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=82 rect=17,29,13,9 stride=80 bytes=940 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=82 rect=17,29,13,9 stride=93 bytes=1002 pixels=117
+PASS explicit unaligned stride overrides row_length
+generation=82 rect=17,29,13,9 stride=4 bytes=92 pixels=117
+PASS overlapping rows follow increasing row order
+generation=82 rect=255,255,1,1 stride=4 bytes=4 pixels=1
+PASS last source pixel
+PASS GPU nontrivial clear
+PASS nonzero changed generation
+generation=83 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS all 65536 RGBA pixels including alpha=255 and guards
+generation=83 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=83 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=83 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=83 rect=17,29,13,9 stride=80 bytes=940 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=83 rect=17,29,13,9 stride=93 bytes=1002 pixels=117
+PASS explicit unaligned stride overrides row_length
+generation=83 rect=17,29,13,9 stride=4 bytes=92 pixels=117
+PASS overlapping rows follow increasing row order
+generation=83 rect=255,255,1,1 stride=4 bytes=4 pixels=1
+PASS last source pixel
+PASS stale generation rejected
+PASS failure leaves entire destination unchanged
+PASS reject width
+PASS reject height
+PASS reject RGBA8 backing
+PASS reject output format
+PASS failure leaves entire destination unchanged
+PASS zero generation
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS capacity one byte short
+PASS failure leaves entire destination unchanged
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+generation=83 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS invalid requests preserve current GPU frame
+PASS second connection shares target
+PASS other connection clear
+PASS cross-connection stale generation
+PASS failure leaves entire destination unchanged
+generation=84 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS cross-connection current generation
+PASS worker retains connection
+PASS start concurrent submitter
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent worker completes
+concurrency stale=12 complete_snapshots=0
+PASS old generation after concurrent submissions
+PASS failure leaves entire destination unchanged
+PASS close
+PASS idempotent close
+PASS closed read rejected
+PASS failure leaves entire destination unchanged
+PASS closed clear rejected
+PASS reopen
+PASS clear after reopen
+generation=97 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS reopen full frame
+surface probe failures=0
+EXIT 0
+COMMAND sudo=False /var/tmp/vgpu-gld-surface-20261116/surface-probe --expect-denied
+PASS non-root process
+PASS real IOServiceOpen denied
+PASS failed open returns NULL
+EXIT 0
+cd /var/tmp/vgpu-gld-surface-20261116 && clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -pedantic -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer vgpu_surface.c gld_surface_probe.c -framework IOKit -framework CoreFoundation -pthread -o surface-probe-sanitized
+COMMAND sudo=False cd /var/tmp/vgpu-gld-surface-20261116 && clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -pedantic -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer vgpu_surface.c gld_surface_probe.c -framework IOKit -framework CoreFoundation -pthread -o surface-probe-sanitized
+EXIT 0
+COMMAND sudo=True ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 /var/tmp/vgpu-gld-surface-20261116/surface-probe-sanitized
+PASS IOServiceOpen vgpuAccelerator type 0x56475055
+PASS triangle service matching
+PASS triangle accelerator service
+PASS probe-only selector 2 connection
+PASS actual selector 2 user vertices
+PASS selector 2 generation and dimensions
+vertices A generation=98 rect=0,0,256,256 stride=1024 bytes=262144 expected_red=6400 expected_green=59136 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices A generation=98 rect=37,83,101,119 stride=436 bytes=53168 expected_red=6049 expected_green=5970 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices A generation=98 rect=37,83,101,119 stride=436 bytes=53168 expected_red=6049 expected_green=5970 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices A generation=98 rect=37,83,101,119 stride=436 bytes=53168 expected_red=6049 expected_green=5970 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices A generation=98 rect=37,83,101,119 stride=440 bytes=53652 expected_red=6049 expected_green=5970 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices A generation=98 rect=37,83,101,119 stride=453 bytes=54784 expected_red=6049 expected_green=5970 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+PASS actual selector 2 user vertices
+PASS selector 2 generation and dimensions
+vertices B generation=99 rect=0,0,256,256 stride=1024 bytes=262144 expected_red=12800 expected_green=52736 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices B generation=99 rect=37,83,101,119 stride=436 bytes=53168 expected_red=5128 expected_green=6891 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices B generation=99 rect=37,83,101,119 stride=436 bytes=53168 expected_red=5128 expected_green=6891 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices B generation=99 rect=37,83,101,119 stride=436 bytes=53168 expected_red=5128 expected_green=6891 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices B generation=99 rect=37,83,101,119 stride=440 bytes=53652 expected_red=5128 expected_green=6891 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+vertices B generation=99 rect=37,83,101,119 stride=453 bytes=54784 expected_red=5128 expected_green=6891 edge_samples=0 rgb_mismatch=0 alpha_mismatch=0 byte_mismatch=0 return=0x00000000
+PASS triangle cross-product RGBA pixels, skip/padding and guards
+PASS close selector 2 connection
+PASS GPU nontrivial clear
+PASS nonzero changed generation
+generation=100 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS all 65536 RGBA pixels including alpha=255 and guards
+generation=100 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=100 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=100 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=100 rect=17,29,13,9 stride=80 bytes=940 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=100 rect=17,29,13,9 stride=93 bytes=1002 pixels=117
+PASS explicit unaligned stride overrides row_length
+generation=100 rect=17,29,13,9 stride=4 bytes=92 pixels=117
+PASS overlapping rows follow increasing row order
+generation=100 rect=255,255,1,1 stride=4 bytes=4 pixels=1
+PASS last source pixel
+PASS GPU nontrivial clear
+PASS nonzero changed generation
+generation=101 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS all 65536 RGBA pixels including alpha=255 and guards
+generation=101 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=101 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=101 rect=17,29,13,9 stride=76 bytes=896 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=101 rect=17,29,13,9 stride=80 bytes=940 pixels=117
+PASS subrect row_length/skip/alignment all pixels+padding
+generation=101 rect=17,29,13,9 stride=93 bytes=1002 pixels=117
+PASS explicit unaligned stride overrides row_length
+generation=101 rect=17,29,13,9 stride=4 bytes=92 pixels=117
+PASS overlapping rows follow increasing row order
+generation=101 rect=255,255,1,1 stride=4 bytes=4 pixels=1
+PASS last source pixel
+PASS stale generation rejected
+PASS failure leaves entire destination unchanged
+PASS reject width
+PASS reject height
+PASS reject RGBA8 backing
+PASS reject output format
+PASS failure leaves entire destination unchanged
+PASS zero generation
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid rectangle
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS reject invalid/overflowing pack
+PASS failure leaves entire destination unchanged
+PASS capacity one byte short
+PASS failure leaves entire destination unchanged
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+PASS invalid clear rejected
+PASS failed clear preserves generation output
+generation=101 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS invalid requests preserve current GPU frame
+PASS second connection shares target
+PASS other connection clear
+PASS cross-connection stale generation
+PASS failure leaves entire destination unchanged
+generation=102 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS cross-connection current generation
+PASS worker retains connection
+PASS start concurrent submitter
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent stale read writes no destination bytes
+PASS concurrent worker completes
+concurrency stale=12 complete_snapshots=0
+PASS old generation after concurrent submissions
+PASS failure leaves entire destination unchanged
+PASS close
+PASS idempotent close
+PASS closed read rejected
+PASS failure leaves entire destination unchanged
+PASS closed clear rejected
+PASS reopen
+PASS clear after reopen
+generation=115 rect=0,0,256,256 stride=1024 bytes=262144 pixels=65536
+PASS reopen full frame
+surface probe failures=0
+EXIT 0
+cd /var/tmp/vgpu-gld-surface-20261116 && clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -pedantic -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -DIOConnectCallMethod=surface_test_call vgpu_surface.c fault_probe.c -framework IOKit -framework CoreFoundation -pthread -o fault-probe
+COMMAND sudo=False cd /var/tmp/vgpu-gld-surface-20261116 && clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -pedantic -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -DIOConnectCallMethod=surface_test_call vgpu_surface.c fault_probe.c -framework IOKit -framework CoreFoundation -pthread -o fault-probe
+EXIT 0
+COMMAND sudo=True ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 /var/tmp/vgpu-gld-surface-20261116/fault-probe
+PASS injected clear metadata mode=1 output unchanged
+PASS injected clear metadata mode=2 output unchanged
+PASS injected clear metadata mode=3 output unchanged
+PASS injected clear metadata mode=4 output unchanged
+PASS injected clear metadata mode=8 output unchanged
+PASS mode=5 rows=4 return=0xe00002ca all destination and guards unchanged
+PASS mode=6 rows=4 return=0xe00002ca all destination and guards unchanged
+PASS mode=7 rows=4 return=0xe00002ca all destination and guards unchanged
+PASS mode=9 rows=4 return=0xe00002d8 all destination and guards unchanged
+PASS mode=10 rows=256 return=0xe00002d8 all destination and guards unchanged
+fault probe failures=0 (metadata faults injected; modes 9/10 real GPU interleaving)
+EXIT 0
+COMMAND sudo=True sysctl kern.boottime; /sbin/dmesg | /usr/bin/grep -E 'vgpu-fb.*(build|clear-only)' | /usr/bin/tail -18
+kern.boottime: { sec = 1794815120, usec = 47049 } Mon Nov 16 15:45:20 2026
+[ 3107.742917]: vgpu-fb: user: clear-only generation 110 -> COMPLETED
+[ 3107.744249]: vgpu-fb: user: clear-only generation 111 -> COMPLETED
+[ 3107.745615]: vgpu-fb: user: clear-only generation 112 -> COMPLETED
+[ 3107.746977]: vgpu-fb: user: clear-only generation 113 -> COMPLETED
+[ 3107.748223]: vgpu-fb: user: clear-only generation 114 -> COMPLETED
+[ 3107.753650]: vgpu-fb: user: clear-only generation 115 -> COMPLETED
+[ 3108.499298]: vgpu-fb: user: clear-only generation 116 -> COMPLETED
+[ 3108.500644]: vgpu-fb: user: clear-only generation 117 -> COMPLETED
+[ 3108.501970]: vgpu-fb: user: clear-only generation 118 -> COMPLETED
+[ 3108.503497]: vgpu-fb: user: clear-only generation 119 -> COMPLETED
+[ 3108.504758]: vgpu-fb: user: clear-only generation 120 -> COMPLETED
+[ 3108.506092]: vgpu-fb: user: clear-only generation 121 -> COMPLETED
+[ 3108.508558]: vgpu-fb: user: clear-only generation 122 -> COMPLETED
+[ 3108.510467]: vgpu-fb: user: clear-only generation 123 -> COMPLETED
+[ 3108.512955]: vgpu-fb: user: clear-only generation 124 -> COMPLETED
+[ 3108.514553]: vgpu-fb: user: clear-only generation 125 -> COMPLETED
+[ 3108.516325]: vgpu-fb: user: clear-only generation 126 -> COMPLETED
+[ 3108.523081]: vgpu-fb: user: clear-only generation 127 -> COMPLETED
+EXIT 0
+ALL REQUESTED RUNS COMPLETED
