@@ -5910,3 +5910,7 @@ Metal process exit = 1
 尝试用客体LLDB启动自有glprobe观察GLD入口，收到`non-interactive debug session, cannot get permission to debug processes`，本轮未绕过许可或更改系统调试权限。VMsvga2 SourceForge源码页面被Cloudflare拦截，未取得可复用GLD ABI。下一实验应取得目标系统真实驱动发现/加载契约，再实现最小服务和诊断GLD插件，验收系统CGL实际调用插件，不以替换系统gl符号、renderer字符串或独立shim冒充接入。
 
 Apple历史官方文档明确存在第三方GLD plug-in接口：https://developer.apple.com/library/archive/documentation/GraphicsImaging/Conceptual/OpenGL-MacProgGuide/opengl_pg_concepts/opengl_pg_concepts.html 。这不证明现代macOS兼容，但足以校正ARCHITECTURE.md中“Apple GL不挂外部GL驱动”的无条件断言。该文旧有“模板已有/OpenGL免费获得”等条目保留为历史假设并添加显著校正；当前OpenGL硬件与Metal设备目标均未完成。
+
+### 2026-11-16 后续：Aqua 基线等待桌面解锁
+
+继续检查时客体启动时间为 01:44:31，运行约 9.5 小时；SSH 会话仍显示 0 users，`/dev/console` 属主 `root`，`launchctl print gui/501` 返回 domain 不存在，`ioreg -r -c IOAccelerator -l` 无结果。VNC 截图显示 `Pika` 锁屏（11:24）。因此现在可以确认是锁屏而非活跃 GUI 登录会话。已向用户请求在 VNC 登录框自行解锁并保持登录；不需要也不应通过聊天提供密码。用户确认完成后，先在该 Aqua 会话复跑 `glprobe` 并记录 CGL renderer 枚举、加速属性和 context 结果，再判断驱动兼容性。用户解锁前不把 `invalid CoreGraphics connection` 作为硬件不支持证据，不改系统权限、不注入 shim。
