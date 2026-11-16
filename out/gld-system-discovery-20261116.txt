@@ -1,0 +1,83 @@
+[VGPU-GLD-DIAG pid=452] initialize services=0x7ffb5c1c8bf0 bytes=0x7ffb5c1c8c70 mask=0x00000001 flush=0x7ffb1ef0fd6f bind=0x7ffb1ef0fd58 flags=0x80000010 mode=reject-all-devices
+[VGPU-GLD-DIAG pid=452] version 4/1/0x11/0x7e00 result=1 diagnostic-only
+[VGPU-GLD-DIAG pid=452] device mask=0x00000001 result=-1 device=NULL caller-tail-zero=0x190
+[VGPU-GLD-DIAG pid=452] terminate resources=0
+kern.boottime: { sec = 1794815120, usec = 47049 } Mon Nov 16 15:45:20 2026
++-o vgpuAccelerator  <class vgpuAccelerator, id 0x10000045e, registered, matched, active, busy 0 (394 ms), retain 6>
+    {
+      "IOProbeScore" = 0
+      "CFBundleIdentifier" = "com.vgpu.framebuffer"
+      "IOMatchCategory" = "IOAccelerator"
+      "IOClass" = "vgpuAccelerator"
+      "IOPersonalityPublisher" = "com.vgpu.framebuffer"
+      "IOProviderClass" = "vgpuFramebuffer"
+      "CFBundleIdentifierKernel" = "com.vgpu.framebuffer"
+      "IOGLBundleName" = "VGPUDriverDiagnostic"
+    }
+    
+
+root
+SYSTEM sysname=Darwin release=24.6.0 machine=x86_64 uid=501
+SYMBOL requested=gpu_bundle_is_path_trusted actual=gpu_bundle_is_path_trusted image=/usr/lib/system/libsystem_sandbox.dylib
+SYMBOL requested=gpu_bundle_find_trusted actual=gpu_bundle_find_trusted image=/usr/lib/system/libsystem_sandbox.dylib
+FIND name=VGPUDriverDiagnostic result=0 errno=0 path=/Library/GPUBundles/VGPUDriverDiagnostic.bundle
+PATH path=/Library/GPUBundles/VGPUDriverDiagnostic.bundle stat=0 stat_errno=0 directory=1 trust=0 trust_errno=0
+PATH path=/Library/GPUBundles/VGPUDriverDiagnostic.bundle/Contents/MacOS/VGPUDriverDiagnostic stat=0 stat_errno=0 directory=0 trust=0 trust_errno=0
+accelerator links: framebuffer=vgpuFramebuffer IOAccelTypes=present IOAccelIndex=present
+accelerator links: IOAccelFindAccelerator=0x00000000 index=0 found=1
+accelerator links: path=IOService:/AppleACPIPlatformExpert/PCI0@0/AppleACPIPCI/display@F/vgpuFramebuffer/vgpuAccelerator
+accelerator links: framebuffers=1
+default: CGLChoosePixelFormat failed (invalid CoreGraphics connection), npix=0
+default: FAIL (diagnostic only)
+software: virtualScreen=0 kCGLPFAAccelerated=0
+software: RENDERER=Apple Software Renderer
+software: VENDOR=Apple Inc. VERSION=2.1 APPLE-21.1.1 GLSL=1.20
+software: clear/readback pixels=4096 mismatch=0 -> PASS
+software: strided readback bytes=96 mismatch=0 -> PASS
+software: centre(32,32)=255,0,0,255 background(4,60)=0,0,0,255 -> OPENGL RASTERISES
+software: resources upload-A 13x7 bytes=364 mismatch=0 guard=0 -> PASS
+software: resources subimage-A 13x7 bytes=364 mismatch=0 guard=0 -> PASS
+software: resources switch-B 9x11 bytes=396 mismatch=0 guard=0 -> PASS
+software: resources preserved-A 13x7 bytes=364 mismatch=0 guard=0 -> PASS
+software: resources resize-attached-A 5x17 bytes=340 mismatch=0 guard=0 -> PASS
+software: resources delete-attachment -> PASS
+software: resources B-survives-A-resize-delete 9x11 bytes=396 mismatch=0 guard=0 -> PASS
+software: resources reattach-new-A 7x5 bytes=140 mismatch=0 guard=0 -> PASS
+software: resources texture-survives-FBO 7x5 bytes=140 mismatch=0 guard=0 -> PASS
+software: ordinary texture/FBO resource lifecycle -> PASS
+software: PASS (diagnostic only)
+accelerated: CGLChoosePixelFormat failed (invalid CoreGraphics connection), npix=0
+accelerated: FAIL (accelerated acceptance)
+renderers: displaymask=0xffffffff count=1
+renderers[0]: kCGLRPRendererID=0x01020400
+renderers[0]: kCGLRPAccelerated=0
+renderers[0]: kCGLRPOnline=0
+renderers[0]: kCGLRPDisplayMask=0x00000001
+graphics images: loaded OpenGL/GLDriver/Metal/IOAccelerator/GPUSupport images
+graphics images: /System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL
+graphics images: /System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries/libGLU.dylib
+graphics images: /System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries/libGFXShared.dylib
+graphics images: /System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries/libGL.dylib
+graphics images: /System/Library/PrivateFrameworks/IOAccelerator.framework/Versions/A/IOAccelerator
+graphics images: /System/Library/Frameworks/Metal.framework/Versions/A/Metal
+graphics images: /System/Library/Frameworks/MetalPerformanceShaders.framework/Versions/A/MetalPerformanceShaders
+graphics images: /usr/lib/swift/libswiftMetal.dylib
+graphics images: /System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries/libCoreFSCache.dylib
+graphics images: /System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries/libGLImage.dylib
+graphics images: /System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries/libCVMSPluginSupport.dylib
+graphics images: /System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries/libCoreVMClient.dylib
+graphics images: /System/Library/Frameworks/MetalPerformanceShaders.framework/Versions/A/Frameworks/MPSCore.framework/Versions/A/MPSCore
+graphics images: /System/Library/Frameworks/MetalPerformanceShaders.framework/Versions/A/Frameworks/MPSImage.framework/Versions/A/MPSImage
+graphics images: /System/Library/Frameworks/MetalPerformanceShaders.framework/Versions/A/Frameworks/MPSNeuralNetwork.framework/Versions/A/MPSNeuralNetwork
+graphics images: /System/Library/Frameworks/MetalPerformanceShaders.framework/Versions/A/Frameworks/MPSMatrix.framework/Versions/A/MPSMatrix
+graphics images: /System/Library/Frameworks/MetalPerformanceShaders.framework/Versions/A/Frameworks/MPSRayIntersector.framework/Versions/A/MPSRayIntersector
+graphics images: /System/Library/Frameworks/MetalPerformanceShaders.framework/Versions/A/Frameworks/MPSNDArray.framework/Versions/A/MPSNDArray
+graphics images: /System/Library/Frameworks/MetalPerformanceShaders.framework/Versions/A/Frameworks/MPSFunctions.framework/Versions/A/MPSFunctions
+graphics images: /System/Library/Frameworks/MetalPerformanceShaders.framework/Versions/A/Frameworks/MPSBenchmarkLoop.framework/Versions/A/MPSBenchmarkLoop
+graphics images: /System/Library/PrivateFrameworks/MetalTools.framework/Versions/A/MetalTools
+graphics images: /System/Library/Frameworks/OpenGL.framework/Versions/A/Resources/GLEngine.bundle/GLEngine
+graphics images: /System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries/libGLProgrammability.dylib
+graphics images: /System/Library/Frameworks/OpenGL.framework/Versions/A/Resources/GLRendererFloat.bundle/GLRendererFloat
+FAIL: accelerated OpenGL acceptance did not pass in this session.
+CGL failure alone does not prove driver incompatibility or absent hardware.
+Record Aqua/login-session availability and IOAccelerator enumeration separately.

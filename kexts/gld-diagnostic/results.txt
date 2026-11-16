@@ -59,3 +59,6 @@ ABI证据与限制
 0x7e00为诊断选用合法字段，不使用float分类；是否与正常运行插件集合冲突由loader实际去重检查，尚未实测全局唯一性。
 正常发现路径还需要关联的IOAccelerator发布IOGLBundleName、bundle及executable通过信任检查；本任务未尝试这些系统变更。
 这些日志来自显式dlopen harness，不是正常loader发现日志；不构成可用硬件renderer、硬件上下文、OpenGL或Metal支持证明。
+
+主代理后续系统验证（§78，2026-11-16）
+上述隔离构建结束后，同一二进制已安装/Library/GPUBundles/VGPUDriverDiagnostic.bundle，accelerator personality发布IOGLBundleName并重启。公开CGL探针glprobe_resources pid319实际触发initialize(mask1,flags0x80000010) -> version -> device(-1) -> terminate。此序列来自系统loader，不是上述harness。目录/执行文件均stat成功、trust=0，名称find=0。当前custom SIP配置未改动；不外推默认系统。该负向诊断仍不提供renderer，硬件OpenGL验收仍失败；详见docs/cb-findings-2026-10-08.md §78。

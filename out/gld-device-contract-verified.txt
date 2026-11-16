@@ -1,0 +1,139 @@
+GLD 设备契约：真实硬件交叉验证
+日期：2026-11-16
+目标：macOS 15.7.3 / 24G419，x86_64 / x86_64h。
+范围：独立静态研究；没有执行任何 GLD/GPUSupport 私有入口，没有 GPU 绘制、安装、重启、内核或现有文档修改、git 操作。
+新增本报告及 out/gld-device-contract-raw-20261116.txt；客体仅新增 /var/tmp/gld-device-contract-raw-20261116.txt。
+
+1. 主要确定结论
+(1) gldCreateDevice 第1参数是8字节不透明句柄输出槽；第3参数不是 void**，而是调用者内嵌的 0x190 字节配置存储。
+(2) libGFXShared 的设备包装 W 大小0x1b0，布局 W+0 next、+8 plugin、+0x10 device ID(u32)、+0x14显示槽位mask(u32)、+0x18驱动句柄D、+0x20配置C。C位于W分配的最后0x190字节；GPUSupport确实写 C+0x188 的8字节，闭合实际范围。不能把 W、D、C 或 renderer 记录R混成同一类型。
+(3) D 对 GLD 上层是不透明句柄。Intel/AMD 使用 GPUSupport 的 GLDDeviceRec 布局，不代表自研独立导出实现也必须复制该布局；如果借用 GPUSupport 的函数，就必须满足它的完整内部要求，当前证据不支持仅伪造几个字段直接调用。
+(4) gldPopulateRendererInfo(D,R) 收到另一块 caller-owned 0x88 字节记录；不会返回 D/C，也不负责销毁设备。GLEngine 的 renderer-info destroy 只释放查询数组。
+(5) create失败，libGFXShared仅删除W，不调用gldDestroyDevice；驱动需自行回滚。正常库释放先destroy所有D，再terminate插件，最后free W。配置C至少活到terminate完成。
+(6) Intel/AMD示例的资源创建发生在InitializeLibrary阶段，CreateDevice只从已创建设备数组中选择；GPUSupport gldDestroyDevice是返回0的空函数，实际释放由TerminateLibrary执行。这是实现策略，不是所有驱动均可空销毁的通用要求。
+
+2. 证据映像、地址与复核
+所有0x7FF...地址为dyld缓存unslid；AMD X5000的0x000...地址是其文件中的preferred VM地址（__TEXT从0起），不是客体实际运行地址。不要给AMD小地址加Intel基址。
+libGFXShared UUID CEB3FF13-179A-3AFD-AB07-31BE4C2073B9。
+GLEngine UUID FB994F78-34C6-39F3-857D-99F9B3013E8F。
+AppleIntelKBLGraphicsGLDriver UUID 84D33620-0DE3-3032-877D-D0D21C75C4C1。
+libGPUSupportMercury UUID F206CE07-BCA7-3CC7-A494-112686CDE945。
+AMDRadeonX5000GLDriver UUID FB94CB01-F4EE-3367-AE56-3B50EAE49E03。
+本次原始证据 out/gld-device-contract-raw-20261116.txt：46143字节；SHA256 cceff3f051a2864feb5f77c7cb55bd199f0ebf5313d51b4afbe74f2c7f9fc95d。
+来源：dyld_info -uuid/-disassemble；按符号截取Intel、GPUSupport、AMD函数。Intel的mangled符号明确含 GLDDeviceRec、GLDDeviceConfigRec，类型名可作为辅助证据，但不由名字恢复其完整声明。
+原始证据行424 gpumCreateDevice；478 gldDestroyDevice；484 gldPopulateRendererInfo；531 gpumInitializeIOData；662 gpumTerminateIOData；856起为只读缓存机器字节。
+已有本地证据：out/gfx-loader.txt:1010..1074（create/包装分配）；4449..4502（release）；_gfxDeleteDevice与_gfxPluginDisconnect；out/glengine-contract-snippets.txt:521..627（renderer查询及释放）。
+前置已读：gld-loader-contract、gld-shared-state-research、gld-loader-memory-v3、pixel-format-research、renderer-properties-research。
+注意：dyld_info按最近标签截取可能带入对齐字节/未命名后继代码；本报告只引用有数据流锚点的地址，不把标签到下一标签都视为同一函数。
+
+3. 可落实到独立实现的调用点 ABI
+以下为本版本x86_64调用约定的等价声明，不是苹果正式头文件：
+ int32_t gldCreateDevice(void **out_device, uint32_t display_mask, void *config_out);
+ int32_t gldPopulateRendererInfo(void *device, void *renderer_out);
+ int32_t gldDestroyDevice(void *device);
+create/populate 的 EAX==0 成功已由调用者测试。destroy的调用者不消费返回值；GPUSupport实现在EAX返回0，因此int32_t是保守可实现形态，不能仅由调用者证明所有实现源代码的返回类型。
+config_out 是0x190字节存储，不是指针槽，也不是0x88 renderer info。renderer_out 是0x88字节caller-owned记录，不是void**。
+
+3.1 调用者证据
+0x7FFB061748A4 EDI=0x1b0；0x7FFB061748AE malloc；0x7FFB061748BE/48C6 bzero(W,0x1b0)。因此初始D槽和C全零。
+0x7FFB06174378 W+0x14=1<<slot；0x7FFB0617424D/424F将同加速器其他slot OR到该mask。它不是device count或registry ID。
+0x7FFB061747F4取plugin；0x7FFB061747F8..4812生成W.deviceID=(++plugin.deviceCount<<24)|plugin.driverID。
+0x7FFB06174815 RDI=W+0x18；4819 ESI=*(W+0x14)；481C RDX=W+0x20；4820 call plugin+0x428。
+0x7FFB06174827测试EAX；非零482E调用gfxDeleteDevice。gfxDeleteDevice 0x7FFB06177FC8..7FCE摘链后直接free W，无GLD destroy。
+关键缓存字节：0x7FFB06174815=488d7b188b7314488d532041ff962804；0x7FFB061748A4=bfb0010000be34928303e8a553000048（每项截取16字节）。
+正常成功后本循环只向next推进，没有读取或验证D/C的内容；不能把“返回0且句柄无效也过这一分支”说成设备创建正确。
+
+3.2 硬件callee证据
+Intel gldCreateDevice入口0x7FFB0211B2F7；0x7FFB0211B300直接写byte1到RDX+7，故RDX不是第二个输出指针槽。
+0x7FFB0211B304 RCX=库私有配置L；B30B R8=glrPopulateDeviceConfig；B312调用gpumCreateDevice，前三个实参原样传递。
+AMD同构：0x23586写C+7=1；0x23598调用gpumCreateDevice；0x235A1失败写*out=0；0x235B7起填D的函数指针。
+GPUSupport 0x7FF918354BE8 R14=回调；4BEB RBX=C；4BEE R15=out槽。
+0x7FF918354BF1读取L+0xe0计数；4BF7读取L+0xd8数组；4C04找到mask有交集的D；4C28..4C34还要求 mask & ~D.mask ==0。没有匹配/不属于同一D则返回0x2716。
+0x7FF918354C7E D+8=C；0x7FF918354C83 *out=D；4C86 EAX=0。
+Intel失败0x7FFB0211B31B把*out清零。成功0x7FFB0211B327取*out，再填D+0x10等回调。
+缓存字节：0x7FFB0211B300=c6420701488d0d254b15414c8d058f0e；0x7FF918354C7E=49895c24084d892731c05b415c415e41。
+
+4. C配置区已核验字段，及“必需”的证据边界
+只对当前内嵌0x190字节视图定义以下字段。未列字节不能称为padding。
+ C偏移  宽度  硬件写入/含义/原始地址
+ +0x00  4     复制D+0x2ec，0x7FF918354C36/4C3E；其值来自IOAccelDeviceGetConfig64第6输出指针（0x7FF918356599/65A4）。正式语义未知，不称device ID。
+ +0x04  1     写0，0x7FF918354C63；正式语义未知。
+ +0x05  1     D+0x2e5 bit5置位时写1，0x7FF918354C54/4C5F；otherwise保留caller零。Populate将其映射renderer removable bit19，0x7FF918356386..6396。
+ +0x06  1     Intel计算配置末尾写1，0x7FFB0216AF23；完整消费者未闭合，不能只凭邻近OpenCL字段正式命名。
+ +0x07  1     Intel 0x7FFB0211B300、AMD 0x23586写1；正式消费者未闭合，不能武断解释为accelerated。
+ +0x180 8     IORegistryEntryGetRegistryEntryID输出，0x7FF918354C40/4C48/4C4F；源服务D+0x238来自initialize的services[slot]。
+ +0x188 8     getpagesize返回值符号扩展后写入，0x7FF918354C67/4C6C/4C6E。
+尾字段+0x188..0x18f与W末尾完全吻合。因此本目标可使用opaque byte config[0x190]，按memcpy访问已证字段；不是凭两个地址间距猜完整C布局。
+GPUSupport的populate实际只经D+8读取C+5和C+0x180；已证明它们对该renderer路径是输入。create loader本身没有要求C中非零字段的检查；尚未证明独立最小GL驱动必须把C+6/+7置1或完整填计算能力。
+保守实现建议：利用caller已清零的C，保存借用指针；只写自己能证实的实际属性（registry ID、page size、removable等），未知字段保持0，并对消费到未知能力的功能拒绝支持。该策略需独立验证，不能宣称已经通过系统GL上下文创建。
+
+4.1 已确认的计算扩展，不是最小GL硬件条件
+Intel glrPopulateDeviceConfig 0x7FFB0211C1A6尾跳glrIntelPopulateComputeDeviceConfig(GLDDeviceRec*,GLDDeviceConfigRec*)。
+0x7FFB0216ABB0..AD1E写C+0x10..0x12f的一组数值能力；这些值受Intel私有D字段及IOConnect selector0x17影响，不能照抄为vGPU能力。
+C+0x130名称字符串（AE7B），+0x138供应商字符串（AE89），+0x140动态分配的版本字符串（AEAE/AEB3），+0x148 FULL_PROFILE（AEF6），+0x150 OpenCL1.2（AEDA），+0x158 OpenCL C1.2（AEE8），+0x160扩展字符串（AF04），+0x168格式表（AF12），+0x170数量0x54（AF19），+0x178 8字节常量0x200000001（AE9A）。
+不能把C当全是整数的平坦配置；其中有借用/自有指针，复制后生命周期也必须处理。不能把C+0x140所指字符串归给loader free，本轮尚未追完该字符串的释放实现。
+
+5. D内部布局与真实GPU初始化：GPUSupport特定，不是通用GLD结构
+Intel/AMD共享实现的D：
+ +0x00 L库级配置，写于0x7FF918356526。
+ +0x08 C配置借用指针，写于0x7FF918354C7E。
+ +0x10..0x208 函数指针表/零槽。Intel0x7FFB0211B331开始填；+0xf0 renderer修正回调于B48F；+0xf8像素格式校验B49D；+0x100上下文配置B4AB；+0x1f0..0x20f清零B64C。
+ +0x230 IOAccel设备对象，写于0x7FF918356571。
+ +0x238 服务句柄u32，写于0x7FF918356532。
+ +0x23c display mask u32，写于0x7FF918356542。
+ +0x2ec IOAccel配置值，写入输出参数形成于0x7FF918356599/65A4。
+ +0x2f0 设备零起始索引u32，写于0x7FF91835651E。
+ +0x2f4 renderer driver标识u32，populate读取0x7FF91835636E；本轮未完整追踪其初始化来源。
+ +0x2f8、+0x300 各8字节容量，由GetConfig64输出形成于0x7FF918356589/6591/65A4；populate分别右移20写texture/video MiB。
+D真实分配步长=L+0x48；不是0x190、0x1b0，也不能以最高已见偏移当总大小。
+Intel库初始化0x7FFB0211B6F7保存glrInitializeDevice到L+0x10；B702保存glrTerminateDevice到L+0x18；B746调用gpumInitializeIOData。
+GPUSupport 0x7FF918356475按mask选services，6486比较重复service，649F把重复槽mask合并。
+0x7FF9183564E2..64FB calloc(count*stride)；650C保存数组到L+0xd8。
+0x7FF918356561 IOAccelDeviceCreateWithAPIProperty(service,"GL/CL")；65A4 GetConfig64；65BB GetConnect；65C5调用设备初始化回调。只有成功迭代的数量进入L+0xe0（65E6）。
+因此只构造renderer能力记录或创建任意userclient句柄，不等价于已经完成真实GPU设备初始化；本轮没有恢复或调用上述IOAccel私有函数的完整ABI。
+若自研bundle完全自实现入口，D可包含自己的已验证vGPU连接/引用与C借用指针，无须伪造L、IOAccel对象或这些回调偏移；如果导入GPUSupport入口，则此简化无效。
+
+6. create → populate 的准确数据流
+GLEngine 0x7FFB0638E9EF获取W链；E9FF..EA11按W+0x14与查询mask交集计数；EA21/EA2B calloc(count,0x88)。
+EA56取W.plugin；EA5B RDI=W.D；EA63..EA77 RSI=R=buffer+index*0x88；EA7A调用plugin+0x438；EA80检查status。
+成功EA84/EA8B写R.next；EA8E对R+0xa OR2，即R.rendererID OR0x20000。
+populate失败EADF保存错误；EAE5只free查询buffer；没有调用destroy device或撤销W。
+gliDestroyRendererInfo 0x7FFB0638EB0A起只检查R并调用free；设备活到库释放。
+
+GPUSupport populate 0x7FF91835634E：
+ R+0 next=0（6358）。
+ R+8 ID=((D.index+1)<<24)|D.driverID（635F..6374）。上层随后OR0x20000；需与W ID及pixel节点ID一致，否则gfxGetDeviceWithDeviceID匹配失败。原始匹配证据：0x7FFB061749F4..4A00从pixel设备ID清低8位再查询；0x7FFB06174B4E将EDI与W+0x10直接比较。
+ R+0x24 mask=D+0x23c（6377/637D）。
+ R+0xc flags=0xa59b | (C+5!=0 ? 0x80000 : 0)（6380..6396）。这组常量是示例驱动能力，不是可照抄的最小能力。
+ R+0x34 registryID=u64(C+0x180)（6399..63A4）。
+ R+0x10..0x1f由常量块初始化（63A8/63AF）；+0x20=0x80（63B3）；其他基础字段清零（63BA..63C8）。
+ R+0x4c videoMiB=u64(D+0x300)>>20（63CC..63D7）；+0x54 textureMiB=u64(D+0x2f8)>>20（63DD..63E8）；+0x50=0（63DA），+0x58..0x87清零（63EB..63F3）。
+ 0x7FF9183563F7 RDI=R，RSI仍D；63FA无NULL检查调用D+0xf0回调；6400返回0。
+因此若“复用GPUSupport populate”，D+8有效C、D+0xf0有效回调、上述标识/mask/容量字段是它实际读取的前置条件；单有D和C首字段不够。独立实现自己的populate无需该callback。
+Intel sanitize 0x7FFB020BE664..E698改变最大aux/sample、flags、颜色/深度位图、R+0x80；这进一步证明基础0xa59b不是最终renderer能力。
+R全部公开属性映射沿用 out/renderer-properties-research.txt；R和像素格式N虽然前若干字段相似，但display mask分别为R+0x24与N+0x34，不能复用一个C struct。
+
+7. 销毁关系与所有权
+0x7FFB06177D93库引用数减一，只有到0继续释放。
+0x7FFB06177DAF RDI=W.D；7DB3 call plugin+0x430；7DB9清W.D；遍历所有W。调用者忽略destroy返回值。
+0x7FFB06177DD5调用gfxPluginDisconnect；其0x7FFB06178037..8048 dlsym并调用gldTerminateLibrary，然后8051 dlclose。
+只有之后0x7FFB06177DF8逐个free W，故C不会在terminate前被loader释放。
+GPUSupport destroy 0x7FF918354C91..4C98 = push rbp;mov rsp,rbp;xor eax,eax;pop rbp;ret，未读取D。缓存字节554889e531c05dc3。
+Intel terminate入口0x7FFB0211B751；B755传L；B75D尾跳gpumTerminateIOData。
+GPUSupport 0x7FF918356648/664F读设备数组与数量；666A调用L+0x18的设备终止回调；6675 IOAccelDeviceRelease(D+0x230)；667A清句柄；6695清计数；66AE free设备数组；66B3清L+0xd8。
+create失败路径不会自动进入destroy，但插件最后没有成功设备时0x7FFB06174854..486D断开插件，可能执行terminate；自研不得依赖这一步回滚单次create产生的资源。
+推荐自己的所有权设计：create中只在所有必需工作成功后发布*out；失败先释放本次资源再返回非0；destroy释放自有D/连接、绝不free caller C或R；terminate只清库级共享资源。若D库级共享则用明确引用关系，避免destroy与terminate双释放。
+
+8. 最小真实设备实现的确定边界与下一项可执行工作
+确定可实现：上述三入口调用约定、D输出槽、0x190 caller配置视图、0x88 renderer视图、ID/mask一致性、失败回滚/正常销毁顺序。无需Float软件设备布局。
+本轮不能确定：使系统完整创建/绘制成功的“全部必需初始化字段”。目前只证明loader接纳条件和GPUSupport renderer消费条件；C+0/+4/+6/+7正式语义、C完整消费者、完整资源/dispatch能力以及IOAccel/vGPU后端桥接仍未闭合。不能把保守零初始化视为已动态验证的成功契约。
+推荐下一项可执行实现：增加独立、未安装的设备生命周期测试件，三个入口完全自实现，D仅保存现有已核验vGPU用户态连接及借用C指针；先接通已有的无绘制设备查询/关闭路径，不调用GPUSupport私有入口。严格区分out void**与C字节区；renderer从真实查询返回的属性填充，未实现的OpenCL/Core profile/能力位不发布。
+独立harness使用0x190配置和0x88 renderer前后canary，验证成功/掩码不匹配/后端打开失败/重复查询/销毁；检查失败*out=NULL且无资源泄漏、C/R边界不越界、renderer与pixel/W设备ID一致。只有已核验后端连接存在时才返回create成功；不能用malloc dummy device作为“真实GPU成功”。
+这是下一阶段工作建议，本次没有新增驱动实现或调用未经核验ABI。系统装载仍需满足既有129符号与版本门槛，三入口测试通过不等于bundle可独立安装使用。
+进一步只读研究优先：沿共享state设备记录查C+0/+4/+6/+7实际消费者，恢复自研所需的最小GL-only非计算配置；核验现有vGPU用户态连接与真实资源/提交接口的桥接，后续再扩展create share/context。
+
+9. 方法与局限
+没有以GLRendererFloat作为硬件结构依据；本报告硬件证据来自Intel KBL与AMD X5000，二者都委托同一GPUSupport create。
+AMD仅有x86_64h，首次显式-arch x86_64失败后按file结果省略arch成功只读分析；不是权限失败或绕过限制。
+读取dyld cache时按头部mappingOffset/mappingCount和32字节<QQQII>映射定位，只读16字节机器指令；无需dlopen或执行GPU入口。
+关键指令机器字节与原始反汇编相符；未进行动态GLD调用测试、未宣称未决字段已验证，也不推及arm64或其他macOS版本。

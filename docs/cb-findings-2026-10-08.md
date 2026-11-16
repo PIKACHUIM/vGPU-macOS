@@ -6256,3 +6256,9 @@ terminate resources=0
 重启后管理员--accelerator完整回归35次新提交（generation1..35）再次PASS，clear和固定/用户顶点全像素mismatch=0。公开OpenGL软件纹理/FBO基线仍全部通过；硬件CGL仍invalid CoreGraphics connection且进程exit1，当前console=root，无已登录Aqua会话。诊断device本来就拒绝创建，不能把加载成功计作硬件上下文成功。
 
 下一步是独立实现持有真实vGPU连接的device生命周期和精确context/render dispatch；现有负向bundle的trap不能被用于成功device路径。标准OpenGL/Metal仍未完成。
+
+### 78.4 硬件device契约交叉验证
+
+out/gld-device-contract-verified.txt及原始证据记录Intel KBL、AMD X5000与GPUSupport。CreateDevice第三参数确为caller内嵌0x190配置区C，GPUSupport写C+0x188的8字节pagesize，与包装W末尾吻合；C+0x180是实际registry ID。D是独立不透明句柄，不能复制Float/GPUSupport布局作为自研必需结构。PopulateRendererInfo(D,R)中的R另为caller-owned 0x88记录。
+
+create失败不会调用DestroyDevice；正常释放先destroy D，再terminate插件，最后free W，因此借用C至少活到terminate。GPUSupport的空destroy仅因其在库初始化/终止中统一管理设备，不是自研可省略释放的证据。renderer ID必须与W和pixel节点ID一致；真实设备模块需实际打开vGPU连接后才返回成功，未知OpenCL/GL能力不发布。

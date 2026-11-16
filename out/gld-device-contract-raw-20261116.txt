@@ -1,0 +1,865 @@
+/System/Library/Extensions/AppleIntelKBLGraphicsGLDriver.bundle/Contents/MacOS/AppleIntelKBLGraphicsGLDriver [x86_64h]:
+    -uuid:
+        84D33620-0DE3-3032-877D-D0D21C75C4C1
+
+_glrSanitizeRendererInfo:
+0x7FFB020BE660   pushq    %rbp                 
+0x7FFB020BE661   movq     %rsp, %rbp           
+0x7FFB020BE664   movl     $0x10002, 0x28(%rdi) 
+0x7FFB020BE66B   orl      $0x75000, 0xc(%rdi)  
+0x7FFB020BE672   movl     $0xa008400, 0x14(%rdi) 
+0x7FFB020BE679   movw     $0x10, 0x2c(%rdi)    
+0x7FFB020BE67F   movb     $0x1, 0x2e(%rdi)     
+0x7FFB020BE683   movl     $0x2, 0x30(%rdi)     
+0x7FFB020BE68A   movabsq  $0x8100000c01, %rax  
+0x7FFB020BE694   movq     %rax, 0x1c(%rdi)     
+0x7FFB020BE698   movl     $0x1, 0x80(%rdi)     
+0x7FFB020BE6A2   popq     %rbp                 
+0x7FFB020BE6A3   retq                          
+0x7FFB020BE6A4   addb     %al, (%rax)          
+0x7FFB020BE6A6   addb     %al, (%rax)          
+0x7FFB020BE6A8   addb     %al, (%rax)          
+0x7FFB020BE6AA   addb     %al, (%rax)          
+0x7FFB020BE6AC   addb     %al, (%rax)          
+0x7FFB020BE6AE   addb     %al, (%rax)          
+_gldCreateDevice:
+0x7FFB0211B2F7   pushq    %rbp                 
+0x7FFB0211B2F8   movq     %rsp, %rbp           
+0x7FFB0211B2FB   pushq    %rbx                 
+0x7FFB0211B2FC   pushq    %rax                 
+0x7FFB0211B2FD   movq     %rdi, %rbx           
+0x7FFB0211B300   movb     $0x1, 0x7(%rdx)      
+0x7FFB0211B304   leaq     0x41154b25(%rip), %rcx  ; 
+0x7FFB0211B30B   leaq     0xe8f(%rip), %r8     ; _glrPopulateDeviceConfig
+0x7FFB0211B312   callq    _gpumCreateDevice    
+0x7FFB0211B317   testl    %eax, %eax           
+0x7FFB0211B319   je       0x7ffb0211b327       
+0x7FFB0211B31B   movq     $0x0, (%rbx)         
+0x7FFB0211B322   jmp      0x7ffb0211b654       
+0x7FFB0211B327   movq     (%rbx), %rcx         
+0x7FFB0211B32A   leaq     -0x6bf71(%rip), %rdx  ; _glrInitializeShareGroup
+0x7FFB0211B331   movq     %rdx, 0x10(%rcx)     
+0x7FFB0211B335   leaq     -0x58ebb(%rip), %rdx  ; _glrTerminateShareGroup
+0x7FFB0211B33C   movq     %rdx, 0x18(%rcx)     
+0x7FFB0211B340   leaq     -0x6bdb9(%rip), %rdx  ; _glrInitializeContext
+0x7FFB0211B347   movq     %rdx, 0x20(%rcx)     
+0x7FFB0211B34B   leaq     -0xc30d2(%rip), %rdx  ; _glrTerminateContext
+0x7FFB0211B352   movq     %rdx, 0x28(%rcx)     
+0x7FFB0211B356   leaq     0x4fc45(%rip), %rdx  ; _glrInitializeQueue
+0x7FFB0211B35D   movq     %rdx, 0x30(%rcx)     
+0x7FFB0211B361   leaq     0x4fcb2(%rip), %rdx  ; _glrTerminateQueue
+0x7FFB0211B368   movq     %rdx, 0x38(%rcx)     
+0x7FFB0211B36C   leaq     -0x243fd3(%rip), %rdx  ; _glrInitializeFramebuffer
+0x7FFB0211B373   movq     %rdx, 0x40(%rcx)     
+0x7FFB0211B377   leaq     -0x24a8c0(%rip), %rdx  ; _glrTerminateFramebuffer
+0x7FFB0211B37E   movq     %rdx, 0x48(%rcx)     
+0x7FFB0211B382   leaq     -0xb7aa9(%rip), %rdx  ; _glrInitializeVertexArray
+0x7FFB0211B389   movq     %rdx, 0x50(%rcx)     
+0x7FFB0211B38D   leaq     -0xc3d8c(%rip), %rdx  ; _glrTerminateVertexArray
+0x7FFB0211B394   movq     %rdx, 0x58(%rcx)     
+0x7FFB0211B398   leaq     -0x24a0f1(%rip), %rdx  ; _glrInitializeTexture
+0x7FFB0211B39F   movq     %rdx, 0x60(%rcx)     
+0x7FFB0211B3A3   leaq     -0x24a8ce(%rip), %rdx  ; _glrTerminateTexture
+0x7FFB0211B3AA   movq     %rdx, 0x68(%rcx)     
+0x7FFB0211B3AE   leaq     -0x24a06d(%rip), %rdx  ; _glrInitializeSampler
+0x7FFB0211B3B5   movq     %rdx, 0x70(%rcx)     
+0x7FFB0211B3B9   leaq     -0x24a863(%rip), %rdx  ; _glrTerminateSampler
+0x7FFB0211B3C0   movq     %rdx, 0x78(%rcx)     
+0x7FFB0211B3C4   leaq     -0x243fdb(%rip), %rdx  ; _glrInitializeBuffer
+0x7FFB0211B3CB   movq     %rdx, 0x80(%rcx)     
+0x7FFB0211B3D2   leaq     -0xc3d54(%rip), %rdx  ; _glrTerminateBuffer
+0x7FFB0211B3D9   movq     %rdx, 0x88(%rcx)     
+0x7FFB0211B3E0   leaq     -0x243dae(%rip), %rdx  ; _glrInitializeMemoryPlugin
+0x7FFB0211B3E7   movq     %rdx, 0x90(%rcx)     
+0x7FFB0211B3EE   leaq     -0xc3d76(%rip), %rdx  ; _glrTerminateMemoryPlugin
+0x7FFB0211B3F5   movq     %rdx, 0x98(%rcx)     
+0x7FFB0211B3FC   leaq     0x4ffed(%rip), %rdx  ; _glrInitializeComputeModule
+0x7FFB0211B403   movq     %rdx, 0xa0(%rcx)     
+0x7FFB0211B40A   leaq     0x4fff2(%rip), %rdx  ; _glrTerminateComputeModule
+0x7FFB0211B411   movq     %rdx, 0xa8(%rcx)     
+0x7FFB0211B418   leaq     0x50283(%rip), %rdx  ; _glrInitializeComputeProgram
+0x7FFB0211B41F   movq     %rdx, 0xb0(%rcx)     
+0x7FFB0211B426   leaq     0x5028c(%rip), %rdx  ; _glrTerminateComputeProgram
+0x7FFB0211B42D   movq     %rdx, 0xb8(%rcx)     
+0x7FFB0211B434   leaq     -0x62d7b(%rip), %rdx  ; _glrInitializeKernel
+0x7FFB0211B43B   movq     %rdx, 0xc0(%rcx)     
+0x7FFB0211B442   leaq     0x5052b(%rip), %rdx  ; _glrTerminateKernel
+0x7FFB0211B449   movq     %rdx, 0xc8(%rcx)     
+0x7FFB0211B450   leaq     -0x5685a(%rip), %rdx  ; _glrInitializeQuery
+0x7FFB0211B457   movq     %rdx, 0xd0(%rcx)     
+0x7FFB0211B45E   leaq     -0x3322(%rip), %rdx  ; _glrTerminateQuery
+0x7FFB0211B465   movq     %rdx, 0xd8(%rcx)     
+0x7FFB0211B46C   leaq     -0x5687e(%rip), %rdx  ; _glrInitializeQueryBuffer
+0x7FFB0211B473   movq     %rdx, 0xe0(%rcx)     
+0x7FFB0211B47A   leaq     -0x3336(%rip), %rdx  ; _glrTerminateQueryBuffer
+0x7FFB0211B481   movq     %rdx, 0xe8(%rcx)     
+0x7FFB0211B488   leaq     -0x5ce2f(%rip), %rdx  ; _glrSanitizeRendererInfo
+0x7FFB0211B48F   movq     %rdx, 0xf0(%rcx)     
+0x7FFB0211B496   leaq     -0x6bfed(%rip), %rdx  ; _glrValidatePixelFormat
+0x7FFB0211B49D   movq     %rdx, 0xf8(%rcx)     
+0x7FFB0211B4A4   leaq     -0x677e2(%rip), %rdx  ; _glrPopulateContextConfig
+0x7FFB0211B4AB   movq     %rdx, 0x100(%rcx)    
+0x7FFB0211B4B2   leaq     -0x243889(%rip), %rdx  ; _glrUpdateFramebuffer
+0x7FFB0211B4B9   movq     %rdx, 0x108(%rcx)    
+0x7FFB0211B4C0   leaq     -0x23b2a2(%rip), %rdx  ; _glrUpdateVertexArrayState
+0x7FFB0211B4C7   movq     %rdx, 0x110(%rcx)    
+0x7FFB0211B4CE   leaq     -0x23ef35(%rip), %rdx  ; _glrUpdateVertexArrayBuffers
+0x7FFB0211B4D5   movq     %rdx, 0x118(%rcx)    
+0x7FFB0211B4DC   leaq     -0x63853(%rip), %rdx  ; _glrUpdateVertexArrayRange
+0x7FFB0211B4E3   movq     %rdx, 0x120(%rcx)    
+0x7FFB0211B4EA   leaq     -0x24a197(%rip), %rdx  ; _glrUpdateTexture
+0x7FFB0211B4F1   movq     %rdx, 0x128(%rcx)    
+0x7FFB0211B4F8   leaq     -0xb7a7f(%rip), %rdx  ; _glrUpdateTextureFormat
+0x7FFB0211B4FF   movq     %rdx, 0x130(%rcx)    
+0x7FFB0211B506   leaq     -0x2404ad(%rip), %rdx  ; _glrUpdateSampler
+0x7FFB0211B50D   movq     %rdx, 0x138(%rcx)    
+0x7FFB0211B514   leaq     -0x243f97(%rip), %rdx  ; _glrUpdateBuffer
+0x7FFB0211B51B   movq     %rdx, 0x140(%rcx)    
+0x7FFB0211B522   leaq     -0x25e4e1(%rip), %rdx  ; _glrUpdateContextDrawBufferState
+0x7FFB0211B529   movq     %rdx, 0x148(%rcx)    
+0x7FFB0211B530   leaq     -0x56909(%rip), %rdx  ; _glrUpdateContextTransformFeedbackState
+0x7FFB0211B537   movq     %rdx, 0x150(%rcx)    
+0x7FFB0211B53E   leaq     -0x23b0e5(%rip), %rdx  ; _glrUpdateContextVertexArray
+0x7FFB0211B545   movq     %rdx, 0x158(%rcx)    
+0x7FFB0211B54C   leaq     -0x2608c3(%rip), %rdx  ; _glrBindContextDrawFramebuffer
+0x7FFB0211B553   movq     %rdx, 0x160(%rcx)    
+0x7FFB0211B55A   leaq     -0x24acfd(%rip), %rdx  ; _glrBindContextReadFramebuffer
+0x7FFB0211B561   movq     %rdx, 0x168(%rcx)    
+0x7FFB0211B568   leaq     -0x23ec63(%rip), %rdx  ; _glrBindContextVertexArray
+0x7FFB0211B56F   movq     %rdx, 0x170(%rcx)    
+0x7FFB0211B576   leaq     -0x24aa15(%rip), %rdx  ; _glrBindContextTexture
+0x7FFB0211B57D   movq     %rdx, 0x178(%rcx)    
+0x7FFB0211B584   leaq     -0x240520(%rip), %rdx  ; _glrBindContextSampler
+0x7FFB0211B58B   movq     %rdx, 0x180(%rcx)    
+0x7FFB0211B592   leaq     -0x245da8(%rip), %rdx  ; _glrWriteTextureData
+0x7FFB0211B599   movq     %rdx, 0x188(%rcx)    
+0x7FFB0211B5A0   leaq     0x4cae1(%rip), %rdx  ; _glrCopyFramebufferDataToTexture
+0x7FFB0211B5A7   movq     %rdx, 0x190(%rcx)    
+0x7FFB0211B5AE   leaq     -0x57582(%rip), %rdx  ; _glrBlitTextureMipmaps
+0x7FFB0211B5B5   movq     %rdx, 0x198(%rcx)    
+0x7FFB0211B5BC   leaq     -0x243f84(%rip), %rdx  ; _glrWriteBufferData
+0x7FFB0211B5C3   movq     %rdx, 0x1a0(%rcx)    
+0x7FFB0211B5CA   leaq     0x32f8(%rip), %rdx   ; _glrCopyBufferData
+0x7FFB0211B5D1   movq     %rdx, 0x1a8(%rcx)    
+0x7FFB0211B5D8   leaq     -0x23d3fc(%rip), %rdx  ; _glrReadFramebufferData
+0x7FFB0211B5DF   movq     %rdx, 0x1b0(%rcx)    
+0x7FFB0211B5E6   leaq     -0x551e5(%rip), %rdx  ; _glrSetFenceOnContext
+0x7FFB0211B5ED   movq     %rdx, 0x1b8(%rcx)    
+0x7FFB0211B5F4   leaq     0x503dc(%rip), %rdx  ; _glrSetFenceOnQueue
+0x7FFB0211B5FB   movq     %rdx, 0x1c0(%rcx)    
+0x7FFB0211B602   leaq     -0x24a813(%rip), %rdx  ; _glrFlushContextToken
+0x7FFB0211B609   movq     %rdx, 0x1c8(%rcx)    
+0x7FFB0211B610   leaq     -0x591c7(%rip), %rdx  ; _gldFlushQueue
+0x7FFB0211B617   movq     %rdx, 0x1d0(%rcx)    
+0x7FFB0211B61E   leaq     0xb86(%rip), %rdx    ; _glrGetPrivateInteger
+0x7FFB0211B625   movq     %rdx, 0x1d8(%rcx)    
+0x7FFB0211B62C   leaq     0xb83(%rip), %rdx    ; _glrSetPrivateInteger
+0x7FFB0211B633   movq     %rdx, 0x1e0(%rcx)    
+0x7FFB0211B63A   leaq     0x1d(%rip), %rdx     ; _gpusKillClientExt
+0x7FFB0211B641   movq     %rdx, 0x1e8(%rcx)    
+0x7FFB0211B648   vxorps   %xmm0, %xmm0, %xmm0  
+0x7FFB0211B64C   vmovups  %ymm0, 0x1f0(%rcx)   
+0x7FFB0211B654   addq     $0x8, %rsp           
+0x7FFB0211B658   popq     %rbx                 
+0x7FFB0211B659   popq     %rbp                 
+0x7FFB0211B65A   vzeroupper                      
+0x7FFB0211B65D   retq                          
+_gldInitializeLibrary:
+0x7FFB0211B669   pushq    %rbp                 
+0x7FFB0211B66A   movq     %rsp, %rbp           
+0x7FFB0211B66D   vxorps   %xmm0, %xmm0, %xmm0  
+0x7FFB0211B671   leaq     0x411547b8(%rip), %rax  ; 
+0x7FFB0211B678   vmovups  %ymm0, 0x60(%rax)    
+0x7FFB0211B67D   vmovups  %ymm0, 0x40(%rax)    
+0x7FFB0211B682   vmovups  %ymm0, 0x80(%rax)    
+0x7FFB0211B68A   vmovups  %ymm0, 0xa0(%rax)    
+0x7FFB0211B692   vmovups  %ymm0, 0xc0(%rax)    
+0x7FFB0211B69A   vmovups  %ymm0, (%rax)        
+0x7FFB0211B69E   vmovups  %ymm0, 0x20(%rax)    
+0x7FFB0211B6A3   vmovups  %ymm0, 0xd0(%rax)    
+0x7FFB0211B6AB   vmovaps  0x907e2d(%rip), %ymm0  ; 
+0x7FFB0211B6B3   vmovups  %ymm0, 0x48(%rax)    
+0x7FFB0211B6B8   vmovaps  0x907e40(%rip), %ymm0  ; 
+0x7FFB0211B6C0   vmovups  %ymm0, 0x68(%rax)    
+0x7FFB0211B6C5   vmovaps  0x907e53(%rip), %ymm0  ; 
+0x7FFB0211B6CD   vmovups  %ymm0, 0x88(%rax)    
+0x7FFB0211B6D5   vmovaps  0x907e63(%rip), %ymm0  ; 
+0x7FFB0211B6DD   vmovups  %ymm0, 0xa8(%rax)    
+0x7FFB0211B6E5   movq     $0x18, 0xc8(%rax)    
+0x7FFB0211B6F0   leaq     0x314(%rip), %r10    ; _glrInitializeDevice
+0x7FFB0211B6F7   movq     %r10, 0x10(%rax)     
+0x7FFB0211B6FB   leaq     0xa95(%rip), %r10    ; _glrTerminateDevice
+0x7FFB0211B702   movq     %r10, 0x18(%rax)     
+0x7FFB0211B706   leaq     -0x24419e(%rip), %r10  ; _glrReleaseVendCtxPipeProg
+0x7FFB0211B70D   movq     %r10, 0x28(%rax)     
+0x7FFB0211B711   leaq     -0x442(%rip), %r10   ; _glrCompFlush
+0x7FFB0211B718   movq     %r10, 0x30(%rax)     
+0x7FFB0211B71C   leaq     -0xb7837(%rip), %r10  ; _gpumSetCookieNoProgramExtern
+0x7FFB0211B723   movq     %r10, 0x38(%rax)     
+0x7FFB0211B727   leaq     0xdd73(%rip), %r10   ; _glrGetIntDD
+0x7FFB0211B72E   movq     %r10, 0x40(%rax)     
+0x7FFB0211B732   movb     $0x1, 0xef(%rax)     
+0x7FFB0211B739   leaq     0x3155(%rip), %r10   ; _glrPopulateIODataSizes
+0x7FFB0211B740   pushq    %r10                 
+0x7FFB0211B742   pushq    %rax                 
+0x7FFB0211B743   vzeroupper                      
+0x7FFB0211B746   callq    _gpumInitializeIOData 
+0x7FFB0211B74B   addq     $0x10, %rsp          
+0x7FFB0211B74F   popq     %rbp                 
+0x7FFB0211B750   retq                          
+_gldTerminateLibrary:
+0x7FFB0211B751   pushq    %rbp                 
+0x7FFB0211B752   movq     %rsp, %rbp           
+0x7FFB0211B755   leaq     0x411546d4(%rip), %rdi  ; 
+0x7FFB0211B75C   popq     %rbp                 
+0x7FFB0211B75D   jmp      _gpumTerminateIOData 
+_glrTerminateDevice:
+0x7FFB0211C197   pushq    %rbp                 
+0x7FFB0211C198   movq     %rsp, %rbp           
+0x7FFB0211C19B   popq     %rbp                 
+0x7FFB0211C19C   jmp      __Z30glrIntelTerminateComputeDeviceP12GLDDeviceRec 
+_glrPopulateDeviceConfig:
+0x7FFB0211C1A1   pushq    %rbp                 
+0x7FFB0211C1A2   movq     %rsp, %rbp           
+0x7FFB0211C1A5   popq     %rbp                 
+0x7FFB0211C1A6   jmp      __Z35glrIntelPopulateComputeDeviceConfigP12GLDDeviceRecP18GLDDeviceConfigRec 
+__Z35glrIntelPopulateComputeDeviceConfigP12GLDDeviceRecP18GLDDeviceConfigRec:
+0x7FFB0216AB78   pushq    %rbp                 
+0x7FFB0216AB79   movq     %rsp, %rbp           
+0x7FFB0216AB7C   pushq    %r14                 
+0x7FFB0216AB7E   pushq    %rbx                 
+0x7FFB0216AB7F   subq     $0x20, %rsp          
+0x7FFB0216AB83   movq     %rsi, %rbx           
+0x7FFB0216AB86   movq     %rdi, %r14           
+0x7FFB0216AB89   leaq     -0x30(%rbp), %rdx    
+0x7FFB0216AB8D   movq     $0x8, (%rdx)         
+0x7FFB0216AB94   leaq     0x952852(%rip), %rdi  ; string literal: "hw.busfrequency_max"
+0x7FFB0216AB9B   leaq     -0x20(%rbp), %rsi    
+0x7FFB0216AB9F   xorl     %ecx, %ecx           
+0x7FFB0216ABA1   xorl     %r8d, %r8d           
+0x7FFB0216ABA4   callq    _sysctlbyname        
+0x7FFB0216ABA9   movl     0x39c(%r14), %eax    
+0x7FFB0216ABB0   movl     %eax, 0x10(%rbx)     
+0x7FFB0216ABB3   vmovaps  0x8d5845(%rip), %ymm0  ; 
+0x7FFB0216ABBB   vmovups  %ymm0, 0x14(%rbx)    
+0x7FFB0216ABC0   movl     0x3b8(%r14), %eax    
+0x7FFB0216ABC7   movl     %eax, 0x34(%rbx)     
+0x7FFB0216ABCA   movabsq  $0x431bde82d7b634db, %rdx 
+0x7FFB0216ABD4   mulxq    -0x20(%rbp), %rax, %rax 
+0x7FFB0216ABDA   shrq     $0x12, %rax          
+0x7FFB0216ABDE   movl     %eax, 0x38(%rbx)     
+0x7FFB0216ABE1   vmovaps  0x8d5877(%rip), %xmm0  ; 
+0x7FFB0216ABE9   vmovups  %xmm0, 0x3c(%rbx)    
+0x7FFB0216ABEE   movl     $0x0, 0x4c(%rbx)     
+0x7FFB0216ABF5   movb     $0x7b, 0x50(%rbx)    
+0x7FFB0216ABF9   movl     $0x3, 0x54(%rbx)     
+0x7FFB0216AC00   movq     $0x0, 0x58(%rbx)     
+0x7FFB0216AC08   vmovaps  0x8d5860(%rip), %xmm0  ; 
+0x7FFB0216AC10   vmovups  %xmm0, 0x60(%rbx)    
+0x7FFB0216AC15   movq     $0x10000, 0x70(%rbx) 
+0x7FFB0216AC1D   vmovaps  0x8d585b(%rip), %xmm0  ; 
+0x7FFB0216AC25   vmovups  %xmm0, 0x78(%rbx)    
+0x7FFB0216AC2A   movq     0x230(%r14), %rdi    
+0x7FFB0216AC31   vzeroupper                      
+0x7FFB0216AC34   callq    _IOAccelDeviceGetConnect 
+0x7FFB0216AC39   leaq     -0x24(%rbp), %r9     
+0x7FFB0216AC3D   movl     $0x1, (%r9)          
+0x7FFB0216AC44   leaq     -0x18(%rbp), %r8     
+0x7FFB0216AC48   movl     %eax, %edi           
+0x7FFB0216AC4A   movl     $0x17, %esi          
+0x7FFB0216AC4F   xorl     %edx, %edx           
+0x7FFB0216AC51   xorl     %ecx, %ecx           
+0x7FFB0216AC53   callq    _IOConnectCallScalarMethod 
+0x7FFB0216AC58   testl    %eax, %eax           
+0x7FFB0216AC5A   je       0x7ffb0216ac6b       
+0x7FFB0216AC5C   movq     $0x18000000, -0x18(%rbp) 
+0x7FFB0216AC64   movl     $0x18000000, %eax    
+0x7FFB0216AC69   jmp      0x7ffb0216ac6f       
+0x7FFB0216AC6B   movq     -0x18(%rbp), %rax    
+0x7FFB0216AC6F   movq     %rax, 0x88(%rbx)     
+0x7FFB0216AC76   shrq     $0x2, %rax           
+0x7FFB0216AC7A   cmpq     $0x8000001, %rax     
+0x7FFB0216AC80   movl     $0x8000000, %ecx     
+0x7FFB0216AC85   cmovaeq  %rax, %rcx           
+0x7FFB0216AC89   movq     %rcx, 0x90(%rbx)     
+0x7FFB0216AC90   movabsq  $0x8000000400, %rax  
+0x7FFB0216AC9A   movq     %rax, 0x98(%rbx)     
+0x7FFB0216ACA1   shrq     $0x4, %rcx           
+0x7FFB0216ACA5   movq     %rcx, 0xa8(%rbx)     
+0x7FFB0216ACAC   movl     $0x800, %eax         
+0x7FFB0216ACB1   movq     %rax, 0xb0(%rbx)     
+0x7FFB0216ACB8   movq     $0x0, 0xb8(%rbx)     
+0x7FFB0216ACC3   movabsq  $0x400000020, %rcx   
+0x7FFB0216ACCD   movq     %rcx, 0xa0(%rbx)     
+0x7FFB0216ACD4   vmovaps  0x8d5744(%rip), %ymm0  ; 
+0x7FFB0216ACDC   vmovups  %ymm0, 0xc0(%rbx)    
+0x7FFB0216ACE4   movabsq  $0x300000001, %rcx   
+0x7FFB0216ACEE   movq     %rcx, 0xe0(%rbx)     
+0x7FFB0216ACF5   movl     0x4ac(%r14), %ecx    
+0x7FFB0216ACFC   vmovq    %rcx, %xmm0          
+0x7FFB0216AD01   vpbroadcastq %xmm0, %ymm0         
+0x7FFB0216AD06   vmovdqu  %ymm0, 0xe8(%rbx)    
+0x7FFB0216AD0E   vmovaps  0x8d572a(%rip), %ymm0  ; 
+0x7FFB0216AD16   vmovups  %ymm0, 0x108(%rbx)   
+0x7FFB0216AD1E   movq     %rax, 0x128(%rbx)    
+0x7FFB0216AD25   movl     0x390(%r14), %eax    
+0x7FFB0216AD2C   leaq     0x951ccb(%rip), %rcx  ; string literal: "Intel(R) UHD Graphics 617"
+0x7FFB0216AD33   cmpl     $0x59138085, %eax    
+0x7FFB0216AD38   jg       0x7ffb0216ad79       
+0x7FFB0216AD3A   cmpl     $0x3e9b8085, %eax    
+0x7FFB0216AD3F   jle      0x7ffb0216adb8       
+0x7FFB0216AD41   cmpl     $0x59068085, %eax    
+0x7FFB0216AD46   jg       0x7ffb0216ae0a       
+0x7FFB0216AD4C   cmpl     $0x3e9b8086, %eax    
+0x7FFB0216AD51   je       0x7ffb0216af3c       
+0x7FFB0216AD57   cmpl     $0x3ea58086, %eax    
+0x7FFB0216AD5C   je       0x7ffb0216af30       
+0x7FFB0216AD62   cmpl     $0x3ea68086, %eax    
+0x7FFB0216AD67   jne      0x7ffb0216af48       
+0x7FFB0216AD6D   leaq     0x951cbd(%rip), %rcx  ; string literal: "Intel(R) Iris(TM) Plus Graphics 645"
+0x7FFB0216AD74   jmp      0x7ffb0216ae7b       
+0x7FFB0216AD79   cmpl     $0x591e8085, %eax    
+0x7FFB0216AD7E   jle      0x7ffb0216ade5       
+0x7FFB0216AD80   cmpl     $0x59278085, %eax    
+0x7FFB0216AD85   jg       0x7ffb0216ae24       
+0x7FFB0216AD8B   cmpl     $0x591e8086, %eax    
+0x7FFB0216AD90   je       0x7ffb0216ae6b       
+0x7FFB0216AD96   cmpl     $0x59218086, %eax    
+0x7FFB0216AD9B   je       0x7ffb0216ae74       
+0x7FFB0216ADA1   cmpl     $0x59268086, %eax    
+0x7FFB0216ADA6   jne      0x7ffb0216af48       
+0x7FFB0216ADAC   leaq     0x951ca2(%rip), %rcx  ; string literal: "Intel(R) Iris(TM) Plus Graphics 640"
+0x7FFB0216ADB3   jmp      0x7ffb0216ae7b       
+0x7FFB0216ADB8   cmpl     $0x9bc48085, %eax    
+0x7FFB0216ADBD   jle      0x7ffb0216ae46       
+0x7FFB0216ADC3   cmpl     $0x9bc48086, %eax    
+0x7FFB0216ADC8   je       0x7ffb0216ae3d       
+0x7FFB0216ADCA   cmpl     $0x9bca8086, %eax    
+0x7FFB0216ADCF   je       0x7ffb0216ae74       
+0x7FFB0216ADD5   cmpl     $0x9bcc8086, %eax    
+0x7FFB0216ADDA   je       0x7ffb0216ae74       
+0x7FFB0216ADE0   jmp      0x7ffb0216af48       
+0x7FFB0216ADE5   cmpl     $0x59168085, %eax    
+0x7FFB0216ADEA   jle      0x7ffb0216ae59       
+0x7FFB0216ADEC   cmpl     $0x59168086, %eax    
+0x7FFB0216ADF1   je       0x7ffb0216ae7b       
+0x7FFB0216ADF7   cmpl     $0x591b8086, %eax    
+0x7FFB0216ADFC   je       0x7ffb0216ae3d       
+0x7FFB0216ADFE   cmpl     $0x591c8086, %eax    
+0x7FFB0216AE03   je       0x7ffb0216ae7b       
+0x7FFB0216AE05   jmp      0x7ffb0216af48       
+0x7FFB0216AE0A   cmpl     $0x59068086, %eax    
+0x7FFB0216AE0F   je       0x7ffb0216ae74       
+0x7FFB0216AE11   cmpl     $0x590b8086, %eax    
+0x7FFB0216AE16   je       0x7ffb0216ae3d       
+0x7FFB0216AE18   cmpl     $0x590e8086, %eax    
+0x7FFB0216AE1D   je       0x7ffb0216ae6b       
+0x7FFB0216AE1F   jmp      0x7ffb0216af48       
+0x7FFB0216AE24   cmpl     $0x59278086, %eax    
+0x7FFB0216AE29   je       0x7ffb0216ae74       
+0x7FFB0216AE2B   cmpl     $0x592b8086, %eax    
+0x7FFB0216AE30   je       0x7ffb0216ae3d       
+0x7FFB0216AE32   cmpl     $0x593b8086, %eax    
+0x7FFB0216AE37   jne      0x7ffb0216af48       
+0x7FFB0216AE3D   leaq     0x951cd5(%rip), %rcx  ; string literal: "Intel(R) HD Graphics 630"
+0x7FFB0216AE44   jmp      0x7ffb0216ae7b       
+0x7FFB0216AE46   cmpl     $0x87c08086, %eax    
+0x7FFB0216AE4B   je       0x7ffb0216ae7b       
+0x7FFB0216AE4D   cmpl     $0x9b418086, %eax    
+0x7FFB0216AE52   je       0x7ffb0216ae74       
+0x7FFB0216AE54   jmp      0x7ffb0216af48       
+0x7FFB0216AE59   cmpl     $0x59138086, %eax    
+0x7FFB0216AE5E   je       0x7ffb0216ae74       
+0x7FFB0216AE60   cmpl     $0x59158086, %eax    
+0x7FFB0216AE65   jne      0x7ffb0216af48       
+0x7FFB0216AE6B   leaq     0x951ba6(%rip), %rcx  ; string literal: "Intel(R) HD Graphics 615"
+0x7FFB0216AE72   jmp      0x7ffb0216ae7b       
+0x7FFB0216AE74   leaq     0x951c46(%rip), %rcx  ; string literal: "Intel(R) Iris(TM) Plus Graphics 650"
+0x7FFB0216AE7B   movq     %rcx, 0x130(%rbx)    
+0x7FFB0216AE82   leaq     0x951d27(%rip), %rax  ; string literal: "Intel Inc."
+0x7FFB0216AE89   movq     %rax, 0x138(%rbx)    
+0x7FFB0216AE90   movabsq  $0x200000001, %rax   
+0x7FFB0216AE9A   movq     %rax, 0x178(%rbx)    
+0x7FFB0216AEA1   movl     $0x1, %edi           
+0x7FFB0216AEA6   movl     $0x1b, %esi          
+0x7FFB0216AEAB   vzeroupper                      
+0x7FFB0216AEAE   callq    _calloc              
+0x7FFB0216AEB3   movq     %rax, 0x140(%rbx)    
+0x7FFB0216AEBA   vmovups  0x95253f(%rip), %xmm0  ; string literal: "1.2(Nov  5 2025 22:11:29)"
+0x7FFB0216AEC2   vmovups  %xmm0, (%rax)        
+0x7FFB0216AEC6   vmovups  0x95253d(%rip), %xmm0  ; 
+0x7FFB0216AECE   vmovups  %xmm0, 0xa(%rax)     
+0x7FFB0216AED3   leaq     0x952541(%rip), %rax  ; string literal: "OpenCL 1.2 "
+0x7FFB0216AEDA   movq     %rax, 0x150(%rbx)    
+0x7FFB0216AEE1   leaq     0x95253f(%rip), %rax  ; string literal: "OpenCL C 1.2 "
+0x7FFB0216AEE8   movq     %rax, 0x158(%rbx)    
+0x7FFB0216AEEF   leaq     0x95253f(%rip), %rax  ; string literal: "FULL_PROFILE"
+0x7FFB0216AEF6   movq     %rax, 0x148(%rbx)    
+0x7FFB0216AEFD   leaq     0x952594(%rip), %rax  ; string literal: "cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_khr_byte_addressable_store cl_khr_image2d_from_buffer cl_khr_gl_d
+0x7FFB0216AF04   movq     %rax, 0x160(%rbx)    
+0x7FFB0216AF0B   leaq     0x410c712e(%rip), %rax  ; __ZL21IntelSupportedFormats
+0x7FFB0216AF12   movq     %rax, 0x168(%rbx)    
+0x7FFB0216AF19   movl     $0x54, 0x170(%rbx)   
+0x7FFB0216AF23   movb     $0x1, 0x6(%rbx)      
+0x7FFB0216AF27   addq     $0x20, %rsp          
+0x7FFB0216AF2B   popq     %rbx                 
+0x7FFB0216AF2C   popq     %r14                 
+0x7FFB0216AF2E   popq     %rbp                 
+0x7FFB0216AF2F   retq                          
+0x7FFB0216AF30   leaq     0x951b42(%rip), %rcx  ; string literal: "Intel(R) Iris(TM) Plus Graphics 655"
+0x7FFB0216AF37   jmp      0x7ffb0216ae7b       
+0x7FFB0216AF3C   leaq     0x951ba2(%rip), %rcx  ; string literal: "Intel(R) UHD Graphics 630"
+0x7FFB0216AF43   jmp      0x7ffb0216ae7b       
+0x7FFB0216AF48   leaq     0x951be3(%rip), %rsi  ; string literal: "Unhandled device string!"
+0x7FFB0216AF4F   movl     $0x3, %edi           
+0x7FFB0216AF54   xorl     %eax, %eax           
+0x7FFB0216AF56   vzeroupper                      
+0x7FFB0216AF59   callq    _syslog$DARWIN_EXTSN 
+0x7FFB0216AF5E   leaq     0x951be6(%rip), %rcx  ; string literal: "KBL Graphics"
+0x7FFB0216AF65   jmp      0x7ffb0216ae7b       
+/System/Library/PrivateFrameworks/GPUSupport.framework/Versions/A/Libraries/libGPUSupportMercury.dylib [x86_64]:
+    -uuid:
+        F206CE07-BCA7-3CC7-A494-112686CDE945
+
+_gpumCreateDevice:
+0x7FF918354BDD   pushq    %rbp                 
+0x7FF918354BDE   movq     %rsp, %rbp           
+0x7FF918354BE1   pushq    %r15                 
+0x7FF918354BE3   pushq    %r14                 
+0x7FF918354BE5   pushq    %r12                 
+0x7FF918354BE7   pushq    %rbx                 
+0x7FF918354BE8   movq     %r8, %r14            
+0x7FF918354BEB   movq     %rdx, %rbx           
+0x7FF918354BEE   movq     %rdi, %r15           
+0x7FF918354BF1   movl     0xe0(%rcx), %edx     
+0x7FF918354BF7   movq     0xd8(%rcx), %r12     
+0x7FF918354BFE   xorl     %edi, %edi           
+0x7FF918354C00   testl    %edx, %edx           
+0x7FF918354C02   je       0x7ff918354c1f       
+0x7FF918354C04   testl    %esi, 0x23c(%r12)    
+0x7FF918354C0C   jne      0x7ff918354c1f       
+0x7FF918354C0E   incl     %edi                 
+0x7FF918354C10   addq     0x48(%rcx), %r12     
+0x7FF918354C14   cmpl     %edi, %edx           
+0x7FF918354C16   jne      0x7ff918354c04       
+0x7FF918354C18   movl     $0x2716, %eax        
+0x7FF918354C1D   jmp      0x7ff918354c88       
+0x7FF918354C1F   movl     $0x2716, %eax        
+0x7FF918354C24   cmpl     %edx, %edi           
+0x7FF918354C26   je       0x7ff918354c88       
+0x7FF918354C28   movl     0x23c(%r12), %ecx    
+0x7FF918354C30   notl     %ecx                 
+0x7FF918354C32   testl    %esi, %ecx           
+0x7FF918354C34   jne      0x7ff918354c88       
+0x7FF918354C36   movl     0x2ec(%r12), %eax    
+0x7FF918354C3E   movl     %eax, (%rbx)         
+0x7FF918354C40   movl     0x238(%r12), %edi    
+0x7FF918354C48   leaq     0x180(%rbx), %rsi    
+0x7FF918354C4F   callq    _IORegistryEntryGetRegistryEntryID 
+0x7FF918354C54   testb    $0x20, 0x2e5(%r12)   
+0x7FF918354C5D   je       0x7ff918354c63       
+0x7FF918354C5F   movb     $0x1, 0x5(%rbx)      
+0x7FF918354C63   movb     $0x0, 0x4(%rbx)      
+0x7FF918354C67   callq    _getpagesize         
+0x7FF918354C6C   cltq                          
+0x7FF918354C6E   movq     %rax, 0x188(%rbx)    
+0x7FF918354C75   movq     %r12, %rdi           
+0x7FF918354C78   movq     %rbx, %rsi           
+0x7FF918354C7B   callq    *%r14                
+0x7FF918354C7E   movq     %rbx, 0x8(%r12)      
+0x7FF918354C83   movq     %r12, (%r15)         
+0x7FF918354C86   xorl     %eax, %eax           
+0x7FF918354C88   popq     %rbx                 
+0x7FF918354C89   popq     %r12                 
+0x7FF918354C8B   popq     %r14                 
+0x7FF918354C8D   popq     %r15                 
+0x7FF918354C8F   popq     %rbp                 
+0x7FF918354C90   retq                          
+_gldDestroyDevice:
+0x7FF918354C91   pushq    %rbp                 
+0x7FF918354C92   movq     %rsp, %rbp           
+0x7FF918354C95   xorl     %eax, %eax           
+0x7FF918354C97   popq     %rbp                 
+0x7FF918354C98   retq                          
+_gldPopulateRendererInfo:
+0x7FF91835634E   pushq    %rbp                 
+0x7FF91835634F   movq     %rsp, %rbp           
+0x7FF918356352   movq     %rsi, %rax           
+0x7FF918356355   movq     %rdi, %rsi           
+0x7FF918356358   movq     $0x0, (%rax)         
+0x7FF91835635F   movl     0x2f0(%rdi), %ecx    
+0x7FF918356365   shll     $0x18, %ecx          
+0x7FF918356368   addl     $0x1000000, %ecx     
+0x7FF91835636E   orl      0x2f4(%rdi), %ecx    
+0x7FF918356374   movl     %ecx, 0x8(%rax)      
+0x7FF918356377   movl     0x23c(%rdi), %ecx    
+0x7FF91835637D   movl     %ecx, 0x24(%rax)     
+0x7FF918356380   movq     0x8(%rdi), %rcx      
+0x7FF918356384   xorl     %edx, %edx           
+0x7FF918356386   cmpb     $0x0, 0x5(%rcx)      
+0x7FF91835638A   setne    %dl                  
+0x7FF91835638D   shll     $0x13, %edx          
+0x7FF918356390   orl      $0xa59b, %edx        
+0x7FF918356396   movl     %edx, 0xc(%rax)      
+0x7FF918356399   movq     0x8(%rdi), %rcx      
+0x7FF91835639D   movq     0x180(%rcx), %rcx    
+0x7FF9183563A4   movq     %rcx, 0x34(%rax)     
+0x7FF9183563A8   movaps   0x68e1(%rip), %xmm0  ; 
+0x7FF9183563AF   movups   %xmm0, 0x10(%rax)    
+0x7FF9183563B3   movl     $0x80, 0x20(%rax)    
+0x7FF9183563BA   xorl     %ecx, %ecx           
+0x7FF9183563BC   movl     %ecx, 0x30(%rax)     
+0x7FF9183563BF   movl     %ecx, 0x28(%rax)     
+0x7FF9183563C2   movl     %ecx, 0x2b(%rax)     
+0x7FF9183563C5   xorps    %xmm0, %xmm0         
+0x7FF9183563C8   movups   %xmm0, 0x3c(%rax)    
+0x7FF9183563CC   movq     0x300(%rdi), %rdx    
+0x7FF9183563D3   shrq     $0x14, %rdx          
+0x7FF9183563D7   movl     %edx, 0x4c(%rax)     
+0x7FF9183563DA   movl     %ecx, 0x50(%rax)     
+0x7FF9183563DD   movq     0x2f8(%rdi), %rcx    
+0x7FF9183563E4   shrq     $0x14, %rcx          
+0x7FF9183563E8   movl     %ecx, 0x54(%rax)     
+0x7FF9183563EB   movups   %xmm0, 0x58(%rax)    
+0x7FF9183563EF   movups   %xmm0, 0x68(%rax)    
+0x7FF9183563F3   movups   %xmm0, 0x78(%rax)    
+0x7FF9183563F7   movq     %rax, %rdi           
+0x7FF9183563FA   callq    *0xf0(%rsi)          
+0x7FF918356400   xorl     %eax, %eax           
+0x7FF918356402   popq     %rbp                 
+0x7FF918356403   retq                          
+_gpumInitializeIOData:
+0x7FF918356404   pushq    %rbp                 
+0x7FF918356405   movq     %rsp, %rbp           
+0x7FF918356408   pushq    %r15                 
+0x7FF91835640A   pushq    %r14                 
+0x7FF91835640C   pushq    %r13                 
+0x7FF91835640E   pushq    %r12                 
+0x7FF918356410   pushq    %rbx                 
+0x7FF918356411   subq     $0x198, %rsp         
+0x7FF918356418   movq     0x18(%rbp), %rax     
+0x7FF91835641C   movq     0x10(%rbp), %r10     
+0x7FF918356420   movq     0x27d205c9(%rip), %rsi  ; 
+0x7FF918356427   movq     (%rsi), %rsi         
+0x7FF91835642A   movq     %rsi, -0x30(%rbp)    
+0x7FF91835642E   movl     %edx, 0xe4(%r10)     
+0x7FF918356435   movq     %rcx, (%r10)         
+0x7FF918356438   movq     %r8, 0x8(%r10)       
+0x7FF91835643C   movl     %r9d, 0xe8(%r10)     
+0x7FF918356443   movq     %r10, %rbx           
+0x7FF918356446   movb     %r9b, 0xee(%r10)     
+0x7FF91835644D   xorl     %esi, %esi           
+0x7FF91835644F   xorl     %ecx, %ecx           
+0x7FF918356451   xorl     %r14d, %r14d         
+0x7FF918356454   movl     %r14d, %r8d          
+0x7FF918356457   movl     $0x1, %r9d           
+0x7FF91835645D   shll     %cl, %r9d            
+0x7FF918356460   movl     %esi, -0xb0(%rbp,%rcx,4) 
+0x7FF918356467   movl     %esi, -0x130(%rbp,%rcx,4) 
+0x7FF91835646E   movl     %esi, -0x1b0(%rbp,%rcx,4) 
+0x7FF918356475   btl      %ecx, %edx           
+0x7FF918356478   jae      0x7ff9183564af       
+0x7FF91835647A   movl     (%rdi,%rcx,4), %r10d 
+0x7FF91835647E   testq    %r8, %r8             
+0x7FF918356481   je       0x7ff9183564b4       
+0x7FF918356483   xorl     %r11d, %r11d         
+0x7FF918356486   cmpl     %r10d, -0xb0(%rbp,%r11,4) 
+0x7FF91835648E   je       0x7ff91835649a       
+0x7FF918356490   incq     %r11                 
+0x7FF918356493   cmpl     %r11d, %r8d          
+0x7FF918356496   jne      0x7ff918356486       
+0x7FF918356498   jmp      0x7ff9183564b4       
+0x7FF91835649A   testl    %r11d, %r11d         
+0x7FF91835649D   js       0x7ff9183564b4       
+0x7FF91835649F   orl      %r9d, -0x130(%rbp,%r11,4) 
+0x7FF9183564A7   incl     -0x1b0(%rbp,%r11,4)  
+0x7FF9183564AF   movl     %r8d, %r14d          
+0x7FF9183564B2   jmp      0x7ff9183564c8       
+0x7FF9183564B4   leal     0x1(%r8), %r14d      
+0x7FF9183564B8   movl     %r10d, -0xb0(%rbp,%r8,4) 
+0x7FF9183564C0   orl      %r9d, -0x130(%rbp,%r8,4) 
+0x7FF9183564C8   incq     %rcx                 
+0x7FF9183564CB   cmpq     $0x20, %rcx          
+0x7FF9183564CF   jne      0x7ff918356454       
+0x7FF9183564D1   movq     %rbx, %rdi           
+0x7FF9183564D4   callq    *%rax                
+0x7FF9183564D6   testl    %r14d, %r14d         
+0x7FF9183564D9   je       0x7ff9183565ef       
+0x7FF9183564DF   movl     %r14d, %eax          
+0x7FF9183564E2   movq     0x48(%rbx), %rsi     
+0x7FF9183564E6   movq     %rax, -0x1b8(%rbp)   
+0x7FF9183564ED   imulq    %rax, %rsi           
+0x7FF9183564F1   movl     $0x1, %edi           
+0x7FF9183564F6   movl     $0x2934f877, %edx    
+0x7FF9183564FB   callq    _malloc_type_calloc  
+0x7FF918356500   testq    %rax, %rax           
+0x7FF918356503   je       0x7ff918356632       
+0x7FF918356509   movq     %rax, %r14           
+0x7FF91835650C   movq     %rax, 0xd8(%rbx)     
+0x7FF918356513   xorl     %r15d, %r15d         
+0x7FF918356516   movq     0x48(%rbx), %r12     
+0x7FF91835651A   imulq    %r15, %r12           
+0x7FF91835651E   movl     %r15d, 0x2f0(%r14,%r12) 
+0x7FF918356526   movq     %rbx, (%r14,%r12)    
+0x7FF91835652A   movl     -0xb0(%rbp,%r15,4), %edi 
+0x7FF918356532   movl     %edi, 0x238(%r14,%r12) 
+0x7FF91835653A   movl     -0x130(%rbp,%r15,4), %eax 
+0x7FF918356542   movl     %eax, 0x23c(%r14,%r12) 
+0x7FF91835654A   movl     -0x1b0(%rbp,%r15,4), %eax 
+0x7FF918356552   movl     %eax, 0x240(%r14,%r12) 
+0x7FF91835655A   leaq     0x6167(%rip), %rsi   ; string literal: "GL/CL"
+0x7FF918356561   callq    _IOAccelDeviceCreateWithAPIProperty 
+0x7FF918356566   testq    %rax, %rax           
+0x7FF918356569   je       0x7ff9183565e6       
+0x7FF91835656B   movq     %rax, %r13           
+0x7FF91835656E   addq     %r14, %r12           
+0x7FF918356571   movq     %rax, 0x230(%r12)    
+0x7FF918356579   leaq     0x2e4(%r12), %rsi    
+0x7FF918356581   leaq     0x2e8(%r12), %rdx    
+0x7FF918356589   leaq     0x2f8(%r12), %rcx    
+0x7FF918356591   leaq     0x300(%r12), %r8     
+0x7FF918356599   leaq     0x2ec(%r12), %r9     
+0x7FF9183565A1   movq     %rax, %rdi           
+0x7FF9183565A4   callq    _IOAccelDeviceGetConfig64 
+0x7FF9183565A9   testl    %eax, %eax           
+0x7FF9183565AB   jne      0x7ff9183565e6       
+0x7FF9183565AD   movq     0x10(%rbx), %rax     
+0x7FF9183565B1   movq     %rax, -0x1c0(%rbp)   
+0x7FF9183565B8   movq     %r13, %rdi           
+0x7FF9183565BB   callq    _IOAccelDeviceGetConnect 
+0x7FF9183565C0   movq     %r12, %rdi           
+0x7FF9183565C3   movl     %eax, %esi           
+0x7FF9183565C5   callq    *-0x1c0(%rbp)        
+0x7FF9183565CB   testl    %eax, %eax           
+0x7FF9183565CD   jne      0x7ff9183565e6       
+0x7FF9183565CF   incq     %r15                 
+0x7FF9183565D2   cmpq     %r15, -0x1b8(%rbp)   
+0x7FF9183565D9   jne      0x7ff918356516       
+0x7FF9183565DF   movq     -0x1b8(%rbp), %r15   
+0x7FF9183565E6   movl     %r15d, 0xe0(%rbx)    
+0x7FF9183565ED   jmp      0x7ff918356604       
+0x7FF9183565EF   movq     0x27d22a9a(%rip), %rdi  ; 
+0x7FF9183565F6   movl     $0x11, %esi          
+0x7FF9183565FB   callq    _os_log_type_enabled 
+0x7FF918356600   testb    %al, %al             
+0x7FF918356602   jne      0x7ff918356626       
+0x7FF918356604   movq     0x27d203e5(%rip), %rax  ; 
+0x7FF91835660B   movq     (%rax), %rax         
+0x7FF91835660E   cmpq     -0x30(%rbp), %rax    
+0x7FF918356612   jne      0x7ff91835662d       
+0x7FF918356614   addq     $0x198, %rsp         
+0x7FF91835661B   popq     %rbx                 
+0x7FF91835661C   popq     %r12                 
+0x7FF91835661E   popq     %r13                 
+0x7FF918356620   popq     %r14                 
+0x7FF918356622   popq     %r15                 
+0x7FF918356624   popq     %rbp                 
+0x7FF918356625   retq                          
+0x7FF918356626   callq    _gpumInitializeIOData.cold.1 
+0x7FF91835662B   jmp      0x7ff918356604       
+0x7FF91835662D   callq    ___stack_chk_fail    
+0x7FF918356632   callq    _abort               
+_gpumTerminateIOData:
+0x7FF918356637   pushq    %rbp                 
+0x7FF918356638   movq     %rsp, %rbp           
+0x7FF91835663B   pushq    %r15                 
+0x7FF91835663D   pushq    %r14                 
+0x7FF91835663F   pushq    %r13                 
+0x7FF918356641   pushq    %r12                 
+0x7FF918356643   pushq    %rbx                 
+0x7FF918356644   pushq    %rax                 
+0x7FF918356645   movq     %rdi, %rbx           
+0x7FF918356648   movq     0xd8(%rdi), %r14     
+0x7FF91835664F   movl     0xe0(%rdi), %r15d    
+0x7FF918356656   testq    %r15, %r15           
+0x7FF918356659   je       0x7ff918356695       
+0x7FF91835665B   xorl     %r12d, %r12d         
+0x7FF91835665E   movq     0x48(%rbx), %r13     
+0x7FF918356662   imulq    %r12, %r13           
+0x7FF918356666   leaq     (%r14,%r13), %rdi    
+0x7FF91835666A   callq    *0x18(%rbx)          
+0x7FF91835666D   movq     0x230(%r14,%r13), %rdi 
+0x7FF918356675   callq    _IOAccelDeviceRelease 
+0x7FF91835667A   movq     $0x0, 0x230(%r14,%r13) 
+0x7FF918356686   incq     %r12                 
+0x7FF918356689   cmpq     %r12, %r15           
+0x7FF91835668C   jne      0x7ff91835665e       
+0x7FF91835668E   movq     0xd8(%rbx), %r14     
+0x7FF918356695   movq     $0x0, 0xe0(%rbx)     
+0x7FF9183566A0   xorps    %xmm0, %xmm0         
+0x7FF9183566A3   movups   %xmm0, (%rbx)        
+0x7FF9183566A6   testq    %r14, %r14           
+0x7FF9183566A9   je       0x7ff9183566be       
+0x7FF9183566AB   movq     %r14, %rdi           
+0x7FF9183566AE   callq    _free                
+0x7FF9183566B3   movq     $0x0, 0xd8(%rbx)     
+0x7FF9183566BE   addq     $0x8, %rsp           
+0x7FF9183566C2   popq     %rbx                 
+0x7FF9183566C3   popq     %r12                 
+0x7FF9183566C5   popq     %r13                 
+0x7FF9183566C7   popq     %r14                 
+0x7FF9183566C9   popq     %r15                 
+0x7FF9183566CB   popq     %rbp                 
+0x7FF9183566CC   retq                          
+/System/Library/Extensions/AMDRadeonX5000GLDriver.bundle/Contents/MacOS/AMDRadeonX5000GLDriver [x86_64h]:
+    -uuid:
+        FB94CB01-F4EE-3367-AE56-3B50EAE49E03
+
+_gldCreateDevice:
+0x00002357D   pushq    %rbp                 
+0x00002357E   movq     %rsp, %rbp           
+0x000023581   pushq    %rbx                 
+0x000023582   pushq    %rax                 
+0x000023583   movq     %rdi, %rbx           
+0x000023586   movb     $0x1, 0x7(%rdx)      
+0x00002358A   leaq     0x132467(%rip), %rcx  ; 
+0x000023591   leaq     0x25fe6(%rip), %r8   ; _glrPopulateDeviceConfig
+0x000023598   callq    _gpumCreateDevice    
+0x00002359D   testl    %eax, %eax           
+0x00002359F   je       0x235ad              
+0x0000235A1   movq     $0x0, (%rbx)         
+0x0000235A8   jmp      0x238da              
+0x0000235AD   movq     (%rbx), %rcx         
+0x0000235B0   leaq     -0x22041(%rip), %rdx  ; _glrInitializeShareGroup
+0x0000235B7   movq     %rdx, 0x10(%rcx)     
+0x0000235BB   leaq     -0x21e61(%rip), %rdx  ; _glrTerminateShareGroup
+0x0000235C2   movq     %rdx, 0x18(%rcx)     
+0x0000235C6   leaq     -0x22101(%rip), %rdx  ; _glrInitializeContext
+0x0000235CD   movq     %rdx, 0x20(%rcx)     
+0x0000235D1   leaq     -0x220bc(%rip), %rdx  ; _glrTerminateContext
+0x0000235D8   movq     %rdx, 0x28(%rcx)     
+0x0000235DC   leaq     -0x9160(%rip), %rdx  ; _glrInitializeQueue
+0x0000235E3   movq     %rdx, 0x30(%rcx)     
+0x0000235E7   leaq     -0x8fc2(%rip), %rdx  ; _glrTerminateQueue
+0x0000235EE   movq     %rdx, 0x38(%rcx)     
+0x0000235F2   leaq     -0xb73b(%rip), %rdx  ; _glrInitializeFramebuffer
+0x0000235F9   movq     %rdx, 0x40(%rcx)     
+0x0000235FD   leaq     -0xb740(%rip), %rdx  ; _glrTerminateFramebuffer
+0x000023604   movq     %rdx, 0x48(%rcx)     
+0x000023608   leaq     -0x16569(%rip), %rdx  ; _glrInitializeVertexArray
+0x00002360F   movq     %rdx, 0x50(%rcx)     
+0x000023613   leaq     -0x1656e(%rip), %rdx  ; _glrTerminateVertexArray
+0x00002361A   movq     %rdx, 0x58(%rcx)     
+0x00002361E   leaq     0x3af59(%rip), %rdx  ; _glrInitializeTexture
+0x000023625   movq     %rdx, 0x60(%rcx)     
+0x000023629   leaq     0x3af54(%rip), %rdx  ; _glrTerminateTexture
+0x000023630   movq     %rdx, 0x68(%rcx)     
+0x000023634   leaq     -0x7c6c(%rip), %rdx  ; _glrInitializeSampler
+0x00002363B   movq     %rdx, 0x70(%rcx)     
+0x00002363F   leaq     -0x7c71(%rip), %rdx  ; _glrTerminateSampler
+0x000023646   movq     %rdx, 0x78(%rcx)     
+0x00002364A   leaq     -0x165d0(%rip), %rdx  ; _glrInitializeBuffer
+0x000023651   movq     %rdx, 0x80(%rcx)     
+0x000023658   leaq     -0x165cb(%rip), %rdx  ; _glrTerminateBuffer
+0x00002365F   movq     %rdx, 0x88(%rcx)     
+0x000023666   leaq     -0x165d3(%rip), %rdx  ; _glrInitializeMemoryPlugin
+0x00002366D   movq     %rdx, 0x90(%rcx)     
+0x000023674   leaq     -0x165db(%rip), %rdx  ; _glrTerminateMemoryPlugin
+0x00002367B   movq     %rdx, 0x98(%rcx)     
+0x000023682   leaq     0x3069b(%rip), %rdx  ; _glrInitializeComputeModule
+0x000023689   movq     %rdx, 0xa0(%rcx)     
+0x000023690   leaq     0x306cf(%rip), %rdx  ; _glrTerminateComputeModule
+0x000023697   movq     %rdx, 0xa8(%rcx)     
+0x00002369E   leaq     0x30710(%rip), %rdx  ; _glrInitializeComputeProgram
+0x0000236A5   movq     %rdx, 0xb0(%rcx)     
+0x0000236AC   leaq     0x30750(%rip), %rdx  ; _glrTerminateComputeProgram
+0x0000236B3   movq     %rdx, 0xb8(%rcx)     
+0x0000236BA   leaq     0x308d5(%rip), %rdx  ; _glrInitializeKernel
+0x0000236C1   movq     %rdx, 0xc0(%rcx)     
+0x0000236C8   leaq     0x30b9a(%rip), %rdx  ; _glrTerminateKernel
+0x0000236CF   movq     %rdx, 0xc8(%rcx)     
+0x0000236D6   leaq     -0x57b1(%rip), %rdx  ; _glrInitializeQuery
+0x0000236DD   movq     %rdx, 0xd0(%rcx)     
+0x0000236E4   leaq     -0x57b9(%rip), %rdx  ; _glrTerminateQuery
+0x0000236EB   movq     %rdx, 0xd8(%rcx)     
+0x0000236F2   leaq     -0x58aa(%rip), %rdx  ; _glrInitializeQueryBuffer
+0x0000236F9   movq     %rdx, 0xe0(%rcx)     
+0x000023700   leaq     -0x5863(%rip), %rdx  ; _glrTerminateQueryBuffer
+0x000023707   movq     %rdx, 0xe8(%rcx)     
+0x00002370E   leaq     0x25edf(%rip), %rdx  ; _glrSanitizeRendererInfo
+0x000023715   movq     %rdx, 0xf0(%rcx)     
+0x00002371C   leaq     0x2b22e(%rip), %rdx  ; _glrValidatePixelFormat
+0x000023723   movq     %rdx, 0xf8(%rcx)     
+0x00002372A   leaq     -0x10195(%rip), %rdx  ; _glrPopulateContextConfig
+0x000023731   movq     %rdx, 0x100(%rcx)    
+0x000023738   leaq     -0xb794(%rip), %rdx  ; _glrUpdateFramebuffer
+0x00002373F   movq     %rdx, 0x108(%rcx)    
+0x000023746   leaq     0x20f6d(%rip), %rdx  ; _glrUpdateVertexArrayState
+0x00002374D   movq     %rdx, 0x110(%rcx)    
+0x000023754   leaq     0x20f65(%rip), %rdx  ; _glrUpdateVertexArrayBuffers
+0x00002375B   movq     %rdx, 0x118(%rcx)    
+0x000023762   leaq     0x212f8(%rip), %rdx  ; _glrUpdateVertexArrayRange
+0x000023769   movq     %rdx, 0x120(%rcx)    
+0x000023770   leaq     0x370ef(%rip), %rdx  ; _glrUpdateTexture
+0x000023777   movq     %rdx, 0x128(%rcx)    
+0x00002377E   leaq     0x2d704(%rip), %rdx  ; _glrUpdateTextureFormat
+0x000023785   movq     %rdx, 0x130(%rcx)    
+0x00002378C   leaq     0x1977(%rip), %rdx   ; _glrUpdateSampler
+0x000023793   movq     %rdx, 0x138(%rcx)    
+0x00002379A   leaq     -0x16ff8(%rip), %rdx  ; _glrUpdateBuffer
+0x0000237A1   movq     %rdx, 0x140(%rcx)    
+0x0000237A8   leaq     -0x8614(%rip), %rdx  ; _glrUpdateContextDrawBufferState
+0x0000237AF   movq     %rdx, 0x148(%rcx)    
+0x0000237B6   leaq     0x2be50(%rip), %rdx  ; _glrUpdateContextTransformFeedbackState
+0x0000237BD   movq     %rdx, 0x150(%rcx)    
+0x0000237C4   leaq     0x218aa(%rip), %rdx  ; _glrUpdateContextVertexArray
+0x0000237CB   movq     %rdx, 0x158(%rcx)    
+0x0000237D2   leaq     -0xb6a4(%rip), %rdx  ; _glrBindContextDrawFramebuffer
+0x0000237D9   movq     %rdx, 0x160(%rcx)    
+0x0000237E0   leaq     -0xb25d(%rip), %rdx  ; _glrBindContextReadFramebuffer
+0x0000237E7   movq     %rdx, 0x168(%rcx)    
+0x0000237EE   leaq     0x21886(%rip), %rdx  ; _glrBindContextVertexArray
+0x0000237F5   movq     %rdx, 0x170(%rcx)    
+0x0000237FC   leaq     0x1d71(%rip), %rdx   ; _glrBindContextTexture
+0x000023803   movq     %rdx, 0x178(%rcx)    
+0x00002380A   leaq     0x1dd6(%rip), %rdx   ; _glrBindContextSampler
+0x000023811   movq     %rdx, 0x180(%rcx)    
+0x000023818   leaq     0x358ea(%rip), %rdx  ; _glrWriteTextureData
+0x00002381F   movq     %rdx, 0x188(%rcx)    
+0x000023826   leaq     0x350f4(%rip), %rdx  ; _glrCopyFramebufferDataToTexture
+0x00002382D   movq     %rdx, 0x190(%rcx)    
+0x000023834   leaq     0x36db9(%rip), %rdx  ; _glrBlitTextureMipmaps
+0x00002383B   movq     %rdx, 0x198(%rcx)    
+0x000023842   leaq     -0x16ab6(%rip), %rdx  ; _glrWriteBufferData
+0x000023849   movq     %rdx, 0x1a0(%rcx)    
+0x000023850   leaq     -0x1681c(%rip), %rdx  ; _glrCopyBufferData
+0x000023857   movq     %rdx, 0x1a8(%rcx)    
+0x00002385E   leaq     0x29697(%rip), %rdx  ; _glrReadFramebufferData
+0x000023865   movq     %rdx, 0x1b0(%rcx)    
+0x00002386C   leaq     0x3f7a5(%rip), %rdx  ; _glrSetFenceOnContext
+0x000023873   movq     %rdx, 0x1b8(%rcx)    
+0x00002387A   leaq     0x25daa(%rip), %rdx  ; _glrSetFenceOnQueue
+0x000023881   movq     %rdx, 0x1c0(%rcx)    
+0x000023888   leaq     0x3f62c(%rip), %rdx  ; _glrFlushContextToken
+0x00002388F   movq     %rdx, 0x1c8(%rcx)    
+0x000023896   leaq     -0x9219(%rip), %rdx  ; _gldFlushQueue
+0x00002389D   movq     %rdx, 0x1d0(%rcx)    
+0x0000238A4   leaq     0x2422c(%rip), %rdx  ; _glrGetPrivateInteger
+0x0000238AB   movq     %rdx, 0x1d8(%rcx)    
+0x0000238B2   leaq     0x24229(%rip), %rdx  ; _glrSetPrivateInteger
+0x0000238B9   movq     %rdx, 0x1e0(%rcx)    
+0x0000238C0   leaq     0x1d(%rip), %rdx     ; _gpusKillClientExt
+0x0000238C7   movq     %rdx, 0x1e8(%rcx)    
+0x0000238CE   vxorps   %xmm0, %xmm0, %xmm0  
+0x0000238D2   vmovups  %ymm0, 0x1f0(%rcx)   
+0x0000238DA   addq     $0x8, %rsp           
+0x0000238DE   popq     %rbx                 
+0x0000238DF   popq     %rbp                 
+0x0000238E0   vzeroupper                      
+0x0000238E3   retq                          
+_glrPopulateDeviceConfig:
+0x00004957E   pushq    %rbp                 
+0x00004957F   movq     %rsp, %rbp           
+0x000049582   popq     %rbp                 
+0x000049583   jmp      _glrAMD_GFX9_GetDeviceComputeConfig 
+BYTES_FROM_READ_ONLY_CACHE
+/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64h.03 0x7ffb06174815 488d7b188b7314488d532041ff962804
+/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64h.03 0x7ffb061748a4 bfb0010000be34928303e8a553000048
+/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64h.03 0x7ffb0211b300 c6420701488d0d254b15414c8d058f0e
+/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64h.03 0x7ffb0638ea7a ff903804000085c0755b488d83880000
+/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64h.01 0x7ff918354c3e 8903418bbc2438020000488db3800100
+/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64h.01 0x7ff918354c6e 488983880100004c89e74889de41ffd6
+/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64h.01 0x7ff918354c7e 49895c24084d892731c05b415c415e41
+/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64h.01 0x7ff918354c91 554889e531c05dc38b4774c747740000
+/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64h.01 0x7ff918356380 488b4f0831d2807905000f95c2c1e213
+/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64h.01 0x7ff9183563fa ff96f000000031c05dc3554889e54157
