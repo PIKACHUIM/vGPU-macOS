@@ -6389,3 +6389,39 @@ texture/defaultobjects由其他任务继续处理，本节没有核验其实现�
 ### 82.4 当前实机阻塞
 
 上传隔离构建目录的操作收到安全拒绝及禁止等价重试提示，命令同时报 `OSError: Socket is closed`；安全提示未给具体资源，原始元数据 sandboxDenied=false，不能据此断言网络或某项规则是根因。未重试上传、未换通道规避，后续两次串联上传未执行。首个上传已进入写入阶段，客体可能存在部分文件，不能将其视为有效构建输入。需要恢复该操作的授权通路后，重新核验源码完整性、完整SDK构建和当前启动内GPU验收。
+
+双资源实现提交 `31bf2a5b44dc198bf9c2431afaf29d4183c2dff4` 已推送，续接后核对本地HEAD与远端main完全一致。
+
+## §83：默认对象元数据、纹理审查与独立双资源探针（2026-11-16）
+
+### 83.1 独立元数据实现
+
+新增 `kexts/gld-objects/vgpu_objects.c/.h`，实现 sampler、pipeline、program 的实际对象注册表、类别及share归属校验、单调带命名空间句柄、借用视图和lease。share/context包装并持有真实vgc对象；context绑定pipeline持强引用，unbind首参是context、destroy首参是share。sampler只有消费者成功后清SU首字节；pipeline modify仅接受bit0/bit2并更新自有代次，不清PU。普通program不被误作默认pipeline，也没有假装shader编译完成。
+
+依据 `out/gld-default-object-contract.txt`：已跟踪初始化链每插件11个sampler、3个固定pipeline，条件成立时增加第4个pipeline。这些是目标版本静态调用方证据，不是已完成系统初始化的运行记录。新增模块仍为项目自有API，系统GLD wrapper、能力声明和render dispatch尚未接入。
+
+纹理模块 `kexts/gld-texture/` 支持默认元数据、受限kind2/level0 RGBA8描述符解码、独立候选backing事务替换、失败保留旧对象/dirty。拒绝TD/TU重叠；无后端返回NO_BACKEND，没有可用GPU backend时不伪造成功。CPU替身不可证明格式141的真实alpha能力。
+
+### 83.2 初始测试与独立审查
+
+初始严格警告、NDEBUG、UBSan三种配置下，纹理各784项、对象各320项通过。测试直接编译实际objects/context/texture源码，仅surface与IOReturn平台边界使用CPU替身；surface替身拒绝clear/read，不模拟成功GPU工作。12项源码及runner SHA与 `kexts/gld-objects/cpu-results.txt` 初始日志逐项一致。此前“780项”没有找到历史日志，不能回填为已验证。静态分析持续无输出后停止，不记为通过；ASan/LSan和macOS SDK均未验证。
+
+独立审查随后确认三项P2：更换sampler消费者时clean快路径可能跳过新目标；create输出槽与借用视图重叠时先清out会破坏输入；纹理CPU源与TU dirty写区重叠时成功消费会改写源。初始测试没有覆盖这些情况，已补六组反例并先在旧实现上运行：严格/NDEBUG/UBSan三种配置共18次预期失败，原始断言、命令、SHA和退出码完整保留。
+
+修复后sampler记录最后成功消费者函数及context，换目标必须重新消费；失败保留此前身份、代次和dirty，clean+NULL仅保留已消费状态查询语义。create在首次写out前检查其完整8字节区间与借用视图重叠，涵盖objects、H/B context包装、texture及backend/share输出；重叠或区间无效时不写out。纹理decode提前拒绝CPU容量区间与TU `[8,0x15)` 重叠，ensure不调用后端，源像素/TU/旧backing/代次保持。
+
+最终 `P2-after-fix-full` 日志中严格警告、NDEBUG、UBSan各纹理870项、对象504项全部通过，六次执行均exit0。最终12项源码/头/probe/runner SHA与实际文件逐项匹配；前后两次使用同一新增测试源码。验证仍是本地CPU范围，不扩大为macOS、系统GLD或GPU验收。
+
+### 83.3 双资源实机验收探针
+
+新增 `kexts/probes/gld_resource_probe.c`，独立声明selector4..8 ABI，不链接surface/context。覆盖两槽CREATE清零、透明/半透明/四分之一alpha、A/B全图隔离、行间交错提交、独立generation、旧selector0..3与两槽三目标RTV路由、归属拒绝、输入拒绝、释放/关闭/重租清零。三组三角形整数叉积预期为18432/6400/12800红像素；旧BGRX只核对RGB，不将X作为alpha。遇非预期失败立即停止，仅继续逻辑释放与关闭。运行前要求后端READY、两槽空闲、无其他客户端改写旧全局目标。
+
+`python kexts/probes/check_gld_resource_probe.py --static-only` 已复跑通过：Python提取的10个结构布局与三组独立oracle；**这不是C编译、C执行或GPU验收**。先前Zig检查报内部AccessDenied/FileNotFound，未获得该probe的C构建证据。真并发close/submit、进程崩溃、异步/descriptor参数和上层pack/flush不在本probe覆盖内。独立只读复核已将probe与真实dispatch、校验顺序、旧/新RTV及readback逐项比较，未发现必然误报的阻断项；该复核不增加编译或实机证据。
+
+本轮没有上传、安装或重启；§82.4的上传阻塞仍存在。标准硬件OpenGL/Metal仍未实现。
+
+### 83.4 下一阶段接入条件
+
+双资源实机验收通过后，连接owner由share持有，独立surface/resource由image持有并强持owner。image创建成功才发布，最后引用释放只销毁自身资源；不能关闭其他image共用连接。去掉全局leased_image后，clear/read必须寻址实际draw/read image。context增加最后成功提交image的强引用及generation，成功提交后替换，flush验证该记录，不能追随后来重绑的FBO。失败保留既有记录和失败门禁。
+
+两槽容量是全设备共享；两个常驻资源占满时，第三个事务候选必须返回资源不足并保留旧backing/TU/generation，不能先删旧对象或原地覆盖以腾槽。最后提交image引用也会延长槽位占用。现有selector4..8没有CPU像素上传操作；纹理backend要求CPU源同步导入，故双资源clear/read成功仍不足以启用完整texture backend。必须分别验收真实alpha、CPU导入、独立候选和线性布局契约；此前保持未配置后端的明确失败行为。

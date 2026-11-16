@@ -1,0 +1,306 @@
+GLD 默认 sampler 与 program/pipeline 对象：最小可实施契约
+日期：2026-11-16
+目标：macOS 15.7.3 / 24G419，x86_64；以下映像地址均为 unslid。
+范围：D:/Codes/vGPU-macOS；只读静态研究，仅新增本文件。未运行 git、未安装、未调用未知私有函数、未执行 GPU 操作。
+
+1. 结论与实施边界
+
+1.1 已跟踪的 gleInitializeContext 默认对象链，对每个有效插件创建 11 个 sampler，以及 3 个固定 pipeline 对象；执行模式条件成立且对应对象尚不存在时，增加第 4 个 pipeline。这里统计的是所跟踪默认对象构造链成功推进时的调用，不是全部递归初始化或任意 profile 的全局调用次数保证。
+固定 pipeline 包括：gleCreatePipelineProgramObject(kind=0,name=0)、同类 kind=4，以及 gleCreateStateProgram(kind=4,其余数据参数为空/零、末参=-1)。条件对象是 kind=0 的 state-program。
+完整条件为：u8(*(G+0xb318)+0x65)!=0 或 u8(G+0xc6aa)!=0，且 *(G+0x9378)==NULL。不能简化成每个插件的 A+0x65 单独决定。
+
+1.2 sampler、pipeline 和普通 program 均有独立建立真实元数据句柄的实现证据，不要求 create 时已有 shader 编译产物或 GPU backing。实施职责包括分配类别明确的对象、保存借用 descriptor/state、维护自有缓存和生命周期。返回一个固定非空常数或仅返回成功、不建立对象，不满足此契约。
+
+1.3 gleInitShaderProgramState 清零 shader/program 绑定状态；已读函数中未调用 gldCreateProgram。默认初始化实际调用的是 gldCreatePipelineProgram，不能因函数名含 ShaderProgram 就将两类入口混同。普通 gldCreateProgram 的 ABI 可单独实施，但尚未证明其为这条默认初始化链的必经入口。
+
+1.4 GetDeviceString/GetError/GetInteger 有已证查询调用方；在已读 gliCreateContextWithShared、gleInitializeContext、默认对象构造主体及所列辅助函数中，未找到它们作为直接必经调用。结论是“未证初始化必经”，不是“任何配置的全部递归初始化永不调用”。导出表要求符号存在与运行时必经是两个问题。
+
+1.5 本契约足以实施这些对象的元数据生命周期，不足以宣称整个 GL 初始化、shader 编译、绘制或真实 clear/read 已成功。后续消费必须执行真实工作；不能把未实现编译或 GPU 操作标记为完成。
+
+2. 记号、来源与证据等级
+
+G = GLEngine context；C = 某插件驱动 context；SG = 该插件驱动 share group。
+P = libGFXShared 插件对象；函数表起点 P+0x420；i = 插件索引。
+T = GFX texture 起点 = GLEngine texture object+0x28。
+SD = sampler descriptor；SU_i = 每插件 sampler state。
+PD = pipeline descriptor；PU_i = 每插件 pipeline state。
+GD/GU_i = 普通 program descriptor/state。所有这些别名只描述数据流，不是 Apple 公布的结构类型。
+A_current = *(G+0xb318)，用于上述 reconfigure 条件。已有报告的每插件 A_i = G+0xc6b0+i*0xe20+0x10；不要把 current 配置指针与所有插件的 A_i 无条件等同。
+
+本地基线：
+- out/gld-context-init-required-verified.txt：初始化顺序、11 个默认 texture 与后续对象依赖。
+- out/gld-texture-resource-research.txt、out/gld-texture-verified-snippets.txt：GFX texture 起点及借用模型。
+- out/gld-context-init-consumers-raw.txt：初始化直接消费者原始指令。
+- out/gld-loader-memory-v3.txt：导出名、插件槽及表基址。
+本地未发现独立的 program 专项研究文件，因此用原始调用方和驱动实现补充，不假定已有结论。
+
+补充来源：客体 /var/tmp/vgpu-fb/glengine-code.txt，以及以下 dyld cache 映像的静态 exports/function_starts/disassemble/section_bytes：
+- /System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries/libGFXShared.dylib
+- /System/Library/PrivateFrameworks/GPUSupport.framework/Versions/A/Libraries/libGPUSupportMercury.dylib
+- /System/Library/Frameworks/OpenGL.framework/Versions/A/Resources/GLRendererFloat.bundle/GLRendererFloat
+- libGLProgrammability.dylib
+- AppleIntelKBLGraphicsGLDriver
+GLEngine UUID FB994F78-34C6-39F3-857D-99F9B3013E8F；GFX UUID CEB3FF13-179A-3AFD-AB07-31BE4C2073B9；Mercury UUID F206CE07-BCA7-3CC7-A494-112686CDE945，沿用同一已核验客体版本。
+通过指定 Python C:/Users/Pika/WorkBuddy/2026-09-27-20-30-43/.venv/Scripts/python.exe 调 tools/mssh.py 读取；未上传、未生成客体证据文件。
+
+下文“已证”指特定目标版本可见的调用准备、实际字段读写或返回指令；“建议”指独立实现设计。两者不混用。整映像线性反汇编偶有 padding 失步、标签缺失，入口以 function_starts/exports 复核，不能用失步指令推断形参。
+
+3. 导出槽与机器 ABI
+
+函数                         P 相对槽    相对函数表槽
+ gldGetDeviceString           +0x4d0     +0x0b0
+ gldGetError                  +0x4d8     +0x0b8
+ gldGetInteger                +0x4e8     +0x0c8
+ gldCreatePipelineProgram     +0x658     +0x238
+ gldGetPipelineProgramInfo    +0x660     +0x240
+ gldModifyPipelineProgram     +0x668     +0x248
+ gldUnbindPipelineProgram     +0x670     +0x250
+ gldDestroyPipelineProgram    +0x678     +0x258
+ gldCreateProgram             +0x680     +0x260
+ gldDestroyProgram            +0x688     +0x268
+ gldCreateSampler             +0x748     +0x328
+ gldDestroySampler            +0x750     +0x330
+每槽为 8 字节函数指针。已查这张 GFX 表没有 gldModifySampler 或 gldLoadSampler 槽；Mercury 内的 sampler load 实现不能凭名称擅自添加为该表必需导出。
+
+可实施的 x86_64 SysV 参数形态：
+int32_t gldCreateSampler(void *SG, void **out_sampler, void *SD, void *SU);
+int32_t gldDestroySampler(void *SG, void *sampler);
+int32_t gldCreatePipelineProgram(void *SG, void **out_pipeline, void *PD, void *PU);
+int32_t gldModifyPipelineProgram(void *SG, void *pipeline, uint32_t flags);
+int32_t gldDestroyPipelineProgram(void *SG, void *pipeline);
+int32_t gldCreateProgram(void *SG, void **out_program, void *GD, void *GU);
+int32_t gldDestroyProgram(void *SG, void *program);
+
+四参 create 对应 RDI=SG、RSI=输出槽地址、RDX=descriptor 指针、RCX=state 指针；输出槽写 8 字节句柄。句柄不通过 RAX 返回。modify 的第三参数使用 EDX 32 位；destroy 第二参为句柄值，不是输出槽地址。
+以上为恢复的机器接口形态，不是完整私有头文件声明；int32_t 表示已查 EAX 状态返回宽度，不证明全部负值/错误码定义。已查 create/modify/destroy 成功路径返回 EAX=0；所见若干分配失败路径 abort，不能据此虚构 errno，也不建议把 abort 当作新实现的错误策略。
+
+Unbind 已证输入为 (void *C, void *pipeline)，不是 (SG,pipeline)。调用者不使用返回值，KBL 也未给所有路径设置统一状态返回。需要本项目声明时可用忽略返回值的 void 适配接口，但“void”是适配选择，不冒充恢复出的源语言返回类型。
+GetPipelineProgramInfo 完整 ABI 尚未闭合；Float 对第 4 参数所指位置写 u32=0 不足以补全其余参数或语义，不在此提供猜测原型。
+
+4. sampler：创建、借用字段、变更与销毁
+
+4.1 调用关系
+GLEngine 0x7FFB0637DF20..DF73 遍历 i=0..10，以 flags=0x1000|i 创建默认 texture。gleCreateTextureObject 于 0x7FFB0637E1B0 调 gfxCreatePluginTexture；后者先调用 texture create，再于 GFX 0x7FFB0617525C..75272 设置 sampler 四参并调用 P+0x748。
+SD = T+0x320。
+SU_i = T+0x1e0+4*i。
+out_sampler_i = T+0x180+8*i。
+SD 为跨插件共享的上层 descriptor；SU_i 为各插件状态；驱动输出句柄独立。4 字节是 caller 的 state 步长，不等于已恢复了 4 字节全部成员。
+
+4.2 精确初始化字段（生产者基础写入）
+偏移/宽度           已证值或写入规则
+SD+0x00 u16         0x2702
+SD+0x02 u16         0x2601
+SD+0x04 u16         0x0203
+SD+0x06 u16         0
+SD+0x08 u16         0x2901
+SD+0x0a u16         0x2901
+SD+0x0c u16         0x2901
+SD+0x0e u8          bit0 OR 1；该写点不证明其余位为零
+SD+0x10 float32     1.0
+SD+0x14 float32     -1000.0
+SD+0x18 float32     1000.0
+SD+0x1c float32     0.0
+SD+0x20..+0x2f      16 字节清零
+SU+0 u8            1，表示待消费的初始 dirty
+
+SD+0..7 由 qword 0x0000020326012702 写入；上述拆分按 little-endian。
+SD+0x10 的 16 字节常量在 GFX 0x7FFB0617B050：
+00 00 80 3F 00 00 7A C4 00 00 7A 44 00 00 00 00
+生产函数 gfxInitializeGLSamplerState 起点 0x7FFB06178368；gfxInitializeGLSamplerPluginState 起点 0x7FFB061783BC 写 SU 首字节 1；texture 构造循环 0x7FFB06174F1A 同样逐插件写 1。
+这些是基础初始化写入，部分 texture kind 分支还会覆盖 filter/wrap 对应数值，不能宣称所有 11 个默认 sampler 的最终 SD 均逐字相同。数值与公开枚举的对应可辅助理解，但本轮未逐一核对 setter，故不将每个偏移强命名为已证 min/mag/wrap 等字段。
+SU+1..+3 没有从这些写点证明内容为零，不读作额外 dirty 字，也不清整个 4 字节槽。SD 覆盖到 +0x2f 不等于已恢复完整 struct 大小；不要依靠相邻对象间距做 memcpy(sizeof(猜测类型))。
+
+4.3 独立元数据存在的证据
+Float 0x7FFB064FC3DB 重排参数并尾跳 glsmCreateSampler。libGLProgrammability 0x7FFB06280483..04C0 分配自身 0x10 字节，保存 SD/SU 两个指针，写出句柄并返回 0；没有纹理 backing、shader 编译或 GPU 提交。这直接证明纯元数据 sampler 合法。
+Mercury create 0x7FF9183583F8..846F 也保存第 3/4 参数至自有对象，并有自身 generation 和设备 callback。设备 callback 属于其私有实现，不是跨驱动必须仿制的 ABI。
+新实现可以使用自己的有类型对象布局、保存 SG/SD/SU 及后端缓存；不需复制 Float 的 0x10 字节布局或 Mercury 的资源系统。
+
+4.4 dirty 消费契约与 modify 缺位
+没有已证的独立 gldModifySampler 表槽。descriptor 由调用者原地维护，消费端通过长期借用 SU+0 观察变化；不能因为没有 modify 回调就只在 create 时读取一次 SD。
+Mercury sampler load 0x7FF918358475..851B：
+- 读取 SU+0 dirty byte；为 0 时返回 1。
+- 非零时执行内部 update；仅成功后清 SU+0 并返回 1。
+- 失败保留 dirty，返回 0。
+这证明该实现的“1=完成/无 dirty，0=失败”；不是统一 GLD errno 规则。尚未证明该 load 在默认初始化必经，也未恢复其完整跨实现调用 ABI，因此不将其列为本轮必须新增的 GLD 表入口。
+建议独立实现将消费动作放在真正需要 sampler 的既有后端路径；只有已真实完成本次状态转换才清首字节。create 仅保存元数据，不能凭空宣布所有后续采样消费已完成。
+
+4.5 destroy
+GFX 0x7FFB06176CB0 调 gldDestroySampler(SG,handle)，caller 随后清自己的输出槽。Mercury 0x7FF91835851C..853C 释放自有资源和对象并返回 0；glsmDestroySampler 0x7FFB062804C6 尾跳 free 自身。
+仅释放驱动自有资源；不释放 SD、SU 或上层 texture object，不将 sampler destroy 等同 texture backing destroy。借用内存必须存活至驱动停止引用；输出槽清理属于已查 caller。
+
+5. pipeline：两种 descriptor 生产者、同一四参 ABI
+
+5.1 默认普通 pipeline object
+gleInitPipelineProgramState 起点 0x7FFB0637E1CD。循环 kind=0..4，仅 (kind&3)==0 时调用 gleCreatePipelineProgramObject，即 kind 0、4。创建 GLD 的指令是 0x7FFB0637E2B1 call *0x658。
+设上层对象为 O：PD=O+0x1d0；PU_i=O+0x260+4*i；out_i=O+0x28+8*i。
+构造器 gleCreatePipelineProgramObject 0x7FFB0637E5BC..E719 的已证稀疏字段：
+PD+0 u16           0
+PD+2 u8            kind；本路径为 0 或 4
+PD+3 u8            清 bit0/bit1，再按 name 是否为零设置 bit0；高位不能由此认定为零
+PD+4 u32           0
+PD+8..+0x17        16 字节零
+PD+0x18..+0x57     64 字节 ff
+PD+0x58..+0x87     48 字节零
+PU_i+0 u32         3
+PU 区通过 memset_pattern16 填 0x30 字节；常量字节已确认每个 u32 为 3。0x30 是该生产者初始化区域，不是单插件 state 大小；不要每次给单个 PU 清 0x30 字节。
+上述 0/ff 是具体生产者的缺省值，不应把全 ff 区域自行解释成有效 shader 指针数组。
+
+5.2 默认 state-program
+0x7FFB0637E55E 调 gleReconfigurePipelineProgramState；0x7FFB0637E58F 无条件调用 gleCreateStateProgram(G,4,0,0,0,0,0,-1)，随后保存至 G+0x9398。
+reconfigure 在 0x7FFB064627B6/27BC 检查 A_current+0x65 和 G+0xc6aa；至少一者非零且 G+0x9378 为空时，0x7FFB064627FC 调 gleCreateStateProgram(G,0,0,0,0,0,0,-1)。因此固定 3 个、条件增加 1 个的计算包含两个不同生产者，不能只数 E2B1 的循环。
+
+gleCreateStateProgram 起点 0x7FFB064629DE；上层对象 O 由 calloc 分配。
+PD=O+0x1a8；PU_i=O+0x238+4*i；out_i=O+8*i。
+0x7FFB06462B6B 同样调用 P+0x658，传 SG/out/PD/PU；没有另一个 state-program 专属 GLD create。
+默认调用的已证字段：
+PD+0 u16           kind=0 时 0x8620；kind 非零时 0x8804（此处为 kind=4）
+PD+2 u8            kind
+PD+3 u8            bit0 OR 1；这里 calloc 初值为零
+PD+8 pointer64     第 3 个上层实参；本默认调用 NULL
+PD+0x10 pointer64  第 4 个上层实参；本默认调用 NULL
+PD+0x18 qword      末个上层实参；本默认调用 -1
+PD+0x20..+0x57     56 字节 ff
+PD+0x64 u32        第 7 个上层实参；本默认调用 0
+PD+0x68..+0x8b     36 字节显式清零
+PU_i+0 u32         3
+这里未单列的 calloc 区域初值为零，但不据此授予驱动整体清零或长期忽略未知字段的权限。两种 PD 基址与初始化方案不同，均由第四参数提供 PU，驱动不得通过固定 PD+0x90 等关系自行重算 PU。
+
+5.3 驱动 create 的实际职责
+KBL 0x7FFB02063B30..3BCD：接收四参、calloc 自有对象、保存 PD/PU、初始化自身状态、挂入 share 链表、写输出并返回 0。该函数没有 shader 编译或 GPU 提交。借用 PD 中 shader 元数据为空不阻止这类对象成立。
+Float 0x7FFB064F4C09..4C53：kind=4 时分配对象并保存 PD，初始化编译缓存为空；其他 kind 使用其私有 sentinel 0x123。后者只说明 Float 内部特例，不能照搬成独立实现的固定成功句柄。
+建议所有本实现支持的默认 kind 均建立有类型真实对象。create 不读取空 shader 指针为有效编译输入，不要求预先产生机器码，也不将“尚未编译”报告成“编译完成”。
+
+5.4 modify 的参数和 dirty
+GLEngine 0x7FFB063A3474..3493：先按 u32 将 flags OR 入每插件 PU；只有 flags&5 非零时，才调 gldModifyPipelineProgram(SG,handle,flags&5)。因此第三参不是新的 PD 或 PU，PD 内容已经由 caller 原地更新。
+KBL gldModifyPipelineProgram 0x7FFB02063BD3 调 glrModifySysPipelineProgram，再返回 0；helper 0x7FFB02063BE2..3C46 读取借用 PU+0 bit0，存在自有线性化缓存才释放并清自身指针。已查此 helper 未清 caller dirty。
+Float modify 0x7FFB064F4C59 按 flags bit0/bit2 使相关缓存失效，返回 0。
+建议先完成本实现相应缓存失效/代次更新再返回。modify 不是编译或 GPU 执行完成通知；不得在此无条件把整个 PU 清零。PU 初始值 3 不意味着 create 已消费这两位；其他位的完整清除时序本轮未恢复。
+
+5.5 unbind 与 destroy
+GLEngine 0x7FFB063960FF 调 gldDestroyPipelineProgram(SG,handle)，之后 caller 清句柄槽。
+state-program 清理链在 0x7FFB06462995 先调 Unbind(C,handle)，0x7FFB064629A9 再调 Destroy(SG,handle)。首参身份不同，不能共用一个“context/share 通用指针”。
+KBL unbind 0x7FFB01ED73F6..74B9 清 context 中匹配绑定及相关自有缓存；返回值不能当统一状态。KBL destroy 0x7FFB0205768B..772B 清理自有缓存、移除 share 链接、释放自身并返回 0。
+Float destroy 0x7FFB064F4D29 清自有缓存与对象、返回 0。
+驱动不释放 caller 的 PD/PU；需要解除自身 context 引用后再销毁对象，不能将不透明 handle 与 GL name 等同。本轮没有恢复并发引用计数全协议，独立实现应遵循项目现有同步/对象管理机制。
+
+6. 普通 program 与默认 shader 状态的区别
+
+gleInitShaderProgramState 0x7FFB0646DD56..DE94 清零状态和每插件槽，已读主体未调用 gldCreateProgram。
+真正 program object 创建调用见 GLEngine 0x7FFB0646E513 call *0x680：
+GD=O+0x1ab8；GU_i=O+0x1cc0+0x48*i；out_i=O+0x28+8*i。
+同一上层对象路径还创建五种 stage pipeline，并调用 ShInitialize、ShConstructLinker；不能算成默认 shader-state 清零的直接动作。
+0x48 只是该调用方的每插件 state 步长，GD/GU 完整字段语义本轮未恢复，不提供猜测 struct 或默认内容。
+Mercury create 0x7FF9183572DB..7322 证明四参形态：calloc 自有对象、保存 GD/GU 两个借用指针、写输出、返回 0；没有编译。所见分配失败走 abort，非零返回映射未闭合。
+Mercury destroy 0x7FF918357328..7337 释放自有句柄、返回 0。最小元数据 program 可以独立实施，但不能据此宣称 linker 或所有 ProgramInfo 接口可用。
+
+7. 查询入口：实际 ABI、触发来源与初始化边界
+
+7.1 可见接口形态
+const char *gldGetDeviceString(void *device, uint32_t pname);
+uint32_t gldGetError(void *C);
+int32_t gldGetInteger(void *C, uint32_t selector, void *out);
+返回签名同样是机器形态；完整 selector 集与错误码仍需各入口专项闭合。
+
+7.2 GetDeviceString
+GLEngine glGetString 路径 0x7FFB0638F6CC..F717 从表相对 +0xb0 取函数；第 1 参数来自插件 device record+0x18 指向的 device，第 2 参数为 ESI pname。版本分支 0x7FFB0638F803 以 pname=0x1f02 调同槽。
+Float 0x7FFB064F81DF 按 ESI 选择字符串指针或 NULL。首参不是 C，也不是 SG；实现应返回稳定存活的自有/静态字符串，不返回栈地址。不能因为初始化未证必经就编造设备能力字符串。
+
+7.3 GetError
+GLEngine glGetError 路径 0x7FFB0639779E..77A5 调 P+0x4d8，首参 C。
+Mercury 0x7FF918354C99..4CC1 取并清 context error；仅当前值为 0 时再取并清 share error。查询有消费错误状态的副作用，不是固定返回 0 的无操作。独立实现只报告真实维护的错误状态；两级错误来源是该 Mercury 实现的已证机制，不代表完整跨驱动错误规范已恢复。
+
+7.4 GetInteger
+gliGetInteger 起点 0x7FFB064DA9EC；fallback 0x7FFB064DAE8C..AEC9：RDI=*(G+0xb308) 即当前 C，函数来自 *(G+0xb4b8) 的 +0xc8；ESI=selector，RDX=输出指针，然后尾调用。
+Mercury 0x7FF918356B11 入口对 NULL 输出返回 0x271e，并按 selector 写不同数据。Float 0x7FFB064F3EC0 的 selector 0xc8 写 4 个 u32，0xc9/0xde 写 1 个 u32。因此不能将 out 固定声明为单个 int，不能对所有查询一律写一个 0 或承诺固定长度。
+0x271e 是此实现该分支的返回值，不将其推广为所有未知 selector 或其他入口的通用错误码。
+
+7.5 初始化必经性判定范围
+已读 gliCreateContextWithShared 到 gleInitializeContext 的主体，看到 create context +0x488、失败清理 +0x498、cmd buffer machine 与 dispatch 初始化；未见上述三类查询直接调用。
+已查默认 sampler/pipeline 构造主体、gleInitShaderProgramState、gleInitAccumObject、gleInitBitmapObject、gleInitDrawCopyPixelsObject、gleInitTransformFeedback，以及 gleUpdateState 主体，未找到三类查询的直接必经调用。
+但尚未穷尽上述函数全部递归 helper、各 profile/执行模式或驱动内部回调，因此不证明它们在所有初始化场景均可省略。实现顺序可先完成已证必经的默认对象生命周期；加载器要求的导出和后续公开 API 查询仍须按真实能力支持，不能放置无条件成功桩。
+GetPipelineProgramInfo：Float 0x7FFB064F4D1B 写第 4 参数所指 u32=0；本轮未找到足够调用方恢复完整 ABI，亦未证明默认初始化必经。
+
+8. 最小实现契约与可验收范围
+
+以下为项目自定义设计示意，不冒充系统对象布局或新导出：
+struct SamplerMetadata { Share *share; uint8_t *descriptor; uint8_t *state; /* 自有缓存 */ };
+struct PipelineMetadata { Share *share; uint8_t *descriptor; uint8_t *state; /* 自有缓存与绑定关系 */ };
+struct ProgramMetadata { Share *share; uint8_t *descriptor; uint8_t *state; /* 自有程序状态 */ };
+
+实施要求：
+(1) create 分配类型正确、自有的句柄，保存四参的借用关系；成功完成对象初始化后才发布输出。不要复制硬件驱动内部对象布局。
+(2) 接受有效上层默认 descriptor 的空 shader/image 状态。对未识别字段保持借用、按实际消费者读取，不能靠全零快照替代后续变更。
+(3) sampler 按 byte dirty 协议消费；pipeline modify 先处理自有缓存失效，保留未证明可清的 caller 状态。
+(4) unbind 清本 context 的自身引用；destroy 仅释放自身所有物。借用 descriptor/state 不由驱动 free 或整体 memset。
+(5) 成功只代表该入口承诺的工作已完成；元数据 create 不承诺编译、驻留、draw 或同步已完成。
+(6) 内部错误状态可用项目自己的枚举；对外 GLD 的未知错误映射保留待闭合，不臆造 errno，不统一 0/1 成功约定。
+
+可在将来用 synthetic caller buffers 验证的局部性质：输出为不同类别的真实对象、借用地址保持、SU 清除只写首字节、PU 未越界、失效不会释放 caller 内存、unbind/destroy 无悬挂自有引用。此类测试只验证本实现内存/生命周期行为，不能替代真实 GLEngine 初始化或 GPU 验收。本次没有编写或执行探针。
+
+剩余边界：sampler 全字段 setter 语义与各 kind 最终默认值；sampler 消费的全部调用时机；pipeline PU 各位的完整消费/清除协议；普通 program GD/GU 的完整字段；GetPipelineProgramInfo ABI；OOM/异常错误映射；完整递归初始化与查询覆盖。以上不阻塞独立元数据模块，但阻止宣称完整驱动成功。
+
+9. 关键原始指令摘录与复核定位
+
+[E1] GLEngine 默认 pipeline 四参和每插件步长：
+0x7FFB0637E280 leaq 0x28(%rax), %r12
+0x7FFB0637E284 leaq 0x1d0(%rax), %rcx
+0x7FFB0637E28F leaq 0x260(%rax), %rbx
+0x7FFB0637E2A0 movq -0xe00(%r14), %rdi
+0x7FFB0637E2A7 movq %r12, %rsi
+0x7FFB0637E2AA movq -0x50(%rbp), %rdx
+0x7FFB0637E2AE movq %rbx, %rcx
+0x7FFB0637E2B1 callq *0x658(%rax)
+0x7FFB0637E2C2 addq $0x4, %rbx
+0x7FFB0637E2C6 addq $0x8, %r12
+
+[E2] 条件对象同时依赖 current A 和 context 字节：
+0x7FFB064627A1 movq 0x9378(%rdi), %r14
+0x7FFB064627AF movq 0xb318(%rbx), %rax
+0x7FFB064627B6 cmpb $0x0, 0x65(%rax)
+0x7FFB064627BA jne 0x7ffb064627c5
+0x7FFB064627BC cmpb $0x0, 0xc6aa(%rbx)
+0x7FFB064627C3 je 0x7ffb0646282a
+0x7FFB064627E0 testq %r14, %r14
+0x7FFB064627E3 jne 0x7ffb06462875
+0x7FFB064627FC callq _gleCreateStateProgram
+
+[E3] 固定 kind=4 空 state-program：
+0x7FFB0637E579 movq %r15, %rdi
+0x7FFB0637E57C movl $0x4, %esi
+0x7FFB0637E581 xorl %edx, %edx
+0x7FFB0637E583 xorl %ecx, %ecx
+0x7FFB0637E585 xorl %r8d, %r8d
+0x7FFB0637E588 xorl %r9d, %r9d
+0x7FFB0637E58B pushq $-0x1
+0x7FFB0637E58D pushq $0x0
+0x7FFB0637E58F callq _gleCreateStateProgram
+
+[E4] state-program descriptor 生产者与 GLD 参数：
+0x7FFB06462A77 movw %bx, 0x1a8(%r12)
+0x7FFB06462A80 movb %r13b, 0x1aa(%r12)
+0x7FFB06462A88 orb $0x1, 0x1ab(%r12)
+0x7FFB06462A91 movl %r14d, 0x20c(%r12)
+0x7FFB06462A9D movq %rax, 0x1c0(%r12)
+0x7FFB06462AD7 movq %rax, 0x1b0(%r12)
+0x7FFB06462AE3 movq %rax, 0x1b8(%r12)
+0x7FFB06462AEB leaq 0x238(%r12), %r15
+0x7FFB06462B5B movq -0xe00(%rbx), %rdi
+0x7FFB06462B62 movq %r13, %rsi
+0x7FFB06462B65 movq %r12, %rdx
+0x7FFB06462B68 movq %r15, %rcx
+0x7FFB06462B6B callq *0x658(%rax)
+此时 r13 指向 O 的输出槽，r12 已在 0x7FFB06462B43 加 0x1a8，不是原 O。
+
+[E5] gliGetInteger fallback（此处 R14=G，R15D=selector，RBX=output）：
+0x7FFB064DAE8C movq 0xb308(%r14), %rdi
+0x7FFB064DAE93 movq 0xb4b8(%r14), %rax
+0x7FFB064DAE9A movq 0xc8(%rax), %rax
+0x7FFB064DAEB5 movl %r15d, %esi
+0x7FFB064DAEB8 movq %rbx, %rdx
+0x7FFB064DAEC9 jmpq *%rax
+以上省略了 stack guard 检查与恢复栈/被保存寄存器的中间指令。
+
+10. 交付复核
+
+本文件将默认 pipeline 与普通 program 区分；同时记录 sampler SU byte 和 pipeline PU u32 的不同宽度；未把数组步长当完整 sizeof；未把解绑 C 和销毁 SG 混同；未照搬 Float sentinel；未宣称三类查询在所有初始化中永不调用。
+仅新增本报告，既有研究文件保持原状。此次成果是静态证据支持的最小实现契约，没有驱动代码变更或运行时 GL/GPU 验收。

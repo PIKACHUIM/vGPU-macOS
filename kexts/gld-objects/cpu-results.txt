@@ -1,0 +1,330 @@
+
+===== 本地 CPU 验证 =====
+UTC 2026-11-16T10:48:28.195499+00:00
+HOST Windows-2025Server-10.0.26200-SP0
+实际 objects/context/texture 源模块；仅 surface 是 CPU fixture；非系统 GLD/GPU 验证。
+历史780记录未在仓库找到；本日志只证明当前源文件的本地运行。
+SHA256 cf71e853fb67aa3d87f659e604f395ab2ef29a19217a31a9d95a3f952bae90ef kexts/gld-context/vgpu_context.c
+SHA256 973a0720835d6352dd27bf9aead92464e281acee90024b4a0c8db68973ecf498 kexts/gld-context/vgpu_context.h
+SHA256 20a2d4b221f7aa824c6391dd6f2257365813b0ef1408c2f24d53f5b3305bce86 kexts/gld-objects/cpu-fixture/IOKit/IOReturn.h
+SHA256 2b260917f2cb18f81950dcad2f6166b1eeb0a5ebb9fe29767e4fbcb4a8974052 kexts/gld-objects/cpu-fixture/surface_fixture.c
+SHA256 1f5bb05b20e4d120597d20bc4344d325ef63c24c66bced8359d6ae760e918f18 kexts/gld-objects/verify_cpu.py
+SHA256 92788cf0afa938fb0c7cc21fadf5f6e03c9527a61353dfcc2b55aa15b99ded4d kexts/gld-objects/vgpu_objects.c
+SHA256 ea8cee13b82d117a0ceacf2694faf4ff14442a8616fd553b0a25c0b97b8b6bb1 kexts/gld-objects/vgpu_objects.h
+SHA256 71785e22ade2c92c61f9126136507b99f40b550367a72a5fb03a125712a5663e kexts/gld-surface/vgpu_surface.h
+SHA256 3c9b5d4b9180269803b1a67d3869a6d164b1b72c6c74d5639ac94b9120274258 kexts/gld-texture/vgpu_texture.c
+SHA256 4902c4a6afedcc030c38da099f0d5d9c557cc2aab623616c18fee6105e6725c7 kexts/gld-texture/vgpu_texture.h
+SHA256 7489fd32c85d40297df7d49466cbde57bc99dd621ffc88e76c80ef7fcc46776b kexts/probes/gld_objects_probe.c
+SHA256 d1d9a0eb33ca0c8a68ff59da362ed7ba3735d7ad747554b7358e3a8728ac84db kexts/probes/gld_texture_probe.c
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc --version
+clang version 19.1.7 (https://github.com/ziglang/zig-bootstrap de1b01a8c1dddf75a560123ac1c2ab182b4830da)
+Target: x86_64-unknown-windows-gnu
+Thread model: posix
+InstalledDir: D:/Codes/vGPU-macOS/out/.ziglang/ziglang
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu D:\Codes\vGPU-macOS\kexts\gld-texture\vgpu_texture.c D:\Codes\vGPU-macOS\kexts\probes\gld_texture_probe.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-strict.exe
+
+
+EXIT 0
+BINARY_SHA256 d985265d50f48f4c4365b23500a59e84c57125045e3c60513571690f1dffe594 texture-strict.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-strict.exe
+PASS: 784 检查；CPU backend fixture，非系统 GLD、非 GPU 验证。
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture D:\Codes\vGPU-macOS\kexts\gld-context\vgpu_context.c D:\Codes\vGPU-macOS\kexts\gld-objects\vgpu_objects.c D:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture\surface_fixture.c D:\Codes\vGPU-macOS\kexts\probes\gld_objects_probe.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-strict.exe
+
+
+EXIT 0
+BINARY_SHA256 00357e2c93c6ed05a623b1ffc986e10229e34f24d3115582b0695f88d27eb4c6 objects-strict.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-strict.exe
+PASS: 320 检查；实际 objects/context 源模块，CPU surface fixture，非系统 GLD/GPU 验证。
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu -DNDEBUG D:\Codes\vGPU-macOS\kexts\gld-texture\vgpu_texture.c D:\Codes\vGPU-macOS\kexts\probes\gld_texture_probe.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-ndebug.exe
+
+
+EXIT 0
+BINARY_SHA256 d66ae4be47cc852c1a688bd126a6414f815970096cda41111348ef72b0a569e7 texture-ndebug.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-ndebug.exe
+PASS: 784 检查；CPU backend fixture，非系统 GLD、非 GPU 验证。
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu -DNDEBUG -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture D:\Codes\vGPU-macOS\kexts\gld-context\vgpu_context.c D:\Codes\vGPU-macOS\kexts\gld-objects\vgpu_objects.c D:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture\surface_fixture.c D:\Codes\vGPU-macOS\kexts\probes\gld_objects_probe.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-ndebug.exe
+
+
+EXIT 0
+BINARY_SHA256 81cc2cdd79c67e082dda0132a4244373c07d90706e3605e2c90633c33edf3bd2 objects-ndebug.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-ndebug.exe
+PASS: 320 检查；实际 objects/context 源模块，CPU surface fixture，非系统 GLD/GPU 验证。
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all D:\Codes\vGPU-macOS\kexts\gld-texture\vgpu_texture.c D:\Codes\vGPU-macOS\kexts\probes\gld_texture_probe.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-ubsan.exe
+
+
+EXIT 0
+BINARY_SHA256 d46a5a6cc8974e467f6db0da6b98aff87bd06f4148a7c61f43ba597e2d97a64c texture-ubsan.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-ubsan.exe
+PASS: 784 检查；CPU backend fixture，非系统 GLD、非 GPU 验证。
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture D:\Codes\vGPU-macOS\kexts\gld-context\vgpu_context.c D:\Codes\vGPU-macOS\kexts\gld-objects\vgpu_objects.c D:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture\surface_fixture.c D:\Codes\vGPU-macOS\kexts\probes\gld_objects_probe.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-ubsan.exe
+
+
+EXIT 0
+BINARY_SHA256 7e224fcf02a76aac1a403618d4100078f43724b3ef121a05c633038a793b2b74 objects-ubsan.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-ubsan.exe
+PASS: 320 检查；实际 objects/context 源模块，CPU surface fixture，非系统 GLD/GPU 验证。
+
+
+EXIT 0
+RESULT PASS failed=0
+未验证：macOS ABI、系统 GLD 初始化、shader 编译、Metal、真实 GPU 工作、ASan/LSan。
+补充：zig cc --analyze 对 vgpu_objects.c/vgpu_texture.c 超过两分钟无输出，已停止；不计入静态分析通过证据。
+便携 Zig 0.14.1 仅解包在 out/.ziglang；WSL 启动被安全策略阻止，未重试；未执行 mssh 上传或等价上传。
+
+===== 本地 CPU 验证 =====
+UTC 2026-11-16T10:56:54.240579+00:00
+HOST Windows-2025Server-10.0.26200-SP0
+LABEL P2-before-fix
+REGRESSIONS_ONLY True
+实际 objects/context/texture 源模块；仅 surface 是 CPU fixture；非系统 GLD/GPU 验证。
+历史780记录未在仓库找到；本日志只证明当前源文件的本地运行。
+SHA256 cf71e853fb67aa3d87f659e604f395ab2ef29a19217a31a9d95a3f952bae90ef kexts/gld-context/vgpu_context.c
+SHA256 973a0720835d6352dd27bf9aead92464e281acee90024b4a0c8db68973ecf498 kexts/gld-context/vgpu_context.h
+SHA256 20a2d4b221f7aa824c6391dd6f2257365813b0ef1408c2f24d53f5b3305bce86 kexts/gld-objects/cpu-fixture/IOKit/IOReturn.h
+SHA256 2b260917f2cb18f81950dcad2f6166b1eeb0a5ebb9fe29767e4fbcb4a8974052 kexts/gld-objects/cpu-fixture/surface_fixture.c
+SHA256 a7b40af865cd659aeab6168420295185a2acd33274d3080c844d3a17e24bb5a0 kexts/gld-objects/verify_cpu.py
+SHA256 92788cf0afa938fb0c7cc21fadf5f6e03c9527a61353dfcc2b55aa15b99ded4d kexts/gld-objects/vgpu_objects.c
+SHA256 ea8cee13b82d117a0ceacf2694faf4ff14442a8616fd553b0a25c0b97b8b6bb1 kexts/gld-objects/vgpu_objects.h
+SHA256 71785e22ade2c92c61f9126136507b99f40b550367a72a5fb03a125712a5663e kexts/gld-surface/vgpu_surface.h
+SHA256 3c9b5d4b9180269803b1a67d3869a6d164b1b72c6c74d5639ac94b9120274258 kexts/gld-texture/vgpu_texture.c
+SHA256 4902c4a6afedcc030c38da099f0d5d9c557cc2aab623616c18fee6105e6725c7 kexts/gld-texture/vgpu_texture.h
+SHA256 636fe7af9d924d41d2fb42d48a01e91573c32f7b930d54b5b6338c685ee873a4 kexts/probes/gld_objects_probe.c
+SHA256 43fc81b71f8d5b872864f4448146a89c87128fda6cb845812ec4dbb92dfa574e kexts/probes/gld_texture_probe.c
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc --version
+clang version 19.1.7 (https://github.com/ziglang/zig-bootstrap de1b01a8c1dddf75a560123ac1c2ab182b4830da)
+Target: x86_64-unknown-windows-gnu
+Thread model: posix
+InstalledDir: D:/Codes/vGPU-macOS/out/.ziglang/ziglang
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu D:\Codes\vGPU-macOS\kexts\gld-texture\vgpu_texture.c D:\Codes\vGPU-macOS\kexts\probes\gld_texture_probe.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-strict.exe
+
+
+EXIT 0
+BINARY_SHA256 a16506a249d8990714aa46176a44fb498ac2fce2fdec5ef334efd2aab66e9e3c texture-strict.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-strict.exe create-output
+
+失败: D:\Codes\vGPU-macOS\kexts\probes\gld_texture_probe.c:100: vgt_texture_create(s, v, out) == VGT_INVALID
+
+EXIT 3221226505
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-strict.exe share-output
+
+失败: D:\Codes\vGPU-macOS\kexts\probes\gld_texture_probe.c:119: !memcmp(saved, &storage, sizeof(storage)) && !f.refs
+
+EXIT 3221226505
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-strict.exe cpu-dirty-overlap
+
+失败: D:\Codes\vGPU-macOS\kexts\probes\gld_texture_probe.c:139: vgt_texture_decode_renderbuffer(s, t, cpu, &d) == VGT_INVALID
+
+EXIT 3221226505
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture D:\Codes\vGPU-macOS\kexts\gld-context\vgpu_context.c D:\Codes\vGPU-macOS\kexts\gld-objects\vgpu_objects.c D:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture\surface_fixture.c D:\Codes\vGPU-macOS\kexts\probes\gld_objects_probe.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-strict.exe
+
+
+EXIT 0
+BINARY_SHA256 896883b91942ba4b390d81543e7089decda9a34def9344091e871415c9072d22 objects-strict.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-strict.exe sampler-targets
+
+失败 D:\Codes\vGPU-macOS\kexts\probes\gld_objects_probe.c:61: vgo_sampler_consume(s, t, consume, &b) == VGO_CONSUMER_FAILED
+
+EXIT 3221226505
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-strict.exe create-output
+
+失败 D:\Codes\vGPU-macOS\kexts\probes\gld_objects_probe.c:103: creators[k](s, v, out) == VGO_INVALID
+
+EXIT 3221226505
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-strict.exe context-output
+
+失败 D:\Codes\vGPU-macOS\kexts\probes\gld_objects_probe.c:132: vgo_context_create(s, (vgc_view){h.bytes + 4, VGC_H_LENGTH}, (vgc_view){b.bytes + 4, VGC_B_LENGTH}, out) == VGO_INVALID
+
+EXIT 3221226505
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu -DNDEBUG D:\Codes\vGPU-macOS\kexts\gld-texture\vgpu_texture.c D:\Codes\vGPU-macOS\kexts\probes\gld_texture_probe.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-ndebug.exe
+
+
+EXIT 0
+BINARY_SHA256 f911947af01bb080a60e4ff67afb3671975a0cc6657db6ceec60edd6c5bea108 texture-ndebug.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-ndebug.exe create-output
+
+失败: D:\Codes\vGPU-macOS\kexts\probes\gld_texture_probe.c:100: vgt_texture_create(s, v, out) == VGT_INVALID
+
+EXIT 3221226505
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-ndebug.exe share-output
+
+失败: D:\Codes\vGPU-macOS\kexts\probes\gld_texture_probe.c:119: !memcmp(saved, &storage, sizeof(storage)) && !f.refs
+
+EXIT 3221226505
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-ndebug.exe cpu-dirty-overlap
+
+失败: D:\Codes\vGPU-macOS\kexts\probes\gld_texture_probe.c:139: vgt_texture_decode_renderbuffer(s, t, cpu, &d) == VGT_INVALID
+
+EXIT 3221226505
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu -DNDEBUG -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture D:\Codes\vGPU-macOS\kexts\gld-context\vgpu_context.c D:\Codes\vGPU-macOS\kexts\gld-objects\vgpu_objects.c D:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture\surface_fixture.c D:\Codes\vGPU-macOS\kexts\probes\gld_objects_probe.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-ndebug.exe
+
+
+EXIT 0
+BINARY_SHA256 f3df4768cda66463a4b233a8853b5f6eaf3b516ab41bbccb92902b3148d461e9 objects-ndebug.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-ndebug.exe sampler-targets
+
+失败 D:\Codes\vGPU-macOS\kexts\probes\gld_objects_probe.c:61: vgo_sampler_consume(s, t, consume, &b) == VGO_CONSUMER_FAILED
+
+EXIT 3221226505
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-ndebug.exe create-output
+
+失败 D:\Codes\vGPU-macOS\kexts\probes\gld_objects_probe.c:103: creators[k](s, v, out) == VGO_INVALID
+
+EXIT 3221226505
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-ndebug.exe context-output
+
+失败 D:\Codes\vGPU-macOS\kexts\probes\gld_objects_probe.c:132: vgo_context_create(s, (vgc_view){h.bytes + 4, VGC_H_LENGTH}, (vgc_view){b.bytes + 4, VGC_B_LENGTH}, out) == VGO_INVALID
+
+EXIT 3221226505
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all D:\Codes\vGPU-macOS\kexts\gld-texture\vgpu_texture.c D:\Codes\vGPU-macOS\kexts\probes\gld_texture_probe.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-ubsan.exe
+
+
+EXIT 0
+BINARY_SHA256 6f0d49e5e5481b863fa24897aaf014e7df8f95eb5fe04a24ba69e0a87e86ad69 texture-ubsan.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-ubsan.exe create-output
+
+失败: D:\Codes\vGPU-macOS\kexts\probes\gld_texture_probe.c:100: vgt_texture_create(s, v, out) == VGT_INVALID
+
+EXIT 3221226505
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-ubsan.exe share-output
+
+失败: D:\Codes\vGPU-macOS\kexts\probes\gld_texture_probe.c:119: !memcmp(saved, &storage, sizeof(storage)) && !f.refs
+
+EXIT 3221226505
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-ubsan.exe cpu-dirty-overlap
+
+失败: D:\Codes\vGPU-macOS\kexts\probes\gld_texture_probe.c:139: vgt_texture_decode_renderbuffer(s, t, cpu, &d) == VGT_INVALID
+
+EXIT 3221226505
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture D:\Codes\vGPU-macOS\kexts\gld-context\vgpu_context.c D:\Codes\vGPU-macOS\kexts\gld-objects\vgpu_objects.c D:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture\surface_fixture.c D:\Codes\vGPU-macOS\kexts\probes\gld_objects_probe.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-ubsan.exe
+
+
+EXIT 0
+BINARY_SHA256 8129287a5dc6af8151f24e66493202285c837f92afd355513b023ae2b11e9d4e objects-ubsan.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-ubsan.exe sampler-targets
+
+失败 D:\Codes\vGPU-macOS\kexts\probes\gld_objects_probe.c:61: vgo_sampler_consume(s, t, consume, &b) == VGO_CONSUMER_FAILED
+
+EXIT 3221226505
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-ubsan.exe create-output
+
+失败 D:\Codes\vGPU-macOS\kexts\probes\gld_objects_probe.c:103: creators[k](s, v, out) == VGO_INVALID
+
+EXIT 3221226505
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-ubsan.exe context-output
+
+失败 D:\Codes\vGPU-macOS\kexts\probes\gld_objects_probe.c:132: vgo_context_create(s, (vgc_view){h.bytes + 4, VGC_H_LENGTH}, (vgc_view){b.bytes + 4, VGC_B_LENGTH}, out) == VGO_INVALID
+
+EXIT 3221226505
+RESULT FAIL failed=18
+未验证：macOS ABI、系统 GLD 初始化、shader 编译、Metal、真实 GPU 工作、ASan/LSan。
+
+===== 本地 CPU 验证 =====
+UTC 2026-11-16T11:00:37.904364+00:00
+HOST Windows-2025Server-10.0.26200-SP0
+LABEL P2-after-fix-full
+REGRESSIONS_ONLY False
+实际 objects/context/texture 源模块；仅 surface 是 CPU fixture；非系统 GLD/GPU 验证。
+历史780记录未在仓库找到；本日志只证明当前源文件的本地运行。
+SHA256 cf71e853fb67aa3d87f659e604f395ab2ef29a19217a31a9d95a3f952bae90ef kexts/gld-context/vgpu_context.c
+SHA256 973a0720835d6352dd27bf9aead92464e281acee90024b4a0c8db68973ecf498 kexts/gld-context/vgpu_context.h
+SHA256 20a2d4b221f7aa824c6391dd6f2257365813b0ef1408c2f24d53f5b3305bce86 kexts/gld-objects/cpu-fixture/IOKit/IOReturn.h
+SHA256 2b260917f2cb18f81950dcad2f6166b1eeb0a5ebb9fe29767e4fbcb4a8974052 kexts/gld-objects/cpu-fixture/surface_fixture.c
+SHA256 a7b40af865cd659aeab6168420295185a2acd33274d3080c844d3a17e24bb5a0 kexts/gld-objects/verify_cpu.py
+SHA256 cf9a7408004608710b7a21740c445702026d2ae1d317422429d201b2e0bbc7f6 kexts/gld-objects/vgpu_objects.c
+SHA256 7e4dafadd408afe169b86606a390ab5c72daefde4541aad8220ad0c12de2845b kexts/gld-objects/vgpu_objects.h
+SHA256 71785e22ade2c92c61f9126136507b99f40b550367a72a5fb03a125712a5663e kexts/gld-surface/vgpu_surface.h
+SHA256 9f3146cdcda638a6e62a0ffa49f5c5823a3fbd3f8af271910f7281bed6c21e1b kexts/gld-texture/vgpu_texture.c
+SHA256 04c1b846d6f75ac95a8ba21ccc9b2492d3cb49537a8843b5716320814fb9e84c kexts/gld-texture/vgpu_texture.h
+SHA256 636fe7af9d924d41d2fb42d48a01e91573c32f7b930d54b5b6338c685ee873a4 kexts/probes/gld_objects_probe.c
+SHA256 43fc81b71f8d5b872864f4448146a89c87128fda6cb845812ec4dbb92dfa574e kexts/probes/gld_texture_probe.c
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc --version
+clang version 19.1.7 (https://github.com/ziglang/zig-bootstrap de1b01a8c1dddf75a560123ac1c2ab182b4830da)
+Target: x86_64-unknown-windows-gnu
+Thread model: posix
+InstalledDir: D:/Codes/vGPU-macOS/out/.ziglang/ziglang
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu D:\Codes\vGPU-macOS\kexts\gld-texture\vgpu_texture.c D:\Codes\vGPU-macOS\kexts\probes\gld_texture_probe.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-strict.exe
+
+
+EXIT 0
+BINARY_SHA256 380e6c41a4d8b5130af835c092cd0f6c17cee17085ce882867d2d8334a5678d0 texture-strict.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-strict.exe
+PASS: 870 检查；CPU backend fixture，非系统 GLD、非 GPU 验证。
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture D:\Codes\vGPU-macOS\kexts\gld-context\vgpu_context.c D:\Codes\vGPU-macOS\kexts\gld-objects\vgpu_objects.c D:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture\surface_fixture.c D:\Codes\vGPU-macOS\kexts\probes\gld_objects_probe.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-strict.exe
+
+
+EXIT 0
+BINARY_SHA256 9abe66c2826ce70b995bd496c626856f4a1778284cc51ea1a9c37cf0499dde86 objects-strict.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-strict.exe
+PASS: 504 检查；实际 objects/context 源模块，CPU surface fixture，非系统 GLD/GPU 验证。
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu -DNDEBUG D:\Codes\vGPU-macOS\kexts\gld-texture\vgpu_texture.c D:\Codes\vGPU-macOS\kexts\probes\gld_texture_probe.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-ndebug.exe
+
+
+EXIT 0
+BINARY_SHA256 3ac9e17d5d71d72c35588f0df4ce122ca16a8754ecd7853a494724b7b32265f0 texture-ndebug.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-ndebug.exe
+PASS: 870 检查；CPU backend fixture，非系统 GLD、非 GPU 验证。
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu -DNDEBUG -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture D:\Codes\vGPU-macOS\kexts\gld-context\vgpu_context.c D:\Codes\vGPU-macOS\kexts\gld-objects\vgpu_objects.c D:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture\surface_fixture.c D:\Codes\vGPU-macOS\kexts\probes\gld_objects_probe.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-ndebug.exe
+
+
+EXIT 0
+BINARY_SHA256 e16d10fe5cbf1940bda66c3a3d1e0c354c374e2c7e5a376ea0b5aebbc314eb35 objects-ndebug.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-ndebug.exe
+PASS: 504 检查；实际 objects/context 源模块，CPU surface fixture，非系统 GLD/GPU 验证。
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all D:\Codes\vGPU-macOS\kexts\gld-texture\vgpu_texture.c D:\Codes\vGPU-macOS\kexts\probes\gld_texture_probe.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-ubsan.exe
+
+
+EXIT 0
+BINARY_SHA256 e8f63c700653cb8120e430ce532c638b9c03bc4ce385007a00de405df66eea7a texture-ubsan.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\texture-ubsan.exe
+PASS: 870 检查；CPU backend fixture，非系统 GLD、非 GPU 验证。
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture D:\Codes\vGPU-macOS\kexts\gld-context\vgpu_context.c D:\Codes\vGPU-macOS\kexts\gld-objects\vgpu_objects.c D:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture\surface_fixture.c D:\Codes\vGPU-macOS\kexts\probes\gld_objects_probe.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-ubsan.exe
+
+
+EXIT 0
+BINARY_SHA256 6d3055708b70dd59e25dc3266670100f2cc195d9bbee34939320f6f71a2db3bc objects-ubsan.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-objects-cpu\objects-ubsan.exe
+PASS: 504 检查；实际 objects/context 源模块，CPU surface fixture，非系统 GLD/GPU 验证。
+
+
+EXIT 0
+RESULT PASS failed=0
+未验证：macOS ABI、系统 GLD 初始化、shader 编译、Metal、真实 GPU 工作、ASan/LSan。
