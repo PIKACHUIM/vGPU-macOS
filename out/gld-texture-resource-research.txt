@@ -1,0 +1,210 @@
+GLD 纹理资源与 FBO 附件契约研究
+日期：2026-11-16
+目标：macOS 15.7.3 / 24G419 / x86_64
+GLEngine UUID：FB994F78-34C6-39F3-857D-99F9B3013E8F
+libGFXShared UUID：CEB3FF13-179A-3AFD-AB07-31BE4C2073B9
+GLRendererFloat UUID：A41FE4B0-484A-3AA4-934E-E42F99453798
+libGLProgrammability UUID：65A04081-F09D-3C8A-A59A-BE391DFAC415
+本报告所有机器地址均为 dyld_info 的 unslid 地址；原始定点指令和部分 section_bytes 机器字节见 out/gld-texture-verified-snippets.txt。
+
+1. 结论摘要与限制
+
+已确认 GLD 函数的正式导出名是 gldCreateTexture、gldModifyTexture、gldLoadTexture、gldUnbindTexture、gldReclaimTexture、gldDestroyTexture，以及 gldCreateFramebuffer、gldLoadFramebuffer、gldUnbindFramebuffer、gldReclaimFramebuffer、gldDestroyFramebuffer。它们在 libGFXShared 129 项表中的函数指针槽分别为 texture create +0x548、modify +0x558、load +0x568、unbind +0x570、reclaim +0x578、destroy +0x580；FBO create +0x628、load +0x630、unbind +0x638、reclaim +0x648、destroy +0x650。名称和槽由 out/gld-loader-memory-v3.txt 的 ENTRY 行直接确认；槽内保存指针的宽度为8字节（x86_64）。注意 FBO 的 unbind/reclaim 之间有 discard 槽，texture 的 reclaim/destroy 则相邻；勿按名字顺序推算。
+
+GLEngine 的上层对象与 GLD 驱动句柄是分开的。纹理对象有 GLI 自己的 object/level descriptor，并按当前插件保存8字节驱动纹理句柄；FBO 的上层附件引用 texture object 与 mip level，而驱动 framebuffer 由 lazy load/create 路径取得另一个不透明句柄。静态证据足以建立句柄类别和所有权边界；本次新增真实 libGFXShared 调用方和 Float 消费者，恢复四个 texture 入口的可见寄存器参数、create 输出槽及若干稀疏字段。但未恢复跨驱动的完整 descriptor、所有可选参数/栈参数、硬件 backing 或同步所有权；FBO 结论不变。
+
+不能把 GLEngine 私有纹理对象布局、GLRendererFloat 的 C/V/Q 私有对象布局，或同一软件驱动中的私有字段偏移，当成 GLD 跨驱动共有 ABI。以下只记录真实调用点能确定的参数寄存器、宽度和对象字段访问。
+
+2. 版本、映像与采集范围
+
+- 目标机 `sw_vers`：15.7.3 / 24G419；`uname -a` 为 Darwin 24.6.0 x86_64，与任务目标一致。
+- GLEngine 原始反汇编在远端 `/var/tmp/vgpu-fb/glengine-code.txt`，约16.6MB；本次由远端 Python 只提取函数窗口，没有下载全文。
+- 正确的 dyld cache image 路径是 `/System/Library/Frameworks/OpenGL.framework/Versions/A/Resources/GLRendererFloat.bundle/GLRendererFloat`，而非 `.../Contents/MacOS/GLRendererFloat`。本次 `/usr/bin/dyld_info -arch x86_64 -exports/-disassemble/-uuid` 已在正确路径读取 Float 纹理入口；它依赖 libGLProgrammability，后者的 glsm 纹理函数也已独立反汇编。
+- libGFXShared 从客体 `/System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries/libGFXShared.dylib` 重新定点反汇编，包含 `_gfxCreatePluginTexture`、`_gfxUploadPluginTextureLevel`、`_gfxUpdatePluginTextureLevelGeometry`；不是依赖本地可能截断的 out/gfx-loader.txt。GFX/Float/GLProgrammability UUID、准确原始机器地址和关键字节均记录于 out/gld-texture-verified-snippets.txt。
+- 本次只读取客体文件及 dyld cache；未调用 GLD 私有入口、未安装、未重启、未运行 git。
+
+3. GLD 导出表确认
+
+libGFXShared 的函数指针表起点为 plugin+0x420，单项为8字节。导出名称/表槽：
+
+函数名                         plugin偏移   表内槽偏移   指针宽度
+ gldCreateTexture              +0x548       +0x128       8
+ gldModifyTexture              +0x558       +0x138       8
+ gldLoadTexture                +0x568       +0x148       8
+ gldUnbindTexture              +0x570       +0x150       8
+ gldReclaimTexture             +0x578       +0x158       8
+ gldDestroyTexture             +0x580       +0x160       8
+ gldCreateFramebuffer          +0x628       +0x208       8
+ gldLoadFramebuffer            +0x630       +0x210       8
+ gldUnbindFramebuffer          +0x638       +0x218       8
+ gldDiscardFramebuffer         +0x640       +0x220       8
+ gldReclaimFramebuffer         +0x648       +0x228       8
+ gldDestroyFramebuffer         +0x650       +0x230       8
+
+表内槽偏移 = plugin 偏移 - 0x420。此为函数指针宽度，不是函数参数或资源字段宽度。导出清单见 out/gld-loader-memory-v3.txt：texture entries 37–46，FBO entries 65–70。
+
+4. GLEngine texture-image 上层契约与调用侧参数
+
+_glTexImage2D_Exec 起点 0x7FFB063923E5。公开 GL 参数在 x86_64 SysV 调用约定中的入口分布由入口代码直接读出：
+- RDI：GLEngine GLIContext 指针，保存于 RBX；指针8字节。
+- ESI：target，32位；EDX：level，32位；ECX：internalformat，32位；R8D：width，32位；R9D：height，32位。
+- [RBP+0x10]：border，32位；[RBP+0x18]：format，32位；[RBP+0x20]：type，32位；[RBP+0x28]：pixels，8字节指针/不透明 offset。入口 0x7FFB0639243B–0x7FFB06392443 读取三个栈上传参；0x7FFB06392421 读取 pixels。
+- 入口先调用 `_gleCheckTexImage2DArgs`（0x7FFB06392470），再由 `_gleEvaluateTextureImageChange`（0x7FFB06392696）判定 image descriptor 变化；该 GLI 检查器不是 GLD 入口。
+- texture object 从 context 绑定表/哈希对象路径取得；image level 的 CPU 存储经 `_gfxAllocateTextureLevel`（0x7FFB063929B3）分配，pixels 再交 `_gleTextureImagePut`（真实 call 位于 0x7FFB06392A01；旧稿误把 0x7FFB063929E3 的 movq 当成 call）处理。因而这条 engine 入口显示的是 API 输入和 GLI 侧 level 管理，不是 `gldCreateTexture` 原型。
+- 原先“GLD load slot +0x568 的调用者主要是纹理销毁路径”的叙述错误：列举的 `*0x570` 是 unbind，不是 load。现在另在 GLEngine 0x7FFB06389299–0x7FFB063892B2 取得 `*0x148`（相对表基址 0x420，对应 plugin+0x568）的显式两参调用，但其上一段 0x7FFB06389255 调用 `_gleCreateIOSurfaceLevel`，故只能作为 IOSurface 分支证据，不能等同普通 glTexImage2D 的 load 时机。普通路径已跟到 geometry/modify，详见第5、7节。
+- 0x7FFB06454D5E–0x7FFB06454D76 以及 0x7FFB06454E07–0x7FFB06454E3A 是 FBO 删除/回收分支：以每插件 context 为 RDI，附件记录中的 `+0xc8 + pluginIndex*8` 的8字节槽为 RSI，先调用 +0x638 (unbind)，再 +0x650 (destroy)，然后把该8字节槽清零。可证明每插件持有一个不透明 GLD FBO 句柄槽，但不能由此判定句柄指向对象的内部布局或它拥有/不拥有纹理 storage。
+
+5. 普通纹理四入口的显式参数、输出和生命周期
+
+记号仅为本报告的数据流别名，不是私有头文件：S=libGFXShared shared-state，T=GFX texture 起点，i=插件索引，P=*(S+0x1a8+0x20*i)，SG=*(S+0x1a0+0x20*i)，H=*(T+8*i)，D=T+0x2e8，U_i=T+0x60+0x18*i。GLEngine _gleCreateTextureObject 中 T=GLI object+0x28（0x7FFB0637E143）。SG 来源经 gldCreateShareGroup 槽 +0x478 的输出 `S+0x1a0`（0x7FFB06174A0F–0x7FFB06174A22）及 `_gfxGetGLDShareGroupForDeviceID`（0x7FFB061780CD）相互确认。
+
+5.1 可见 ABI（x86_64 SysV；以下序号均从 RDI=第1参开始）
+
+函数                    第1参 RDI    第2参 RSI           第3参 RDX/EDX       第4参 RCX    Float 返回
+ gldCreateTexture        SG           &H（8B输出槽）      D（8B指针）         U_i（8B指针） EAX=0
+ gldModifyTexture        SG           H（8B句柄）         flags（32位）       未见显式参    EAX=0
+ gldLoadTexture          SG           H（8B句柄）         未见显式参          未见显式参    EAX=0/1，见下文
+ gldDestroyTexture       SG           H（8B句柄）         未见显式参          未见显式参    EAX=0
+
+这是真实调用者准备和 Float 实际使用的显式参数集合；不据未初始化的剩余寄存器猜参数，也不宣称恢复所有驱动的完整 C 原型/可选参数。尤其 create 的输出是第2参数 RSI，不是第3参数 RDX；RAX/EAX 返回状态，不是输出 H。
+
+5.2 create
+
+- libGFXShared `_gfxCreatePluginTexture` 导出 offset 0x21f0 / 起点 0x7FFB061751F0；0x7FFB06175244–0x7FFB06175256 逐插件设置 RDI=SG、RSI=T+8*i、RDX=D、RCX=U_i，再 call *0x548(P)。每轮 output 地址增8，U 地址增0x18，plugin record 增0x20，D 恒定（它在循环前保存在栈上）。这里没有传 pixels/width/height 独立参数。
+- Float 0x7FFB064FB98C/98F/992 将 (RSI,RDX,RCX) 重排为 glsmCreateTexture 的 (RDI,RSI,RDX)，忽略原 SG，0x7FFB064FB996 尾跳到 libGLProgrammability。
+- glsm 0x7FFB0627F653 分配0x50字节的 Float/软件纹理对象 H；0x7FFB0627F667 保存 H+0x10=D，0x7FFB0627F66B 保存 H+0x18=U；0x7FFB0627F693 用 movq 将 H 写到原 RSI 输出槽。0x7FFB0627F696 返回 EAX=0，分配失败走 abort（0x7FFB0627F6A3），不是可推定的非零错误码。
+- D/U 是借用并长期引用的 caller-owned 内存，不是 create 当场复制的描述符。Float 的0x50大小、H 的内部偏移只用于取证，不得作为跨驱动 H 布局。
+- 调用方随后另调 sampler create 槽 +0x748（0x7FFB06175272）；不能混淆它的输出槽 T+0x180+8*i 或 D=T+0x320 与 texture 的参数。
+
+5.3 modify
+
+- 0x7FFB06176984 将上层 flags & 0x3fffffff；0x7FFB061769B9 先将 flags 低字节 OR 到 U+0x14。bit0 为1才走 0x7FFB061769D6–0x7FFB061769E5 的直接 GLD modify，传 SG/H/EDX flags；返回后 caller 对 U+8..+0x13 共12字节置 ff。bit2 而无bit0的分支会直接写 U+8+2*face 的 level 位，不要求调用 GLD。
+- Float 0x7FFB064FBBBB 只 test DL bit0。若 H+0x3b 非零，则对 H+0x18 所指 U 的 +8+2*f 执行 `orw 0x7fff`，f 的上限为 H+0x38（create 从 D+0x7b 复制）。随后清 H+0x3b，EAX=0。这里没有替换 H，也没有传入新的 D；几何内容已由 caller 原地写 D，驱动之后重读。
+- 普通 glTexImage2D -> `_gleEvaluateTextureImageChange`（0x7FFB06392696）-> `_gleCreateTextureLevel`（0x7FFB064881B3）-> `_gfxUpdateTextureForGeometryChange`（0x7FFB064881CE）-> `_gfxUpdatePluginTextureLevelGeometry`（0x7FFB064881E7）。这条链确属普通路径。
+
+5.4 load
+
+- 已取证调用点 0x7FFB063892B2 的第1参由 context+0xb310 取 SG，第2参由 T+8*pluginIndex 取 H；它位于 `_gleCreateIOSurfaceLevel` 后，只证明该分支的两参调用，不证明普通 glTexImage2D 必须立即 load。
+- Float 0x7FFB064FB9A8 检查 H+0x20；为空时调用 glsmAllocateTextureLevels，按 H+0x38 * 0x5a0 字节 calloc 后写 H+0x20。0x5a0=15*0x60 为软件每 face 的15个私有 level 记录，此为私有分配事实。
+- 读取 D+0x6a 的 uint16；为0返回 EAX=0。非0时用 *(SG+0x48) 调 `_glsmLoadTextureStructure(processor,H,0,0,1)`，其返回经 test/setne 归一为 EAX=0或1（0x7FFB064FB9D3–0x7FFB064FB9DE）。不能把这个1直接解释成统一 GLD errno；GFX 所见 create/modify/destroy 的0返回也不能外推 load。
+- 下层会 clean geometry，检验 D+0x79 非零，按 D+0x7e 的两个低 nibble 选 level，按 U 的掩码和 D+0x8c+2*f 的位决定内容处理。可借用符合格式/stride要求的 CPU 指针，也可分配转换缓冲；并非“load 永远上传”或“永远只改驻留状态”。
+
+5.5 destroy / backing 所有权
+
+- libGFXShared 0x7FFB06176C7E 取 H，非空才于 0x7FFB06176C8E 调 `gldDestroyTexture(SG,H)`，随后 0x7FFB06176C94 将 T+8*i 的输出槽清0；GLD 函数收到的是 H 值，不是 &H。
+- Float 0x7FFB064FB9F9 若 H+0x20 非空先 `_glsFlushTexture`；后者只在 D+1 bit3（D flags bit11）为1时进 IOSurface flush（0x7FFB064FBA1D）。普通 CPU 分支直接返回。然后 glsmDestroyTexture 释放自有 level 缓冲、level数组、H；EAX=0。
+- 私有 level V+0x48 是使用中像素地址，V+0x40 非零是该分配的大小/所有权判据；`glsmFreeTextureLevelBuffers` 只在地址非空且+0x40非零时 free（0x7FFB0627F6FE–0x7FFB0627F710）。借用路径在 0x7FFB06280256 写 V+0x48=外部指针并 V+0x40=0，所以不释放 caller CPU backing；D/U本身也不由 Float destroy 释放。
+- GFX 上层 CPU backing 另由 `_gfxFreeTextureLevel` 根据 L+0xb bit3 选择 free 或 vm_deallocate，然后清 L+0x18（0x7FFB06178409–0x7FFB0617843B）。客户端存储分支的借用指针在 GLEngine 清理路径单独绕过 free。探针必须保留 D/U/像素，直至所有驱动使用结束，不能只凭 create 返回推断可释放。
+
+GLD 驱动句柄访问的既有辅助证据：
+- +0x570 (gldUnbindTexture) 调用样例 0x7FFB06440003：RDI=`*(旧稿插件记录游标-0xe08)`（该游标不是本节定义的shared-state S），宽度8字节的驱动 context/插件相关句柄；RSI=`*(texture-array + pluginIndex*8)`，宽度8字节不透明纹理句柄。调用后 GLEngine 把 GLI 对象交给 `_gfxDestroyPluginTexture` 管理（0x7FFB06440020），所以该槽不是 GL texture name（GLuint）。
+- 0x7FFB06454E0A–0x7FFB06454E3A 是 FBO 的 unbind/destroy/清槽序列，不作为 texture destroy 的直接证明；texture destroy 的直接证据现为上述 libGFXShared 0x7FFB06176C8E。
+- 上层 GL texture name 在 _glDeleteTextures_Exec（0x7FFB06396375）以32位数组元素读取；它在 engine 哈希对象表中查找 GLI texture object，再进入插件 texture 路径。因此 GL name、GLI object pointer、GLD texture handle 是三种不同身份。
+
+descriptor 与像素存储：
+- GLEngine `glTexImage2D` 参数中的 width/height/internalformat/format/type 都是32位 API 标量；这不是说 GLD 收到相同寄存器参数。`pixels` 是指针大小参数；当绑定 unpack buffer 时，GLEngine 会走 `_gleHandleUnpackBufferInEngineNoSync`（例如 0x7FFB063924F8），把资源同步/偏移处理留在 GLI/共享层。
+- `_gfxAllocateTextureLevel` 分配的是 level 的 CPU 像素存储并写 level+0x18，不是创建完整 level descriptor；第7节已列出普通构造器和 Float 消费者共同确定的稀疏字段。不根据完整结构地址间距猜测未知成员。
+- 普通 RGBA8 有条件的格式映射已从 GLEngine `_gleTexLevelStorage` 跳转表项 0x7FFB0639CFF0 和 libGLProgrammability `_glvmSetTextureFormat` 表项 0x7FFB06200728 读字节解码：GL internalformat 0x8058 的 target-kind != 7 分支（7 的语义未在此命名）写 Float 私有 +0x3c=0x8058、+0x40/+0x42=0x8367/0x80e1、+0x39=4。并非 GLD 公共 descriptor 的 4B 像素布局承诺；CPU level 宽/行跨度见第7节，硬件 pitch、alignment 和 backing 地址仍未知。
+- `gldModifyTexture` 的已核实行为是按 flags bit0 条件将 Float 私有辅助状态若干 uint16 掩码置位，非修改传入 descriptor 的证明；`gldLoadTexture` 在 Float 中按需分配私有 level 数组、并仅在 caller descriptor +0x6a 非零时进入 `_glsmLoadTextureStructure`。普通 RGBA8 路径何时要求该 load，不能从 IOSurface 分支推断。
+
+6. gldCreateFramebuffer 调用与 texture attachment 链
+
+交叉修订：本节原始调查中的未恢复项已部分由同期`out/gld-framebuffer-lifecycle-research.txt`及[E3/E6/E8]证据解决。GLD Create=(share,&H,Q,D_i)，H[0]=Q、H[8]=D_i；附件绑定将上层纹理对象T_j+0x28+8*i中的驱动texture句柄写入D_i+8*j，Float Load从该槽取句柄、从Q+0x10*j+8取level。以下保留原始取证范围说明，但涉及“附件传递未知”的旧边界不再代表当前总进度。FBO unbind第一参为context，destroy第一参为sharegroup，不能统一写成context。
+
+GLEngine framebuffer 创建入口代码片段集中在 0x7FFB06454AC4 附近。实际 `gldCreateFramebuffer` 间接调用：
+- 0x7FFB06454AFC：RAX=`*(G+0xd4b8+i*0xe20)`，取当前插件 GLD 函数表指针（指针8字节）。
+- 0x7FFB06454B00：RDI=`*(G+0xd4b8+i*0xe20-0xe00)`，传入8字节不透明句柄。
+- 0x7FFB06454B07：RSI=`R15`，初值来自此前 `LEA 0xa0(RSI)`，按每插件每项8字节推进；由使用方式可称 caller-owned 输出句柄槽，但它的完整结构/索引语义未恢复。
+- 0x7FFB06454B0A：RDX=`*(RBP-0x30)`，是从栈槽重载的Q=P+0x100指针，不是栈槽地址。framebuffer专项原始证据已确认这一层级。
+- 0x7FFB06454B0E：RCX=RBX，当前RBX已从第二参数P推进到D_i=P+0x200+0x58*i；不是原始P。完整指针构造见framebuffer专项[E4]。
+- 0x7FFB06454B11：`call *0x628(RAX)` 即 gldCreateFramebuffer。参数个数在此调用点为4个寄存器参数；不能从地址关系将 RDX/RBX 的对象字段称为某个公开 GLD descriptor 类型。
+- 创建循环按 `0xc6a1(G)` 的插件数次调用；每轮 RSI 增8，RBX 增0x58，plugin record 增0xe20（0x7FFB06454B1A–0x7FFB06454B34）。0x58 是此上层循环中 descriptor element 的步长，不等于 GLD 私有结构大小。
+- framebuffer 新建路径（0x7FFB06454EF6 起）分配 `pluginCount*0x58 + 0x228` 字节的上层记录，初始化一部分记录；随后对每插件调用同一 gldCreateFramebuffer（0x7FFB06454F7F–0x7FFB06454F93）。每元素 +0xc8 起的8字节槽在随后的 load/unbind/destroy 路径作为 GLD FBO handle 使用。分配尺寸只是 GLEngine 私有数组长度，不能复制为 GLD FBO 大小。
+
+FBO attachment API 交叉证据：
+- `_glFramebufferTexture2DEXT_Exec` 起点 0x7FFB063CB686。入口寄存器：RDI=context 指针8字节；ESI=target、EDX=attachment、ECX=textarget、R8D=texture name、R9D=level，均32位（0x7FFB063CB6C6–0x7FFB063CB6CF）。
+- 该入口以 texture name 在 GLEngine hash table 查找对象（0x7FFB063CB7C2–0x7FFB063CB7E9），然后调用 `_gleFramebufferTexture`（0x7FFB063CB863；另一分支 0x7FFB063CB894）。这证明 attachment 写入的上层来源是 GLI texture object 与 level，而不是直接把 GL name 当 GLD 资源句柄。
+- `_gleFramebufferTexture` 的完整 attachment record 类型、持有/retain 规则以及附件在 GLD create 参数中的精确映射尚未恢复。gldCreateFramebuffer 创建的是 framebuffer 侧驱动对象；静态调用点没有证明纹理 handle 本身被拷贝进 create 参数，也没有证明 FBO owns texture backing。
+- 上层清理 attachment 时，GLEngine 逐插件读取附件对象的 +0xc8 槽，执行 GLD framebuffer unbind/destroy，并清零槽；GL texture 的 plugin handle 则在相应 texture 销毁路径单独 unbind/destroy。这证明两类驱动句柄分别管理，不能在 texture destroy 与 FBO destroy 之间假设隐式所有权。
+
+因此，最小 2D texture 被 FBO 附件使用时，目前可靠的对象链表示为：
+
+`GLuint texture name (32-bit)` → `GLEngine hash-table GLI texture object (8-byte pointer)` → `mip-level descriptor / image storage (字段未完整恢复)` → `per-plugin GLD texture handle (8-byte opaque)`；
+`FBO GLuint (32-bit)` → `GLEngine framebuffer object + texture-object/level attachment reference` → `per-plugin GLD framebuffer handle (8-byte opaque)`。
+
+上面两链的关联来自 GLI attachment object/reference。GLD attachment 引用的精确句柄传递时机、gldLoadFramebuffer 后如何解析纹理、附件 descriptor 是否含格式/尺寸/backing/pitch，仍是未知项。
+
+7. 稀疏 descriptor 字段与最小 RGBA8 探针边界
+
+以下以 create 第3参数 D 和第4参数 U 为基址，不以 H 的私有偏移冒充共有 ABI。它们由通用 GFX 调用方传给插件；本次只证明这一目标版本的 caller/Float 两侧吻合，不能保证其他 GLD 驱动消费同一完整结构。这里不提供拼凑的 C struct，也不宣称零填充加若干字段即构成合法 descriptor。
+
+7.1 D 主描述符（D=T+0x2e8）
+
+偏移            访问宽度     已验证意义/限制
++0x00           16位读取     flags低4位是内部 target-kind：glsmCleanTextureGeometry 0x7FFB0627F79B/79F；不得直接写公开 GL_TEXTURE_2D=0x0de1。GFX初始化在0x7FFB06174C53将其内部输入DI存至T+0x2e8。普通2D的精确kind/其余标志组合未完整恢复。
++0x01           8位位测试    bit2/bit3 分别进入 surface/IOSurface 类分支（对应整体flags bit10/11）；不是可随意复用的纹理格式字节。
++0x04           16位读取     base format；GFX调用gfxReqToBase后0x7FFB0617628D存T+0x2ec，Float查询0x7FFB064FBCE8读D+4并和0x1903等格式常量比较。还存在32位add读取，勿据此补完整成员类型。
++0x18           16位读取     storage hint；0x7FFB0627FE15与0x85bd比较，GFX在T+0x300读写。不是像素指针。
++0x68           16位读写     sized internalformat。GFX 0x7FFB0617625B写T+0x350；Float create于0x7FFB0627F676读取，并在geometry clean传给glvmSetTextureFormat。
++0x6a/+0x6c/+0x6e 16位读取   基础三维尺寸；0x7FFB0627F9AA/F9C6/F9E9读取，按level移位，再作为reset函数的宽/高/深形参。普通level的精确尺寸另见L+4/+6/+8；不能把两组字段混为同一level。
++0x78           8位读取      几何处理起始level。GFX core 0x7FFB06176901写T+0x360。
++0x79           8位读取      几何level数量/非零有效性门限。GFX 0x7FFB061768FB写T+0x361；load structure 0x7FFB062802CE检验，0则返回0。
++0x7a           8位读取      几何处理末level；GFX按起点+数量-1写（0x7FFB06176907–0x7FFB0617690B）。
++0x7b           8位读取      face/组计数；create拷到H+0x38，用于face步长0x1e0/0x5a0循环。普通2D预期单组，但不能以它猜完整cube/array定义。
++0x7c           8位读取      sample/倍率选择码；0时Float写H+0x3a=1（0x7FFB0627F94A–F997）。不能宣称此字节直接等于samples。
++0x7e           16位位域     低nibble和次低nibble给load起止level（0x7FFB0628035B–80369）；高位参与尺寸/border计算。GFX core仅按特定flags更新低nibble，不能独立清空高位。
++0x8c+2*f       16位位掩码   已有内容处理门限，glsmLoadTextureLevelBuffer在0x7FFB0627FEDC/FEE5按level测试；GFX几何更新写T+0x374+2*f。精确完整有效性协议未闭合。
++0xb0+0x1e0*f+0x20*l         嵌入的稀疏level记录L，见下节。
+
+7.2 U_i 每插件可写状态（U_i=T+0x60+0x18*i）
+
+- U+8+2*f：16位level dirty/待处理掩码，caller与Float都原地更新。caller几何bit0分支把12字节全设ff；Float modify按face数量OR 0x7fff；glsm load按level读/清位。不能把该掩码当作主D的尺寸数组。
+- U+0x14：8位变更标志。`_gfxInitializeGLTexturePluginState`在0x7FFB061783B2写0x81；caller几何更新OR低字节，Float clean检验bit0/bit2，完成load structure后0x7FFB06280462清0。
+- U+0x00：特殊kind分支可能解引用为指针；普通路径未证明其所有含义。0x18是GFX数组步长，不是推断出的所有驱动私有state结构长度。
+
+7.3 L=D+0xb0+0x1e0*f+0x20*l=T+0x398+...，f=face/group，l=level
+
+偏移        宽度      双侧证据与语义
+L+0x04      uint16    width：GLEngine构造器0x7FFB0639336D写，Float restore 0x7FFB064FBF9F读。
+L+0x06      uint16    height：0x7FFB06393372写，0x7FFB064FBFAC读。
+L+0x08      uint16    depth/片数：0x7FFB06393377写，GFX分配字节数与Float逐片循环读取。2D路径深度来源为1。
+L+0x0a      byte      border低字节由0x7FFB0639337B写；Float上层border处理还受D位域影响，不能由此补全规则。
+L+0x0b      byte      存储/内容标志；普通构造分支写0x20，客户端存储分支0x21，vm_allocate分支OR0x08。并非GLD格式枚举。
+L+0x0c      uint16    CPU行跨度，以texel计而非字节；普通存储构造时写width（0x7FFB06393488），客户端路径可来自pack设置的整除结果。GFX分配和Float restore均乘PixelBytes。
+L+0x0e      uint16    CPU每片跨度的行数；普通构造写height（0x7FFB0639348D），Float restore按此乘行字节推进下一片。
+L+0x10      uint16    存储format；L+0x12 uint16是存储type。可经过gleTexLevelStorage转换，不保证逐字等于公开glTexImage2D的format/type。
+L+0x18      8字节指针 CPU像素基址；GFX分配0x7FFB06177B42写，Float/glsm按D+0xc8+face*0x1e0+level*0x20读取。不是GL name、GPU VA或GLD opaque texture handle。
+
+未压缩且type非0时GFX分配字节数为：PixelBytes(L+0x10,L+0x12) * uint16(L+0x0c) * uint16(L+0x0e) * uint16(L+0x08)，精确指令0x7FFB06177B69–0x7FFB06177B90。RGBA/UNSIGNED_BYTE的紧密普通level行字节为4*L.rowTexels；这证明CPU存储算式，不证明硬件pitch。
+
+7.4 RGBA8=0x8058 的已解码格式实例与重要差异
+
+- GLEngine `_gleTexLevelStorage` 在internalformat=0x8058、external format=0x1908 (RGBA)、type=0x1401 (UNSIGNED_BYTE)、走普通分配分支时：跳转表基址0x7FFB0639CF7C，index=0x1d，实际表项0x7FFB0639CFF0字节9e fd ff ff -> 0x7FFB0639CD1A；之后0x7FFB0639CD85写L+0x10=0x1908，0x7FFB0639CF67/0x7FFB0639C936写L+0x12=0x1401。对于BGRA或packed输入，分支不同，不能一概代入此值。
+- Float后端经glvmSetTextureFormat的普通kind!=7分支：表基址0x7FFB062006B4，表项0x7FFB06200728字节f6 ff ff ff -> 0x7FFB062006AA；H+0x3c=0x8058，H+0x40=0x8367，H+0x42=0x80e1 (BGRA)，H+0x39=4。这是软件内部格式，不是把L也改为BGRA的指令。普通RGBA/UNSIGNED_BYTE与它不相同，因此可能走转换缓冲，不能假设H直接引用原RGBA字节。
+- gldLoadTexture传下的reset标志1还触发私有level行宽 `(width+3)&~3`（0x7FFB0627FB53–FB5F），之后乘H+0x39计算私有分配。即使RGBA8是4B/texel，宽度非4倍数时也不能把Float私有stride默认为width*4，更不能外推硬件布局。
+
+7.5 `_gfxUploadPluginTextureLevel` 不是 gldLoadTexture
+
+- 导出offset 0x4bdb，关键调用0x7FFB06177C44是 *0x5a0(P)，out/gld-loader-memory-v3.txt ENTRY 48 映射为gldRestoreTextureData。
+- 上层显式输入为S/T/L/face/level/pluginIndex及栈上32位附加值。调用GLD时准备 RDI=SG、RSI=H、EDX=face、ECX=level、R8D=原第7参（附加标志/值未命名）。R9D残留level不能自动认定额外形参；Float restore只使用前四参，忽略R8D。
+- Float restore以已保存D和face/level找L+0x18，使用H+0x20的已有level数组，clean geometry后若该私有level+0x48为空就返回0；它并非独立的create/load替代品。它把Float私有level+0x48和L+0x18分别装入两组像素转换状态，再调用glgProcessPixelsWithProcessor；本轮未单独恢复该处理器两组状态的完整输入/输出定义，因此不将函数名Upload当作CPU->driver方向的证据。
+
+7.6 是否足够实现“可控普通RGBA8契约探针”
+
+已足够记录/拦截真实普通纹理create/modify/destroy的寄存器契约，识别输出槽、持有D/U、读取单level尺寸/格式/CPU指针，并区分原RGBA像素与Float转换缓冲。这里没有执行任何探针。
+
+仍不足以声称可以从零拼出descriptor并调用四入口完成有效纹理：
+1. 尚未完整闭合普通GL_TEXTURE_2D到D.flags低nibble及其高位、D+0x7e维度/border组合的初始化。已看到GFX初始化和消费，不能猜完整数值。
+2. D+0x79、D+0x8c、U masks与有效内容更新的全部门限、格式转换前后CPU内容责任仍需要普通API场景逐字段快照/进一步静态写点校验。任意零填充可能create成功但load返回0或不处理内容；不能把“无崩溃/有句柄”当作RGBA8正确。
+3. 所见直接gldLoadTexture调用属于IOSurface。普通glTexImage2D究竟何时经渲染状态/采样消费者materialize，及是否必须由外部调用该导出，尚未闭合。
+4. CPU backing地址和stride已恢复局部含义；硬件allocation handle、GPU VA、tiling/pitch、同步/并发引用计数及其他驱动完整descriptor未知。
+5. FBO附件如何在GLD侧解析texture+level尚未恢复；这里不能承诺离屏render/readback探针完成。
+
+建议首个受控实验只以公共普通GL API生成已知RGBA8单level纹理，记录真实GFX->GLD四入口/描述符的有限字段和调用顺序；在未验证前，不直接拿稀疏字段表拼私有调用。若后续另行获准调用私有入口，必须先解决上述初始化与普通load时序两项。本轮仅做静态只读取证。
+
+8. 后续定点取证与复核方法
+
+1. 继续恢复普通target-kind、D+0x7e与内容掩码的GFX写点；以D=T+0x2e8统一偏移，不混用GLI object+0x28的T与D。读取函数起点时优先对照dyld_info -function_starts与section_bytes。
+2. 普通路径从geometry/dirty state继续跟到Float的采样/渲染消费者或glsmLoadTextureStructure上游；保持IOSurface 0x7FFB063892B2为旁证，不能冒充普通load xref。
+3. 本次dyld_info对个别前置padding/跳转表存在线性失步：例如_gfxCreatePluginTexture真实开头0x7FFB061751F0字节55 48 89 E5，而整映像反汇编从751F2出现movl esp,ebp。已用function_starts和字节纠正入口，关键寄存器准备/间接call字节独立核对；不使用这些失步行推断栈ABI。
+4. 原始摘录集中于out/gld-texture-verified-snippets.txt A–J。后续FBO研究保留第6节限制；本次新增纹理证据不自动证明FBO内部结构或拥有关系。

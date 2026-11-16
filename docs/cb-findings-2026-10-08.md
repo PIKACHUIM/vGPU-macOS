@@ -6189,3 +6189,11 @@ selector0输出直接写设备对象+0x270，容量64字节。GetConfig64在0x7F
 本轮未安装驱动或插件、未重启。前一轮按kern.boottime过滤日志已复核当次启动DX清屏65,536像素一致、三角形红18,432/绿47,104/其他0且mismatch0，读回后健康检查COMPLETED；这是历史执行证据，不代表后续每一时刻的队列状态。LLDB启动公开探针被非交互调试授权拒绝，Developer mode disabled；未绕过授权。
 
 目前普通纹理资源的软件参考与FBO稀疏契约更完整，但GLD可信加载、普通texture backing/同步、完整shader/draw接入及Metal插件/队列仍未完成。继续围绕这些缺口推进，不把服务枚举、私有三角形或软件基线标记为系统3D完成。
+
+### 76.5 普通texture入口与CPU backing的进一步闭合
+
+`out/gld-texture-resource-research.txt`及`out/gld-texture-verified-snippets.txt`重新取得libGFXShared真实调用和Float/glsm消费者。以GFX纹理基址T定义D=T+0x2e8、U_i=T+0x60+0x18*i，Create为(share,&H,D,U_i)，第二参数输出；Modify为(share,H,flags)，Destroy为(share,H)且caller随后清句柄槽。D/U由caller持有，驱动借用；不能照搬Float私有H布局。
+
+稀疏level记录L=D+0xb0+face*0x1e0+level*0x20：+4/+6/+8是u16宽高深，+0xc是u16行跨度（texel），+0xe为每片行数，+0x10/+0x12为u16存储format/type，+0x18为CPU像素指针。普通未压缩分配字节数由PixelBytes*rowTexels*sliceRows*depth计算，硬件pitch和GPU地址仍不由此确定。RGBA8/RGBA/UNSIGNED_BYTE普通输入可保存为RGBA字节，Float内部则可转为BGRA/0x8367并将私有行宽按4 texel对齐；禁止直接混同两者。
+
+`_gfxUploadPluginTextureLevel`实际调slot+0x5a0的gldRestoreTextureData，而非gldLoadTexture。已知直接Load调用仍属于IOSurface分支，普通texture materialize时序、有效内容掩码/完整flags与硬件同步仍未闭合。同期FBO专项已补齐D_i附件句柄和Q中level的传递，修订纹理报告中旧FBO边界，并纠正RDX是栈槽保存的Q值、RCX是推进后的D_i而非原始P。

@@ -1,0 +1,599 @@
+GLD 普通纹理 ABI 定点原始片段
+采集：2026-11-16；客体只读；未调用 GLD、未安装、未重启。
+客体 sw_vers: macOS 15.7.3 / 24G419；uname -m: x86_64。
+以下机器地址均为 dyld_info 的 unslid 地址，不是运行时已加 slide 地址。
+命令经 D:/Codes/vGPU-macOS/tools/mssh.py stdin 执行，远端 Python 仅在内存筛选 subprocess 输出。
+基础命令：/usr/bin/dyld_info -arch x86_64 -exports/-disassemble/-function_starts/-uuid IMAGE
+机器字节：/usr/bin/dyld_info -arch x86_64 -section_bytes __TEXT __text IMAGE
+GLEngine 指令摘自客体现有 /var/tmp/vgpu-fb/glengine-code.txt；另实时核对 function_starts、UUID、跳转表字节。
+省略号与中文段名为本文件编者标记；保留的指令/字节来自实际输出。
+注意 dyld_info 线性反汇编会跨过 padding/跳转表而误解码下一函数开头；函数边界以 function_starts/exports 与 section_bytes 共同校验。
+
+[A] 映像与导出
+/System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries/libGFXShared.dylib
+UUID CEB3FF13-179A-3AFD-AB07-31BE4C2073B9
+-exports:
+0x000021F0 _gfxCreatePluginTexture
+0x00003958 _gfxUpdatePluginTextureLevelGeometry
+0x00003C5A _gfxDestroyPluginTexture
+0x00004BDB _gfxUploadPluginTextureLevel
+0x00005098 _gfxGetGLDShareGroupForDeviceID
+0x000053A1 _gfxInitializeGLTexturePluginState
+-function_starts:
+0x7FFB06174C2D _gfxInitializeGLTexture
+0x7FFB061751F0 _gfxCreatePluginTexture
+0x7FFB061752AA _gfxLibCalloc
+0x7FFB061768ED _gfxUpdateTextureCore
+0x7FFB06176958 _gfxUpdatePluginTextureLevelGeometry
+
+/System/Library/Frameworks/OpenGL.framework/Versions/A/Resources/GLRendererFloat.bundle/GLRendererFloat
+UUID A41FE4B0-484A-3AA4-934E-E42F99453798
+-exports:
+0x00011988 _gldCreateTexture
+0x0001199B _gldLoadTexture
+0x000119F0 _gldDestroyTexture
+0x00011BBB _gldModifyTexture
+0x00011EEA _gldRestoreTextureData
+-imports:
+_glsmCreateTexture (from libGLProgrammability)
+_glsmAllocateTextureLevels (from libGLProgrammability)
+_glsmCleanTextureGeometry (from libGLProgrammability)
+_glsmDestroyTexture (from libGLProgrammability)
+_glsmLoadTextureStructure (from libGLProgrammability)
+_glsmLoadTextureLevelBuffer (from libGLProgrammability)
+
+/System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries/libGLProgrammability.dylib
+UUID 65A04081-F09D-3C8A-A59A-BE391DFAC415
+-exports:
+0x0008F640 _glsmCreateTexture
+0x0008F6A8 _glsmAllocateTextureLevels
+0x0008F750 _glsmDestroyTexture
+0x0008F77F _glsmCleanTextureGeometry
+0x0008FCA5 _glsmLoadTextureLevelBuffer
+0x0009028B _glsmLoadTextureStructure
+-function_starts:
+0x7FFB061FFF1C _glvmSetTextureFormat
+0x7FFB06200A1C _glvmCalculateSurfaceTextureBase
+
+/System/Library/Frameworks/OpenGL.framework/Versions/A/Resources/GLEngine.bundle/GLEngine
+UUID FB994F78-34C6-39F3-857D-99F9B3013E8F
+-function_starts:
+0x7FFB063932CC _gleCreateTextureLevel
+0x7FFB06393538 _glTexSubImage2D_Exec
+0x7FFB0639C8FE _gleTexLevelStorage
+0x7FFB0639D26C _glTexCoord2f_Exec
+
+[B] libGFXShared create 调用方
+0x7FFB06175201   movq     %rdi, -0x30(%rbp)
+0x7FFB06175205   cmpb     $0x0, 0x180(%rdi)
+0x7FFB0617520C   je       0x7ffb0617529b
+0x7FFB06175212   movq     %rsi, %rbx
+0x7FFB06175215   leaq     0x2e8(%rsi), %rax
+0x7FFB0617521C   movq     %rax, -0x40(%rbp)
+0x7FFB06175220   leaq     0x60(%rsi), %r12
+0x7FFB06175224   leaq     0x320(%rsi), %rax
+0x7FFB0617522B   movq     %rax, -0x38(%rbp)
+0x7FFB0617522F   leaq     0x1e0(%rsi), %r15
+0x7FFB06175236   movq     -0x30(%rbp), %rax
+0x7FFB0617523A   leaq     0x1a8(%rax), %r13
+0x7FFB06175241   xorl     %r14d, %r14d
+0x7FFB06175244   movq     -0x8(%r13), %rdi
+0x7FFB06175248   movq     (%r13), %rax
+0x7FFB0617524C   movq     %rbx, %rsi
+0x7FFB0617524F   movq     -0x40(%rbp), %rdx
+0x7FFB06175253   movq     %r12, %rcx
+0x7FFB06175256   callq    *0x548(%rax)
+0x7FFB0617525C   movq     -0x8(%r13), %rdi
+0x7FFB06175260   movq     (%r13), %rax
+0x7FFB06175264   leaq     0x180(%rbx), %rsi
+0x7FFB0617526B   movq     -0x38(%rbp), %rdx
+0x7FFB0617526F   movq     %r15, %rcx
+0x7FFB06175272   callq    *0x748(%rax)
+0x7FFB06175278   incq     %r14
+0x7FFB06175286   addq     $0x4, %r15
+0x7FFB0617528A   addq     $0x8, %rbx
+0x7FFB0617528E   addq     $0x18, %r12
+0x7FFB06175292   addq     $0x20, %r13
+0x7FFB06175296   cmpq     %rax, %r14
+0x7FFB06175299   jb       0x7ffb06175244
+原始字节：
+0x7ffb061751f0: 55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC
+0x7ffb06175200: 18 48 89 7D D0 80 BF 80 01 00 00 00 0F 84 89 00
+0x7ffb06175210: 00 00 48 89 F3 48 8D 86 E8 02 00 00 48 89 45 C0
+0x7ffb06175220: 4C 8D 66 60 48 8D 86 20 03 00 00 48 89 45 C8 4C
+0x7ffb06175230: 8D BE E0 01 00 00 48 8B 45 D0 4C 8D A8 A8 01 00
+0x7ffb06175240: 00 45 31 F6 49 8B 7D F8 49 8B 45 00 48 89 DE 48
+0x7ffb06175250: 8B 55 C0 4C 89 E1 FF 90 48 05 00 00
+
+[B1] sharegroup 来源及查询函数
+_gfxCreateSharedState:
+0x7FFB061749C5   addq     $0x188, %r12
+0x7FFB061749EA   movq     %rax, 0x20(%r12)
+0x7FFB06174A0F   leaq     0x18(%r12), %rsi
+0x7FFB06174A14   movq     0x20(%r12), %rcx
+0x7FFB06174A19   movq     0x18(%rax), %rdi
+0x7FFB06174A1D   movl     $0x4, %edx
+0x7FFB06174A22   callq    *0x478(%rcx)
+_gfxGetGLDShareGroupForDeviceID:
+0x7FFB061780B5   cmpl     %esi, 0x1b8(%rdi,%rdx)
+0x7FFB061780BC   je       0x7ffb061780cd
+0x7FFB061780BE   addq     $0x20, %rdx
+0x7FFB061780CD   movq     0x1a0(%rdi,%rdx), %rax
+
+[C] Float create 转发及 glsm 实际输出
+_gldCreateTexture:
+0x7FFB064FB988   pushq    %rbp
+0x7FFB064FB989   movq     %rsp, %rbp
+0x7FFB064FB98C   movq     %rsi, %rdi
+0x7FFB064FB98F   movq     %rdx, %rsi
+0x7FFB064FB992   movq     %rcx, %rdx
+0x7FFB064FB995   popq     %rbp
+0x7FFB064FB996   jmp      _glsmCreateTexture
+0x7ffb064fb988: 55 48 89 E5 48 89 F7 48 89 D6 48 89 CA 5D E9 0B
+0x7ffb064fb998: 6D 01 00
+_glsmCreateTexture:
+0x7FFB0627F64A   movq     %rdx, %r15
+0x7FFB0627F64D   movq     %rsi, %r14
+0x7FFB0627F650   movq     %rdi, %rbx
+0x7FFB0627F653   movl     $0x50, %edi
+0x7FFB0627F658   movl     $0x850a2c2e, %esi
+0x7FFB0627F65D   callq    _malloc_type_malloc
+0x7FFB0627F662   testq    %rax, %rax
+0x7FFB0627F665   je       0x7ffb0627f6a3
+0x7FFB0627F667   movq     %r14, 0x10(%rax)
+0x7FFB0627F66B   movq     %r15, 0x18(%rax)
+0x7FFB0627F66F   movb     0x7b(%r14), %cl
+0x7FFB0627F673   movb     %cl, 0x38(%rax)
+0x7FFB0627F676   movzwl   0x68(%r14), %ecx
+0x7FFB0627F67B   movw     %cx, 0x3c(%rax)
+0x7FFB0627F67F   xorl     %ecx, %ecx
+0x7FFB0627F681   movq     %rcx, 0x40(%rax)
+0x7FFB0627F685   movw     $0x100, 0x39(%rax)
+0x7FFB0627F68B   movb     $0x0, 0x3b(%rax)
+0x7FFB0627F68F   movq     %rcx, 0x20(%rax)
+0x7FFB0627F693   movq     %rax, (%rbx)
+0x7FFB0627F696   xorl     %eax, %eax
+0x7FFB0627F6A3   callq    _abort
+0x7ffb0627f667: 4C 89 70 10 4C 89 78 18 41 8A 4E 7B 88 48 38 41
+0x7ffb0627f677: 0F B7 4E 68 66 89 48 3C 31 C9 48 89 48 40 66 C7
+0x7ffb0627f687: 40 39 00 01 C6 40 3B 00 48 89 48 20 48 89 03 31
+0x7ffb0627f697: C0
+
+[D] modify 与 caller-owned 每插件状态
+_gfxUpdatePluginTextureLevelGeometry:
+0x7FFB06176969   movl     %edx, %ebx
+0x7FFB0617697F   movq     %rsi, %r14
+0x7FFB06176982   movl     %ebx, %ecx
+0x7FFB06176984   andl     $0x3fffffff, %ecx
+0x7FFB0617698A   movl     %ecx, -0x30(%rbp)
+0x7FFB061769A7   leaq     (%r14,%rax,2), %rax
+0x7FFB061769AB   addq     $0x68, %rax
+0x7FFB061769B9   orb      %bl, 0x74(%r14,%r15)
+0x7FFB061769BE   testb    $0x1, %bl
+0x7FFB061769C1   jne      0x7ffb061769d6
+0x7FFB061769CF   orw      %ax, (%rcx,%r15)
+0x7FFB061769D6   movq     -0x8(%r13), %rdi
+0x7FFB061769DA   movq     (%r13), %rax
+0x7FFB061769DE   movq     (%r14,%r12,8), %rsi
+0x7FFB061769E2   movl     -0x30(%rbp), %edx
+0x7FFB061769E5   callq    *0x558(%rax)
+0x7FFB061769EB   movq     $-0x1, 0x68(%r14,%r15)
+0x7FFB061769F4   movl     $0xffffffff, 0x70(%r14,%r15)
+0x7FFB06176A0D   addq     $0x20, %r13
+0x7FFB06176A11   addq     $0x18, %r15
+0x7ffb061769d6: 49 8B 7D F8 49 8B 45 00 4B 8B 34 E6 8B 55 D0 FF
+0x7ffb061769e6: 90 58 05 00 00
+_gldModifyTexture:
+0x7FFB064FBBBB   testb    $0x1, %dl
+0x7FFB064FBBBE   je       0x7ffb064fbbed
+0x7FFB064FBBC0   cmpb     $0x0, 0x3b(%rsi)
+0x7FFB064FBBC4   je       0x7ffb064fbbed
+0x7FFB064FBBC6   movzbl   0x38(%rsi), %eax
+0x7FFB064FBBD3   movq     0x18(%rsi), %rcx
+0x7FFB064FBBD7   xorl     %edx, %edx
+0x7FFB064FBBD9   orw      $0x7fff, 0x8(%rcx,%rdx,2)
+0x7FFB064FBBE0   incq     %rdx
+0x7FFB064FBBE3   cmpq     %rdx, %rax
+0x7FFB064FBBE6   jne      0x7ffb064fbbd9
+0x7FFB064FBBE9   movb     $0x0, 0x3b(%rsi)
+0x7FFB064FBBED   xorl     %eax, %eax
+0x7FFB064FBBEF   retq
+_gfxInitializeGLTexturePluginState:
+0x7FFB061783A5   xorps    %xmm0, %xmm0
+0x7FFB061783A8   movups   %xmm0, (%rdi)
+0x7FFB061783AB   movl     $0x0, 0x10(%rdi)
+0x7FFB061783B2   movb     $-0x7f, 0x14(%rdi)
+
+[E] load：仅这个调用点属于 IOSurface
+0x7FFB06389255   callq    _gleCreateIOSurfaceLevel
+0x7FFB06389276   callq    _gfxUpdateTextureForGeometryChange
+0x7FFB06389294   callq    _gfxUpdatePluginTextureLevelGeometry
+0x7FFB06389299   movq     0xb310(%rbx), %rdi
+0x7FFB063892A0   movq     0xb4b8(%rbx), %rax
+0x7FFB063892A7   movzbl   0xc6a4(%rbx), %ecx
+0x7FFB063892AE   movq     (%r14,%rcx,8), %rsi
+0x7FFB063892B2   callq    *0x148(%rax)
+_gldLoadTexture:
+0x7FFB064FB99B   pushq    %rbp
+0x7FFB064FB99C   movq     %rsp, %rbp
+0x7FFB064FB99F   pushq    %r14
+0x7FFB064FB9A1   pushq    %rbx
+0x7FFB064FB9A2   movq     %rsi, %rbx
+0x7FFB064FB9A5   movq     %rdi, %r14
+0x7FFB064FB9A8   cmpq     $0x0, 0x20(%rsi)
+0x7FFB064FB9AD   jne      0x7ffb064fb9b7
+0x7FFB064FB9AF   movq     %rbx, %rdi
+0x7FFB064FB9B2   callq    _glsmAllocateTextureLevels
+0x7FFB064FB9B7   movq     0x10(%rbx), %rax
+0x7FFB064FB9BB   cmpw     $0x0, 0x6a(%rax)
+0x7FFB064FB9C0   je       0x7ffb064fb9e3
+0x7FFB064FB9C2   movq     0x48(%r14), %rdi
+0x7FFB064FB9C6   movq     %rbx, %rsi
+0x7FFB064FB9C9   xorl     %edx, %edx
+0x7FFB064FB9CB   xorl     %ecx, %ecx
+0x7FFB064FB9CD   movl     $0x1, %r8d
+0x7FFB064FB9D3   callq    _glsmLoadTextureStructure
+0x7FFB064FB9D8   movl     %eax, %ecx
+0x7FFB064FB9DA   xorl     %eax, %eax
+0x7FFB064FB9DC   testl    %ecx, %ecx
+0x7FFB064FB9DE   setne    %al
+0x7FFB064FB9E1   jmp      0x7ffb064fb9e5
+0x7FFB064FB9E3   xorl     %eax, %eax
+0x7FFB064FB9E5   popq     %rbx
+0x7FFB064FB9E6   popq     %r14
+0x7FFB064FB9E8   popq     %rbp
+0x7FFB064FB9E9   retq
+_glsmAllocateTextureLevels:
+0x7FFB0627F6B1   movzbl   0x38(%rdi), %eax
+0x7FFB0627F6B5   imulq    $0x5a0, %rax, %rsi
+0x7FFB0627F6BC   movl     $0x1, %edi
+0x7FFB0627F6C6   callq    _malloc_type_calloc
+0x7FFB0627F6D0   movq     %rax, 0x20(%rbx)
+
+[F] 普通路径的 create / geometry / level 写入
+_gleCreateTextureObject:
+0x7FFB0637E140   movq     %r12, %r15
+0x7FFB0637E143   addq     $0x28, %r15
+0x7FFB0637E14F   movq     %r15, %rcx
+0x7FFB0637E152   callq    _gfxInitializeGLTexture
+0x7FFB0637E1A9   movq     -0x30(%rbp), %rdi
+0x7FFB0637E1AD   movq     %r15, %rsi
+0x7FFB0637E1B0   callq    _gfxCreatePluginTexture
+_glTexImage2D_Exec:
+0x7FFB0639264B   addq     $0x398, %rdx
+0x7FFB06392696   callq    _gleEvaluateTextureImageChange
+0x7FFB063929AD   movq     %rsi, %rdi
+0x7FFB063929B0   movq     %r14, %rsi
+0x7FFB063929B3   callq    _gfxAllocateTextureLevel
+0x7FFB063929E3   movq     %r12, %rdx
+0x7FFB06392A01   callq    _gleTextureImagePut
+_gleEvaluateTextureImageChange:
+0x7FFB064881B3   callq    _gleCreateTextureLevel
+0x7FFB064881CE   callq    _gfxUpdateTextureForGeometryChange
+0x7FFB064881D3   movq     0x5b00(%r12), %rdi
+0x7FFB064881DB   movq     %r15, %rsi
+0x7FFB064881DE   movl     %r14d, %edx
+0x7FFB064881E1   movl     -0x3c(%rbp), %ecx
+0x7FFB064881E4   movl     %ebx, %r8d
+0x7FFB064881E7   callq    _gfxUpdatePluginTextureLevelGeometry
+_gleCreateTextureLevel:
+0x7FFB063932DD   movl     %r9d, %r13d
+0x7FFB063932E0   movl     %r8d, %r15d
+0x7FFB063932E3   movl     %ecx, %r9d
+0x7FFB063932E6   movq     %rdx, %rbx
+0x7FFB063932ED   movl     0x28(%rbp), %r14d
+0x7FFB063932F1   movl     0x20(%rbp), %r12d
+0x7FFB063932F5   movl     0x18(%rbp), %eax
+0x7FFB063932F8   movl     0x10(%rbp), %ecx
+0x7FFB0639336D   movw     %r15w, 0x4(%rbx)
+0x7FFB06393372   movw     %r13w, 0x6(%rbx)
+0x7FFB06393377   movw     %cx, 0x8(%rbx)
+0x7FFB0639337B   movb     %al, 0xa(%rbx)
+0x7FFB06393484   movb     $0x20, 0xb(%rbx)
+0x7FFB06393488   movw     %r15w, 0xc(%rbx)
+0x7FFB0639348D   movw     %r13w, 0xe(%rbx)
+0x7FFB06393492   movq     $0x0, 0x18(%rbx)
+0x7FFB0639349A   leaq     0x10(%rbx), %rcx
+0x7FFB0639349E   addq     $0x12, %rbx
+0x7FFB063934A2   movl     %r9d, %edi
+0x7FFB063934A5   movl     %r12d, %esi
+0x7FFB063934A8   movl     %r14d, %edx
+0x7FFB063934AB   movq     %rbx, %r8
+0x7FFB063934BC   jmp      _gleTexLevelStorage
+客户端存储分支（非一般默认分配分支）：
+0x7FFB0639350D   movb     $0x21, 0xb(%rbx)
+0x7FFB06393518   movw     %ax, 0xe(%rbx)
+0x7FFB0639351C   movq     %rdi, 0x18(%rbx)
+0x7FFB06393520   movw     %r12w, 0x10(%rbx)
+0x7FFB06393525   movw     %r14w, 0x12(%rbx)
+0x7FFB06393532   movw     %cx, 0xc(%rbx)
+
+[G] CPU 存储、restore 参数与 Float 读取
+_gfxTextureLevelBytes:
+0x7FFB06177B69   movzwl   0x12(%rdi), %esi
+0x7FFB06177B71   movzwl   0x10(%rbx), %edi
+0x7FFB06177B75   callq    _gfxPixelBytes
+0x7FFB06177B7A   movzwl   0xc(%rbx), %ecx
+0x7FFB06177B7E   movzwl   0xe(%rbx), %edx
+0x7FFB06177B82   imulq    %rcx, %rdx
+0x7FFB06177B86   movzwl   0x8(%rbx), %ecx
+0x7FFB06177B8A   movl     %eax, %eax
+0x7FFB06177B8C   imulq    %rcx, %rax
+0x7FFB06177B90   imulq    %rdx, %rax
+_gfxAllocateTextureLevel:
+0x7FFB06177AAD   movq     %rsi, %rbx
+0x7FFB06177AB6   callq    _gfxTextureLevelBytes
+0x7FFB06177AC0   cmpw     $0x85bd, 0x300(%r14)
+0x7FFB06177AD4   callq    _malloc_type_malloc
+0x7FFB06177B0E   orb      $0x8, 0xb(%rbx)
+0x7FFB06177B25   callq    _vm_allocate
+0x7FFB06177B42   movq     %r14, 0x18(%rbx)
+_gfxUploadPluginTextureLevel:
+0x7FFB06177BE9   movl     %r9d, %r12d
+0x7FFB06177BEC   movl     %r8d, %r9d
+0x7FFB06177BEF   movl     %ecx, %r13d
+0x7FFB06177BF2   movq     %rdx, %rbx
+0x7FFB06177BF5   movq     %rsi, %r14
+0x7FFB06177BF8   movq     %rdi, %r15
+0x7FFB06177C1F   movl     0x10(%rbp), %r8d
+0x7FFB06177C23   movslq   %r12d, %rax
+0x7FFB06177C26   movq     (%r14,%rax,8), %rsi
+0x7FFB06177C2A   shlq     $0x5, %rax
+0x7FFB06177C2E   movq     0x1a0(%r15,%rax), %rdi
+0x7FFB06177C36   movq     0x1a8(%r15,%rax), %rax
+0x7FFB06177C3E   movl     %r13d, %edx
+0x7FFB06177C41   movl     %r9d, %ecx
+0x7FFB06177C44   callq    *0x5a0(%rax)
+0x7ffb06177c1f: 44 8B 45 10 49 63 C4 49 8B 34 C6 48 C1 E0 05 49
+0x7ffb06177c2f: 8B BC 07 A0 01 00 00 49 8B 84 07 A8 01 00 00 44
+0x7ffb06177c3f: 89 EA 44 89 C9 FF 90 A0 05 00 00
+_gldRestoreTextureData:
+0x7FFB064FBEFE   movq     %rsi, %r13
+0x7FFB064FBF01   movslq   %edx, %rax
+0x7FFB064FBF04   imulq    $0x1e0, %rax, %r14
+0x7FFB064FBF0B   addq     0x10(%rsi), %r14
+0x7FFB064FBF13   movslq   %ecx, %rcx
+0x7FFB064FBF16   movq     %rcx, %rbx
+0x7FFB064FBF19   shlq     $0x5, %rbx
+0x7FFB064FBF1D   movq     0xc8(%rbx,%r14), %rdx
+0x7FFB064FBF29   movq     0x20(%rsi), %r12
+0x7FFB064FBF48   callq    _glsmCleanTextureGeometry
+0x7FFB064FBF4D   cmpq     $0x0, 0x48(%r12,%r15)
+0x7FFB064FBF53   je       0x7ffb064fc132
+0x7FFB064FBF5C   leaq     (%rbx,%r14), %r12
+0x7FFB064FBF60   addq     $0xb0, %r12
+0x7FFB064FBF9F   movzwl   0x4(%r12), %eax
+0x7FFB064FBFAC   movzwl   0x6(%r12), %eax
+0x7FFB064FBFCC   movzwl   0xc(%r12), %ebx
+0x7FFB064FBFD2   movzwl   0x10(%r12), %edi
+0x7FFB064FBFD8   movzwl   0x12(%r12), %esi
+0x7FFB064FBFDE   callq    _gldPixelBytes
+0x7FFB064FBFE3   imull    %ebx, %eax
+0x7FFB064FC0D9   cmpw     $0x0, 0x8(%r12)
+0x7FFB064FC0FD   callq    _glgProcessPixelsWithProcessor
+0x7FFB064FC115   movzwl   0xe(%r12), %ecx
+0x7FFB064FC11B   imulq    %rax, %rcx
+0x7FFB064FC11F   addq     %rcx, -0x88(%rbp)
+0x7FFB064FC128   movzwl   0x8(%r12), %eax
+0x7FFB064FC132   xorl     %eax, %eax
+
+[H] 主 descriptor 与普通内存路径消费者
+_glsmCleanTextureGeometry:
+0x7FFB0627F793   movq     0x10(%rdi), %r8
+0x7FFB0627F797   movq     0x18(%rdi), %rax
+0x7FFB0627F79B   movzwl   (%r8), %edx
+0x7FFB0627F79F   andl     $0xf, %edx
+0x7FFB0627F7A2   movb     0x14(%rax), %cl
+0x7FFB0627F7A5   cmpw     $0x7, %dx
+0x7FFB0627F804   testb    $0x1, %cl
+0x7FFB0627F80B   jne      0x7ffb0627f93c
+0x7FFB0627F811   testb    $0x4, %cl
+0x7FFB0627F825   movb     0x7a(%r8), %al
+0x7FFB0627F849   movzbl   0x78(%r8), %ebx
+0x7FFB0627F884   movq     0x18(%rdi), %rcx
+0x7FFB0627F888   movzwl   0x8(%rcx,%r11,2), %ecx
+0x7FFB0627F88E   btl      %ebx, %ecx
+0x7FFB0627F93C   movzwl   0x68(%r8), %esi
+0x7FFB0627F941   callq    _glvmSetTextureFormat
+0x7FFB0627F94A   movb     0x7c(%rsi), %cl
+0x7FFB0627F991   movb     $0x1, %al
+0x7FFB0627F997   movb     %al, 0x3a(%rdi)
+0x7FFB0627F9AA   movzwl   0x6a(%rsi), %edx
+0x7FFB0627F9B8   movb     0x78(%rsi), %cl
+0x7FFB0627F9BB   shrl     %cl, %edx
+0x7FFB0627F9C6   movzwl   0x6c(%rsi), %r13d
+0x7FFB0627F9D0   testb    $0x6, 0x7f(%rsi)
+0x7FFB0627F9E9   movzwl   0x6e(%rsi), %r14d
+0x7FFB0627F9F3   testb    $0x18, 0x7f(%rsi)
+0x7FFB0627FA0F   cmpb     0x7a(%rsi), %cl
+0x7FFB0627FA1D   movl     %r15d, %esi
+0x7FFB0627FA20   movl     %ebx, %edx
+0x7FFB0627FA22   movl     %r12d, %ecx
+0x7FFB0627FA25   movl     %r13d, %r8d
+0x7FFB0627FA28   movl     %r14d, %r9d
+0x7FFB0627FA2B   callq    _glsmResetTextureLevel
+_glsmResetTextureLevel:
+0x7FFB0627FB53   cmpl     $0x0, 0x10(%rbp)
+0x7FFB0627FB57   je       0x7ffb0627fb63
+0x7FFB0627FB59   addl     $0x3, %esi
+0x7FFB0627FB5C   andl     $-0x4, %esi
+0x7FFB0627FB5F   movl     %esi, (%r12)
+0x7FFB0627FC58   movl     %ecx, %eax
+0x7FFB0627FC5A   imulq    $0x1e0, %rbx, %rcx
+0x7FFB0627FC61   addq     %rcx, %r13
+0x7FFB0627FC64   shlq     $0x5, %rax
+0x7FFB0627FC68   addq     %r13, %rax
+0x7FFB0627FC6B   addq     $0xb0, %rax
+0x7FFB0627FC71   movzwl   0xc(%rax), %ecx
+0x7FFB0627FC75   movl     %ecx, 0x5c(%r12)
+0x7FFB0627FC7A   movl     0x10(%rax), %ecx
+0x7FFB0627FC7D   movl     %ecx, 0x58(%r12)
+0x7FFB0627FC82   movq     0x18(%rax), %rax
+0x7FFB0627FC86   movq     %rax, 0x50(%r12)
+_glsmLoadTextureStructure:
+0x7FFB062802CA   movq     0x10(%rbx), %rax
+0x7FFB062802CE   movzbl   0x79(%rax), %ecx
+0x7FFB062802D4   testl    %ecx, %ecx
+0x7FFB062802D6   je       0x7ffb0628046b
+0x7FFB0628035B   movzwl   0x7e(%rcx), %eax
+0x7FFB06280362   andl     $0xf, %r12d
+0x7FFB06280366   shrl     $0x4, %eax
+0x7FFB06280369   andl     $0xf, %eax
+0x7FFB062803E9   movq     %r15, %rdi
+0x7FFB062803EC   movq     %rbx, %rsi
+0x7FFB062803EF   movl     %r12d, %edx
+0x7FFB062803F2   movl     %r14d, %ecx
+0x7FFB062803F5   callq    _glsmLoadTextureLevelBuffer
+0x7FFB06280462   movb     $0x0, 0x14(%rax)
+0x7FFB06280466   movl     $0x1, %eax
+_glsmLoadTextureLevelBuffer:
+0x7FFB0627FD67   movq     0x10(%r13), %rsi
+0x7FFB0627FD6B   imulq    $0x1e0, %r14, %rdx
+0x7FFB0627FD7C   leaq     (%rdi,%rdx), %r12
+0x7FFB0627FD80   addq     $0xb0, %r12
+0x7FFB0627FD91   movq     0x18(%r12), %rdx
+0x7FFB0627FD96   movq     %rdx, 0x50(%r15)
+0x7FFB0627FDCD   movzwl   0x58(%r15), %r9d
+0x7FFB0627FDD2   cmpw     0x42(%r13), %r9w
+0x7FFB0627FDDD   movzwl   0x5a(%r15), %r9d
+0x7FFB0627FDE2   cmpw     0x40(%r13), %r9w
+0x7FFB0627FDE9   cmpl     %edi, 0x5c(%r15)
+0x7FFB0627FE5D   movzbl   0x39(%r13), %eax
+0x7FFB0627FE62   imull    %eax, %edi
+0x7FFB0627FE6B   movslq   %edi, %rax
+0x7FFB0627FE6E   imulq    %r11, %rbx
+0x7FFB0627FE72   imulq    %rax, %rbx
+0x7FFB0627FEBE   callq    _malloc_type_malloc
+0x7FFB0627FECC   movq     %rax, 0x48(%r15)
+0x7FFB0627FED0   movq     %rbx, 0x40(%r15)
+0x7FFB0627FED8   movq     0x10(%r13), %rax
+0x7FFB0627FEDC   movzwl   0x8c(%rax,%r14,2), %eax
+0x7FFB0627FEE5   testl    %eax, -0x38(%rbp)
+0x7FFB062800A1   movl     0x5c(%r15), %ebx
+0x7FFB062800AE   callq    _glgGetPixelSize
+0x7FFB062800B3   imull    %ebx, %eax
+0x7FFB062800B6   movl     %eax, -0xa0(%rbp)
+0x7FFB06280256   movq     %rdx, 0x48(%r15)
+0x7FFB0628025A   movq     $0x0, 0x40(%r15)
+
+[H1] GFX 主descriptor字段写点（与H节消费者交叉）
+_gfxInitializeGLTexture:
+0x7FFB06174C53   movw     %di, 0x2e8(%rcx)
+0x7FFB06174C88   movb     %sil, 0x363(%rcx)
+0x7FFB06174C95   movw     $0x8058, 0x350(%rcx)
+_gfxUpdateTextureForGeometryChange:
+0x7FFB061761ED   movl     0xa(%r14), %eax
+0x7FFB061761F1   movl     %eax, 0x352(%r15)
+0x7FFB061761F8   movzwl   0xe(%r14), %eax
+0x7FFB061761FD   movw     %ax, 0x356(%r15)
+0x7FFB06176256   movzwl   0x8(%r14), %edi
+0x7FFB0617625B   movw     %di, 0x350(%r15)
+0x7FFB06176263   movb     0x1c(%r14), %cl
+0x7FFB06176267   movb     %cl, 0x364(%r15)
+0x7FFB06176288   callq    _gfxReqToBase
+0x7FFB0617628D   movw     %ax, 0x2ec(%r15)
+0x7FFB061762CF   movw     $0x0, 0x374(%r15,%rdi,2)
+0x7FFB061762FE   movw     %r8w, 0x374(%r15,%rdi,2)
+_gfxUpdateTextureCore:
+0x7FFB061768F1   testb    $0x1, %dl
+0x7FFB061768F4   je       0x7ffb06176911
+0x7FFB061768F6   movb     (%rsi), %al
+0x7FFB061768F8   movb     0x1(%rsi), %cl
+0x7FFB061768FB   movb     %cl, 0x361(%rdi)
+0x7FFB06176901   movb     %al, 0x360(%rdi)
+0x7FFB06176907   addb     %cl, %al
+0x7FFB06176909   decb     %al
+0x7FFB0617690B   movb     %al, 0x362(%rdi)
+0x7FFB06176915   movzbl   0x2(%rsi), %eax
+0x7FFB06176919   movzwl   0x366(%rdi), %ecx
+0x7FFB06176920   andl     $0xf, %eax
+0x7FFB06176923   andl     $-0x10, %ecx
+0x7FFB06176926   orl      %eax, %ecx
+0x7FFB06176928   movw     %cx, 0x366(%rdi)
+0x7FFB0617692F   movb     0x3(%rsi), %al
+0x7FFB06176932   shlb     $0x4, %al
+0x7FFB06176935   movzbl   %al, %eax
+0x7FFB06176938   andl     $0xffffff0f, %ecx
+0x7FFB0617693E   orl      %eax, %ecx
+0x7FFB06176940   movw     %cx, 0x366(%rdi)
+
+[I] RGBA8 精确跳转表项：实际 section_bytes 小端 int32，相对表基址
+GLEngine _gleTexLevelStorage:
+表基址 0x7ffb0639cf7c；index = 0x8058 - 0x803b = 0x1d。
+表项 0x7ffb0639cff0: 9e fd ff ff；目标 0x7ffb0639cd1a。
+0x7FFB0639CD1A   cmpl     $0x8367, %edx
+0x7FFB0639CD20   je       0x7ffb0639cda7
+0x7FFB0639CD26   cmpl     $0x8035, %edx
+0x7FFB0639CD2C   je       0x7ffb0639cda7
+0x7FFB0639CD2E   cmpl     $0x80e1, %esi
+0x7FFB0639CD34   movl     $0x1908, %eax
+0x7FFB0639CD39   jmp      0x7ffb0639cd82
+0x7FFB0639CD82   cmovel   %esi, %eax
+0x7FFB0639CD85   movw     %ax, (%rcx)
+0x7FFB0639CD88   jmp      0x7ffb0639cf67
+0x7FFB0639CF67   movw     $0x1401, %dx
+0x7FFB0639CF6B   jmp      0x7ffb0639c936
+0x7FFB0639C936   movw     %dx, (%r8)
+libGLProgrammability _glvmSetTextureFormat，普通 target-kind !=7 分支:
+表基址 0x7ffb062006b4；index = 0x1d。
+表项 0x7ffb06200728: f6 ff ff ff；目标 0x7ffb062006aa。
+0x7FFB062006AA   movw     $0x8058, 0x3c(%rdi)
+0x7FFB062006B0   jmp      0x7ffb06200682
+0x7FFB06200682   movl     $0x80e18367, 0x40(%rdi)
+0x7FFB06200689   movb     $0x4, 0x39(%rdi)
+0x7FFB0620068D   popq     %rbp
+0x7FFB0620068E   retq
+
+[J] destroy 和释放所有权
+_gfxDestroyPluginTexture:
+0x7FFB06176C6E   movq     %rsi, %rbx
+0x7FFB06176C71   movq     %rdi, %r14
+0x7FFB06176C74   leaq     0x1a8(%rdi), %r15
+0x7FFB06176C7E   movq     (%rbx,%r12,8), %rsi
+0x7FFB06176C82   testq    %rsi, %rsi
+0x7FFB06176C85   je       0x7ffb06176c9c
+0x7FFB06176C87   movq     -0x8(%r15), %rdi
+0x7FFB06176C8B   movq     (%r15), %rax
+0x7FFB06176C8E   callq    *0x580(%rax)
+0x7FFB06176C94   movq     $0x0, (%rbx,%r12,8)
+0x7ffb06176c7e: 4A 8B 34 E3 48 85 F6 74 15 49 8B 7F F8 49 8B 07
+0x7ffb06176c8e: FF 90 80 05 00 00 4A C7 04 E3 00 00 00 00
+_gldDestroyTexture:
+0x7FFB064FB9F6   movq     %rsi, %rbx
+0x7FFB064FB9F9   cmpq     $0x0, 0x20(%rsi)
+0x7FFB064FB9FE   je       0x7ffb064fba08
+0x7FFB064FBA03   callq    _glsFlushTexture
+0x7FFB064FBA08   movq     %rbx, %rdi
+0x7FFB064FBA0B   callq    _glsmDestroyTexture
+0x7FFB064FBA10   xorl     %eax, %eax
+_glsFlushTexture:
+0x7FFB064FBA19   movq     0x10(%rsi), %rax
+0x7FFB064FBA1D   testb    $0x8, 0x1(%rax)
+0x7FFB064FBA21   je       0x7ffb064fbbba
+_glsmFreeTextureLevelBuffers:
+0x7FFB0627F6FE   movq     0x48(%rcx,%r14), %rdi
+0x7FFB0627F703   testq    %rdi, %rdi
+0x7FFB0627F706   je       0x7ffb0627f725
+0x7FFB0627F708   cmpq     $0x0, 0x40(%rcx,%r14)
+0x7FFB0627F70E   je       0x7ffb0627f725
+0x7FFB0627F710   callq    _free
+0x7FFB0627F719   movq     $0x0, 0x40(%rcx,%r14)
+0x7FFB0627F725   movq     $0x0, 0x48(%rcx,%r14)
+_glsmDestroyTexture:
+0x7FFB0627F759   cmpq     $0x0, 0x20(%rdi)
+0x7FFB0627F75E   je       0x7ffb0627f771
+0x7FFB0627F763   callq    _glsmFreeTextureLevelBuffers
+0x7FFB0627F768   movq     0x20(%rbx), %rdi
+0x7FFB0627F76C   callq    _free
+0x7FFB0627F771   movq     %rbx, %rdi
+0x7FFB0627F77A   jmp      _free
+_gfxFreeTextureLevel:
+0x7FFB06178409   testb    $0x8, 0xb(%rdx)
+0x7FFB0617840D   jne      0x7ffb0617841a
+0x7FFB0617840F   movq     0x18(%rbx), %rdi
+0x7FFB06178413   callq    _free
+0x7FFB0617841D   callq    _gfxTextureLevelBytes
+0x7FFB0617842B   movq     0x18(%rbx), %rsi
+0x7FFB06178432   callq    _vm_deallocate
+0x7FFB06178437   andb     $-0x9, 0xb(%rbx)
+0x7FFB0617843B   movq     $0x0, 0x18(%rbx)

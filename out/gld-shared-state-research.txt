@@ -137,6 +137,7 @@ Float clear起点0x7FFB064EE7F8：RDX数据块保存为R14（0x7FFB064EE80F）�
 静态直接位移搜索没有命中Float的0x3bd8/0x3bf0/0x3c04，不等于证明任何间接路径永不访问，但不足以用此软件驱动证明A+0x6e==0硬件clear状态消费。
 
 8. 目标尺寸来源
+后续§76更新：`out/gld-framebuffer-lifecycle-research.txt`及原始[E3/E7/E8]已闭合命名FBO的Q=F+0x128及尺寸实际写入；Q+0xb2/+0xb4与F+0x1da/+0x1dc确为相同存储。下述“未关联/写入未知”是本报告原始阶段边界，已被后续证据替代。Q仍只是借用的稀疏视图，不应据此拼完整结构。
 默认目标：
  gleInitializeContext 0x7FFB0637C164以8字节写0到G+0xb570（宽高初始为0）。
  gliAttachDrawableWithOptions 0x7FFB0638EBFB令R8=&G+0xb570，0x7FFB0638EC0F调用plugin+0x4a0=gldAttachDrawable。
