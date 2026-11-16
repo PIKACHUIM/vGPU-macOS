@@ -5,6 +5,8 @@
  * 运行：sudo /tmp/gld_resource_probe
  * 前提：资源后端已 READY、两槽空闲，测试期间无其他客户端改写旧全局目标。
  * 仅 CPU oracle 自检：/tmp/gld_resource_probe --oracle-only
+ * 单资源量化观察：sudo /tmp/gld_resource_probe --quantization-only
+ * 量化模式退出 0 仅表示诊断完成，不代表格式/量化正确性验收通过。
  *
  * 只调用自研 vgpuAccelerator 的同步 selector 0..8；无原始 GPU 命令。
  * 本文件按 framebuffer/vgpuFramebuffer.cpp 的资源 ABI v1 独立声明，
@@ -458,13 +460,120 @@ static bool close_connection(io_connect_t *c)
     *c=IO_OBJECT_NULL;
     return code(result,kIOReturnSuccess,"IOServiceClose");
 }
+/* 候选仅由输入 float32 在用户态计算，不作为 GPU 像素期望。
+ * 本组输入非负且不超过 1；double 精确容纳 float32 * 255。
+ * nearest 使用 ties-to-even，floor 使用非负数截断。 */
+static void quantization_candidates(uint32_t bits, unsigned *nearest, unsigned *floor_value)
+{
+    float value;
+    memcpy(&value,&bits,sizeof(value));
+    double scaled=(double)value*255.0;
+    *floor_value=(unsigned)scaled;
+    double fraction=scaled-(double)*floor_value;
+    *nearest=*floor_value + (fraction > .5 || (fraction == .5 && (*floor_value & 1u)));
+}
+static bool quantization_image(const struct resource *r, unsigned char observed[4])
+{
+    struct read_response *o=malloc(sizeof(*o));
+    if (!check(o != NULL,"分配量化 READ_ROW 用户堆响应")) return false;
+    bool ok=false;
+    for (uint32_t y=0;y<HEIGHT;++y) {
+        struct read_request q={1,sizeof(q),r->handle,r->generation,y,0};
+        if (!success(r->connection,READ_ROW,&q,sizeof(q),o,sizeof(*o),"量化 READ_ROW") ||
+            !check(o->version == 1 && o->byteSize == sizeof(*o) && o->handle == r->handle &&
+                   o->generation == r->generation && o->row == y && o->rowBytes == ROW_BYTES,
+                   "量化 READ_ROW 响应头、身份、generation 和行号")) goto done;
+        if (!y) memcpy(observed,o->pixels,4);
+        for (uint32_t x=0;x<WIDTH;++x) {
+            const unsigned char *p=o->pixels+x*4;
+            if (memcmp(p,observed,4)) {
+                fprintf(stderr,"FAIL 量化全图不一致 (%u,%u) BGRA=%u %u %u %u "
+                        "首像素=%u %u %u %u\n",x,y,p[0],p[1],p[2],p[3],
+                        observed[0],observed[1],observed[2],observed[3]);
+                goto done;
+            }
+        }
+    }
+    ok=true;
+done:
+    free(o);
+    return ok;
+}
+static int quantization_only(void)
+{
+    static const struct { const char *label; uint32_t bits; bool white_rgb; } cases[]={
+        {"0",             UINT32_C(0x00000000),false},
+        {".25",           UINT32_C(0x3e800000),false},
+        {".5",            UINT32_C(0x3f000000),false},
+        {".75",           UINT32_C(0x3f400000),false},
+        {"1",             UINT32_C(0x3f800000),false},
+        {"near 1/255",    UINT32_C(0x3b808081),false},
+        {"near 64/255",   UINT32_C(0x3e808081),false},
+        {"near 128/255",  UINT32_C(0x3f008081),false},
+        {"near 192/255",  UINT32_C(0x3f40c0c1),false},
+        {"near 254/255",  UINT32_C(0x3f7efeff),false},
+        {".5 prev float", UINT32_C(0x3effffff),false},
+        {".5 next float", UINT32_C(0x3f000001),false},
+        {"RGB=1 alpha=.5 non-premultiplied",UINT32_C(0x3f000000),true}
+    };
+    io_connect_t owner=IO_OBJECT_NULL;
+    struct resource r={0};
+    bool ok=false;
+    puts("OBSERVE quantization-only：单资源，仅 CREATE/SUBMIT CLEAR/READ_ROW/RELEASE；"
+         "候选匹配不作为格式正确性通过。BGRA/候选均为十进制，bits 为 RGBA 十六进制。");
+    if (!open_connection(&owner) || !create_resource(owner,&r)) goto done;
+    for (size_t i=0;i<ARRAY_COUNT(cases);++i) {
+        uint32_t bits[4]; unsigned nearest[4], floor_value[4];
+        struct color color={0}; unsigned char observed[4]={0};
+        for (unsigned c=0;c<4;++c) {
+            bits[c]=cases[i].white_rgb && c < 3 ? UINT32_C(0x3f800000) : cases[i].bits;
+            quantization_candidates(bits[c],&nearest[c],&floor_value[c]);
+        }
+        memcpy(color.rgba,bits,sizeof(bits));
+        printf("OBSERVE case=%zu %s RGBA bits=%08" PRIx32 " %08" PRIx32 " %08" PRIx32 " %08" PRIx32
+               " candidate BGRA round-nearest(ties-even)=%u %u %u %u floor=%u %u %u %u\n",
+               i,cases[i].label,bits[0],bits[1],bits[2],bits[3],
+               nearest[2],nearest[1],nearest[0],nearest[3],
+               floor_value[2],floor_value[1],floor_value[0],floor_value[3]);
+        fflush(stdout);
+        if (!submit(&r,&color,NULL) || !quantization_image(&r,observed)) goto done;
+        printf("OBSERVE case=%zu actual BGRA=%u %u %u %u handle=%" PRIu64
+               " generation=%" PRIu64 " uniform pixels=%u\n",i,
+               observed[0],observed[1],observed[2],observed[3],r.handle,r.generation,WIDTH*HEIGHT);
+        if (cases[i].white_rgb &&
+            !check(observed[0] == 255 && observed[1] == 255 && observed[2] == 255,
+                   "RGB=1 alpha=.5 必须保留 RGB=255（非预乘），alpha 仅观察")) goto done;
+    }
+    for (unsigned q=0;q<256;++q) {
+        struct color color={0}; unsigned char observed[4]={0};
+        float canonical=(float)((double)q/255.0);
+        uint32_t bits; memcpy(&bits,&canonical,sizeof(bits));
+        for (unsigned c=0;c<4;++c) color.rgba[c]=canonical;
+        if (!submit(&r,&color,NULL) || !quantization_image(&r,observed)) goto done;
+        printf("CANONICAL q=%u bits=%08" PRIx32 " actual BGRA=%u %u %u %u uniform pixels=%u\n",
+               q,bits,observed[0],observed[1],observed[2],observed[3],WIDTH*HEIGHT);
+        for (unsigned c=0;c<4;++c)
+            if (!check(observed[c] == q,"canonical q/255 必须逐字节精确回读")) goto done;
+    }
+    puts("PASS canonical 256 levels, four channels, 16777216 pixels；不改变默认验收结论。");
+    ok=true;
+done:
+    /* 失败后只做逻辑清理；未记录的 CREATE handle 由 close 撤销。 */
+    if (!release_resource(&r)) ok=false;
+    if (!close_connection(&owner)) ok=false;
+    puts(ok ? "OBSERVE COMPLETE quantization-only；仅诊断完成，未通过格式/量化正确性验收。"
+            : "FAIL quantization-only；诊断停止，已尝试逻辑清理。");
+    return ok ? 0 : 1;
+}
 #define REQUIRE(x) do { if (!(x)) goto done; } while (0)
 int main(int argc, char **argv)
 {
     bool cpu_only=argc == 2 && !strcmp(argv[1],"--oracle-only");
-    if (argc != 1 && !cpu_only) {
-        fprintf(stderr,"用法：%s [--oracle-only]\n",argv[0]); return 2;
+    bool quantization=argc == 2 && !strcmp(argv[1],"--quantization-only");
+    if (argc != 1 && !cpu_only && !quantization) {
+        fprintf(stderr,"用法：%s [--oracle-only | --quantization-only]\n",argv[0]); return 2;
     }
+    if (quantization) return quantization_only();
     if (!oracle_selftest()) return 1;
     if (cpu_only) {
         puts("仅 CPU oracle/ABI 布局自检；没有打开 IOKit 连接，未验证 GPU。"); return 0;

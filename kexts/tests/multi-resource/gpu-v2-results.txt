@@ -1,0 +1,57 @@
+PASS CPU oracle 0: red=18432 background=47104
+PASS CPU oracle 1: red=6400 background=59136
+PASS CPU oracle 2: red=12800 background=52736
+PASS CREATE A 全透明黑: handle=1 generation=1 pixels=65536 red=0
+PASS CREATE B 全透明黑: handle=2 generation=1 pixels=65536 red=0
+PASS A 红透明，精确 alpha0: handle=1 generation=2 pixels=65536 red=0
+PASS A 更新后 B generation1 及全图保持: handle=2 generation=1 pixels=65536 red=0
+PASS 同 generation 的 A 红透明: handle=1 generation=2 pixels=65536 red=0
+PASS 同 generation 的 B 绿不透明: handle=2 generation=2 pixels=65536 red=0
+PASS B 半透明提交不影响 A: handle=1 generation=2 pixels=65536 red=0
+PASS B 半透明精确 BGRA 00 ff 00 80: handle=2 generation=3 pixels=65536 red=0
+PASS B 四分之一提交不影响 A: handle=1 generation=2 pixels=65536 red=0
+PASS B 四分之一精确 BGRA ff 00 00 40: handle=2 generation=4 pixels=65536 red=0
+PASS 重复相同颜色仍 generation+1: handle=2 generation=5 pixels=65536 red=0
+PASS 逐行读 A 期间交错 B 提交，A 全图与 generation 保持: handle=1 generation=2 pixels=65536 red=0
+PASS 行间提交后的 B 最终全图: handle=2 generation=8 pixels=65536 red=0
+PASS 141 alpha 及 A/B 全图隔离阶段
+PASS 新 A 固定三角形：18432红opaque/47104绿transparent: handle=1 generation=3 pixels=65536 red=18432
+PASS A 绘图后 B 保持: handle=2 generation=8 pixels=65536 red=0
+PASS legacy RGB: generation=1 pixels=65536 red=18432 (X不作为alpha)
+PASS 旧固定 draw 后 A 保持: handle=1 generation=3 pixels=65536 red=18432
+PASS 旧固定 draw 后 B 保持: handle=2 generation=8 pixels=65536 red=0
+PASS 新 B vertex A：6400红opaque/四分之一蓝背景: handle=2 generation=9 pixels=65536 red=6400
+PASS B vertex 后 A 保持: handle=1 generation=3 pixels=65536 red=18432
+PASS legacy RGB: generation=1 pixels=65536 red=18432 (X不作为alpha)
+PASS legacy RGB: generation=2 pixels=65536 red=12800 (X不作为alpha)
+PASS 旧 vertex B 后 A 保持: handle=1 generation=3 pixels=65536 red=18432
+PASS 旧 vertex B 后 B 保持: handle=2 generation=9 pixels=65536 red=6400
+PASS 新 A vertex B：12800红opaque/半透明绿背景: handle=1 generation=4 pixels=65536 red=12800
+PASS 新 A vertex 后 B 保持: handle=2 generation=9 pixels=65536 red=6400
+PASS legacy RGB: generation=2 pixels=65536 red=12800 (X不作为alpha)
+PASS legacy RGB: generation=3 pixels=65536 red=0 (X不作为alpha)
+PASS 旧 clear 后 A 保持: handle=1 generation=4 pixels=65536 red=12800
+PASS 旧 clear 后 B 保持: handle=2 generation=9 pixels=65536 red=6400
+PASS 旧 clear 后重新路由新 A 固定 draw: handle=1 generation=5 pixels=65536 red=18432
+PASS 重新路由后 B 保持: handle=2 generation=9 pixels=65536 red=6400
+PASS legacy RGB: generation=3 pixels=65536 red=0 (X不作为alpha)
+PASS 新旧 selector 0/1/2/3/6/7 三目标交错路由阶段
+PASS 输入拒绝，累计=113；未假设失败输出内容
+PASS 非法输入后 A 整图保持: handle=1 generation=5 pixels=65536 red=18432
+PASS 非法输入后 B 整图保持: handle=2 generation=9 pixels=65536 red=6400
+PASS 拒绝后合法提交仍成功: handle=2 generation=10 pixels=65536 red=0
+PASS 拒绝后合法 B 提交不影响 A: handle=1 generation=5 pixels=65536 red=18432
+PASS generation、owner、输入拒绝及后续健康提交阶段
+PASS 释放 A 后 B 保持: handle=2 generation=10 pixels=65536 red=0
+PASS RECREATE generation1 全透明黑，无旧 A 数据: handle=3 generation=1 pixels=65536 red=0
+PASS RECREATE A 后 B 保持: handle=2 generation=10 pixels=65536 red=0
+PASS 关闭前 A 非零数据: handle=3 generation=2 pixels=65536 red=0
+PASS 另一连接重租第一槽，全图透明黑: handle=4 generation=1 pixels=65536 red=0
+PASS 另一连接重租第二槽，全图透明黑: handle=5 generation=1 pixels=65536 red=0
+PASS 重开连接拒绝越权后健康提交: handle=5 generation=2 pixels=65536 red=0
+PASS 重租两槽仍隔离: handle=4 generation=1 pixels=65536 red=0
+PASS RELEASE、重复释放、close 自动撤销两个资源、跨连接重租清零阶段
+PASS resource probe；预期拒绝=145
+范围：同步私有资源 ABI。未覆盖 close/submit 真并发、进程崩溃、异步/descriptor 内核参数、计数耗尽、GPU 故障注入或 surface/context pack/flush。
+
+EXIT_CODE=0

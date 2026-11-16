@@ -1,0 +1,15 @@
+PASS CPU oracle 0: red=18432 background=47104
+PASS CPU oracle 1: red=6400 background=59136
+PASS CPU oracle 2: red=12800 background=52736
+PASS CREATE A 全透明黑: handle=1 generation=1 pixels=65536 red=0
+PASS CREATE B 全透明黑: handle=2 generation=1 pixels=65536 red=0
+PASS A 红透明，精确 alpha0: handle=1 generation=2 pixels=65536 red=0
+PASS A 更新后 B generation1 及全图保持: handle=2 generation=1 pixels=65536 red=0
+PASS 同 generation 的 A 红透明: handle=1 generation=2 pixels=65536 red=0
+PASS 同 generation 的 B 绿不透明: handle=2 generation=2 pixels=65536 red=0
+PASS B 半透明提交不影响 A: handle=1 generation=2 pixels=65536 red=0
+FAIL resource probe；预期拒绝=12
+范围：同步私有资源 ABI。未覆盖 close/submit 真并发、进程崩溃、异步/descriptor 内核参数、计数耗尽、GPU 故障注入或 surface/context pack/flush。
+FAIL pixel (0,0) actual BGRA=00 ff 00 7f expected=00 ff 00 80 legacy=0
+
+EXIT_CODE=1

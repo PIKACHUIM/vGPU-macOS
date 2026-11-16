@@ -3,7 +3,9 @@ import argparse
 import hashlib
 import json
 import os
+import random
 import re
+from fractions import Fraction
 import subprocess
 import sys
 import tempfile
@@ -75,6 +77,7 @@ methods = [
     'IOReturn vgpuFramebuffer::resourceRelease(',
     'IOReturn vgpuFramebuffer::resourceInfo(',
     'IOReturn vgpuFramebuffer::resourceRead(',
+    'static UInt32 resourceClearUnorm8Bits(',
     'IOReturn vgpuFramebuffer::resourceSubmit(',
     'bool vgpuFramebuffer::clearColorResource(',
     'void vgpuFramebuffer::releaseUnpublishedColors(',
@@ -129,7 +132,7 @@ public:
     UInt32 *gpu[3]={}, target=1;
     int submits=0, failAt=0, vertexSetups=0;
     bool suppressReadback=false;
-    UInt32 commands[256]={};
+    UInt32 commands[256]={}, lastClear[4]={};
     vgpuFramebuffer() {
         _dxVirt=calloc(65536,4); vertex.bytes=calloc(12,4);
         for (int i=0;i<3;++i) gpu[i]=(UInt32 *)calloc(65536,4);
@@ -155,6 +158,7 @@ public:
         assert(queue==1 && cid==1 && flags==2);
         if(c[0]==1161) { assert(n==4 && c[2]==0xffffffff); target=c[3]; }
         if(c[0]==1176) {
+            memcpy(lastClear,c+3,sizeof(lastClear));
             int slot=c[2]==1?2:(int)c[2]-16; assert(slot>=0 && slot<3);
             // 仅模拟端点颜色；不模拟 GPU 浮点量化或光栅化。
             UInt32 color=(c[3]==0x3f800000?0xff0000:0) | (c[4]==0x3f800000?0xff00:0) |
@@ -331,7 +335,26 @@ static void routingAndCleanup() {
     CHECK(fb.data[0].releases==0 && fb.pt[0].releases==0);
     fb.releaseUnpublishedColors(); CHECK(fb.data[1].releases==1 && fb.data[1].completes==1);
 }
-int main() { lifecycle(); validation(); failures(); routingAndCleanup(); CHECK(allocations==0); printf("PASS: %d assertions; actual extracted methods, CPU mocks only\n",checks); }
+static void clearCommandBits() {
+    // 检查提交内容，不把 CPU 端点颜色替身当成 GPU 量化 oracle。
+    const UInt32 input[4]={0x3f000000,0x3e800000,0x3f400000,0x80000000};
+    const UInt32 expected[4]={0x3f008081,0x3e808081,0x3f3fbfc0,0};
+    for(UInt32 op=1;op<=3;++op) {
+        UInt32 closing=0; vgpuFramebuffer fb; UInt64 owner=0;
+        assert(fb.registerResourceOwner(&owner,&closing)==0);
+        VgpuResourceInfo resources[2]={}; VgpuResourceSubmitResponse s={};
+        for(auto &resource:resources) {
+            assert(fb.resourceCreate(owner,&createReq,&resource)==0);
+            auto q=submitReq(resource,op); memcpy(q.rgbaBits,input,sizeof(input));
+            assert(fb.resourceSubmit(owner,&q,&s)==0);
+            for(int i=0;i<4;++i) assert(fb.lastClear[i]==expected[i]);
+        }
+        UInt64 gen=0;
+        assert(fb.userClear(owner,&gen,input)==0);
+        for(int i=0;i<4;++i) assert(fb.lastClear[i]==input[i]);
+    }
+}
+int main() { lifecycle(); validation(); failures(); routingAndCleanup(); CHECK(allocations==0); printf("PASS: %d assertions; actual extracted methods, CPU mocks only\n",checks); clearCommandBits(); assert(allocations==0); }
 '''
 out.write_text(prefix + types + cls + '\n\n'.join(function(s) for s in methods) + tests, encoding='utf-8')
 print(f'已提取 {len(methods)} 个实际函数及全部 ABI 断言到 {out}')
@@ -370,11 +393,89 @@ log.extend([
     '限制: CPU 替身只模拟端点颜色和单像素 draw，不验证 GPU 光栅化、浮点量化、真实 IOKit/DMA/fence、并发时序或完整 kext 链接加载。',
     'macOS 对象编译仅验证提取方法及 ABI，不代表完整驱动构建。',
 ])
+# oracle 使用 Fraction 和单调 float32 位模式的二分搜索，不复用内核的移位/除法算法。
+def exact_float(bits):
+    bits &= 0x7fffffff
+    exponent, mantissa = bits >> 23, bits & 0x7fffff
+    if exponent == 0:
+        return Fraction(mantissa, 1 << 149)
+    return Fraction((1 << 23) + mantissa, 1 << (150 - exponent))
+
+
+def float_floor(value):
+    lo, hi = 0, 0x3f800000
+    while lo < hi:
+        middle = (lo + hi + 1) // 2
+        if exact_float(middle) <= value:
+            lo = middle
+        else:
+            hi = middle - 1
+    return lo
+
+
+def nearest_float(value):
+    lower = float_floor(value)
+    if exact_float(lower) == value:
+        return lower
+    upper = lower + 1
+    return min((lower, upper), key=lambda b: (abs(exact_float(b) - value), b & 1))
+
+
+canonical = [nearest_float(Fraction(q, 255)) for q in range(256)]
+cases = {0, 0x80000000, 1, 2, 0x7ffffe, 0x7fffff, 0x800000, 0x800001,
+         0x3f7ffffe, 0x3f7fffff, 0x3f800000}
+for bits in canonical:
+    cases.update(b for b in (bits - 1, bits, bits + 1) if 0 <= b <= 0x3f800000)
+for q in range(255):
+    boundary = Fraction(2 * q + 1, 510)
+    lower = float_floor(boundary)
+    # 精确可表示的 half（0.5）也包含其两侧；其他 half 包含夹住它的两个 float。
+    cases.update((lower - 1, lower, lower + 1))
+rng = random.Random(0xB6A8)
+cases.update(rng.randrange(0x3f800001) for _ in range(50000))
+cases.update(rng.randrange(0x3b000000, 0x3f800001) for _ in range(10000))
+cases.update(rng.randrange(1, 0x800000) for _ in range(1000))
+quantization_cases = [[bits, canonical[round(exact_float(bits) * 255)]] for bits in sorted(cases)]
+case_path = work / 'clear_quantization_cases.json'
+case_path.write_text(json.dumps(quantization_cases), encoding='utf-8')
+helper_source = work / 'clear_quantization.cpp'
+helper_source.write_text('using UInt32=unsigned int; using UInt64=unsigned long long;\n' +
+                         function('static UInt32 resourceClearUnorm8Bits(') +
+                         '\nextern "C" UInt32 quantize(UInt32 b) { return resourceClearUnorm8Bits(b); }\n',
+                         encoding='utf-8')
+helper_runner = r'''
+const fs=require('fs');
+(async()=>{
+    const {instance}=await WebAssembly.instantiate(fs.readFileSync(process.argv[1]));
+    const cases=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+    for(const [bits,expected] of cases) {
+        const actual=instance.exports.quantize(bits)>>>0;
+        if(actual!==expected) throw new Error(`input=${bits.toString(16)} actual=${actual.toString(16)} expected=${expected.toString(16)}`);
+    }
+    console.log(`Fraction oracle: PASS ${cases.length} 个输入；提取的实际整数 helper。`);
+})().catch(e=>{console.error(e);process.exitCode=1;});
+'''
+log.extend([
+    '量化覆盖: 256 个 q/255 格点及邻居、255 个精确 half 边界的相邻 float、+/-0、subnormal、0/1 邻域。',
+    '固定随机种子 0xB6A8：50000 个全域合法 bits、10000 个高值域 bits、1000 个 subnormal；去重后共 ' + str(len(cases)) + ' 个输入。',
+    '量化期望: Fraction 精确解码、round 的 ties-even、二分搜索最邻近 float32；不使用宿主浮点运算。',
+    '新增命令断言: 两个资源的三个 opcode 均提交 canonical bits，旧 userClear 仍透传原始 bits；不改变原有 CHECK 计数。',
+])
 try:
     run([args.zig, 'version'])
     run([args.node, '--version'])
+    for optimization in ('-O0', '-O2'):
+        helper_wasm = work / ('clear_quantization' + optimization + '.wasm')
+        run([args.zig, 'c++', '-target', 'wasm32-freestanding', '-std=c++17', optimization,
+             '-fno-exceptions', '-fno-rtti', '-fsanitize-trap=all', '-nostdlib', '--rtlib=none', helper_source,
+             '-Wl,--no-entry', '-Wl,--export=quantize', '-o', helper_wasm])
+        run([args.node, '-e', helper_runner, helper_wasm, case_path])
+    run([args.zig, 'c++', '-target', 'x86_64-macos-none', '-std=c++17', '-O2',
+         '-fno-exceptions', '-fno-rtti', '-nostdinc', '-mkernel', '-fapple-kext',
+         '-mgeneral-regs-only', '-fno-sanitize=all', '-Werror', '-S', helper_source,
+         '-o', work / 'clear_quantization_macos.s'])
     run([args.zig, 'c++', '-target', 'wasm32-freestanding', '-std=c++17', '-O0',
-         '-fno-exceptions', '-fno-rtti', '-fsanitize-trap=all', '-nostdlib', wasm_source,
+         '-fno-exceptions', '-fno-rtti', '-fsanitize-trap=all', '-nostdlib', '--rtlib=none', wasm_source,
          '-Wl,--no-entry', '-Wl,--export=run_tests', '-Wl,--export=__heap_base',
          '-Wl,--initial-memory=134217728', '-o', work / 'multi_resource_cpu_test.wasm'])
     run([args.node, Path(__file__).with_name('run_multi_resource_cpu_test.js').resolve(),

@@ -1,0 +1,287 @@
+OBSERVE quantization-only：单资源，仅 CREATE/SUBMIT CLEAR/READ_ROW/RELEASE；候选匹配不作为格式正确性通过。BGRA/候选均为十进制，bits 为 RGBA 十六进制。
+OBSERVE case=0 0 RGBA bits=00000000 00000000 00000000 00000000 candidate BGRA round-nearest(ties-even)=0 0 0 0 floor=0 0 0 0
+OBSERVE case=0 actual BGRA=0 0 0 0 handle=4 generation=2 uniform pixels=65536
+OBSERVE case=1 .25 RGBA bits=3e800000 3e800000 3e800000 3e800000 candidate BGRA round-nearest(ties-even)=64 64 64 64 floor=63 63 63 63
+OBSERVE case=1 actual BGRA=64 64 64 64 handle=4 generation=3 uniform pixels=65536
+OBSERVE case=2 .5 RGBA bits=3f000000 3f000000 3f000000 3f000000 candidate BGRA round-nearest(ties-even)=128 128 128 128 floor=127 127 127 127
+OBSERVE case=2 actual BGRA=127 127 127 127 handle=4 generation=4 uniform pixels=65536
+OBSERVE case=3 .75 RGBA bits=3f400000 3f400000 3f400000 3f400000 candidate BGRA round-nearest(ties-even)=191 191 191 191 floor=191 191 191 191
+OBSERVE case=3 actual BGRA=191 191 191 191 handle=4 generation=5 uniform pixels=65536
+OBSERVE case=4 1 RGBA bits=3f800000 3f800000 3f800000 3f800000 candidate BGRA round-nearest(ties-even)=255 255 255 255 floor=255 255 255 255
+OBSERVE case=4 actual BGRA=255 255 255 255 handle=4 generation=6 uniform pixels=65536
+OBSERVE case=5 near 1/255 RGBA bits=3b808081 3b808081 3b808081 3b808081 candidate BGRA round-nearest(ties-even)=1 1 1 1 floor=1 1 1 1
+OBSERVE case=5 actual BGRA=1 1 1 1 handle=4 generation=7 uniform pixels=65536
+OBSERVE case=6 near 64/255 RGBA bits=3e808081 3e808081 3e808081 3e808081 candidate BGRA round-nearest(ties-even)=64 64 64 64 floor=64 64 64 64
+OBSERVE case=6 actual BGRA=64 64 64 64 handle=4 generation=8 uniform pixels=65536
+OBSERVE case=7 near 128/255 RGBA bits=3f008081 3f008081 3f008081 3f008081 candidate BGRA round-nearest(ties-even)=128 128 128 128 floor=128 128 128 128
+OBSERVE case=7 actual BGRA=128 128 128 128 handle=4 generation=9 uniform pixels=65536
+OBSERVE case=8 near 192/255 RGBA bits=3f40c0c1 3f40c0c1 3f40c0c1 3f40c0c1 candidate BGRA round-nearest(ties-even)=192 192 192 192 floor=192 192 192 192
+OBSERVE case=8 actual BGRA=192 192 192 192 handle=4 generation=10 uniform pixels=65536
+OBSERVE case=9 near 254/255 RGBA bits=3f7efeff 3f7efeff 3f7efeff 3f7efeff candidate BGRA round-nearest(ties-even)=254 254 254 254 floor=254 254 254 254
+OBSERVE case=9 actual BGRA=254 254 254 254 handle=4 generation=11 uniform pixels=65536
+OBSERVE case=10 .5 prev float RGBA bits=3effffff 3effffff 3effffff 3effffff candidate BGRA round-nearest(ties-even)=127 127 127 127 floor=127 127 127 127
+OBSERVE case=10 actual BGRA=127 127 127 127 handle=4 generation=12 uniform pixels=65536
+OBSERVE case=11 .5 next float RGBA bits=3f000001 3f000001 3f000001 3f000001 candidate BGRA round-nearest(ties-even)=128 128 128 128 floor=127 127 127 127
+OBSERVE case=11 actual BGRA=127 127 127 127 handle=4 generation=13 uniform pixels=65536
+OBSERVE case=12 RGB=1 alpha=.5 non-premultiplied RGBA bits=3f800000 3f800000 3f800000 3f000000 candidate BGRA round-nearest(ties-even)=255 255 255 128 floor=255 255 255 127
+OBSERVE case=12 actual BGRA=255 255 255 127 handle=4 generation=14 uniform pixels=65536
+CANONICAL q=0 bits=00000000 actual BGRA=0 0 0 0 uniform pixels=65536
+CANONICAL q=1 bits=3b808081 actual BGRA=1 1 1 1 uniform pixels=65536
+CANONICAL q=2 bits=3c008081 actual BGRA=2 2 2 2 uniform pixels=65536
+CANONICAL q=3 bits=3c40c0c1 actual BGRA=3 3 3 3 uniform pixels=65536
+CANONICAL q=4 bits=3c808081 actual BGRA=4 4 4 4 uniform pixels=65536
+CANONICAL q=5 bits=3ca0a0a1 actual BGRA=5 5 5 5 uniform pixels=65536
+CANONICAL q=6 bits=3cc0c0c1 actual BGRA=6 6 6 6 uniform pixels=65536
+CANONICAL q=7 bits=3ce0e0e1 actual BGRA=7 7 7 7 uniform pixels=65536
+CANONICAL q=8 bits=3d008081 actual BGRA=8 8 8 8 uniform pixels=65536
+CANONICAL q=9 bits=3d109091 actual BGRA=9 9 9 9 uniform pixels=65536
+CANONICAL q=10 bits=3d20a0a1 actual BGRA=10 10 10 10 uniform pixels=65536
+CANONICAL q=11 bits=3d30b0b1 actual BGRA=11 11 11 11 uniform pixels=65536
+CANONICAL q=12 bits=3d40c0c1 actual BGRA=12 12 12 12 uniform pixels=65536
+CANONICAL q=13 bits=3d50d0d1 actual BGRA=13 13 13 13 uniform pixels=65536
+CANONICAL q=14 bits=3d60e0e1 actual BGRA=14 14 14 14 uniform pixels=65536
+CANONICAL q=15 bits=3d70f0f1 actual BGRA=15 15 15 15 uniform pixels=65536
+CANONICAL q=16 bits=3d808081 actual BGRA=16 16 16 16 uniform pixels=65536
+CANONICAL q=17 bits=3d888889 actual BGRA=17 17 17 17 uniform pixels=65536
+CANONICAL q=18 bits=3d909091 actual BGRA=18 18 18 18 uniform pixels=65536
+CANONICAL q=19 bits=3d989899 actual BGRA=19 19 19 19 uniform pixels=65536
+CANONICAL q=20 bits=3da0a0a1 actual BGRA=20 20 20 20 uniform pixels=65536
+CANONICAL q=21 bits=3da8a8a9 actual BGRA=21 21 21 21 uniform pixels=65536
+CANONICAL q=22 bits=3db0b0b1 actual BGRA=22 22 22 22 uniform pixels=65536
+CANONICAL q=23 bits=3db8b8b9 actual BGRA=23 23 23 23 uniform pixels=65536
+CANONICAL q=24 bits=3dc0c0c1 actual BGRA=24 24 24 24 uniform pixels=65536
+CANONICAL q=25 bits=3dc8c8c9 actual BGRA=25 25 25 25 uniform pixels=65536
+CANONICAL q=26 bits=3dd0d0d1 actual BGRA=26 26 26 26 uniform pixels=65536
+CANONICAL q=27 bits=3dd8d8d9 actual BGRA=27 27 27 27 uniform pixels=65536
+CANONICAL q=28 bits=3de0e0e1 actual BGRA=28 28 28 28 uniform pixels=65536
+CANONICAL q=29 bits=3de8e8e9 actual BGRA=29 29 29 29 uniform pixels=65536
+CANONICAL q=30 bits=3df0f0f1 actual BGRA=30 30 30 30 uniform pixels=65536
+CANONICAL q=31 bits=3df8f8f9 actual BGRA=31 31 31 31 uniform pixels=65536
+CANONICAL q=32 bits=3e008081 actual BGRA=32 32 32 32 uniform pixels=65536
+CANONICAL q=33 bits=3e048485 actual BGRA=33 33 33 33 uniform pixels=65536
+CANONICAL q=34 bits=3e088889 actual BGRA=34 34 34 34 uniform pixels=65536
+CANONICAL q=35 bits=3e0c8c8d actual BGRA=35 35 35 35 uniform pixels=65536
+CANONICAL q=36 bits=3e109091 actual BGRA=36 36 36 36 uniform pixels=65536
+CANONICAL q=37 bits=3e149495 actual BGRA=37 37 37 37 uniform pixels=65536
+CANONICAL q=38 bits=3e189899 actual BGRA=38 38 38 38 uniform pixels=65536
+CANONICAL q=39 bits=3e1c9c9d actual BGRA=39 39 39 39 uniform pixels=65536
+CANONICAL q=40 bits=3e20a0a1 actual BGRA=40 40 40 40 uniform pixels=65536
+CANONICAL q=41 bits=3e24a4a5 actual BGRA=41 41 41 41 uniform pixels=65536
+CANONICAL q=42 bits=3e28a8a9 actual BGRA=42 42 42 42 uniform pixels=65536
+CANONICAL q=43 bits=3e2cacad actual BGRA=43 43 43 43 uniform pixels=65536
+CANONICAL q=44 bits=3e30b0b1 actual BGRA=44 44 44 44 uniform pixels=65536
+CANONICAL q=45 bits=3e34b4b5 actual BGRA=45 45 45 45 uniform pixels=65536
+CANONICAL q=46 bits=3e38b8b9 actual BGRA=46 46 46 46 uniform pixels=65536
+CANONICAL q=47 bits=3e3cbcbd actual BGRA=47 47 47 47 uniform pixels=65536
+CANONICAL q=48 bits=3e40c0c1 actual BGRA=48 48 48 48 uniform pixels=65536
+CANONICAL q=49 bits=3e44c4c5 actual BGRA=49 49 49 49 uniform pixels=65536
+CANONICAL q=50 bits=3e48c8c9 actual BGRA=50 50 50 50 uniform pixels=65536
+CANONICAL q=51 bits=3e4ccccd actual BGRA=51 51 51 51 uniform pixels=65536
+CANONICAL q=52 bits=3e50d0d1 actual BGRA=52 52 52 52 uniform pixels=65536
+CANONICAL q=53 bits=3e54d4d5 actual BGRA=53 53 53 53 uniform pixels=65536
+CANONICAL q=54 bits=3e58d8d9 actual BGRA=54 54 54 54 uniform pixels=65536
+CANONICAL q=55 bits=3e5cdcdd actual BGRA=55 55 55 55 uniform pixels=65536
+CANONICAL q=56 bits=3e60e0e1 actual BGRA=56 56 56 56 uniform pixels=65536
+CANONICAL q=57 bits=3e64e4e5 actual BGRA=57 57 57 57 uniform pixels=65536
+CANONICAL q=58 bits=3e68e8e9 actual BGRA=58 58 58 58 uniform pixels=65536
+CANONICAL q=59 bits=3e6ceced actual BGRA=59 59 59 59 uniform pixels=65536
+CANONICAL q=60 bits=3e70f0f1 actual BGRA=60 60 60 60 uniform pixels=65536
+CANONICAL q=61 bits=3e74f4f5 actual BGRA=61 61 61 61 uniform pixels=65536
+CANONICAL q=62 bits=3e78f8f9 actual BGRA=62 62 62 62 uniform pixels=65536
+CANONICAL q=63 bits=3e7cfcfd actual BGRA=63 63 63 63 uniform pixels=65536
+CANONICAL q=64 bits=3e808081 actual BGRA=64 64 64 64 uniform pixels=65536
+CANONICAL q=65 bits=3e828283 actual BGRA=65 65 65 65 uniform pixels=65536
+CANONICAL q=66 bits=3e848485 actual BGRA=66 66 66 66 uniform pixels=65536
+CANONICAL q=67 bits=3e868687 actual BGRA=67 67 67 67 uniform pixels=65536
+CANONICAL q=68 bits=3e888889 actual BGRA=68 68 68 68 uniform pixels=65536
+CANONICAL q=69 bits=3e8a8a8b actual BGRA=69 69 69 69 uniform pixels=65536
+CANONICAL q=70 bits=3e8c8c8d actual BGRA=70 70 70 70 uniform pixels=65536
+CANONICAL q=71 bits=3e8e8e8f actual BGRA=71 71 71 71 uniform pixels=65536
+CANONICAL q=72 bits=3e909091 actual BGRA=72 72 72 72 uniform pixels=65536
+CANONICAL q=73 bits=3e929293 actual BGRA=73 73 73 73 uniform pixels=65536
+CANONICAL q=74 bits=3e949495 actual BGRA=74 74 74 74 uniform pixels=65536
+CANONICAL q=75 bits=3e969697 actual BGRA=75 75 75 75 uniform pixels=65536
+CANONICAL q=76 bits=3e989899 actual BGRA=76 76 76 76 uniform pixels=65536
+CANONICAL q=77 bits=3e9a9a9b actual BGRA=77 77 77 77 uniform pixels=65536
+CANONICAL q=78 bits=3e9c9c9d actual BGRA=78 78 78 78 uniform pixels=65536
+CANONICAL q=79 bits=3e9e9e9f actual BGRA=79 79 79 79 uniform pixels=65536
+CANONICAL q=80 bits=3ea0a0a1 actual BGRA=80 80 80 80 uniform pixels=65536
+CANONICAL q=81 bits=3ea2a2a3 actual BGRA=81 81 81 81 uniform pixels=65536
+CANONICAL q=82 bits=3ea4a4a5 actual BGRA=82 82 82 82 uniform pixels=65536
+CANONICAL q=83 bits=3ea6a6a7 actual BGRA=83 83 83 83 uniform pixels=65536
+CANONICAL q=84 bits=3ea8a8a9 actual BGRA=84 84 84 84 uniform pixels=65536
+CANONICAL q=85 bits=3eaaaaab actual BGRA=85 85 85 85 uniform pixels=65536
+CANONICAL q=86 bits=3eacacad actual BGRA=86 86 86 86 uniform pixels=65536
+CANONICAL q=87 bits=3eaeaeaf actual BGRA=87 87 87 87 uniform pixels=65536
+CANONICAL q=88 bits=3eb0b0b1 actual BGRA=88 88 88 88 uniform pixels=65536
+CANONICAL q=89 bits=3eb2b2b3 actual BGRA=89 89 89 89 uniform pixels=65536
+CANONICAL q=90 bits=3eb4b4b5 actual BGRA=90 90 90 90 uniform pixels=65536
+CANONICAL q=91 bits=3eb6b6b7 actual BGRA=91 91 91 91 uniform pixels=65536
+CANONICAL q=92 bits=3eb8b8b9 actual BGRA=92 92 92 92 uniform pixels=65536
+CANONICAL q=93 bits=3ebababb actual BGRA=93 93 93 93 uniform pixels=65536
+CANONICAL q=94 bits=3ebcbcbd actual BGRA=94 94 94 94 uniform pixels=65536
+CANONICAL q=95 bits=3ebebebf actual BGRA=95 95 95 95 uniform pixels=65536
+CANONICAL q=96 bits=3ec0c0c1 actual BGRA=96 96 96 96 uniform pixels=65536
+CANONICAL q=97 bits=3ec2c2c3 actual BGRA=97 97 97 97 uniform pixels=65536
+CANONICAL q=98 bits=3ec4c4c5 actual BGRA=98 98 98 98 uniform pixels=65536
+CANONICAL q=99 bits=3ec6c6c7 actual BGRA=99 99 99 99 uniform pixels=65536
+CANONICAL q=100 bits=3ec8c8c9 actual BGRA=100 100 100 100 uniform pixels=65536
+CANONICAL q=101 bits=3ecacacb actual BGRA=101 101 101 101 uniform pixels=65536
+CANONICAL q=102 bits=3ecccccd actual BGRA=102 102 102 102 uniform pixels=65536
+CANONICAL q=103 bits=3ecececf actual BGRA=103 103 103 103 uniform pixels=65536
+CANONICAL q=104 bits=3ed0d0d1 actual BGRA=104 104 104 104 uniform pixels=65536
+CANONICAL q=105 bits=3ed2d2d3 actual BGRA=105 105 105 105 uniform pixels=65536
+CANONICAL q=106 bits=3ed4d4d5 actual BGRA=106 106 106 106 uniform pixels=65536
+CANONICAL q=107 bits=3ed6d6d7 actual BGRA=107 107 107 107 uniform pixels=65536
+CANONICAL q=108 bits=3ed8d8d9 actual BGRA=108 108 108 108 uniform pixels=65536
+CANONICAL q=109 bits=3edadadb actual BGRA=109 109 109 109 uniform pixels=65536
+CANONICAL q=110 bits=3edcdcdd actual BGRA=110 110 110 110 uniform pixels=65536
+CANONICAL q=111 bits=3edededf actual BGRA=111 111 111 111 uniform pixels=65536
+CANONICAL q=112 bits=3ee0e0e1 actual BGRA=112 112 112 112 uniform pixels=65536
+CANONICAL q=113 bits=3ee2e2e3 actual BGRA=113 113 113 113 uniform pixels=65536
+CANONICAL q=114 bits=3ee4e4e5 actual BGRA=114 114 114 114 uniform pixels=65536
+CANONICAL q=115 bits=3ee6e6e7 actual BGRA=115 115 115 115 uniform pixels=65536
+CANONICAL q=116 bits=3ee8e8e9 actual BGRA=116 116 116 116 uniform pixels=65536
+CANONICAL q=117 bits=3eeaeaeb actual BGRA=117 117 117 117 uniform pixels=65536
+CANONICAL q=118 bits=3eececed actual BGRA=118 118 118 118 uniform pixels=65536
+CANONICAL q=119 bits=3eeeeeef actual BGRA=119 119 119 119 uniform pixels=65536
+CANONICAL q=120 bits=3ef0f0f1 actual BGRA=120 120 120 120 uniform pixels=65536
+CANONICAL q=121 bits=3ef2f2f3 actual BGRA=121 121 121 121 uniform pixels=65536
+CANONICAL q=122 bits=3ef4f4f5 actual BGRA=122 122 122 122 uniform pixels=65536
+CANONICAL q=123 bits=3ef6f6f7 actual BGRA=123 123 123 123 uniform pixels=65536
+CANONICAL q=124 bits=3ef8f8f9 actual BGRA=124 124 124 124 uniform pixels=65536
+CANONICAL q=125 bits=3efafafb actual BGRA=125 125 125 125 uniform pixels=65536
+CANONICAL q=126 bits=3efcfcfd actual BGRA=126 126 126 126 uniform pixels=65536
+CANONICAL q=127 bits=3efefeff actual BGRA=127 127 127 127 uniform pixels=65536
+CANONICAL q=128 bits=3f008081 actual BGRA=128 128 128 128 uniform pixels=65536
+CANONICAL q=129 bits=3f018182 actual BGRA=129 129 129 129 uniform pixels=65536
+CANONICAL q=130 bits=3f028283 actual BGRA=130 130 130 130 uniform pixels=65536
+CANONICAL q=131 bits=3f038384 actual BGRA=131 131 131 131 uniform pixels=65536
+CANONICAL q=132 bits=3f048485 actual BGRA=132 132 132 132 uniform pixels=65536
+CANONICAL q=133 bits=3f058586 actual BGRA=133 133 133 133 uniform pixels=65536
+CANONICAL q=134 bits=3f068687 actual BGRA=134 134 134 134 uniform pixels=65536
+CANONICAL q=135 bits=3f078788 actual BGRA=135 135 135 135 uniform pixels=65536
+CANONICAL q=136 bits=3f088889 actual BGRA=136 136 136 136 uniform pixels=65536
+CANONICAL q=137 bits=3f09898a actual BGRA=137 137 137 137 uniform pixels=65536
+CANONICAL q=138 bits=3f0a8a8b actual BGRA=138 138 138 138 uniform pixels=65536
+CANONICAL q=139 bits=3f0b8b8c actual BGRA=139 139 139 139 uniform pixels=65536
+CANONICAL q=140 bits=3f0c8c8d actual BGRA=140 140 140 140 uniform pixels=65536
+CANONICAL q=141 bits=3f0d8d8e actual BGRA=141 141 141 141 uniform pixels=65536
+CANONICAL q=142 bits=3f0e8e8f actual BGRA=142 142 142 142 uniform pixels=65536
+CANONICAL q=143 bits=3f0f8f90 actual BGRA=143 143 143 143 uniform pixels=65536
+CANONICAL q=144 bits=3f109091 actual BGRA=144 144 144 144 uniform pixels=65536
+CANONICAL q=145 bits=3f119192 actual BGRA=145 145 145 145 uniform pixels=65536
+CANONICAL q=146 bits=3f129293 actual BGRA=146 146 146 146 uniform pixels=65536
+CANONICAL q=147 bits=3f139394 actual BGRA=147 147 147 147 uniform pixels=65536
+CANONICAL q=148 bits=3f149495 actual BGRA=148 148 148 148 uniform pixels=65536
+CANONICAL q=149 bits=3f159596 actual BGRA=149 149 149 149 uniform pixels=65536
+CANONICAL q=150 bits=3f169697 actual BGRA=150 150 150 150 uniform pixels=65536
+CANONICAL q=151 bits=3f179798 actual BGRA=151 151 151 151 uniform pixels=65536
+CANONICAL q=152 bits=3f189899 actual BGRA=152 152 152 152 uniform pixels=65536
+CANONICAL q=153 bits=3f19999a actual BGRA=153 153 153 153 uniform pixels=65536
+CANONICAL q=154 bits=3f1a9a9b actual BGRA=154 154 154 154 uniform pixels=65536
+CANONICAL q=155 bits=3f1b9b9c actual BGRA=155 155 155 155 uniform pixels=65536
+CANONICAL q=156 bits=3f1c9c9d actual BGRA=156 156 156 156 uniform pixels=65536
+CANONICAL q=157 bits=3f1d9d9e actual BGRA=157 157 157 157 uniform pixels=65536
+CANONICAL q=158 bits=3f1e9e9f actual BGRA=158 158 158 158 uniform pixels=65536
+CANONICAL q=159 bits=3f1f9fa0 actual BGRA=159 159 159 159 uniform pixels=65536
+CANONICAL q=160 bits=3f20a0a1 actual BGRA=160 160 160 160 uniform pixels=65536
+CANONICAL q=161 bits=3f21a1a2 actual BGRA=161 161 161 161 uniform pixels=65536
+CANONICAL q=162 bits=3f22a2a3 actual BGRA=162 162 162 162 uniform pixels=65536
+CANONICAL q=163 bits=3f23a3a4 actual BGRA=163 163 163 163 uniform pixels=65536
+CANONICAL q=164 bits=3f24a4a5 actual BGRA=164 164 164 164 uniform pixels=65536
+CANONICAL q=165 bits=3f25a5a6 actual BGRA=165 165 165 165 uniform pixels=65536
+CANONICAL q=166 bits=3f26a6a7 actual BGRA=166 166 166 166 uniform pixels=65536
+CANONICAL q=167 bits=3f27a7a8 actual BGRA=167 167 167 167 uniform pixels=65536
+CANONICAL q=168 bits=3f28a8a9 actual BGRA=168 168 168 168 uniform pixels=65536
+CANONICAL q=169 bits=3f29a9aa actual BGRA=169 169 169 169 uniform pixels=65536
+CANONICAL q=170 bits=3f2aaaab actual BGRA=170 170 170 170 uniform pixels=65536
+CANONICAL q=171 bits=3f2babac actual BGRA=171 171 171 171 uniform pixels=65536
+CANONICAL q=172 bits=3f2cacad actual BGRA=172 172 172 172 uniform pixels=65536
+CANONICAL q=173 bits=3f2dadae actual BGRA=173 173 173 173 uniform pixels=65536
+CANONICAL q=174 bits=3f2eaeaf actual BGRA=174 174 174 174 uniform pixels=65536
+CANONICAL q=175 bits=3f2fafb0 actual BGRA=175 175 175 175 uniform pixels=65536
+CANONICAL q=176 bits=3f30b0b1 actual BGRA=176 176 176 176 uniform pixels=65536
+CANONICAL q=177 bits=3f31b1b2 actual BGRA=177 177 177 177 uniform pixels=65536
+CANONICAL q=178 bits=3f32b2b3 actual BGRA=178 178 178 178 uniform pixels=65536
+CANONICAL q=179 bits=3f33b3b4 actual BGRA=179 179 179 179 uniform pixels=65536
+CANONICAL q=180 bits=3f34b4b5 actual BGRA=180 180 180 180 uniform pixels=65536
+CANONICAL q=181 bits=3f35b5b6 actual BGRA=181 181 181 181 uniform pixels=65536
+CANONICAL q=182 bits=3f36b6b7 actual BGRA=182 182 182 182 uniform pixels=65536
+CANONICAL q=183 bits=3f37b7b8 actual BGRA=183 183 183 183 uniform pixels=65536
+CANONICAL q=184 bits=3f38b8b9 actual BGRA=184 184 184 184 uniform pixels=65536
+CANONICAL q=185 bits=3f39b9ba actual BGRA=185 185 185 185 uniform pixels=65536
+CANONICAL q=186 bits=3f3ababb actual BGRA=186 186 186 186 uniform pixels=65536
+CANONICAL q=187 bits=3f3bbbbc actual BGRA=187 187 187 187 uniform pixels=65536
+CANONICAL q=188 bits=3f3cbcbd actual BGRA=188 188 188 188 uniform pixels=65536
+CANONICAL q=189 bits=3f3dbdbe actual BGRA=189 189 189 189 uniform pixels=65536
+CANONICAL q=190 bits=3f3ebebf actual BGRA=190 190 190 190 uniform pixels=65536
+CANONICAL q=191 bits=3f3fbfc0 actual BGRA=191 191 191 191 uniform pixels=65536
+CANONICAL q=192 bits=3f40c0c1 actual BGRA=192 192 192 192 uniform pixels=65536
+CANONICAL q=193 bits=3f41c1c2 actual BGRA=193 193 193 193 uniform pixels=65536
+CANONICAL q=194 bits=3f42c2c3 actual BGRA=194 194 194 194 uniform pixels=65536
+CANONICAL q=195 bits=3f43c3c4 actual BGRA=195 195 195 195 uniform pixels=65536
+CANONICAL q=196 bits=3f44c4c5 actual BGRA=196 196 196 196 uniform pixels=65536
+CANONICAL q=197 bits=3f45c5c6 actual BGRA=197 197 197 197 uniform pixels=65536
+CANONICAL q=198 bits=3f46c6c7 actual BGRA=198 198 198 198 uniform pixels=65536
+CANONICAL q=199 bits=3f47c7c8 actual BGRA=199 199 199 199 uniform pixels=65536
+CANONICAL q=200 bits=3f48c8c9 actual BGRA=200 200 200 200 uniform pixels=65536
+CANONICAL q=201 bits=3f49c9ca actual BGRA=201 201 201 201 uniform pixels=65536
+CANONICAL q=202 bits=3f4acacb actual BGRA=202 202 202 202 uniform pixels=65536
+CANONICAL q=203 bits=3f4bcbcc actual BGRA=203 203 203 203 uniform pixels=65536
+CANONICAL q=204 bits=3f4ccccd actual BGRA=204 204 204 204 uniform pixels=65536
+CANONICAL q=205 bits=3f4dcdce actual BGRA=205 205 205 205 uniform pixels=65536
+CANONICAL q=206 bits=3f4ececf actual BGRA=206 206 206 206 uniform pixels=65536
+CANONICAL q=207 bits=3f4fcfd0 actual BGRA=207 207 207 207 uniform pixels=65536
+CANONICAL q=208 bits=3f50d0d1 actual BGRA=208 208 208 208 uniform pixels=65536
+CANONICAL q=209 bits=3f51d1d2 actual BGRA=209 209 209 209 uniform pixels=65536
+CANONICAL q=210 bits=3f52d2d3 actual BGRA=210 210 210 210 uniform pixels=65536
+CANONICAL q=211 bits=3f53d3d4 actual BGRA=211 211 211 211 uniform pixels=65536
+CANONICAL q=212 bits=3f54d4d5 actual BGRA=212 212 212 212 uniform pixels=65536
+CANONICAL q=213 bits=3f55d5d6 actual BGRA=213 213 213 213 uniform pixels=65536
+CANONICAL q=214 bits=3f56d6d7 actual BGRA=214 214 214 214 uniform pixels=65536
+CANONICAL q=215 bits=3f57d7d8 actual BGRA=215 215 215 215 uniform pixels=65536
+CANONICAL q=216 bits=3f58d8d9 actual BGRA=216 216 216 216 uniform pixels=65536
+CANONICAL q=217 bits=3f59d9da actual BGRA=217 217 217 217 uniform pixels=65536
+CANONICAL q=218 bits=3f5adadb actual BGRA=218 218 218 218 uniform pixels=65536
+CANONICAL q=219 bits=3f5bdbdc actual BGRA=219 219 219 219 uniform pixels=65536
+CANONICAL q=220 bits=3f5cdcdd actual BGRA=220 220 220 220 uniform pixels=65536
+CANONICAL q=221 bits=3f5dddde actual BGRA=221 221 221 221 uniform pixels=65536
+CANONICAL q=222 bits=3f5ededf actual BGRA=222 222 222 222 uniform pixels=65536
+CANONICAL q=223 bits=3f5fdfe0 actual BGRA=223 223 223 223 uniform pixels=65536
+CANONICAL q=224 bits=3f60e0e1 actual BGRA=224 224 224 224 uniform pixels=65536
+CANONICAL q=225 bits=3f61e1e2 actual BGRA=225 225 225 225 uniform pixels=65536
+CANONICAL q=226 bits=3f62e2e3 actual BGRA=226 226 226 226 uniform pixels=65536
+CANONICAL q=227 bits=3f63e3e4 actual BGRA=227 227 227 227 uniform pixels=65536
+CANONICAL q=228 bits=3f64e4e5 actual BGRA=228 228 228 228 uniform pixels=65536
+CANONICAL q=229 bits=3f65e5e6 actual BGRA=229 229 229 229 uniform pixels=65536
+CANONICAL q=230 bits=3f66e6e7 actual BGRA=230 230 230 230 uniform pixels=65536
+CANONICAL q=231 bits=3f67e7e8 actual BGRA=231 231 231 231 uniform pixels=65536
+CANONICAL q=232 bits=3f68e8e9 actual BGRA=232 232 232 232 uniform pixels=65536
+CANONICAL q=233 bits=3f69e9ea actual BGRA=233 233 233 233 uniform pixels=65536
+CANONICAL q=234 bits=3f6aeaeb actual BGRA=234 234 234 234 uniform pixels=65536
+CANONICAL q=235 bits=3f6bebec actual BGRA=235 235 235 235 uniform pixels=65536
+CANONICAL q=236 bits=3f6ceced actual BGRA=236 236 236 236 uniform pixels=65536
+CANONICAL q=237 bits=3f6dedee actual BGRA=237 237 237 237 uniform pixels=65536
+CANONICAL q=238 bits=3f6eeeef actual BGRA=238 238 238 238 uniform pixels=65536
+CANONICAL q=239 bits=3f6feff0 actual BGRA=239 239 239 239 uniform pixels=65536
+CANONICAL q=240 bits=3f70f0f1 actual BGRA=240 240 240 240 uniform pixels=65536
+CANONICAL q=241 bits=3f71f1f2 actual BGRA=241 241 241 241 uniform pixels=65536
+CANONICAL q=242 bits=3f72f2f3 actual BGRA=242 242 242 242 uniform pixels=65536
+CANONICAL q=243 bits=3f73f3f4 actual BGRA=243 243 243 243 uniform pixels=65536
+CANONICAL q=244 bits=3f74f4f5 actual BGRA=244 244 244 244 uniform pixels=65536
+CANONICAL q=245 bits=3f75f5f6 actual BGRA=245 245 245 245 uniform pixels=65536
+CANONICAL q=246 bits=3f76f6f7 actual BGRA=246 246 246 246 uniform pixels=65536
+CANONICAL q=247 bits=3f77f7f8 actual BGRA=247 247 247 247 uniform pixels=65536
+CANONICAL q=248 bits=3f78f8f9 actual BGRA=248 248 248 248 uniform pixels=65536
+CANONICAL q=249 bits=3f79f9fa actual BGRA=249 249 249 249 uniform pixels=65536
+CANONICAL q=250 bits=3f7afafb actual BGRA=250 250 250 250 uniform pixels=65536
+CANONICAL q=251 bits=3f7bfbfc actual BGRA=251 251 251 251 uniform pixels=65536
+CANONICAL q=252 bits=3f7cfcfd actual BGRA=252 252 252 252 uniform pixels=65536
+CANONICAL q=253 bits=3f7dfdfe actual BGRA=253 253 253 253 uniform pixels=65536
+CANONICAL q=254 bits=3f7efeff actual BGRA=254 254 254 254 uniform pixels=65536
+CANONICAL q=255 bits=3f800000 actual BGRA=255 255 255 255 uniform pixels=65536
+PASS canonical 256 levels, four channels, 16777216 pixels；不改变默认验收结论。
+OBSERVE COMPLETE quantization-only；仅诊断完成，未通过格式/量化正确性验收。
+
+EXIT_CODE=0

@@ -6425,3 +6425,37 @@ texture/defaultobjects由其他任务继续处理，本节没有核验其实现�
 双资源实机验收通过后，连接owner由share持有，独立surface/resource由image持有并强持owner。image创建成功才发布，最后引用释放只销毁自身资源；不能关闭其他image共用连接。去掉全局leased_image后，clear/read必须寻址实际draw/read image。context增加最后成功提交image的强引用及generation，成功提交后替换，flush验证该记录，不能追随后来重绑的FBO。失败保留既有记录和失败门禁。
 
 两槽容量是全设备共享；两个常驻资源占满时，第三个事务候选必须返回资源不足并保留旧backing/TU/generation，不能先删旧对象或原地覆盖以腾槽。最后提交image引用也会延长槽位占用。现有selector4..8没有CPU像素上传操作；纹理backend要求CPU源同步导入，故双资源clear/read成功仍不足以启用完整texture backend。必须分别验收真实alpha、CPU导入、独立候选和线性布局契约；此前保持未配置后端的明确失败行为。
+
+## §84：双资源完整SDK构建、首次启动与alpha量化失败（2026-11-16）
+
+用户手动SSH上传完成后，客体三个文件SHA256均与本地一致；源码提交为 `fc82b8b2a262671d5eb6df364f43628d7dc2c504`。`vgpuFramebuffer.cpp` SHA为 `05286799519ba772f1a8bbef0f28969c1744f0aef93a646030d50f281b4250c1`。本轮SSH远端命令及新增验收探针上传成功，不据此倒推此前拦截的原因。
+
+### 84.1 构建与安装证据
+
+客体 `/tmp/vgpu-fb-multi/build.sh` 完整macOS SDK编译链接通过，27条警告，全部可达性marker通过，未签名x86_64 kext为195112字节，SHA256 `469ae477832dadd32316630f61ec1f61126a5cf0f386381350565c808879f11c`。`_kmod_info`存在，449个待内核解析符号，weak/chkstk条目均为0。
+
+全文件额外 `-Wframe-larger-than=1024 -Werror=frame-larger-than` 检查失败8处；同参数编译客体旧源码得到完全相同函数和栈帧数值：accelerator start1096、surfaceEntryFill1384、gbBringUp1576、stduFlatBringUp1352、stduBringUp2408、dxDrawProbe1368、dxVm3dmpTemplate1208、dxTemplateSetupSurface1096字节。旧源码SHA为 `25637d9dd2999623da26f1ff3bbc098db5cbb31f41748c78669264f0f034f6f9`。因此没有新增超限证据，但不得将抽取方法的1024门槛通过写成完整驱动通过。
+
+`kmutil libraries`对临时bundle返回Code71；实际安装/签名/暂存返回预期Code28（需重启），未报告链接失败。旧驱动备份 `/var/tmp/vgpu-fb-before-multi-20261116-2257.kext`，备份与原件可执行文件SHA相同：`227dc5d2173c59f6518ee511ddc2a4547b3a700583b70181b68c7180d47d07bf`。签名后候选SHA为 `811d5328ecb4e28b8ca4db10074cf3e4d7eef7e9e03ba8f6cbcf49fe287ae777`，CDHash `1cfedc9b8b638bb6fb5e233393106436e4053ace`。
+
+### 84.2 当前启动证据与首次验收
+
+本次启动 `kern.boottime` 为2026-11-16 22:58:24（客体时区），按该启动时间过滤日志。22:58:51确认加载 `multi-resource-v1-unverified`；90秒延迟后23:00:21 context0 START_STOP、两槽MOB/surface/bind fence全部完成。原单目标clear/read、shader生命周期和固定三角形通过；两槽各65536透明像素清零验证通过，资源后端READY。日志保存在 `kexts/tests/multi-resource/gpu-first-boot.txt`。
+
+探针使用完整macOS SDK `-std=c11 -O2 -Wall -Wextra -Werror` 编译通过，CPU oracle得到18432/6400/12800。初版探针源码SHA `19e85e8298004808484658334c31996a89aff2dc4db01c2dce18862c4bd433eb`，二进制SHA `46314a3c898e3ee698c8192a2d0f32eae59d7014f8527d61e565f881d1cf3203`。
+
+首次真实GPU验收通过CREATE两槽透明黑、A红透明与B绿不透明、独立generation和更新隔离；在B半透明green clear的第一个像素失败：输入alpha0.5，实测BGRA `00 ff 00 7f`，预期 `00 ff 00 80`。exit1，已验证12次预期拒绝；探针立即停止并执行逻辑释放/关闭。完整失败证据保存在 `kexts/tests/multi-resource/gpu-first-results.txt`。后面的三目标绘制、完整负例和重租验收尚未执行，不能宣称双资源验收通过。内核把rgbaBits原样复制到CLEAR_RTV命令，尚无证据将127归因为某种固定量化规则；下一步增加独立诊断而保留默认严格断言。
+
+### 84.3 独立量化观察
+
+新增 `--quantization-only`，保持默认验收颜色和逐字节严格断言。13组观察每组读取65536像素验证均匀及generation：0.25四通道得到64，0.5得到127，0.75得到191，0/1端点正确；0.5前后相邻float均127；1/255、64/255、128/255、192/255、254/255得到对应字节。RGB=1且alpha0.5得到255/255/255/127，未出现预乘。因此不能用单一floor解释行为，也尚未恢复宿主完整转换算法。
+
+随后遍历256个 `float(q/255)`，四通道整图精确回读，合计16777216像素均为目标q，日志 `kexts/tests/multi-resource/quantization256-results.txt`。这支持在新资源提交CLEAR_RTV之前，按明确UNORM8舍入契约转为目标字节q，再发送对应规范浮点值；实际清屏仍由GPU执行，不通过CPU篡改读回。纯整数转换 `resourceClearUnorm8Bits` 已实现：对已验证[0,1] float位模式使用64位有效数乘255并最近偶数舍入，随后以整数除法构造正确舍入的float32(q/255)。仅新资源的三个opcode清背景路径使用，旧selector3仍原样透传。独立Fraction oracle用精确有理数和float位模式二分搜索构造期望，62535输入在O0/O2各通过；覆盖256格点、255 half边界及邻居、subnormal和固定种子随机。263020次原资源CHECK及新增六条资源/opcode命令检查通过。日志 `kexts/tests/multi-resource/unorm8-results.txt`，源码SHA `0ae8a91fc2bc57e54ddd7019d7f3fe18c982a075dc5b5b7f79945734490f0dcc`。
+
+第二版标签 `multi-resource-v2-unorm8` 完整SDK构建通过，195152字节，未签名SHA `7bade81ac57d9429d8531bd4e07aaa7c29115bcaed31383a247c6a47b7e48223`。新函数真实SDK内核选项/Werror/1024门槛通过，反汇编仅整数指令，栈分配0x48。完整二进制weak/chkstk0，安装签名CDHash `e83bc3b17ff8797bae72886a272d02526ae6986c`，Code28后已重启。
+
+### 84.4 修复后严格实机验收通过
+
+第二次启动时间23:12:35，23:13:00确认 `multi-resource-v2-unorm8`，23:14:30后端READY。使用与首次失败完全相同的原始探针二进制（SHA `46314a3c898e3ee698c8192a2d0f32eae59d7014f8527d61e565f881d1cf3203`），没有修改半透明128或四分之一64断言，完整流程exit0。45次整图比较、2949120次像素比较全部通过，145次预期拒绝；包括A/B alpha与generation隔离、读A期间更新B、与旧目标交错的固定及顶点三角形、释放/重复释放/close双槽撤销/跨连接重租清零。证据 `gpu-v2-boot.txt`、`gpu-v2-results.txt` 位于 `kexts/tests/multi-resource/`。
+
+此结果证明同步私有双资源ABI的上述行为，不覆盖真并发close/submit、进程崩溃、异步descriptor、GPU故障注入、通用着色器、纹理CPU导入或系统OpenGL/Metal。surface/image/FBO独立资源接入仍需实现和验收。

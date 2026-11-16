@@ -946,7 +946,7 @@ static const UInt32 kDxTestDelayS = 90;
 //
 // The value is embedded in the banner string, so it is also covered by build.sh's
 // reachability check ("start, provider=%s [build %s]") -- a stale binary cannot pretend.
-#define VGPU_BUILD_TAG "multi-resource-v1-unverified"
+#define VGPU_BUILD_TAG "multi-resource-v2-unorm8"
 
 // How long one CB may take before we call it unanswered, and how long after that we keep
 // looking. Both are §56: the old budget was a 200M-iteration spin (~130 ms) that reported
@@ -2507,6 +2507,32 @@ IOReturn vgpuFramebuffer::resourceRead(UInt64 owner, const VgpuResourceReadReque
     return result;
 }
 
+// 项目双资源 BGRA8 清屏契约：先将分量量化到 UNORM8（最近值，平局取偶数），
+// 再提交正确舍入的 float32(q/255) 位模式；不代表 GL/Metal 的完整转换规范。
+// 调用方已验证输入在 [0,1]（允许 -0）；全程整数运算，内核不使用 FPU。
+static UInt32 resourceClearUnorm8Bits(UInt32 bits) {
+    UInt32 exponent = (bits >> 23) & 0xFF;
+    // 包括 +/-0、全部 subnormal；指数小于 118 时，x*255 严格小于 1/2。
+    if (exponent < 118) return 0;
+    UInt64 scaled = (UInt64)((bits & 0x7FFFFF) | 0x800000) * 255;
+    UInt32 shift = 150 - exponent; // 已验证输入保证 23 <= shift <= 32。
+    UInt32 q = (UInt32)(scaled >> shift);
+    UInt64 remainder = scaled & (((UInt64)1 << shift) - 1);
+    UInt64 half = (UInt64)1 << (shift - 1);
+    if (remainder > half || (remainder == half && (q & 1))) ++q;
+    if (!q) return 0;
+
+    // 将 q/255 归一化到 [1,2)，用整数除法直接舍入 24 位有效数。
+    UInt32 normalized = q, outExponent = 127;
+    while (normalized < 255) { normalized <<= 1; --outExponent; }
+    UInt64 numerator = (UInt64)normalized << 23;
+    UInt32 significand = (UInt32)(numerator / 255);
+    UInt32 twiceRemainder = (UInt32)(numerator % 255) * 2;
+    if (twiceRemainder > 255 || (twiceRemainder == 255 && (significand & 1))) ++significand;
+    // q 在 [1,255]：舍入不会使有效数进位到 2，q=255 精确生成 1.0。
+    return (outExponent << 23) | (significand & 0x7FFFFF);
+}
+
 IOReturn vgpuFramebuffer::resourceSubmit(UInt64 owner, const VgpuResourceSubmitRequest *request,
                                           VgpuResourceSubmitResponse *response) {
     if (!request || !response || request->version != 1 || request->byteSize != sizeof(*request) ||
@@ -2550,7 +2576,7 @@ IOReturn vgpuFramebuffer::resourceSubmit(UInt64 owner, const VgpuResourceSubmitR
     }
     UInt32 target[4] = { kSvga3dCmdDxSetRenderTargets, 8, SVGA3D_INVALID_ID_U32, kResourceRtvIds[slot] };
     UInt32 clear[7] = { kSvga3dCmdDxClearRenderTargetView, 20, kResourceRtvIds[slot], 0, 0, 0, 0 };
-    memcpy(clear + 3, request->rgbaBits, sizeof(request->rgbaBits));
+    for (UInt32 i = 0; i < 4; ++i) clear[3 + i] = resourceClearUnorm8Bits(request->rgbaBits[i]);
     ok = ok && cbSubmitCtx(target, 4, 1, 1, kCbFlagDxContext) && cbSubmitCtx(clear, 7, 1, 1, kCbFlagDxContext);
     if (ok && request->opcode != 1) {
         UInt32 vs[4] = { 1150, 8, request->opcode == 3 ? 3u : 2u, 1 };

@@ -1,0 +1,500 @@
+BOOT { sec = 1794841104, usec = 368564 } Mon Nov 16 22:58:24 2026
+Timestamp               Ty Process[PID:TID]
+2026-11-16 22:58:51.145 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: start, provider=IOPCIDevice [build multi-resource-v1-unverified]
+2026-11-16 22:58:51.145 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: rpc: heartbeat armed (every 2000 ms, host timeout is ~20 s)
+2026-11-16 22:58:51.145 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: BAR0 phys 0x2040 length 16
+2026-11-16 22:58:51.145 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: BAR1 phys 0xf0000000 length 134217728
+2026-11-16 22:58:51.145 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: BAR2 phys 0xfb800000 length 8388608
+2026-11-16 22:58:51.145 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: BAR3 phys 0xe8000 length 32768
+2026-11-16 22:58:51.145 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: svga ports 0x2040/0x2041, pci command 0x7
+2026-11-16 22:58:51.146 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: svga id 0x90000002 enable 1
+2026-11-16 22:58:51.146 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: svga mode 1024x768 depth 24 bpp 32 pitch 4096
+2026-11-16 22:58:51.146 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: svga max 1176x885
+2026-11-16 22:58:51.146 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: svga fb offset 0x0 fb size 0x300000
+2026-11-16 22:58:51.146 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: svga vram 0x400000 fb start 0xf0000000 caps 0xfdffc3e2
+2026-11-16 22:58:51.146 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: inheriting 1024x768 pitch 4096 at VRAM offset 0x0
+2026-11-16 22:58:51.146 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: aperture phys 0xf0000000 length 3145728
+2026-11-16 22:58:51.146 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: svga mem start 0xfb800000 size 0x40000 regs 291
+2026-11-16 22:58:51.146 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: screendma: CAP2 0x0001efff (SCREENDMA_REG yes) SCREENDMA 0 (UNDEFINED) BLANK_SCREEN_TARGETS 0
+2026-11-16 22:58:51.146 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: screendma: limits -> ST max 8192x8192, MOB max 1073741824 bytes, GB object mem 262144 KB
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: screendma: unblank written, reads back 0
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: fifo[before] min 4096 max 262144 next_cmd 4936 stop 4936 caps 0x0 busy 0
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: fifo[before] 3d hw version 0x0
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before   0..  7] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before   8.. 15] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before  16.. 23] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before  24.. 31] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before  32.. 39] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before  40.. 47] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before  48.. 55] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before  56.. 63] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before  64.. 71] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before  72.. 79] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before  80.. 87] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before  88.. 95] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before  96..103] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 104..111] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 112..119] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 120..127] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 128..135] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 136..143] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 144..151] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 152..159] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 160..167] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 168..175] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 176..183] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 184..191] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 192..199] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 200..207] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 208..215] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 216..223] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 224..231] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 232..239] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 240..247] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[before 248..255] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3d capabilities advertised: 0 of 256 non-zero
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: enable: 1 -> ENABLE only (un-hide) before CONFIG_DONE, reads back 1
+2026-11-16 22:58:51.147 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: fifo: reserving 292 dwords (MEM_REGS 291) -> MIN 4096 bytes (page-aligned)
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: topo: declared stid 0, primary, 0,0 1024x768 before CONFIG_DONE; reads back id 0 primary 1 pos 0,0 size 1024x768
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: FIFO configured: regs 0..4096, data 4096..262144, CONFIG_DONE=1
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: fifo[after ] min 4096 max 262144 next_cmd 4096 stop 4096 caps 0x77f busy 0
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: fifo[after ] 3d hw version 0x0
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after    0..  7] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after    8.. 15] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after   16.. 23] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after   24.. 31] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after   32.. 39] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after   40.. 47] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after   48.. 55] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after   56.. 63] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after   64.. 71] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after   72.. 79] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after   80.. 87] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after   88.. 95] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after   96..103] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  104..111] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  112..119] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  120..127] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  128..135] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  136..143] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  144..151] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  152..159] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  160..167] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  168..175] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  176..183] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  184..191] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  192..199] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  200..207] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  208..215] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  216..223] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  224..231] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  232..239] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  240..247] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[after  248..255] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3d capabilities advertised: 0 of 256 non-zero
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: host 3D protocol at fifo[288] = 0x0 (read only, not overwritten)
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: fifo[final ] min 4096 max 262144 next_cmd 4096 stop 4096 caps 0x77f busy 0
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: fifo[final ] 3d hw version 0x0
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final    0..  7] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final    8.. 15] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final   16.. 23] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final   24.. 31] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final   32.. 39] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final   40.. 47] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final   48.. 55] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final   56.. 63] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final   64.. 71] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final   72.. 79] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final   80.. 87] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final   88.. 95] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final   96..103] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  104..111] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  112..119] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  120..127] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  128..135] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  136..143] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  144..151] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  152..159] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  160..167] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  168..175] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  176..183] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  184..191] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  192..199] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  200..207] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  208..215] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  216..223] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  224..231] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  232..239] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  240..247] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3dcaps[final  248..255] 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: 3d capabilities advertised: 0 of 256 non-zero
+2026-11-16 22:58:51.148 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: devcaps
+2026-11-16 22:58:51.150 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: devcap[ 0.. 7] 00000001 00000008 00000008 00000008 00000007 00000001 0000000d 00000001
+2026-11-16 22:58:51.150 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: devcap[ 8..15] 00000008 00000001 00000001 00000004 00000001 00000001 00000001 00000001
+2026-11-16 22:58:51.151 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: devcap[16..23] 00000001 433d0000 00000014 00008000 00008000 00004000 00008000 00008000
+2026-11-16 22:58:51.153 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: devcap[24..31] 00000010 001fffff 000fffff 0000ffff 0000ffff 00000020 00000020 03ffffff
+2026-11-16 22:58:51.153 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: SVGA3D LIVE (DEVCAP_3D=1)
+2026-11-16 22:58:51.153 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: fence test: fifo caps 0x77f, SVGA_REG_FIFO_CAPS(68) 0x77f (reserve yes, fence yes); start next_cmd 4096 stop 4096 fence 0x0
+2026-11-16 22:58:51.153 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: fence 0x31415926 written at 4096, next_cmd -> 4104, host pinged (SYNC=1), polling
+2026-11-16 22:58:51.153 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: fence test: host advanced STOP 4096 -> 4104 after ~0 us
+2026-11-16 22:58:51.154 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: FIFO command stream VERIFIED: fence 0x31415926 acked after ~1000 us (next_cmd 4104 stop 4104)
+2026-11-16 22:58:51.156 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: full-screen UPDATE submitted and acked
+2026-11-16 22:58:51.156 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: gb: kGbStage 0 but kDxTest 1 -> bringing up GB objects to stage 4 only (no STDU)
+2026-11-16 22:58:51.158 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: gb: working buffer phys 0x19e2e000 len 65536
+2026-11-16 22:58:51.159 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: gb: MOB otable base set (ppn 106030, 16384 bytes)
+2026-11-16 22:58:51.160 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: gb: SURFACE otable base set (ppn 106031, 4096 bytes)
+2026-11-16 22:58:51.162 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: gb: data MOB 1 defined (pt ppn 106032, 16384 bytes, PT64_1)
+2026-11-16 22:58:51.163 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: gb: GB SURFACE 1 defined (256x256 X8R8G8B8 on MOB 1) -- GB object model is UP
+2026-11-16 22:58:51.163 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: gb: devcaps DXCONTEXT=1 SM41=1 GL43=1
+2026-11-16 22:58:51.165 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: gb: DXCONTEXT otable base set (pt ppn 106042, 2048 bytes, PT64_0)
+2026-11-16 22:58:51.172 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: gb: DX context state MOB 3 ready (define+bind deferred to CB)
+2026-11-16 22:58:51.172 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: dx: test scheduled in 90 s
+2026-11-16 22:58:51.172 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: present: plain register-mode framebuffer -- no DEFINE_SCREEN, no GMRFB, no blit, no present timer (the host scans out BAR1 itself)
+2026-11-16 22:58:51.172 Df kernel[0:6b8] (vgpuFramebuffer) vgpu-fb: started
+2026-11-16 22:58:51.506 Df kernel[0:721] (vgpuFramebuffer) vgpu-fb: accelerator: linked IOAccelTypes=IOService:/AppleACPIPlatformExpert/PCI0@0/AppleACPIPCI/display@F/vgpuFramebuffer/vgpuAccelerator IOAccelIndex=0 [build multi-resource-v1-unverified]
+2026-11-16 22:58:53.146 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: rpc: heartbeat #1 -> status 0x0
+2026-11-16 22:58:55.146 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: rpc: heartbeat #2 -> status 0x0
+2026-11-16 22:58:57.146 Df kernel[0:190] (vgpuFramebuffer) vgpu-fb: rpc: heartbeat #3 -> status 0x0
+2026-11-16 22:59:01.159 Df kernel[0:311] (vgpuFramebuffer) vgpu-fb: enableController
+2026-11-16 22:59:27.242 Df log[371:a56] [com.apple.log:] log run noninteractively, parent: 369 (Python), args: 'log' 'show' '--start' '2026-11-16 22:58:24' '--style' 'compact' '--predicate' 'eventMessage CONTAINS "vgpu-fb"'
+2026-11-16 22:59:51.355 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: rpc: heartbeat #30 -> status 0x0
+2026-11-16 23:00:08.491 Df log[386:aff] [com.apple.log:] log run noninteractively, parent: 384 (Python), args: 'log' 'show' '--start' '2026-11-16 22:58:24' '--style' 'compact' '--predicate' 'eventMessage CONTAINS "vgpu-fb"'
+2026-11-16 23:00:21.173 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: delayed test starting (fifo=<private>)
+2026-11-16 23:00:21.174 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: header @ 19473000 (64 slots of 64 B), data @ 19463000
+2026-11-16 23:00:21.174 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: GUEST_DRIVER_ID write skipped (kGuestDriverId=0)
+2026-11-16 23:00:21.174 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: PREPEND registered @ 19462000 (ctx 0)
+2026-11-16 23:00:21.174 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 3 dwords ctx63 dx0 flags1 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.174 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[1] ctx63 dx0 len 12 hdr: 00000000 00000000 00000001 00000000 00000001 0000000c 19463000 00000000
+2026-11-16 23:00:21.174 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[1] hdr2: 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.174 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[1] pay: 00000001 00000001 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.174 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[1] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.174 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: resource: START_STOP context0 -> COMPLETED
+2026-11-16 23:00:21.177 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: RTV COTable entry 1 written {sid 3, fmt 142 B8G8R8X8_UNORM, tex2D, mip 0, array 0+1} 32 B
+2026-11-16 23:00:21.179 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: legacy cotable MOB 5 defined (4 KiB PT64_0)
+2026-11-16 23:00:21.180 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: legacy DEFINE_GB_SURFACE accepted (sid 3 on mob 4)
+2026-11-16 23:00:21.180 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: OBSERVE surface after DEFINE sid3 fmt142 flags0x1000040 mips1 ms0 size256x256x1 mob4 array1 pitch0
+2026-11-16 23:00:21.182 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: resource: slot 0 DEFINE_GB_MOB64 mob32 FIFO fence11 -> COMPLETED
+2026-11-16 23:00:21.182 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: resource: slot 0 DEFINE_GB_SURFACE sid16 fmt141 FIFO fence12 -> COMPLETED
+2026-11-16 23:00:21.183 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: resource: slot 0 BIND_GB_SURFACE sid16 mob32 FIFO fence13 -> COMPLETED
+2026-11-16 23:00:21.186 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: resource: slot 1 DEFINE_GB_MOB64 mob33 FIFO fence14 -> COMPLETED
+2026-11-16 23:00:21.186 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: resource: slot 1 DEFINE_GB_SURFACE sid17 fmt141 FIFO fence15 -> COMPLETED
+2026-11-16 23:00:21.187 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: resource: slot 1 BIND_GB_SURFACE sid17 mob33 FIFO fence16 -> COMPLETED
+2026-11-16 23:00:21.187 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: TEMPLATE entered (sid 3 256x256)
+2026-11-16 23:00:21.188 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: template state MOB 6 defined (12288 B PT64_1)
+2026-11-16 23:00:21.188 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 3 dwords ctx1 dx0 flags1 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.188 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[2] ctx1 dx0 len 12 hdr: 00000000 00000000 00000002 00000000 00000001 0000000c 19463000 00000000
+2026-11-16 23:00:21.188 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[2] hdr2: 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.188 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[2] pay: 00000477 00000004 00000001 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.188 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[2] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.188 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: SPLIT DX_DEFINE_CONTEXT {cid 1} -> ACCEPTED
+2026-11-16 23:00:21.188 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 5 dwords ctx1 dx0 flags1 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.188 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[3] ctx1 dx0 len 20 hdr: 00000000 00000000 00000003 00000000 00000001 00000014 19463000 00000000
+2026-11-16 23:00:21.188 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[3] hdr2: 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.188 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[3] pay: 00000479 0000000c 00000001 00000006 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.188 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[3] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.188 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: SPLIT DX_BIND_CONTEXT {cid 1 mob 6} -> ACCEPTED
+2026-11-16 23:00:21.188 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 6 dwords ctx1 dx0 flags1 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.188 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[4] ctx1 dx0 len 24 hdr: 00000000 00000000 00000004 00000000 00000001 00000018 19463000 00000000
+2026-11-16 23:00:21.188 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[4] hdr2: 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.188 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[4] pay: 000004b7 00000010 00000001 00000005 00000000 00001000 00000000 00000000
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[4] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: SPLIT DX_SET_COTABLE {cid 1 mob 5 type 0} -> ACCEPTED
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: OBSERVE COTable after SET mob5 row1 00000003 0000008e 00000003 00000000 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 0 dwords ctx0 dx0 flags1 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[5] ctx0 dx0 len 0 hdr: 00000000 00000000 00000005 00000000 00000001 00000000 19463000 00000000
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[5] hdr2: 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[5] pay: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[5] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: TEMPLATE sync CB (q0 flags1) -> COMPLETED
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: 1187 intentionally NOT sent -- the view is COTable row 1, defined before SET_COTABLE
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 3 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[6] ctx1 dx1 len 12 hdr: 00000000 00000000 00000006 00000000 00000003 0000000c 19463000 00000000
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[6] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[6] pay: 0000048c 00000004 ffffffff 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[6] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: LADDER 1 SET_RASTERIZER_STATE (invalid id) -> COMPLETED
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 4 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[7] ctx1 dx1 len 16 hdr: 00000000 00000000 00000007 00000000 00000003 00000010 19463000 00000000
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[7] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[7] pay: 0000048b 00000008 ffffffff 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[7] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: LADDER 2 SET_DEPTHSTENCIL_STATE (invalid id) -> COMPLETED
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 4 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[8] ctx1 dx1 len 16 hdr: 00000000 00000000 00000008 00000000 00000003 00000010 19463000 00000000
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[8] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.189 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[8] pay: 00000489 00000008 ffffffff ffffffff 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.190 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[8] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.190 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: LADDER 3a SET_RENDER_TARGETS {rtv INVALID} -> COMPLETED (unbind accepted) (status 1 errorOffset 0)
+2026-11-16 23:00:21.190 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 4 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.190 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[9] ctx1 dx1 len 16 hdr: 00000000 00000000 00000009 00000000 00000003 00000010 19463000 00000000
+2026-11-16 23:00:21.190 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[9] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.190 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[9] pay: 00000489 00000008 ffffffff 00000001 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.190 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[9] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.190 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: LADDER 3b SET_RENDER_TARGETS {rtv 1} -> COMPLETED
+2026-11-16 23:00:21.190 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 7 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.190 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[10] ctx1 dx1 len 28 hdr: 00000000 00000000 0000000a 00000000 00000003 0000001c 19463000 00000000
+2026-11-16 23:00:21.190 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[10] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.190 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[10] pay: 00000498 00000014 00000001 00000000 3f800000 00000000 3f800000 00000000
+2026-11-16 23:00:21.191 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[10] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.191 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: LADDER 4 CLEAR_RTV after a full ladder -> COMPLETED (status 1 errorOffset 0)
+2026-11-16 23:00:21.191 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 0 dwords ctx0 dx0 flags1 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.191 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[11] ctx0 dx0 len 0 hdr: 00000000 00000000 0000000b 00000000 00000001 00000000 19463000 00000000
+2026-11-16 23:00:21.191 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[11] hdr2: 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.191 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[11] pay: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.191 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[11] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.191 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: TEMPLATE CLEAR_RTV {rtv 1 green, dxContext 1} -> ACCEPTED
+2026-11-16 23:00:21.191 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 4 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.191 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[12] ctx1 dx1 len 16 hdr: 00000000 00000000 0000000c 00000000 00000003 00000010 19463000 00000000
+2026-11-16 23:00:21.191 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[12] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.191 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[12] pay: 0000049f 00000008 00000003 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.199 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[12] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.199 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 0 dwords ctx0 dx0 flags1 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.199 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[13] ctx0 dx0 len 0 hdr: 00000000 00000000 0000000d 00000000 00000001 00000000 19463000 00000000
+2026-11-16 23:00:21.199 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[13] hdr2: 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.199 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[13] pay: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.199 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[13] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.199 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: TEMPLATE READBACK {sid 3} -> ACCEPTED
+2026-11-16 23:00:21.199 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: TEMPLATE pixels first=0xff00ff00 mid=0xff00ff00 (want 0xff00ff00)
+2026-11-16 23:00:21.199 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: TEMPLATE pixel verification total65536 mismatches0 last0xff00ff00 -> PASS
+2026-11-16 23:00:21.199 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 3 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.199 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[14] ctx1 dx1 len 12 hdr: 00000000 00000000 0000000e 00000000 00000003 0000000c 19463000 00000000
+2026-11-16 23:00:21.199 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[14] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.199 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[14] pay: 0000048c 00000004 ffffffff 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.200 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[14] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.200 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: TEMPLATE post-readback queue health -> COMPLETED
+2026-11-16 23:00:21.200 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: TEMPLATE verdict -> *** DX CLEAR + READBACK ACCEPTED ***
+2026-11-16 23:00:21.200 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: TEMPLATE verified round trip -> PASS
+2026-11-16 23:00:21.200 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: SHADER probe begin (PS SM4, 56 B, no DRAW)
+2026-11-16 23:00:21.201 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: SHADER MOB 7 FIFO fence -> COMPLETED
+2026-11-16 23:00:21.201 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: SHADER MOB 8 FIFO fence -> COMPLETED
+2026-11-16 23:00:21.201 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 6 dwords ctx1 dx0 flags1 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.201 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[15] ctx1 dx0 len 24 hdr: 00000000 00000000 0000000f 00000000 00000001 00000018 19463000 00000000
+2026-11-16 23:00:21.201 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[15] hdr2: 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.201 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[15] pay: 000004b7 00000010 00000001 00000007 0000000a 00000000 00000000 00000000
+2026-11-16 23:00:21.201 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[15] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.201 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: SHADER SET_COTABLE type10 mob7 valid0 -> COMPLETED
+2026-11-16 23:00:21.201 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 11 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.201 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[16] ctx1 dx1 len 44 hdr: 00000000 00000000 00000010 00000000 00000003 0000002c 19463000 00000000
+2026-11-16 23:00:21.201 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[16] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.201 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[16] pay: 000004b1 0000000c 00000001 00000002 00000038 000004b3 00000010 00000001
+2026-11-16 23:00:21.201 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[16] pay2: 00000001 00000008 00000000 00000000
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[16] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: SHADER DEFINE+BIND PS1 mob8 bytes56 -> COMPLETED
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 4 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[17] ctx1 dx1 len 16 hdr: 00000000 00000000 00000011 00000000 00000003 00000010 19463000 00000000
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[17] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[17] pay: 0000047e 00000008 00000001 00000002 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[17] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: SHADER SET PS1 -> COMPLETED
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 4 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[18] ctx1 dx1 len 16 hdr: 00000000 00000000 00000012 00000000 00000003 00000010 19463000 00000000
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[18] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[18] pay: 0000047e 00000008 ffffffff 00000002 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[18] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: SHADER UNSET PS -> COMPLETED
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 3 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[19] ctx1 dx1 len 12 hdr: 00000000 00000000 00000013 00000000 00000003 0000000c 19463000 00000000
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[19] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[19] pay: 000004b2 00000004 00000001 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[19] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: SHADER DESTROY PS1 -> COMPLETED
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 3 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[20] ctx1 dx1 len 12 hdr: 00000000 00000000 00000014 00000000 00000003 0000000c 19463000 00000000
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[20] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[20] pay: 0000048c 00000004 ffffffff 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[20] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: SHADER lifecycle queue health -> COMPLETED
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: SHADER lifecycle verdict -> PASS (no DRAW)
+2026-11-16 23:00:21.202 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW probe begin (VS VertexID, 256x256)
+2026-11-16 23:00:21.203 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW MOB 9 FIFO fence -> COMPLETED
+2026-11-16 23:00:21.203 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW MOB 10 FIFO fence -> COMPLETED
+2026-11-16 23:00:21.203 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW MOB 11 FIFO fence -> COMPLETED
+2026-11-16 23:00:21.203 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW MOB 12 FIFO fence -> COMPLETED
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW MOB 13 FIFO fence -> COMPLETED
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 6 dwords ctx1 dx0 flags1 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[21] ctx1 dx0 len 24 hdr: 00000000 00000000 00000015 00000000 00000001 00000018 19463000 00000000
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[21] hdr2: 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[21] pay: 000004b7 00000010 00000001 0000000a 00000006 00000000 00000000 00000000
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[21] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW SET_COTABLE raster type6 mob10 -> COMPLETED
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 10 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[22] ctx1 dx1 len 40 hdr: 00000000 00000000 00000016 00000000 00000003 00000028 19463000 00000000
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[22] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[22] pay: 000004ad 00000020 00000001 00000103 00000000 00000000 00000000 00000001
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[22] pay2: 3f800000 00000000 00000000 00000000
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[22] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW DEFINE_RASTERIZER solid/no-cull -> COMPLETED
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 3 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[23] ctx1 dx1 len 12 hdr: 00000000 00000000 00000017 00000000 00000003 0000000c 19463000 00000000
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[23] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[23] pay: 0000048c 00000004 00000001 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[23] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW SET_RASTERIZER 1 -> COMPLETED
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 11 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[24] ctx1 dx1 len 44 hdr: 00000000 00000000 00000018 00000000 00000003 0000002c 19463000 00000000
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[24] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[24] pay: 000004b1 0000000c 00000001 00000002 00000038 000004b3 00000010 00000001
+2026-11-16 23:00:21.204 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[24] pay2: 00000001 00000008 00000000 00000000
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[24] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW DEFINE+BIND PS1 -> COMPLETED
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 11 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[25] ctx1 dx1 len 44 hdr: 00000000 00000000 00000019 00000000 00000003 0000002c 19463000 00000000
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[25] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[25] pay: 000004b1 0000000c 00000002 00000001 000000d8 000004b3 00000010 00000001
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[25] pay2: 00000002 00000009 00000000 00000000
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[25] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW DEFINE+BIND VS2 -> COMPLETED
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 4 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[26] ctx1 dx1 len 16 hdr: 00000000 00000000 0000001a 00000000 00000003 00000010 19463000 00000000
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[26] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[26] pay: 0000047e 00000008 00000002 00000001 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[26] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW SET VS2 -> COMPLETED
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 4 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[27] ctx1 dx1 len 16 hdr: 00000000 00000000 0000001b 00000000 00000003 00000010 19463000 00000000
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[27] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[27] pay: 0000047e 00000008 00000001 00000002 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[27] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW SET PS1 -> COMPLETED
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 6 dwords ctx1 dx0 flags1 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[28] ctx1 dx0 len 24 hdr: 00000000 00000000 0000001c 00000000 00000001 00000018 19463000 00000000
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[28] hdr2: 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[28] pay: 000004b7 00000010 00000001 0000000b 00000003 00000000 00000000 00000000
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[28] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW SET_COTABLE layout type3 mob11 -> COMPLETED
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 3 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[29] ctx1 dx1 len 12 hdr: 00000000 00000000 0000001d 00000000 00000003 0000000c 19463000 00000000
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[29] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.205 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[29] pay: 000004a7 00000004 00000001 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[29] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW DEFINE_ELEMENTLAYOUT zero-elements -> COMPLETED
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 3 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[30] ctx1 dx1 len 12 hdr: 00000000 00000000 0000001e 00000000 00000003 0000000c 19463000 00000000
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[30] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[30] pay: 00000485 00000004 00000001 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[30] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW SET_INPUT_LAYOUT 1 -> COMPLETED
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 3 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[31] ctx1 dx1 len 12 hdr: 00000000 00000000 0000001f 00000000 00000003 0000000c 19463000 00000000
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[31] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[31] pay: 00000488 00000004 00000001 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[31] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW SET_TOPOLOGY trianglelist -> COMPLETED
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 6 dwords ctx1 dx0 flags1 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[32] ctx1 dx0 len 24 hdr: 00000000 00000000 00000020 00000000 00000001 00000018 19463000 00000000
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[32] hdr2: 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[32] pay: 000004b7 00000010 00000001 0000000c 00000004 00000000 00000000 00000000
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[32] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW SET_COTABLE blend type4 mob12 -> COMPLETED
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 28 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[33] ctx1 dx1 len 112 hdr: 00000000 00000000 00000021 00000000 00000003 00000070 19463000 00000000
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[33] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[33] pay: 000004a9 00000068 00000001 00000000 01010200 0f010102 00000000 01010200
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[33] pay2: 0f010102 00000000 01010200 0f010102
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[33] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW DEFINE_BLEND disabled/RGBA -> COMPLETED
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 8 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[34] ctx1 dx1 len 32 hdr: 00000000 00000000 00000022 00000000 00000003 00000020 19463000 00000000
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[34] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.206 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[34] pay: 0000048a 00000018 00000001 3f800000 3f800000 3f800000 3f800000 ffffffff
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[34] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW SET_BLEND 1/all-samples -> COMPLETED
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 6 dwords ctx1 dx0 flags1 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[35] ctx1 dx0 len 24 hdr: 00000000 00000000 00000023 00000000 00000001 00000018 19463000 00000000
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[35] hdr2: 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[35] pay: 000004b7 00000010 00000001 0000000d 00000005 00000000 00000000 00000000
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[35] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW SET_COTABLE depth type5 mob13 -> COMPLETED
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 7 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[36] ctx1 dx1 len 28 hdr: 00000000 00000000 00000024 00000000 00000003 0000001c 19463000 00000000
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[36] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[36] pay: 000004ab 00000014 00000001 00080000 ffff0000 08010101 08010101 00000000
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[36] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW DEFINE_DEPTH disabled/stencil-disabled -> COMPLETED
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 4 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[37] ctx1 dx1 len 16 hdr: 00000000 00000000 00000025 00000000 00000003 00000010 19463000 00000000
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[37] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[37] pay: 0000048b 00000008 00000001 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[37] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW SET_DEPTH 1 -> COMPLETED
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 9 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[38] ctx1 dx1 len 36 hdr: 00000000 00000000 00000026 00000000 00000003 00000024 19463000 00000000
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[38] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[38] pay: 00000496 0000001c 00000000 00000000 00000000 43800000 43800000 00000000
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[38] pay2: 3f800000 00000000 00000000 00000000
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[38] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW SET_VIEWPORT 256x256 -> COMPLETED
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 4 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[39] ctx1 dx1 len 16 hdr: 00000000 00000000 00000027 00000000 00000003 00000010 19463000 00000000
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[39] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.207 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[39] pay: 00000480 00000008 00000003 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.208 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[39] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.208 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW 3 vertices -> COMPLETED
+2026-11-16 23:00:21.208 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 4 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.208 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[40] ctx1 dx1 len 16 hdr: 00000000 00000000 00000028 00000000 00000003 00000010 19463000 00000000
+2026-11-16 23:00:21.208 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[40] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.208 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[40] pay: 0000049f 00000008 00000003 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.211 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[40] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.211 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 0 dwords ctx0 dx0 flags1 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.211 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[41] ctx0 dx0 len 0 hdr: 00000000 00000000 00000029 00000000 00000001 00000000 19463000 00000000
+2026-11-16 23:00:21.211 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[41] hdr2: 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.211 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[41] pay: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.211 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[41] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.211 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW READBACK -> COMPLETED
+2026-11-16 23:00:21.211 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW pixels red18432 green47104 other0 expectedRed18432 mismatches0 center0xffff0000 corner0xff00ff00 -> PASS
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 3 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[42] ctx1 dx1 len 12 hdr: 00000000 00000000 0000002a 00000000 00000003 0000000c 19463000 00000000
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[42] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[42] pay: 0000048c 00000004 ffffffff 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[42] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW post-readback queue health -> COMPLETED
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: DRAW triangle verdict -> PASS
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: resource: zero slot0 sid16 rtv16 queue1 cid1 begin
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 4 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[43] ctx1 dx1 len 16 hdr: 00000000 00000000 0000002b 00000000 00000003 00000010 19463000 00000000
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[43] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[43] pay: 00000489 00000008 ffffffff 00000010 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[43] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 7 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[44] ctx1 dx1 len 28 hdr: 00000000 00000000 0000002c 00000000 00000003 0000001c 19463000 00000000
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[44] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[44] pay: 00000498 00000014 00000010 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[44] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 4 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[45] ctx1 dx1 len 16 hdr: 00000000 00000000 0000002d 00000000 00000003 00000010 19463000 00000000
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[45] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.212 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[45] pay: 0000049f 00000008 00000010 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.214 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[45] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.214 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 0 dwords ctx0 dx0 flags1 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.214 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[46] ctx0 dx0 len 0 hdr: 00000000 00000000 0000002e 00000000 00000001 00000000 19463000 00000000
+2026-11-16 23:00:21.214 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[46] hdr2: 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.214 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[46] pay: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.214 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[46] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.214 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: resource: zero slot0 65536 transparent pixels verified
+2026-11-16 23:00:21.214 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: resource: zero slot1 sid17 rtv17 queue1 cid1 begin
+2026-11-16 23:00:21.214 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 4 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.214 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[47] ctx1 dx1 len 16 hdr: 00000000 00000000 0000002f 00000000 00000003 00000010 19463000 00000000
+2026-11-16 23:00:21.214 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[47] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.214 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[47] pay: 00000489 00000008 ffffffff 00000011 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.215 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[47] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.215 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 7 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.215 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[48] ctx1 dx1 len 28 hdr: 00000000 00000000 00000030 00000000 00000003 0000001c 19463000 00000000
+2026-11-16 23:00:21.215 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[48] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.215 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[48] pay: 00000498 00000014 00000011 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.215 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[48] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.215 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 4 dwords ctx1 dx1 flags2 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.215 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[49] ctx1 dx1 len 16 hdr: 00000000 00000000 00000031 00000000 00000003 00000010 19463000 00000000
+2026-11-16 23:00:21.215 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[49] hdr2: 00000000 00000001 00000000 00000000
+2026-11-16 23:00:21.215 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[49] pay: 0000049f 00000008 00000011 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.216 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[49] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.216 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb: submit 0 dwords ctx0 dx0 flags1 mob=0 (mobMode=0 ready=0 virt=0x0 hdr=<private> pci=<private> dataVirt=<private>)
+2026-11-16 23:00:21.216 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[50] ctx0 dx0 len 0 hdr: 00000000 00000000 00000032 00000000 00000001 00000000 19463000 00000000
+2026-11-16 23:00:21.216 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[50] hdr2: 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.216 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[50] pay: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+2026-11-16 23:00:21.217 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: cb[50] COMPLETED (errorOffset 0)
+2026-11-16 23:00:21.217 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: resource: zero slot1 65536 transparent pixels verified
+2026-11-16 23:00:21.217 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: resource: BGRA pool interface READY
+2026-11-16 23:00:21.217 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: user: fixed triangle interface READY
+2026-11-16 23:00:21.217 Df kernel[0:1e5] (vgpuFramebuffer) vgpu-fb: dx: TEMPLATE only mode -> *** DX CLEAR ACCEPTED ***
+2026-11-16 23:00:42.516 Df log[392:b51] [com.apple.log:] log run noninteractively, parent: 390 (Python), args: 'log' 'show' '--start' '2026-11-16 22:58:24' '--style' 'compact' '--predicate' 'eventMessage CONTAINS "vgpu-fb"'
+Wall Clock adjustment detected - results might be strange while using --end
