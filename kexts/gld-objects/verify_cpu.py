@@ -27,6 +27,9 @@ def main():
         "texture": ["gld-texture/vgpu_texture.c", "probes/gld_texture_probe.c"],
         "objects": ["gld-context/vgpu_context.c", "gld-objects/vgpu_objects.c",
                     "gld-objects/cpu-fixture/surface_fixture.c", "probes/gld_objects_probe.c"],
+        "objects-import": ["gld-objects/cpu-fixture/context_import_fixture.c",
+                           "gld-objects/vgpu_objects.c", "gld-objects/cpu-fixture/surface_fixture.c",
+                           "probes/gld_objects_import_probe.c"],
     }
     paths = {ROOT / "kexts" / p for values in groups.values() for p in values}
     paths.update([HERE / "vgpu_objects.h", HERE / "verify_cpu.py",
@@ -58,14 +61,15 @@ def main():
                             ("ubsan", ["-fsanitize=undefined", "-fno-sanitize-recover=all"])]:
             for group, sources in groups.items():
                 exe = out / (group + "-" + mode + (".exe" if sys.platform == "win32" else ""))
-                include = ["-I" + str(HERE / "cpu-fixture")] if group == "objects" else []
+                include = ["-I" + str(HERE / "cpu-fixture")] if group.startswith("objects") else []
                 cmd = cc + flags + extra + include + [str(ROOT / "kexts" / p) for p in sources]
                 if not run(cmd + ["-lpthread", "-o", str(exe)]):
                     failed += 1
                     continue
                 log.append(f"BINARY_SHA256 {hashlib.sha256(exe.read_bytes()).hexdigest()} {exe.name}")
                 cases = {"texture": ["create-output", "share-output", "cpu-dirty-overlap"],
-                         "objects": ["sampler-targets", "create-output", "context-output"]}
+                         "objects": ["sampler-targets", "create-output", "context-output"],
+                         "objects-import": [None]}
                 for case in cases[group] if args.regressions_only else [None]:
                     if not run([str(exe)] + ([case] if case else [])):
                         failed += 1

@@ -11,7 +11,7 @@ struct object {
     vgc_handle native;
     vgo_kind kind;
     uint32_t refs;
-    int attached, consumed;
+    int attached, consumed, releasing;
     uint64_t generation;
     vgo_sampler_consumer consumer;
     void *consumer_context;
@@ -27,21 +27,33 @@ static object *lookup(vgo_handle id, vgo_kind kind) {
     return NULL;
 }
 static vgo_status hold(object *o) {
+    if (o->releasing) return VGO_CONTEXT_FAILED;
     if (o->refs == UINT32_MAX) return VGO_OVERFLOW;
     ++o->refs;
     return VGO_OK;
 }
-static void drop(object *o) {
-    if (!o || --o->refs) return;
+static vgo_status drop(object *o) {
+    if (!o) return VGO_OK;
+    if (o->refs > 1) { --o->refs; return VGO_OK; }
+    /* 最后一份引用保留到整条析构链成功；已释放的边清零，重试不重复释放。 */
+    o->releasing = 1;
+    if (o->native) {
+        if (vgc_release(o->native) != kIOReturnSuccess) return VGO_CONTEXT_FAILED;
+        o->native = 0;
+    }
+    vgo_status st = drop(o->pipeline);
+    if (st != VGO_OK) return st;
+    o->pipeline = NULL;
+    st = drop(o->share);
+    if (st != VGO_OK) return st;
+    o->share = NULL;
+    if (o->attached && o->views.lease.release)
+        o->views.lease.release(o->views.lease.context);
     object **p = &objects;
     while (*p != o) p = &(*p)->next;
     *p = o->next;
-    drop(o->pipeline);
-    if (o->attached && o->views.lease.release)
-        o->views.lease.release(o->views.lease.context);
-    if (o->native) (void)vgc_release(o->native);
-    drop(o->share);
     free(o);
+    return VGO_OK;
 }
 static vgo_status allocate(vgo_kind kind, object *share, object **out) {
     if (next_id > UINT64_C(0x0000ffffffffffff)) return VGO_OVERFLOW;
@@ -102,6 +114,26 @@ vgo_status vgo_share_create(vgo_handle *out) {
         if (vgc_share_create(&o->native) != kIOReturnSuccess) {
             free(o); st = VGO_CONTEXT_FAILED;
         } else publish(o, out);
+    }
+    pthread_mutex_unlock(&lock);
+    return st;
+}
+vgo_status vgo_share_import_context(vgc_handle native_share, vgo_handle *out) {
+    if (!range_valid(out, sizeof(*out))) return VGO_INVALID;
+    *out = 0;
+    pthread_mutex_lock(&lock);
+    object *o;
+    vgo_status st = allocate(VGO_SHARE, NULL, &o);
+    if (st == VGO_OK) {
+        IOReturn r = vgc_share_retain(native_share);
+        if (r != kIOReturnSuccess) {
+            free(o);
+            st = r == kIOReturnBadArgument ? VGO_BAD_HANDLE :
+                 r == kIOReturnNoResources ? VGO_OVERFLOW : VGO_CONTEXT_FAILED;
+        } else {
+            o->native = native_share;
+            publish(o, out);
+        }
     }
     pthread_mutex_unlock(&lock);
     return st;
@@ -177,8 +209,7 @@ vgo_status vgo_retain(vgo_handle id) {
 vgo_status vgo_release(vgo_handle id) {
     pthread_mutex_lock(&lock);
     object *o = lookup(id, 0);
-    vgo_status st = o ? VGO_OK : VGO_BAD_HANDLE;
-    if (o) drop(o);
+    vgo_status st = o ? drop(o) : VGO_BAD_HANDLE;
     pthread_mutex_unlock(&lock);
     return st;
 }
@@ -200,7 +231,8 @@ vgo_status vgo_detach_views(vgo_handle share, vgo_handle id) {
     object *o;
     vgo_status st = owned(share, id, 0, &o);
     if (st == VGO_OK) {
-        if (!o->attached) st = VGO_DETACHED;
+        if (o->releasing) st = VGO_CONTEXT_FAILED;
+        else if (!o->attached) st = VGO_DETACHED;
         else {
             if (o->views.lease.release) o->views.lease.release(o->views.lease.context);
             memset(&o->views, 0, sizeof(o->views));
@@ -214,7 +246,7 @@ static vgo_status destroy(vgo_handle share, vgo_handle id, vgo_kind kind) {
     pthread_mutex_lock(&lock);
     object *o;
     vgo_status st = owned(share, id, kind, &o);
-    if (st == VGO_OK) drop(o);
+    if (st == VGO_OK) st = drop(o);
     pthread_mutex_unlock(&lock);
     return st;
 }
@@ -227,6 +259,7 @@ vgo_status vgo_sampler_consume(vgo_handle share, vgo_handle id,
     object *o;
     vgo_status st = owned(share, id, VGO_SAMPLER, &o);
     if (st != VGO_OK) goto done;
+    if (o->releasing) { st = VGO_CONTEXT_FAILED; goto done; }
     if (!o->attached) { st = VGO_DETACHED; goto done; }
     unsigned char *su = o->views.state.data;
     if (!su[0] && o->consumed && (!consumer ||
@@ -250,7 +283,8 @@ vgo_status vgo_pipeline_modify(vgo_handle share, vgo_handle id, uint32_t flags) 
     object *o;
     vgo_status st = owned(share, id, VGO_PIPELINE, &o);
     if (st == VGO_OK) {
-        if (!o->attached) st = VGO_DETACHED;
+        if (o->releasing) st = VGO_CONTEXT_FAILED;
+        else if (!o->attached) st = VGO_DETACHED;
         else if (flags & ~UINT32_C(5)) st = VGO_UNSUPPORTED;
         else if (flags) {
             if (o->generation == UINT64_MAX) st = VGO_OVERFLOW;
@@ -265,6 +299,7 @@ static vgo_status binding(vgo_handle context, vgo_handle id, int bind) {
     object *c = lookup(context, VGO_CONTEXT), *p = lookup(id, VGO_PIPELINE);
     vgo_status st = VGO_BAD_HANDLE;
     if (!c || !p) goto done;
+    if (c->releasing || p->releasing) { st = VGO_CONTEXT_FAILED; goto done; }
     if (c->share != p->share) { st = VGO_OWNER_MISMATCH; goto done; }
     st = VGO_OK;
     if (bind) {
@@ -272,12 +307,12 @@ static vgo_status binding(vgo_handle context, vgo_handle id, int bind) {
         if (c->pipeline == p) goto done;
         st = hold(p);
         if (st != VGO_OK) goto done;
-        object *old = c->pipeline;
+        st = drop(c->pipeline);
+        if (st != VGO_OK) { (void)drop(p); goto done; }
         c->pipeline = p;
-        drop(old);
     } else if (c->pipeline == p) {
-        c->pipeline = NULL;
-        drop(p);
+        st = drop(p);
+        if (st == VGO_OK) c->pipeline = NULL;
     }
 done:
     pthread_mutex_unlock(&lock);

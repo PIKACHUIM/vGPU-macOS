@@ -1,0 +1,108 @@
+"""隔离 SDK 构建及 CPU oracle；永不执行 --gpu，不安装、不重启。"""
+from datetime import datetime, timezone
+from pathlib import Path
+import contextlib
+import hashlib
+import io
+import json
+import shlex
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(ROOT / "tools"))
+import mssh
+
+
+def main():
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    local = ROOT / "out" / ("context-draw-macos-" + stamp)
+    if not local.parent.is_dir():
+        raise RuntimeError("out 父目录不存在")
+    local.mkdir()
+    remote = "/var/tmp/vgpu-context-draw-" + stamp
+    files = (
+        "gld-context/vgpu_context.c", "gld-context/vgpu_context.h",
+        "gld-surface/vgpu_surface.c", "gld-surface/vgpu_surface.h",
+        "probes/gld_resource_probe.c", "probes/gld_context_draw_probe.c",
+    )
+    manifest = {}
+    status = 1
+    client = None
+    with (local / "build.log").open("w", encoding="utf-8", buffering=1) as log:
+        def record(text):
+            print(text, flush=True)
+            log.write(text + "\n")
+
+        def run(command):
+            record("COMMAND " + command)
+            capture = io.StringIO()
+            with contextlib.redirect_stdout(capture), contextlib.redirect_stderr(capture):
+                rc = mssh.run(client, command, 180)
+            record(capture.getvalue())
+            record("EXIT " + str(rc))
+            if rc:
+                raise RuntimeError("远端命令失败，保留现场并停止")
+
+        try:
+            for relative in files:
+                data = (ROOT / "kexts" / relative).read_bytes()
+                target = local / relative
+                target.parent.mkdir(exist_ok=True)
+                target.write_bytes(data)
+                manifest[relative] = hashlib.sha256(data).hexdigest()
+            (local / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+            record("LOCAL " + str(local) + "\nREMOTE " + remote)
+            mssh.load_env_file(mssh.DEFAULT_ENV_FILE)
+            client = mssh.connect(retries=1)
+            run("sw_vers && xcrun --show-sdk-path && xcrun clang --version")
+            run("test -d /var/tmp && mkdir " + shlex.quote(remote))
+            run("mkdir " + " ".join(shlex.quote(remote + "/" + directory)
+                                     for directory in ("gld-context", "gld-surface", "probes")))
+            with client.open_sftp() as sftp:
+                for relative in files:
+                    sftp.put(str(local / relative), remote + "/" + relative)
+                    with sftp.open(remote + "/" + relative, "rb") as stream:
+                        if hashlib.sha256(stream.read()).hexdigest() != manifest[relative]:
+                            raise RuntimeError("上传哈希不匹配：" + relative)
+            sources = "gld-context/vgpu_context.c gld-surface/vgpu_surface.c probes/gld_context_draw_probe.c"
+            flags = "-std=c11 -O1 -g -Wall -Wextra -Werror -Wpedantic"
+            links = "-framework IOKit -framework CoreFoundation -lpthread"
+            prefix = "cd " + shlex.quote(remote) + " && "
+            run(prefix + f"xcrun clang {flags} {sources} {links} -o gld_context_draw_probe")
+            run(prefix + f"xcrun clang {flags} -fsanitize=address,undefined -fno-omit-frame-pointer "
+                         f"{sources} {links} -o gld_context_draw_probe_sanitized")
+            run(prefix + "./gld_context_draw_probe --oracle-only")
+            run(prefix + "ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 "
+                         "./gld_context_draw_probe_sanitized --oracle-only")
+            # 参数缺失必须退出 2，不能默认落入 GPU 模式。
+            run(prefix + "./gld_context_draw_probe; result=$?; test \"$result\" -eq 2")
+            run(prefix + "shasum -a 256 " + " ".join(files) +
+                " gld_context_draw_probe gld_context_draw_probe_sanitized")
+            with client.open_sftp() as sftp:
+                for name in ("gld_context_draw_probe", "gld_context_draw_probe_sanitized"):
+                    sftp.get(remote + "/" + name, str(local / name))
+            changed = [relative for relative in files
+                       if hashlib.sha256((ROOT / "kexts" / relative).read_bytes()).hexdigest()
+                       != manifest[relative]]
+            record("WORKSPACE_CHANGED " + json.dumps(changed))
+            if changed:
+                raise RuntimeError("构建期间源文件改变；交付为记录的隔离快照，需重新构建")
+            record("待主代理串行 GPU 执行（本 runner 未执行）：")
+            record("python tools/mssh.py --sudo -- " + remote + "/gld_context_draw_probe --gpu")
+            status = 0
+        except Exception as exc:
+            record("FAILED " + type(exc).__name__ + ": " + str(exc))
+        finally:
+            (local / "result.json").write_text(json.dumps({
+                "status": status, "remote": remote, "manifest": manifest,
+                "gpu_executed": False,
+            }, indent=2), encoding="utf-8")
+            record("FINAL " + str(status) + " " + str(local))
+            if client:
+                client.close()
+    return status
+
+
+if __name__ == "__main__":
+    sys.exit(main())

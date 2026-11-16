@@ -6459,3 +6459,53 @@ texture/defaultobjects由其他任务继续处理，本节没有核验其实现�
 第二次启动时间23:12:35，23:13:00确认 `multi-resource-v2-unorm8`，23:14:30后端READY。使用与首次失败完全相同的原始探针二进制（SHA `46314a3c898e3ee698c8192a2d0f32eae59d7014f8527d61e565f881d1cf3203`），没有修改半透明128或四分之一64断言，完整流程exit0。45次整图比较、2949120次像素比较全部通过，145次预期拒绝；包括A/B alpha与generation隔离、读A期间更新B、与旧目标交错的固定及顶点三角形、释放/重复释放/close双槽撤销/跨连接重租清零。证据 `gpu-v2-boot.txt`、`gpu-v2-results.txt` 位于 `kexts/tests/multi-resource/`。
 
 此结果证明同步私有双资源ABI的上述行为，不覆盖真并发close/submit、进程崩溃、异步descriptor、GPU故障注入、通用着色器、纹理CPU导入或系统OpenGL/Metal。surface/image/FBO独立资源接入仍需实现和验收。
+
+## §85：独立 BGRA surface/context 实机验收与系统接入基线（2026-11-16）
+
+新增显式 owner/image API 对接 selector4..8；context/FBO 按 image 寻址，last-submit 持强引用，重绑不改变 flush 目标，同 image 新提交使旧 generation stale。显式 release 失败不消费引用；自动析构或创建回滚失败保留内部资源供 drain 重试。probe cleanup 最多三次重试并保留第一次失败，不用重试成功覆盖测试失败。
+
+本地隔离 surface 替身链接真实 context，strict/UBSan 各通过530580次probe断言及220次定向断言；当前源码重编译旧objects各504项通过。8个释放/cleanup变异全部被断言检出，计数最终 owners/images/owner_refs=0。该部分只作CPU故障证据，路径 out/context-fbo-cpu-simulation-local/。
+
+真实macOS隔离验收目录 /var/tmp/vgpu-bgra-20261116T155414284044Z；8份源码本地/远端SHA256一致，四次严格SDK构建及八次运行全部exit0。root surface普通133项、ASan/UBSan129项；不同计数来自并发快照/stale分支。root context两构建各530580次断言（含逐字节canary，不是独立场景数量）。非root surface各4项、context各3项权限拒绝通过。
+
+surface全图RGBA `(64,191,32,128)` 与 `(223,32,159,64)`，context全图alpha51/204；确认.5→128、.25→64及pack/padding/guard。异资源并发各8个完整快照；同资源普通4快照/4 stale、sanitizer 8 stale，失败目标保持。槽位归还、owner保活、last-submit引用、释放重租及drain通过。
+
+boot实际时间23:12:34，UUID DE0E5088-E239-4201-80CA-7B82F6C1E282；已加载及磁盘kext UUID 45F4F3F3-0675-304E-B33D-F4F77B4B244F，二进制SHA256 2e5cdb6541f20506be52cd839cf6fa77a4fa20213992f0a7798d785b7556e299。本轮没有安装或重启。日志见 out/bgra-macos-20261116T155414284044Z/{full.log,results.json,manifest.json}。静态分析仍有surface.c:510零长度分配告警，尺寸约束下未发现可达路径；LeakSanitizer未启用。
+
+新增公开CGL最小验收 gl_bgra_cgl_probe.c：强制accelerated/no-recovery及自有renderer ID，双256x256 RGBA8 renderbuffer，A/B/A整图RGBA和pack/canary，严格alpha128。真实SDK编译通过；当前console=root时sudo执行在ChoosePixelFormat返回10017 invalid CoreGraphics connection，尚未创建context或提交绘制。该基线不能用来判断新GLD兼容性。证据 out/cgl-bgra-public-baseline-20261116.txt。
+
+当前证据证明独立BGRA clear/read/context可用，系统GLD context、纹理backing适配、primitive提交及普通用户权限入口仍在推进，不能宣称系统OpenGL/Metal或通用3D已可用。
+
+## §86：纹理 BGRA 验收、GLD 适配与 draw-only 候选（2026-11-17，进行中）
+
+纹理→bridge→context→真实双槽GPU资源已在快照20261116T161058220303Z通过：普通与ASan/UBSan各134检查、exit0。真实surface实现，无CPU模拟宏；同进程完整释放/drain后再跑第二轮。覆盖alpha64/128、双槽满后第三候选失败保留旧backing/TU/代次、旧FBO可读及释放重租。9份源码上传/回读hash一致，workspace_changed=[]。LeakSanitizer未启用。证据 out/texture-bgra-macos-20261116T161058220303Z/；后续源码变化不包含于本次验收。
+
+已交付独立模块：objects导入同一native share及释放失败重试（CPU strict/NDEBUG/UBSan，导入165、旧objects504、texture870）；有界FQ/FD适配（各88）；clear状态解码（各370387，11/11变异）；映像UUID检查（真实SDK普通及sanitizer各64）。这些不是系统CGL通过证据。发现阶段集成bundle独立dlopen空表1105、device/pixel2472通过，但context/render尚未接通，未作为可用驱动安装。
+
+surface指定registry ID入口实机通过；context新增vgc_share_create_bgra_registry，零/无效ID不回退自动发现。当前系统集成继续对接默认texture/sampler/pipeline真实对象、FBO、clear/read和primitive。
+
+对§85图形会话基线补充：此前通过VNC登录后console=pika，CGLChoosePixelFormat由10017变为10002，并命中主动拒绝设备的诊断GLD。仍无公开CGL context成功。2026-11-17 01:03再次续接时SSH超时，vmrun确认0台运行中；启动既定测试VM成功。新boot=01:06:05，UUID 45E2E062-F561-41D7-B664-B421A9A1D3B2，已加载kext仍为45F4F3F3-0675-304E-B33D-F4F77B4B244F，console=_windowserver；不能沿用上一启动的登录状态。
+
+内核新增selector6 opcode4候选：指定已有BGRA资源，只绘制三个受限float4顶点、固定红色PS，不隐式clear，显式绑定管线与viewport。原1..3布局不变。候选tag=multi-resource-v3-draw4，源码SHA256=2ba2d80a80518056e059638042e7f0bac255e0c11ad71b45da6b126231080e17。旧隔离运行的kext构建/marker与三组CPU像素oracle通过，但sanitizer测试编译因未使用kResourceMobIds在-Werror下失败，整轮status1，未安装或执行新GPU draw。测试现已增加实际MOB ID断言；本地重新提取真实方法在O0/O2各394591次断言通过，分配全部归还。后续复验曾因本平台不支持LeakSanitizer detect_leaks=1退出；原失败记录保留，同一CPU二进制改detect_leaks=0后394591断言通过，不宣称泄漏检测通过。
+
+最新完整隔离复验 out/resource-draw-macos-20261116T172019950954Z/ status0：真实SDK内核构建/marker通过，最新版probe严格编译及三组整数oracle通过，ASan/UBSan真实提取方法394591断言通过，workspace_changed=[]。未签名候选SHA256=a0ffd8c09af2e6376b91105bb3037f7cbe1e8006bf652343e7eec23f1cbe5c1c，UUID=0490591C-F581-3724-AD1D-692A099826AB；同binary此前weak_count=0。完整内核仍有27条既有/SDK告警，不能称全文件-Werror通过。probe补齐拒绝请求对未覆盖区域的副作用检查、另一目标复验、资源opcode4→2→4→3→4及旧selector0实际绘制回归。旧selector0源码确认绿底和固定triangle0。
+
+surface/context新增受限draw接口，真实SDK严格编译和ASan/UBSan故障注入590检查、failures0、clear0（out/triangle-cpu-20261116T171433717758Z/results.txt）；这是CPU故障模拟，不是opcode4 GPU证据。默认对象context_exports真实SDK/sanitizer生命周期通过；独立render_exports桥接已通过CPU strict/UBSan/NDEBUG，真实SDK补验中。此时系统GLD dispatch和公开CGL/Metal仍未通过。
+
+旧已加载v2驱动完整备份在 /var/tmp/vgpu-resource-draw-20261116T170652775944Z/baseline-v2.kext，binary SHA256=2e5cdb6541f20506be52cd839cf6fa77a4fa20213992f0a7798d785b7556e299。备份diff核验通过。首次签名errSecInternalComponent（钥匙串锁定）；使用既有测试签名凭据解锁后codesign/strict校验通过，候选已复制到/Library/Extensions，签名后SHA256=4a828f4d2a52d56805610d7abe82079945dbec56e083176ab57f54d76141e2d1，UUID不变。kmutil暂存返回预期Code28需重启；已发出shutdown -r now。首次热重启boot=01:24:55，boot UUID=F4C9EB56-8A91-452A-BA4D-14E75C187114，加载候选UUID已核对；尚未运行用户态opcode4时宿主17:26:49Z Vulkan device lost，随后nvoglv64.dll+0xE80741读取[rax+0x160]（rax0）触发0xc0000005，VM退出。v3 diff未改变启动链，不能归因于未执行的新opcode；90秒从驱动bring-up调度起算，不是boottime。保留crash-vmware.log/crash-mksSandbox.log。具体device lost首因未定，热重启复用后端状态是假设，尚未证明旧DX对象残留。
+
+随后冷启动同一候选：boot=2026-11-17 01:28:21，UUID=8A3F6403-05B7-4907-9A33-82B79A4BFB8E；01:30:16.653固定triangle逐像素PASS，两个BGRA槽各65536透明像素通过，01:30:16.657 pool READY。独立resource_draw_probe --gpu退出0（gpu.log），覆盖双资源非对称底色与alpha64/128、A/B隔离、两次draw并集18446像素、17次预期拒绝、opcode4→2→4→3→4与旧selector0真实绘制切换。拒绝后两目标及旧模板完整回读一致，旧clear后继续draw通过。此为资源opcode4真实GPU验收，不能外推公开OpenGL/Metal支持。
+
+随后 context→surface→opcode4 完整链路在 out/context-draw-macos-20261116T173253342708Z/ 快照通过：普通与ASan/UBSan真实GPU各116项顶层检查，各23次65536像素RGBA全通道/pack/skip/padding/尾哨兵比较，exit0；输入真实registry发现，不硬编码ID，无surface替身。覆盖draw/read FBO分离、双image非对称alpha、三次三角形累积、跨context stale/flush、换附件、无效顶点失败状态及有效draw恢复、最后引用保活、每次释放仅归还一槽、重租直接draw验证透明底且无旧内容。CPU独立整数oracle补充并集互斥区5646/12046、重叠754和单字节变异拒绝。六份源文件快照/SFTP回读hash一致，workspace_changed=[]；sanitize关闭LeakSanitizer，不宣称泄漏检测。后台构建代理因服务请求失败中断后，主代理从已有源码接续完整构建/执行，不将代理失败当测试失败。系统公开GLD/CGL/Metal仍未通过。
+
+系统适配最新证据：render_exports真实SDK strict/UBSan/NDEBUG/ASan四组CPU模拟通过，每组clear4/read7，日志out/render-exports-cpu-agent4-BUOBjA/。系统read不带capacity/generation，required只代表pack写跨度、不是验证过的分配容量；依GL客户端有效缓冲契约桥接，或显式登记真实空间。read必须查询当前read image代次，不能用context last替代。LoadFramebuffer为1完成/0失败且FD状态关键，CPU read/clear/flush调用方不检查返回，不能统一透传IOReturn。
+
+TCL静态补证关闭直接入口pattern：两个指针归一化均为gleBeginPrimitiveTCLFunc 0x7FFB0646A0C1；默认position-only描述符01 00 04 00 00 18 00 00经四分量复制产生float4(x,y,z,1)、步长16。w来自G+0x124默认常量，不是本路径helper补分量。UpdateDispatch已证20字节dirty后处理由GLEngine清零，驱动不可提前清空；受限支持状态首次0x7/稳定0x5仅为待运行策略候选。实际JIT、状态判定和拒绝/错误传播仍待闭合。
+
+### 86.1 续接：真实设备集成发现存活状态契约误用
+
+已补存同一次冷启动的完整READY区间到 out/resource-draw-macos-20261116T172019950954Z/cold-ready-complete.log；当前启动console=pika，图形会话已登录。首次调用shell内置log失败，改用/usr/bin/log后成功。
+
+系统bundle隔离SDK构建 out/integration-render-sdk-20261116T173803553767Z 完成，空表1127项、元数据各382项和生命周期注入各417项通过；真实设备--metadata却在EnableMetadata返回0xe00002d8。根因：gld_device存活探测主动以selector1/generation0取得NotReady，并将该预期响应归一为整体成功；integration与context_exports三个门控错误地要求原始liveness_status==0。三个CPU fixture也错误模拟零状态，掩盖了缺陷。已修正门控为预期kIOReturnNotReady及fixture真实契约。新隔离构建 out/integration-render-sdk-20261116T174807448875Z 的SDK构建、空表、CPU strict/NDEBUG/UBSan通过，真实设备--metadata通过5438项检查，含两种dlopen模式和重复生命周期；metadata-device.log exit0。旧失败日志保留，不能称旧构建实机通过。
+
+B3补证 out/gld-triangle-state-contract.txt 恢复矩阵/viewport/主要enable稀疏H字段，glEnd不检查End回调返回，而gldGetError非零u32原样进入glGetError，故需要独立错误锁存。position-only路径只核对Begin/End当前红色会漏掉中途改绿再恢复红色的逐顶点历史；必须补逐顶点颜色输出/验证，或明确仅限受控实验。完整系统dispatch和Metal仍未实现。

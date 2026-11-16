@@ -54,12 +54,21 @@ typedef struct {
 typedef vgo_status (*vgo_sampler_consumer)(void *context, vgo_view descriptor, uint8_t dirty);
 
 vgo_status vgo_share_create(vgo_handle *out);
+/* 显式导入已有 vgc SHARE（含 BGRA），成功持有一份真实强引用；不转移调用者引用。
+ * 严格拒绝 context/image/framebuffer/失效句柄（BAD_HANDLE）；retain 溢出为 OVERFLOW，
+ * 其他底层错误为 CONTEXT_FAILED；失败清零有效 out，不发布半成品。
+ * 每次导入生成独立 vgo 所有权域；同一组 objects 应复用一个导入句柄。 */
+vgo_status vgo_share_import_context(vgc_handle native_share, vgo_handle *out);
 vgo_status vgo_context_create(vgo_handle share, vgc_view h, vgc_view b, vgo_handle *out);
 vgo_status vgo_sampler_create(vgo_handle share, vgo_views views, vgo_handle *out);
 vgo_status vgo_pipeline_create(vgo_handle share, vgo_views views, vgo_handle *out);
 /* GD/GU 仅检查非空有界视图，不读取任何未恢复字段。 */
 vgo_status vgo_program_create(vgo_handle share, vgo_views views, vgo_handle *out);
 vgo_status vgo_retain(vgo_handle handle);
+/* 最后 release/destroy 的底层失败返回 CONTEXT_FAILED，保留一份引用供原句柄重试。
+ * 析构可能已部分完成；失败后仅允许 state_get 和 release/destroy 重试，其他操作拒绝。
+ * 内部 share 引用同样保留；不得另行消费仅由子对象持有的引用。
+ * vgc 自动析构的待释放对象仍遵循 vgc_drain_releases 收尾契约。 */
 vgo_status vgo_release(vgo_handle handle);
 vgo_status vgo_state_get(vgo_handle handle, vgo_state *out);
 vgo_status vgo_detach_views(vgo_handle share, vgo_handle object);

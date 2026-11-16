@@ -325,16 +325,75 @@ static void threaded_refs(void) {
     vgo_state state; OK(vgo_state_get(t, &state)); CHECK(state.references == 1);
     OK(vgo_program_destroy(s, t)); OK(vgo_release(s));
 }
+static void context_registry(void) {
+    extern unsigned vgo_fixture_owners, vgo_fixture_images;
+    extern unsigned vgo_fixture_default_open_calls, vgo_fixture_registry_open_calls;
+    extern uint64_t vgo_fixture_last_registry_id;
+    extern int vgo_fixture_bgra;
+    unsigned defaults = vgo_fixture_default_open_calls;
+    unsigned calls = vgo_fixture_registry_open_calls;
+    vgc_handle s = UINT64_MAX, image = 0, f = 0, other = 0, foreign = 0, c = 0;
+    unsigned char h[VGC_H_LENGTH] = {0}, b[VGC_B_LENGTH] = {0};
+    vgc_image_desc desc = {256, 256, VGPU_SURFACE_BGRA8, 0};
+    vgo_fixture_bgra = 1;
+    CHECK(vgc_share_create_bgra_registry(1, NULL) == kIOReturnBadArgument);
+    CHECK(vgo_fixture_registry_open_calls == calls);
+    const uint64_t invalid[] = {0, UINT64_MAX, 2};
+    const IOReturn errors[] = {kIOReturnBadArgument, kIOReturnNotFound, kIOReturnBadArgument};
+    for (unsigned i = 0; i < 3; ++i) {
+        s = UINT64_MAX;
+        CHECK(vgc_share_create_bgra_registry(invalid[i], &s) == errors[i]);
+        CHECK(!s && !vgo_fixture_owners && !vgo_fixture_images);
+        CHECK(vgo_fixture_registry_open_calls == ++calls);
+        CHECK(vgo_fixture_last_registry_id == invalid[i]);
+        CHECK(vgo_fixture_default_open_calls == defaults);
+    }
+    vgo_fixture_bgra = 0;
+    CHECK(vgc_share_create_bgra_registry(1, &s) == kIOReturnUnsupported && !s);
+    CHECK(vgo_fixture_registry_open_calls == ++calls);
+    CHECK(vgo_fixture_default_open_calls == defaults);
+    vgo_fixture_bgra = 1;
+    CHECK(vgc_share_create_bgra_registry(1, &s) == kIOReturnSuccess && s);
+    CHECK(vgo_fixture_registry_open_calls == ++calls);
+    CHECK(vgo_fixture_last_registry_id == 1 && vgo_fixture_default_open_calls == defaults);
+    CHECK(vgc_image_create(s, desc, &image) == kIOReturnSuccess);
+    CHECK(vgc_framebuffer_create(s, &f) == kIOReturnSuccess);
+    CHECK(vgc_framebuffer_attach(f, 0, image) == kIOReturnSuccess);
+    CHECK(vgc_framebuffer_load(f) == kIOReturnSuccess);
+    CHECK(vgc_context_create(s, (vgc_view){h, sizeof(h)}, (vgc_view){b, sizeof(b)}, &c) == kIOReturnSuccess);
+    unsigned char saved[sizeof(vgc_handle)];
+    memset(b + 0x4a0, 0x5a, sizeof(saved)); memcpy(saved, b + 0x4a0, sizeof(saved));
+    CHECK(vgc_share_create_bgra_registry(1, (vgc_handle *)(void *)(b + 0x4a0)) == kIOReturnBadArgument);
+    CHECK(!memcmp(saved, b + 0x4a0, sizeof(saved)));
+    CHECK(vgo_fixture_registry_open_calls == calls);
+    CHECK(vgc_share_create_bgra_registry(1, &other) == kIOReturnSuccess);
+    CHECK(vgc_framebuffer_create(other, &foreign) == kIOReturnSuccess);
+    CHECK(vgc_framebuffer_attach(foreign, 0, image) == kIOReturnBadArgument);
+    CHECK(vgc_release(foreign) == kIOReturnSuccess);
+    CHECK(vgc_release(other) == kIOReturnSuccess);
+    CHECK(vgc_release(s) == kIOReturnSuccess);
+    CHECK(vgc_release(image) == kIOReturnSuccess);
+    CHECK(vgo_fixture_owners == 1 && vgo_fixture_images == 1);
+    CHECK(vgc_framebuffer_load(f) == kIOReturnSuccess);
+    CHECK(vgc_release(f) == kIOReturnSuccess);
+    CHECK(vgo_fixture_owners == 1 && !vgo_fixture_images);
+    CHECK(vgc_release(c) == kIOReturnSuccess);
+    CHECK(vgc_drain_releases() == kIOReturnSuccess);
+    CHECK(!vgo_fixture_owners && !vgo_fixture_images);
+    CHECK(vgo_fixture_default_open_calls == defaults);
+    vgo_fixture_bgra = 0;
+}
 int main(int argc, char **argv) {
     if (argc == 2) {
         if (!strcmp(argv[1], "sampler-targets")) sampler_targets();
         else if (!strcmp(argv[1], "create-output")) create_output_overlap();
         else if (!strcmp(argv[1], "context-output")) context_output_overlap();
+        else if (!strcmp(argv[1], "context-registry")) context_registry();
         else return 2;
         printf("PASS: %s %u 检查\n", argv[1], checks);
         return 0;
     }
-    sampler_targets(); create_output_overlap(); context_output_overlap();
+    sampler_targets(); create_output_overlap(); context_output_overlap(); context_registry();
     vgo_handle s = 123;
     vgo_fixture_fail_open = 1;
     CHECK(vgo_share_create(&s) == VGO_CONTEXT_FAILED && !s && !vgo_fixture_surfaces);

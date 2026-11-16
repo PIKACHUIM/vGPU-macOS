@@ -513,6 +513,9 @@ struct VgpuResourceReleaseResponse {
     UInt64 handle;
     UInt32 flags, reserved;
 };
+// selector 6 ABI v1：1=clear、2=clear+固定三角形、3=clear+用户顶点。
+// 4=仅用户顶点 draw：rgbaBits 必须全零，固定 PS 输出红色且 alpha=1。
+// 顶点为三个 float4，x/y∈[-1,1]、z∈[0,1]、w=1；不改变 96 字节布局。
 struct VgpuResourceSubmitRequest {
     UInt32 version, byteSize, opcode, flags;
     UInt64 handle, expectedGeneration;
@@ -946,7 +949,7 @@ static const UInt32 kDxTestDelayS = 90;
 //
 // The value is embedded in the banner string, so it is also covered by build.sh's
 // reachability check ("start, provider=%s [build %s]") -- a stale binary cannot pretend.
-#define VGPU_BUILD_TAG "multi-resource-v2-unorm8"
+#define VGPU_BUILD_TAG "multi-resource-v3-draw4"
 
 // How long one CB may take before we call it unanswered, and how long after that we keep
 // looking. Both are §56: the old budget was a 200M-iteration spin (~130 ms) that reported
@@ -2537,12 +2540,15 @@ IOReturn vgpuFramebuffer::resourceSubmit(UInt64 owner, const VgpuResourceSubmitR
                                           VgpuResourceSubmitResponse *response) {
     if (!request || !response || request->version != 1 || request->byteSize != sizeof(*request) ||
         request->flags || !request->handle || !request->expectedGeneration) return kIOReturnBadArgument;
-    if (request->opcode < 1 || request->opcode > 3) return kIOReturnUnsupported;
+    if (request->opcode < 1 || request->opcode > 4) return kIOReturnUnsupported;
+    const bool drawOnly = request->opcode == 4;
+    const bool userVertices = request->opcode == 3 || drawOnly;
     for (UInt32 i = 0; i < 4; ++i) {
         UInt32 m = request->rgbaBits[i] & 0x7FFFFFFF;
-        if (m > 0x3F800000 || ((request->rgbaBits[i] & 0x80000000) && m)) return kIOReturnBadArgument;
+        if ((drawOnly && request->rgbaBits[i]) || m > 0x3F800000 ||
+            ((request->rgbaBits[i] & 0x80000000) && m)) return kIOReturnBadArgument;
     }
-    if (request->opcode != 3) {
+    if (!userVertices) {
         for (UInt32 i = 0; i < 12; ++i) if (request->verticesBits[i]) return kIOReturnBadArgument;
     } else {
         for (UInt32 v = 0; v < 3; ++v) {
@@ -2567,21 +2573,40 @@ IOReturn vgpuFramebuffer::resourceSubmit(UInt64 owner, const VgpuResourceSubmitR
     if (r->generation == ~(UInt64)0) { IOLockUnlock(_userDrawLock); return kIOReturnNoResources; }
     _dxBusy = 1;
     UInt32 slot = (r == &_colorResources[1]) ? 1 : 0;
-    bool ok = request->opcode != 3 || setupVertexInput();
-    if (ok && request->opcode == 3) {
+    bool ok = !userVertices || setupVertexInput();
+    if (ok && userVertices) {
         memcpy(_vertexMem[0]->getBytesNoCopy(), request->verticesBits, 48);
         __asm__ volatile ("" ::: "memory");
         UInt32 update[5] = { 1219, 12, 4, 0, 48 };
         ok = cbSubmitCtx(update, 5, 1, 1, kCbFlagDxContext);
     }
     UInt32 target[4] = { kSvga3dCmdDxSetRenderTargets, 8, SVGA3D_INVALID_ID_U32, kResourceRtvIds[slot] };
-    UInt32 clear[7] = { kSvga3dCmdDxClearRenderTargetView, 20, kResourceRtvIds[slot], 0, 0, 0, 0 };
-    for (UInt32 i = 0; i < 4; ++i) clear[3 + i] = resourceClearUnorm8Bits(request->rgbaBits[i]);
-    ok = ok && cbSubmitCtx(target, 4, 1, 1, kCbFlagDxContext) && cbSubmitCtx(clear, 7, 1, 1, kCbFlagDxContext);
+    ok = ok && cbSubmitCtx(target, 4, 1, 1, kCbFlagDxContext);
+    if (ok && !drawOnly) {
+        UInt32 clear[7] = { kSvga3dCmdDxClearRenderTargetView, 20, kResourceRtvIds[slot], 0, 0, 0, 0 };
+        for (UInt32 i = 0; i < 4; ++i) clear[3 + i] = resourceClearUnorm8Bits(request->rgbaBits[i]);
+        ok = cbSubmitCtx(clear, 7, 1, 1, kCbFlagDxContext);
+    }
+    if (ok && drawOnly) {
+        // 与 refs/svga-hdr/svga3d_dx.h 和 dxDrawProbe 的已验证模板一致。
+        // 所有颜色资源均为 256x256 BGRA8；不继承旧目标或其他调用留下的管线绑定。
+        UInt32 ps[4] = { 1150, 8, 1, 2 };
+        UInt32 topology[3] = { kSvga3dCmdDxSetTopology, 4, 1 };
+        UInt32 blend[8] = { 1162, 24, 1, 0x3F800000, 0x3F800000,
+                            0x3F800000, 0x3F800000, 0xFFFFFFFF };
+        UInt32 depth[4] = { kSvga3dCmdDxSetDepthStencilState, 8, 1, 0 };
+        UInt32 viewport[9] = { kSvga3dCmdDxSetViewports, 28, 0, 0, 0,
+                              0x43800000, 0x43800000, 0, 0x3F800000 };
+        ok = cbSubmitCtx(ps, 4, 1, 1, kCbFlagDxContext) &&
+             cbSubmitCtx(topology, 3, 1, 1, kCbFlagDxContext) &&
+             cbSubmitCtx(blend, 8, 1, 1, kCbFlagDxContext) &&
+             cbSubmitCtx(depth, 4, 1, 1, kCbFlagDxContext) &&
+             cbSubmitCtx(viewport, 9, 1, 1, kCbFlagDxContext);
+    }
     if (ok && request->opcode != 1) {
-        UInt32 vs[4] = { 1150, 8, request->opcode == 3 ? 3u : 2u, 1 };
-        UInt32 layout[3] = { 1157, 4, request->opcode == 3 ? 2u : 1u };
-        UInt32 vb[6] = { 1158, 16, 0, request->opcode == 3 ? 4u : SVGA3D_INVALID_ID_U32, 16, 0 };
+        UInt32 vs[4] = { 1150, 8, userVertices ? 3u : 2u, 1 };
+        UInt32 layout[3] = { 1157, 4, userVertices ? 2u : 1u };
+        UInt32 vb[6] = { 1158, 16, 0, userVertices ? 4u : SVGA3D_INVALID_ID_U32, 16, 0 };
         UInt32 raster[3] = { kSvga3dCmdDxSetRasterizerState, 4, 1 };
         UInt32 draw[4] = { 1152, 8, 3, 0 };
         ok = cbSubmitCtx(vs, 4, 1, 1, kCbFlagDxContext) && cbSubmitCtx(layout, 3, 1, 1, kCbFlagDxContext) &&
