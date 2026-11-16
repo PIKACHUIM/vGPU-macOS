@@ -311,6 +311,7 @@ DRAW post-readback queue health
 DRAW triangle verdict
 user: fixed triangle interface
 user: fixed triangle generation
+user: clear-only generation
 user: administrator connection opened
 vertex: BUFFER sid4 mob14 bytes48 define+bind
 vertex: passthrough VS3

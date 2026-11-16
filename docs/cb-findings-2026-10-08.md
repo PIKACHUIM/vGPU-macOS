@@ -6203,3 +6203,25 @@ selector0输出直接写设备对象+0x270，容量64字节。GetConfig64在0x7F
 新增`kexts/probes/gld_trust_probe.c`及`out/gld-trust-verified.txt`。真实函数包装层为：rootless_check_trusted_class返回0直接成功；返回1时仅dyld cache包含路径才成功；其他值原样返回。初版代理文字将cache条件反转且遗漏rootless=0，已按0x7FF80E5A73E5..73F7指令纠正。rootless底层在csr_check(2)==0时可在路径查询前直接返回0。
 
 当前目标已有Filesystem Protections disabled（本轮未修改），普通用户只读查询/Library/GPUBundles、系统Extensions、/var/tmp、现有Intel bundle/dylib以及一个经lstat确认不存在的路径，均trust=0。名称查找Intel bundle成功返回系统Extensions路径；成功时残留errno=ENOENT不作为失败判据。不存在路径也trust=0说明该查询并不证明文件存在或可加载。探针严格编译及运行exit0。尚未创建第三方bundle或验证真实发现/dlopen；不能外推默认安全配置。
+
+## §77：GPU clear-only接口与完整硬件回归（2026-11-16）
+
+### 77.1 实现与边界
+
+新增管理员私有selector 3，输入24字节：u32 version=1、u32 byteSize=24、float4 RGBA位模式；输出generation/256/256三个u64。内核只用整数检查有限[0,1]（接受正负零），复用设备锁、固定RTV、readback和完成同步。clear分支只提交CLEAR，不提交DRAW；启动初始化仍包含既有三角形自测。目标为B8G8R8X8，alpha不存储，验证只比较RGB低24位。原固定/用户顶点绘制共用userSubmit，错误提交将ready失效。
+
+### 77.2 新启动与部署身份
+
+客体kern.boottime为2026-11-16 15:21:36；15:22:01.204出现§77-clear-only，15:23:31.259三角形自测PASS且接口READY。加载UUID与安装文件均为A72E3FB1-33DE-34A0-BDFD-ECD8EDB7DC5D；已安装二进制SHA256为652152275b7d590cc45282bf3807506f434cec22a86b21cae56fcf57aebbddc5，弱符号0。旧版备份为/var/tmp/vgpu-fb/vgpuFramebuffer.pre77.kext。
+
+本机及客体源码一致：vgpuFramebuffer.cpp SHA256 d99613143bce4fe56428498bc5ef76b06ac356392ee2607c7e1e4dc5c5eef088；tools/vgpu-user-draw.c SHA256 d63df3fc11380724a73d85340afad7eff5d45abbcb36003a4d494d02b08d4d1c。隔离构建目录/var/tmp/vgpu-clear-review.QyTqNd，实际kext位于其build子目录。
+
+### 77.3 实测结果
+
+管理员通过framebuffer直接入口和--accelerator关联入口各运行完整回归，均PASS all checks；generation分别1..35、36..70，共70次成功提交。每次清屏或三角形图像均全65536像素比较，清屏A RGB=0x40bf20、B=0xdf209f及端点颜色均mismatch=0；新旧绘制交替、跨连接读取、重开通过。NaN/Inf/负数/越界、版本/长度、scalar数量及额外structure output均拒绝，非法调用后旧generation内容不变，下一次合法提交仅递增1。两条入口普通用户--expect-denied均PASS。
+
+修正探针自身两项问题后再构建验证：错误参数测试末尾合法clear必须将新generation回传；BGRX不能把X字节当alpha比较。用户态探针严格编译通过，内核构建存在既有警告，不能描述成零警告。首次远端命令被Git Bash改写POSIX路径，设置MSYS2_ARG_CONV_EXCL后正常执行；日志需用/usr/bin/log避开zsh同名命令。
+
+### 77.4 后续
+
+此阶段闭合真实GPU纯清屏能力，仍是固定256x256管理员私有接口，不代表标准OpenGL/Metal可用。下一步验证自研GLD正常发现/加载，再实现真实device/context、资源与shader桥接。

@@ -4,7 +4,7 @@
 > macOS 客户机内实现 GPU 直通驱动栈。目标是最终支持 macOS 应用级 3D 加速
 > （Metal 对象层 → IOAccelerator）。
 
-> 最新系统API进度：见 `docs/cb-findings-2026-10-08.md` §76。公开texture/FBO资源软件基线及失败对照通过；GLD framebuffer的Q/D、尺寸生产者和Load状态握手已由原始指令闭合。texture backing/同步、可信插件加载及Metal执行协议仍未完成；标准硬件OpenGL/Metal 3D尚不可用。
+> 最新进度：见 `docs/cb-findings-2026-10-08.md` §77。真实GPU clear-only接口已通过framebuffer/accelerator两条入口共70次提交的完整回归，清屏及三角形全像素零差异，非法输入、generation、跨连接和普通用户拒绝通过。§76公开texture/FBO软件基线及GLD Q/D/尺寸/Load契约已核验。标准硬件OpenGL/Metal仍未实现；下一步验证自研GLD正常发现/加载并接入真实资源、context与shader。
 
 ## 环境与工具
 

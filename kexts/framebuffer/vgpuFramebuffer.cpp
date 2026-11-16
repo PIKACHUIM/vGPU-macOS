@@ -814,7 +814,7 @@ static const UInt32 kDxTestDelayS = 90;
 //
 // The value is embedded in the banner string, so it is also covered by build.sh's
 // reachability check ("start, provider=%s [build %s]") -- a stale binary cannot pretend.
-#define VGPU_BUILD_TAG "§73-accelerator-link"
+#define VGPU_BUILD_TAG "§77-clear-only"
 
 // How long one CB may take before we call it unanswered, and how long after that we keep
 // looking. Both are §56: the old budget was a 200M-iteration spin (~130 ms) that reported
@@ -1491,6 +1491,7 @@ private:
     IOReturn createDrawUserClient(task_t task, void *securityID, UInt32 type,
                                  OSDictionary *properties, IOUserClient **handler);
     UInt64 _userDrawGeneration = 0;
+    IOReturn userSubmit(UInt64 *generation, const UInt32 *vertices, const UInt32 *clearColor);
     IOBufferMemoryDescriptor *_cotableMem = nullptr;   // DX COTABLE storage (4 KiB)
     IOBufferMemoryDescriptor *_cotablePtMem = nullptr; // unused (PT64_0 needs no PT page)
     IOBufferMemoryDescriptor *_cbHeaderMem = nullptr;  // 4 KiB = 64 header slots
@@ -1535,6 +1536,7 @@ public:
     IOReturn newUserClient(task_t task, void *securityID, UInt32 type,
                           OSDictionary *properties, IOUserClient **handler) APPLE_KEXT_OVERRIDE;
     IOReturn userDraw(UInt64 *generation, const UInt32 *vertices = nullptr);
+    IOReturn userClear(UInt64 *generation, const UInt32 *rgba);
     IOReturn userReadRow(UInt64 generation, UInt64 row, void *output);
 
     //
@@ -1729,6 +1731,7 @@ public:
     static IOReturn draw(OSObject *target, void *, IOExternalMethodArguments *args);
     static IOReturn readRow(OSObject *target, void *, IOExternalMethodArguments *args);
     static IOReturn drawVertices(OSObject *target, void *, IOExternalMethodArguments *args);
+    static IOReturn clear(OSObject *target, void *, IOExternalMethodArguments *args);
 };
 OSDefineMetaClassAndStructors(vgpuDrawUserClient, IOUserClient)
 
@@ -1833,7 +1836,8 @@ IOReturn vgpuDrawUserClient::externalMethod(uint32_t selector, IOExternalMethodA
     static IOExternalMethodDispatch methods[] = {
         { &vgpuDrawUserClient::draw,    0, 0, 3, 0 },
         { &vgpuDrawUserClient::readRow, 2, 0, 0, 256 * sizeof(UInt32) },
-        { &vgpuDrawUserClient::drawVertices, 0, 56, 3, 0 }
+        { &vgpuDrawUserClient::drawVertices, 0, 56, 3, 0 },
+        { &vgpuDrawUserClient::clear, 0, 24, 3, 0 }
     };
     if (isInactive()) return kIOReturnNotAttached;
     if (selector >= sizeof(methods) / sizeof(methods[0])) return kIOReturnUnsupported;
@@ -1888,6 +1892,29 @@ IOReturn vgpuDrawUserClient::drawVertices(OSObject *target, void *, IOExternalMe
     if (!owner) return kIOReturnNotAttached;
     UInt64 generation = 0;
     IOReturn result = owner->isInactive() ? kIOReturnNotAttached : owner->userDraw(&generation, input + 2);
+    owner->release();
+    if (result == kIOReturnSuccess) {
+        args->scalarOutput[0] = generation;
+        args->scalarOutput[1] = 256;
+        args->scalarOutput[2] = 256;
+    }
+    return result;
+}
+
+// selector 3：u32 version=1、u32 byteSize=24、IEEE754 float4 RGBA。
+// 复用 B8G8R8X8_UNORM RTV：alpha 传给 GPU，但读回 X 字节不表示 alpha。
+// 仅接受有限的 [0,1]（含负零），通过整数位模式验证，不使用内核 FPU。
+IOReturn vgpuDrawUserClient::clear(OSObject *target, void *, IOExternalMethodArguments *args) {
+    vgpuDrawUserClient *client = OSDynamicCast(vgpuDrawUserClient, target);
+    UInt32 input[6];
+    if (!args->structureInput || args->structureInputSize != sizeof(input))
+        return kIOReturnBadArgument;
+    memcpy(input, args->structureInput, sizeof(input));
+    if (input[0] != 1 || input[1] != sizeof(input)) return kIOReturnBadArgument;
+    vgpuFramebuffer *owner = client ? client->copyOwner() : nullptr;
+    if (!owner) return kIOReturnNotAttached;
+    UInt64 generation = 0;
+    IOReturn result = owner->isInactive() ? kIOReturnNotAttached : owner->userClear(&generation, input + 2);
     owner->release();
     if (result == kIOReturnSuccess) {
         args->scalarOutput[0] = generation;
@@ -1956,6 +1983,20 @@ bool vgpuFramebuffer::setupVertexInput() {
 }
 
 IOReturn vgpuFramebuffer::userDraw(UInt64 *generation, const UInt32 *vertices) {
+    return userSubmit(generation, vertices, nullptr);
+}
+
+IOReturn vgpuFramebuffer::userClear(UInt64 *generation, const UInt32 *rgba) {
+    if (!rgba) return kIOReturnBadArgument;
+    for (UInt32 i = 0; i < 4; ++i) {
+        UInt32 magnitude = rgba[i] & 0x7FFFFFFF;
+        if (magnitude > 0x3F800000 || ((rgba[i] & 0x80000000) && magnitude))
+            return kIOReturnBadArgument;
+    }
+    return userSubmit(generation, nullptr, rgba);
+}
+
+IOReturn vgpuFramebuffer::userSubmit(UInt64 *generation, const UInt32 *vertices, const UInt32 *clearColor) {
     if (!_userDrawLock || !generation) return kIOReturnNotReady;
     IOLockLock(_userDrawLock);
     if (_userDrawStopping || !_userDrawReady || _dxBusy || !_dxVirt) {
@@ -1980,12 +2021,17 @@ IOReturn vgpuFramebuffer::userDraw(UInt64 *generation, const UInt32 *vertices) {
     UInt32 clear[7] = { kSvga3dCmdDxClearRenderTargetView, 20, kDxTemplateRtvId,
                         0, 0x3F800000, 0, 0x3F800000 };
     UInt32 draw[4] = { 1152, 8, 3, 0 };
-    ok = ok && cbSubmitCtx(vs, 4, 1, 1, kCbFlagDxContext) &&
-              cbSubmitCtx(layout, 3, 1, 1, kCbFlagDxContext) &&
-              cbSubmitCtx(vb, 6, 1, 1, kCbFlagDxContext) &&
-              cbSubmitCtx(raster, 3, 1, 1, kCbFlagDxContext) &&
-              cbSubmitCtx(clear, 7, 1, 1, kCbFlagDxContext) &&
-              cbSubmitCtx(draw, 4, 1, 1, kCbFlagDxContext);
+    if (clearColor) {
+        memcpy(clear + 3, clearColor, 4 * sizeof(UInt32));
+        ok = ok && cbSubmitCtx(clear, 7, 1, 1, kCbFlagDxContext);
+    } else {
+        ok = ok && cbSubmitCtx(vs, 4, 1, 1, kCbFlagDxContext) &&
+                  cbSubmitCtx(layout, 3, 1, 1, kCbFlagDxContext) &&
+                  cbSubmitCtx(vb, 6, 1, 1, kCbFlagDxContext) &&
+                  cbSubmitCtx(raster, 3, 1, 1, kCbFlagDxContext) &&
+                  cbSubmitCtx(clear, 7, 1, 1, kCbFlagDxContext) &&
+                  cbSubmitCtx(draw, 4, 1, 1, kCbFlagDxContext);
+    }
     if (ok) {
         volatile UInt32 *pixels = (volatile UInt32 *)_dxVirt;
         for (UInt32 i = 0; i < 256 * 256; ++i) pixels[i] = 0xFFFF00FF;
@@ -1997,8 +2043,12 @@ IOReturn vgpuFramebuffer::userDraw(UInt64 *generation, const UInt32 *vertices) {
     if (ok) *generation = ++_userDrawGeneration;
     else _userDrawReady = false; // do not retry against a possibly failed queue
     _dxBusy = 0;
-    IOLog(VGPU_FB_TAG ": user: fixed triangle generation %llu -> %s (vertex-buffer=%u)\n",
-          (unsigned long long)_userDrawGeneration, ok ? "COMPLETED" : "FAILED", vertices ? 1 : 0);
+    if (clearColor)
+        IOLog(VGPU_FB_TAG ": user: clear-only generation %llu -> %s\n",
+              (unsigned long long)_userDrawGeneration, ok ? "COMPLETED" : "FAILED");
+    else
+        IOLog(VGPU_FB_TAG ": user: fixed triangle generation %llu -> %s (vertex-buffer=%u)\n",
+              (unsigned long long)_userDrawGeneration, ok ? "COMPLETED" : "FAILED", vertices ? 1 : 0);
     IOLockUnlock(_userDrawLock);
     return ok ? kIOReturnSuccess : kIOReturnIOError;
 }

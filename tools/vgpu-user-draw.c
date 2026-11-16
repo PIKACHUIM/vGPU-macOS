@@ -32,6 +32,26 @@ struct vertex_input {
 _Static_assert(sizeof(float) == 4, "float must be 32 bits");
 _Static_assert(sizeof(struct vertex_input) == 56, "selector 2 input must be 56 bytes");
 
+/* selector 3：固定 24 字节；RGBA 均为有限 [0,1]，允许负零。 */
+struct clear_input {
+    uint32_t version;
+    uint32_t byte_size;
+    float rgba[4];
+};
+_Static_assert(sizeof(struct clear_input) == 24, "selector 3 input must be 24 bytes");
+
+struct clear_case {
+    struct clear_input input;
+    uint32_t bgrx;
+    const char *label;
+};
+
+/* 避开 UNORM 舍入中点；现有 B8G8R8X8 RTV 不存储 alpha。 */
+static const struct clear_case clear_images[] = {
+    { { 1, 24, { 0.25f, 0.75f, 0.125f, 0.375f } }, UINT32_C(0xff40bf20), "clear A" },
+    { { 1, 24, { 0.875f, 0.125f, 0.625f, 0.75f } }, UINT32_C(0xffdf209f), "clear B" }
+};
+
 struct image_case {
     struct vertex_input input;
     int64_t screen[3][2];
@@ -201,13 +221,13 @@ static bool verify_image(io_connect_t connection, uint64_t generation,
                 ++expected_red;
             else
                 ++expected_green;
-            if (pixels[x] == RED)
+            if ((pixels[x] & UINT32_C(0x00ffffff)) == (RED & UINT32_C(0x00ffffff)))
                 ++red;
-            else if (pixels[x] == GREEN)
+            else if ((pixels[x] & UINT32_C(0x00ffffff)) == (GREEN & UINT32_C(0x00ffffff)))
                 ++green;
             else
                 ++other;
-            if (pixels[x] != expected) {
+            if ((pixels[x] & UINT32_C(0x00ffffff)) != (expected & UINT32_C(0x00ffffff))) {
                 if (mismatch == 0)
                     fprintf(stderr, "FAIL pixel: %s (%" PRIu32 ",%" PRIu32
                             ") actual=0x%08" PRIx32 " expected=0x%08"
@@ -404,6 +424,162 @@ static bool check_invalid_vertices(io_connect_t connection, uint64_t generation,
                                        "reject vertex structure output");
 }
 
+static kern_return_t call_clear(io_connect_t connection, const void *input,
+                                 size_t size, const uint64_t *scalars,
+                                 uint32_t scalar_count, uint64_t *output,
+                                 uint32_t *output_count)
+{
+    return IOConnectCallMethod(connection, 3, scalars, scalar_count, input, size,
+                               output, output_count, NULL, NULL);
+}
+
+static bool clear_image(io_connect_t connection, const struct clear_case *image,
+                         uint64_t *generation)
+{
+    uint64_t output[3] = { 0, 0, 0 };
+    uint32_t count = 3;
+    kern_return_t result = call_clear(connection, &image->input,
+                                      sizeof(image->input), NULL, 0,
+                                      output, &count);
+    if (!expect_code("clear-only", result, KERN_SUCCESS))
+        return false;
+    if (count != 3 || output[0] == 0 || output[1] != WIDTH || output[2] != HEIGHT ||
+        (*generation != 0 && output[0] != *generation + 1)) {
+        fprintf(stderr, "FAIL selector 3 ABI/generation: count=%" PRIu32
+                " previous=%" PRIu64 " generation=%" PRIu64 " size=%" PRIu64
+                "x%" PRIu64 "\n", count, *generation, output[0], output[1], output[2]);
+        return false;
+    }
+    *generation = output[0];
+    return true;
+}
+
+static bool verify_clear(io_connect_t connection, uint64_t generation,
+                          const struct clear_case *image, const char *label)
+{
+    uint32_t mismatch = 0;
+    for (uint32_t y = 0; y < HEIGHT; ++y) {
+        uint32_t pixels[WIDTH];
+        size_t size = sizeof(pixels);
+        memset(pixels, 0, sizeof(pixels));
+        if (!expect_code("clear read row", read_row(connection, generation, y,
+                          pixels, &size), KERN_SUCCESS))
+            return false;
+        if (size != ROW_BYTES) {
+            fprintf(stderr, "FAIL clear row size=%zu\n", size);
+            return false;
+        }
+        for (uint32_t x = 0; x < WIDTH; ++x) {
+            if ((pixels[x] & UINT32_C(0x00ffffff)) != (image->bgrx & UINT32_C(0x00ffffff))) {
+                if (mismatch == 0)
+                    fprintf(stderr, "FAIL %s pixel (%" PRIu32 ",%" PRIu32
+                            ") actual=%08" PRIx32 " expected=%08" PRIx32 "\n",
+                            label, x, y, pixels[x], image->bgrx);
+                ++mismatch;
+            }
+        }
+    }
+    printf("%s generation=%" PRIu64 " pixels=%u mismatch=%" PRIu32
+           " (BGRX, alpha not stored)\n", label, generation, WIDTH * HEIGHT, mismatch);
+    return mismatch == 0;
+}
+
+static bool rejected_clear_unchanged(io_connect_t connection, kern_return_t result,
+                                      uint64_t generation,
+                                      const struct clear_case *image,
+                                      const char *label)
+{
+    return expect_rejected(label, result) &&
+           verify_clear(connection, generation, image, label);
+}
+
+static bool check_invalid_clear(io_connect_t connection, uint64_t *current_generation,
+                                 const struct clear_case *image)
+{
+    const uint64_t generation = *current_generation;
+    const uint32_t invalid_bits[] = {
+        UINT32_C(0x7fc00000), UINT32_C(0x7f800001),
+        UINT32_C(0x7f800000), UINT32_C(0xff800000),
+        UINT32_C(0x3f800001), UINT32_C(0xbf800000), UINT32_C(0x80000001)
+    };
+    for (size_t component = 0; component < 4; ++component) {
+        for (size_t i = 0; i < sizeof(invalid_bits) / sizeof(invalid_bits[0]); ++i) {
+            struct clear_input input = image->input;
+            memcpy(&input.rgba[component], &invalid_bits[i], sizeof(uint32_t));
+            uint64_t output[3] = { 0, 0, 0 };
+            uint32_t count = 3;
+            kern_return_t result = call_clear(connection, &input, sizeof(input),
+                                              NULL, 0, output, &count);
+            if (!expect_code("invalid RGBA", result, kIOReturnBadArgument) ||
+                !verify_clear(connection, generation, image, "invalid RGBA unchanged"))
+                return false;
+        }
+    }
+    const uint32_t invalid_headers[] = { 0, 2, 23, 25, UINT32_MAX };
+    for (size_t field = 0; field < 2; ++field) {
+        for (size_t i = 0; i < sizeof(invalid_headers) / sizeof(invalid_headers[0]); ++i) {
+            struct clear_input input = image->input;
+            if (field == 0) input.version = invalid_headers[i];
+            else input.byte_size = invalid_headers[i];
+            uint64_t output[3] = { 0, 0, 0 };
+            uint32_t count = 3;
+            kern_return_t result = call_clear(connection, &input, sizeof(input),
+                                              NULL, 0, output, &count);
+            if (!expect_code("invalid clear header", result, kIOReturnBadArgument) ||
+                !verify_clear(connection, generation, image, "invalid header unchanged"))
+                return false;
+        }
+    }
+    unsigned char bytes[sizeof(struct clear_input) + 1] = { 0 };
+    memcpy(bytes, &image->input, sizeof(image->input));
+    const size_t bad_sizes[] = { 0, 8, 23, 25 };
+    for (size_t i = 0; i < sizeof(bad_sizes) / sizeof(bad_sizes[0]); ++i) {
+        uint64_t output[3] = { 0, 0, 0 };
+        uint32_t count = 3;
+        kern_return_t result = call_clear(connection, bytes, bad_sizes[i],
+                                          NULL, 0, output, &count);
+        if (!rejected_clear_unchanged(connection, result, generation, image,
+                                      "invalid clear length"))
+            return false;
+    }
+    uint64_t scalar[4] = { 0, 0, 0, 0 };
+    uint32_t count = 3;
+    kern_return_t result = call_clear(connection, &image->input, sizeof(image->input),
+                                      scalar, 1, scalar, &count);
+    if (!rejected_clear_unchanged(connection, result, generation, image,
+                                  "invalid clear scalar input"))
+        return false;
+    const uint32_t bad_counts[] = { 0, 1, 2, 4 };
+    for (size_t i = 0; i < sizeof(bad_counts) / sizeof(bad_counts[0]); ++i) {
+        count = bad_counts[i];
+        result = call_clear(connection, &image->input, sizeof(image->input),
+                             NULL, 0, scalar, &count);
+        if (!rejected_clear_unchanged(connection, result, generation, image,
+                                      "invalid clear output count"))
+            return false;
+    }
+    uint32_t structure = 0;
+    size_t structure_size = sizeof(structure);
+    count = 3;
+    result = IOConnectCallMethod(connection, 3, NULL, 0, &image->input,
+                                 sizeof(image->input), scalar, &count,
+                                 &structure, &structure_size);
+    if (!rejected_clear_unchanged(connection, result, generation, image,
+                                   "invalid clear structure output") ||
+        !expect_row_code(connection, 0, 0, "clear generation zero", kIOReturnNotReady) ||
+        !expect_row_code(connection, generation + 1, 0, "clear future generation", kIOReturnNotReady) ||
+        !expect_row_code(connection, generation, HEIGHT, "clear row=256",
+                         kIOReturnBadArgument))
+        return false;
+    uint64_t next_generation = generation;
+    if (!clear_image(connection, image, &next_generation) ||
+        next_generation != generation + 1 ||
+        !verify_clear(connection, next_generation, image, "clear after rejected calls"))
+        return false;
+    *current_generation = next_generation;
+    return true;
+}
+
 static bool close_connection(io_connect_t *connection)
 {
     if (*connection == IO_OBJECT_NULL)
@@ -497,6 +673,19 @@ int main(int argc, char **argv)
         goto cleanup;
 
     uint64_t generation = 0;
+    for (size_t i = 0; i < sizeof(clear_images) / sizeof(clear_images[0]); ++i) {
+        uint64_t previous = generation;
+        const struct clear_case *image = &clear_images[i];
+        if (!clear_image(first, image, &generation) ||
+            (previous != 0 && !expect_row_code(first, previous, 0,
+                                                "clear old generation",
+                                                kIOReturnNotReady)) ||
+            !verify_clear(first, generation, image, image->label))
+            goto cleanup;
+        if (i == 0 && !check_invalid_clear(first, &generation, image))
+            goto cleanup;
+    }
+
     for (unsigned long round = 1; round <= rounds; ++round) {
         uint64_t previous = generation;
         if (!draw(first, &generation))
@@ -549,6 +738,25 @@ int main(int argc, char **argv)
             goto cleanup;
     }
 
+    for (unsigned long round = 1; round <= rounds; ++round) {
+        for (size_t i = 0; i < sizeof(clear_images) / sizeof(clear_images[0]); ++i) {
+            uint64_t previous = generation;
+            const struct clear_case *image = &clear_images[i];
+            if (!clear_image(first, image, &generation) ||
+                !expect_row_code(first, previous, 0, "alternating clear old generation",
+                                 kIOReturnNotReady) ||
+                !verify_clear(first, generation, image, image->label))
+                goto cleanup;
+        }
+    }
+    /* 负零与闭区间端点应被接受，仍执行完整 GPU 读回检查。 */
+    const struct clear_case endpoints = {
+        { 1, 24, { -0.0f, 1.0f, 0.0f, -0.0f } }, GREEN, "clear endpoints"
+    };
+    if (!clear_image(first, &endpoints, &generation) ||
+        !verify_clear(first, generation, &endpoints, endpoints.label))
+        goto cleanup;
+
     result = IOServiceOpen(service, mach_task_self(), OPEN_TYPE, &second);
     if (!expect_code("second IOServiceOpen", result, KERN_SUCCESS))
         goto cleanup;
@@ -568,6 +776,20 @@ int main(int argc, char **argv)
                       "cross-connection vertices B read on first"))
         goto cleanup;
 
+    previous = generation;
+    if (!clear_image(second, &clear_images[0], &generation) ||
+        !expect_row_code(first, previous, 0, "cross-connection clear old generation",
+                         kIOReturnNotReady) ||
+        !verify_clear(first, generation, &clear_images[0], "clear read on first"))
+        goto cleanup;
+    previous = generation;
+    if (!draw_vertices(first, &vertex_images[0], &generation) ||
+        generation != previous + 1 ||
+        !expect_row_code(second, previous, 0, "vertices after clear old generation",
+                         kIOReturnNotReady) ||
+        !verify_image(first, generation, &vertex_images[0], "vertices after clear"))
+        goto cleanup;
+
     if (!close_connection(&second))
         goto cleanup;
     if (!close_connection(&first))
@@ -582,6 +804,11 @@ int main(int argc, char **argv)
         !expect_row_code(first, previous, 0, "reopen vertices old generation",
                          kIOReturnNotReady) ||
         !verify_image(first, generation, &vertex_images[0], "reopen vertices A"))
+        goto cleanup;
+    previous = generation;
+    if (!clear_image(first, &clear_images[1], &generation) ||
+        !expect_row_code(first, previous, 0, "reopen clear old generation", kIOReturnNotReady) ||
+        !verify_clear(first, generation, &clear_images[1], "reopen clear B"))
         goto cleanup;
     status = EXIT_SUCCESS;
 
