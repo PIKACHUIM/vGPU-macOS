@@ -1,0 +1,153 @@
+GLEngine → GLD 调用契约恢复记录
+更新时间：2026-11-16
+适用范围：客体 macOS 15.7.3 / 24G419，x86_64；下列指令地址均为 unslid 地址。
+GLEngine UUID：FB994F78-34C6-39F3-857D-99F9B3013E8F。
+映像：/System/Library/Frameworks/OpenGL.framework/Versions/A/Resources/GLEngine.bundle/GLEngine。
+
+证据与复现
+1. 客体执行 dyld_info -arch x86_64 -disassemble，上述映像输出保留在 /var/tmp/vgpu-fb/glengine-code.txt（343861行，16639703字节）。未下载全文。
+2. 仅下载关键片段到 D:/Codes/vGPU-macOS/out/glengine-contract-snippets.txt（约38KB）；每行包含原始指令地址。
+3. 交叉证据：同目录 gld-loader-contract.txt、gld-loader-memory.txt、gfx-loader.txt、opengl-loader.txt。
+4. 本次只静态反汇编、读取版本与提取片段，未调用私有 GLD 入口、未修改驱动或客体设置。为运行既有 tools/mssh.py，在宿主 WorkBuddy Python 环境安装了缺失的 paramiko 依赖。
+5. 这是调用点 ABI 与可见内存布局，不是完整私有头文件。未恢复的类型、字段及返回类型不填假签名。
+
+一、已证实入口槽
+libGFXShared 的 plugin+0x420 是129项 GLD 函数指针表起点；各项名称已由既有内存探针确认。
+入口                         索引  plugin内偏移  函数表内偏移
+ gldPopulateRendererInfo       3    0x438        0x18
+ gldChoosePixelFormat          9    0x468        0x48
+ gldCreateContext             13    0x488        0x68
+ gldPopulateContextDispatch   17    0x4a8        0x88
+前三项调用后使用 EAX 的32位状态：0继续，非0进入失败路径。
+第四项调用后不检查返回值，不能据此断言其 C 返回类型为 void。
+
+二、gldChoosePixelFormat：两个显式参数，输出链表
+GLEngine _gliChoosePixelFormat 起点 0x7FFB0637ADA1。
+调用点 0x7FFB0637ADFE：callq *0x468(%r12)，r12来自 gfxGetPlugins 的插件链表。
+RDI = &localHead（初始为NULL的8字节输出槽，rbp-0x30）。
+RSI = _gliChoosePixelFormat 的第2个参数，原样转交。
+没有为本次调用准备第3或更多参数；不能把残留寄存器当成形参。
+返回：EAX 32位状态。输出指针非NULL时被接入结果链表。
+可表达的契约：status32 = gldChoosePixelFormat(output_head_slot, opaque_request_pointer)。
+这里故意不用 C typedef：request 的类型、大小、字段及 const 属性尚未恢复，不能直接声明成公开 CGLPixelFormatAttribute 数组。
+OpenGL 本体 0x7FFB06162068..0x7FFB06162079 也显示 gliChoosePixelFormat 接收输出槽和一个内部传入指针，未证明它就是 CGL 的原始属性数组。
+
+输出节点的已观察布局：
+ +0x00：8字节 next 指针，NULL终止。
+ +0x08：32位标识字段，GLEngine 在 0x7FFB0637AE19 OR 0x20000；后续节点通过 +0x0a OR 2 实现相同位更新。
+ gliDestroyPixelFormat 在 0x7FFB0637AE99 读取 +8，按 driver ID 找插件，0x7FFB0637AEC5 调 plugin+0x470 销毁对应链段。
+ gliCreateContextWithShared 消费节点时检查 (+8 & 0xff0000)==0x20000，读取 +0x0c 位0x40、+0x18 的32位值及 +0x31 的字节。
+已见访问意味着节点至少覆盖 +0x31，但不能由此声称完整节点大小是0x32或某个猜测值。
+节点分配/具体属性编码/完整所有权协议未恢复；只确认最终交给 gldDestroyPixelFormat，不能自行假设 free 即可。
+
+三、gldPopulateRendererInfo：两个显式参数，调用者提供0x88字节记录
+调用点 0x7FFB0638EA7A：callq *0x438(%rax)。
+RAX = *(deviceRecord+0x08)，即所属 plugin。
+RDI = *(deviceRecord+0x18)，即 gldCreateDevice 写回的驱动设备句柄。
+RSI = rendererArray + index*0x88，直接指向可写记录，不是指针输出槽。
+返回：EAX 32位状态；非0时整个已分配数组被 free 并返回错误。
+可表达的契约：status32 = gldPopulateRendererInfo(driver_device_handle, caller_owned_record_0x88)。
+
+证据：
+0x7FFB0638EA1F..0x7FFB0638EA2B 用 count、0x88 调 calloc。
+0x7FFB0638EA4F 先在外层测试 displayMask & deviceRecord[+0x14]，因此本调用没有显式的 displayMask 参数。
+0x7FFB0638EA63..0x7FFB0638EA77 计算 index*(0x80+8) 并传给 RSI。
+0x7FFB0638EA84..0x7FFB0638EA8E 成功后由 GLEngine 写 +0 为下一条记录地址，并对 +0x0a OR 2。
+0x7FFB0638EAB6 将最后一条的 next 清零。
+因此 +0 是8字节链接字段；+8附近有标识位。其余 renderer 属性、显存量/能力位等没有在本次完整恢复，不得将猜测字段写成结构体。
+
+四、gldCreateContext：六个显式指针参数，首参是 share-group 句柄
+定义仅用于说明地址关系：
+ G = GLEngine 自己的 GLIContext 基址（r15）。
+ i = 当前插件索引。
+ S = G + 0xc6b0 + i*0xe20，GLEngine 为每插件分配的0xe20字节区域。
+ E = sharedState + 0x1a0 + i*0x20，libGFXShared 的每插件共享状态条目。
+ P = *(E+0x08)，插件对象指针。
+
+_gliCreateContextWithShared 起点 0x7FFB0637AF3B。
+0x7FFB0637B0BD..0x7FFB0637B0DA 分配零初始化区域，大小为 0xc6b0 + pluginCount*0xe20。
+调用点 0x7FFB0637B27A：callq *0x488(%rax)，RAX=P。
+RDI = *(E+0x00)：驱动 share-group 句柄。
+RSI = S：8字节驱动 context 输出槽，初值NULL，后续作为句柄读取；不是把 GLIContext 自身传给驱动。
+RDX = 当前像素格式链表节点（r14）。
+RCX = S+0x10 = G+0xc6c0+i*0xe20：GLEngine 提供并预填部分值的每插件状态/能力区域。
+R8  = G+0x8e0：所有插件共用的内部状态区域；+0先写32位0x10004。
+R9  = S+0x270 = G+0xc920+i*0xe20：另一内部区域的地址。
+返回：EAX 32位状态，0成功；非0进入清理路径。
+本调用点没有另外设置栈上传参；六个寄存器参数均有明确来源。
+可表达的契约：status32 = gldCreateContext(share_group_handle, context_output_slot, pixel_format_node, opaque_region_S_plus_0x10, opaque_region_G_plus_0x8e0, opaque_region_S_plus_0x270)。
+后三者的完整语义、读写方向、字段名称和结构大小尚未完整恢复，不提供虚假的 typed C prototype。
+
+首参的交叉证明（非常关键，不能误写成 device 句柄）：
+libGFXShared _gfxCreateSharedState 中 r12 初始为 sharedState+0x188；
+0x7FFB06174A0F RSI=r12+0x18，也就是 E+0；
+0x7FFB06174A19 RDI=*(deviceRecord+0x18)；
+0x7FFB06174A1D EDX=4；
+0x7FFB06174A22 调 plugin+0x478（gldCreateShareGroup），将其输出写入 E+0。
+GLEngine 在 0x7FFB0637B1DC 从 E+0 读入 RDI，在 0x7FFB0637B1DF 同时存到 S+8，然后直接用于 gldCreateContext。
+
+可确定的 S 区域关系：
+ S+0x000：驱动 context 句柄输出槽。
+ S+0x008：驱动 share-group 句柄备份。
+ S+0x010：第4实参的区域起点。
+ S+0x268：64位值，调用前写 getpagesize()，调用后取它与0x4000的较小值（无符号比较；B2AB cmp rcx,rax，B2AE cmovae rcx,rax）。它距第4实参起点+0x258；不能仅凭该行为为整个字段命名。
+ S+0x270：第6实参区域起点。
+ S+0xe08：plugin 指针。
+ S+0xe10：deviceRecord 指针。
+ S+0xe18：从 E+0x18 拷贝的32位值。
+S+0x10 到 S+0x270 的地址间距为0x260，但不能直接断言第4参数的公开结构大小恰好是0x260；同理不能把剩余空间全部声明为第6参数结构。
+
+选中插件后，0x7FFB0637B3D4..0x7FFB0637B44E 写入：
+ G+0xb308 = *(S+0)，驱动 context 句柄。
+ G+0xb310 = *(E+0)，share-group 句柄。
+ G+0xb318 = S+0x10。
+ G+0xb4b8 = P+0x420，指向129项 GLD 函数表起点。
+ G+0xb4c0 = deviceRecord+0x20。
+随后 gleInitializeContext 成功才继续 gliInitDispatchTable。
+
+五、gldPopulateContextDispatch：两个显式参数，0xc8字节渲染表消费范围
+_glePopulateRenderDispatch 起点 0x7FFB064474E2。
+0x7FFB064474EB：RDI=*(G+0xb308)，驱动 context 句柄。
+0x7FFB064474F2：RAX=*(G+0xb4b8)=P+0x420。
+0x7FFB064474F9：RSI=G+0xb320，GLEngine 内部可写 dispatch 区域。
+0x7FFB06447500：call *0x88(RAX)，等价于 P+0x4a8，确认为 gldPopulateContextDispatch。
+0x7FFB06447506..0x7FFB0644750F：不检查驱动返回，恢复 G 后尾跳 gleUpdateDispatchJIT。
+可表达的调用形态：gldPopulateContextDispatch(driver_context_handle, render_dispatch_storage)。返回类型未知，不能把“调用者不检查返回”包装成已恢复 void 签名。
+
+_gleUpdateDispatchJIT（0x7FFB064473D9）把 G+0xb320..G+0xb3e7 的连续0xc8字节复制到 G+0xb3e8..G+0xb4af。
+这是25个8字节单元的实际消费范围，证明这里不是上层0x1e78字节 GL API 表。
+不能仅凭复制操作给25个单元全部取函数名或确定每个回调签名。
+已观察到其中的真实间接调用：
+ +0x10（G+0xb330）：0x7FFB0645830F 调用，RDI=context句柄；该调用还有栈上0x1802参数，不能统一写成无参桩。
+ +0x18（G+0xb338）：0x7FFB0639B62A 等调用，RDI=context句柄；本次未完整恢复其余入参。
+ +0x20（G+0xb340）：0x7FFB064BFBF6 调用，RDI=context句柄，RSI=r12，EDX=r13d，ECX=2；后两寄存器值的语义未恢复。
+上述具体调用点未对对应函数指针做直接NULL检查；完整路径能力条件仍需进一步分析，不能据此断言所有25项永远都必需，但足以否定“空表即可完整工作”。
+
+填表不是只发生一次：
+0x7FFB06458D06 与 0x7FFB06458E92 再次调用 glePopulateRenderDispatch；
+gliUpdateDispatchState 中 0x7FFB064DA8D4 也调用它。
+因此实现不能假定仅在 create 时填一次就永久不再更新。
+
+六、GLEngine 可以减少哪些工作，以及边界
+已证实可以借用的上层工作：
+_gliInitDispatchTable（0x7FFB0638074D）读取 G+0xb2c8 和 G+0xb2d0 中的两个表指针；这些来自 gliCreateContextWithShared 的第4/5参数。
+在其非零 profile 分支中，0x7FFB06380772..0x7FFB06380796 以8字节步长处理0x1e78字节，即975个槽位：根据第二表对应槽是否为零选择写入的表，先填 glInvalidFunction，再按分支安装 GLEngine 自身函数。
+可直接看到安装 glDeleteTextures_ExecThread、glFinish_ExecThread、glFlush_ExecThread、glGetIntegerv_ExecThread、glReadPixels_PackThread 等 GLEngine 实现。
+这证明若正确接入 GLD 契约，可复用 GLEngine 的上层 GL API 分派与已有执行/打包逻辑，不必把975个上层 API 槽全部独立实现。
+
+不能省略的部分：
+1. 插件加载器仍逐一解析129项 GLD 必需导出，缺失任一项会被拒绝；GLEngine 的 GL API 表不能替代这些导出。
+2. gldCreateContext 必须提供有效句柄与符合实际语义的状态/能力区域，光返回0不够。
+3. gldPopulateContextDispatch 仍须提供被选路径使用的底层回调；gleUpdateDispatchJIT 在该处只是复制既有表，没有给空槽自动补上通用软件渲染器。
+4. 本次没有证明 GLEngine 能替代驱动的资源创建、提交/同步、纹理/缓冲区访问及目标呈现，也没有恢复全部所需回调；不能给出“剩下只要实现N个函数”结论。
+5. 25个渲染单元与129个导出是不同层次，不可相互混用。
+
+七、尚不能确定，明确不填假签名
+- gldChoosePixelFormat 第2参数内部请求结构及输出节点完整大小/属性字段。
+- gldPopulateRendererInfo 0x88记录除链接/已见标识位外的字段布局。
+- gldCreateContext 后三个内部区域的正式类型、全部字段及读写契约。
+- gldPopulateContextDispatch 的 C 返回类型；25个单元的全部命名、回调参数/返回类型、哪些能力路径允许NULL。
+- 跨系统版本或 arm64 的 ABI 稳定性。
+- 可运行插件所需完整行为及真实绘制验证：本次静态调用点证据不能替代驱动实现与运行测试。
+
+恢复工作的建议起点：以这里四个调用点为锚，继续对驱动侧实现或对应消费者恢复上述内部结构和25项渲染表；不要从函数名称补写结构体或默认 void 返回。

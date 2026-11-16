@@ -229,6 +229,31 @@ static int report(const char *label, CGLPixelFormatAttribute *attrs, int require
     printf("%s: clear/readback pixels=4096 mismatch=%zu -> %s\n",
            label, clear_mismatch, clear_mismatch ? "FAIL" : "PASS");
     if (clear_mismatch) goto cleanup;
+    /* Exercise shared pack state: five RGBA pixels per row round to 24 bytes
+     * at alignment eight; skip one row and one pixel before a 3x2 read. */
+    unsigned char packed[96];
+    memset(packed, 0x5a, sizeof(packed));
+    glPixelStorei(GL_PACK_ALIGNMENT, 8);
+    glPixelStorei(GL_PACK_ROW_LENGTH, 5);
+    glPixelStorei(GL_PACK_SKIP_ROWS, 1);
+    glPixelStorei(GL_PACK_SKIP_PIXELS, 1);
+    glReadPixels(2, 3, 3, 2, GL_RGBA, GL_UNSIGNED_BYTE, packed);
+    int pack_ok = check_gl(label, "strided readback");
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_PACK_SKIP_ROWS, 0);
+    glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
+    if (!check_gl(label, "restore pack state") || !pack_ok) goto cleanup;
+    size_t pack_mismatch = 0;
+    const unsigned char clear_rgba[4] = {17, 83, 149, 255};
+    for (size_t i = 0; i < sizeof(packed); ++i) {
+        int selected = (i >= 28 && i < 40) || (i >= 52 && i < 64);
+        unsigned char expected = selected ? clear_rgba[i % 4] : 0x5a;
+        if (packed[i] != expected) ++pack_mismatch;
+    }
+    printf("%s: strided readback bytes=96 mismatch=%zu -> %s\n",
+           label, pack_mismatch, pack_mismatch ? "FAIL" : "PASS");
+    if (pack_mismatch) goto cleanup;
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
     glBegin(GL_TRIANGLES);

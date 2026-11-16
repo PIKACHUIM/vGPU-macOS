@@ -1,0 +1,188 @@
+GLD 第5参数共享状态与驱动侧交叉证据
+日期：2026-11-16
+范围：macOS 15.7.3 / 24G419，x86_64。所有机器地址均为 unslid。
+GLEngine UUID：FB994F78-34C6-39F3-857D-99F9B3013E8F（沿用前次已核验记录）。
+GLRendererFloat UUID：A41FE4B0-484A-3AA4-934E-E42F99453798（本次 dyld_info 实测）。
+映像根：/System/Library/Frameworks/OpenGL.framework/Versions/A/Resources/
+
+1. 结论与边界
+已证明 gldCreateContext 第5参数是可保留的共享状态基址，GLRendererFloat 保存它并在后续 update/read/clip 路径中取回。它不是只在 create 期间有效的临时参数。
+设 G=GLEngine GLIContext，S=G+0xc6b0+i*0xe20，A=arg4=S+0x10，H=arg5=G+0x8e0，B=arg6=S+0x270，C=GLRendererFloat 分配的驱动 context。
+因此 G+0x44d0、G+0x44b8、G+0x44e4、G+0x57ac 分别在 H+0x3bf0、H+0x3bd8、H+0x3c04、H+0x4ecc，地址可达性确定。
+“地址可达”不等于“该驱动在该路径直接读取”：Float 设置 A+0x6e=1，clear 值经显式数据块传入 gldClearFramebufferData；本次没有发现 Float 以 H+0x3bf0/+0x3bd8/+0x3c04 的直接位移读取 clear 值。
+pack 行步长则已恢复到实际消费者：C+0x1038 -> H，H+0x4ec8 -> pack 视图，pack+4 -> H+0x4ecc = G+0x57ac。
+本报告是稀疏 offset 视图和调用行为，不是完整私有头文件；任何区域间距均不作为结构大小。
+
+2. 复现、证据保存和工具局限
+仅通过 python tools/mssh.py 远端执行只读分析；没有输出或读取展示 .env.local 内容，没有改驱动、安装、重启或运行 git。
+先 dyld_info -arch x86_64 -uuid -exports 定位导出，再在远端执行 -disassemble 并筛选指定函数，仅返回函数片段。dyld_info 本机版本没有按函数限定的 disassemble 参数，因此生成器在远端内存里处理完整输出，未下载整个映像或完整反汇编文件。
+GLRendererFloat __TEXT 基址 0x7FFB064EA000；导出表给映像内偏移：
+ _gldCreateContext              +0x3af7 -> 0x7FFB064EDAF7
+ _gldUpdateReadFramebuffer      +0x4b2d -> 0x7FFB064EEB2D
+ _gldUpdateDrawFramebuffer      +0x4c45 -> 0x7FFB064EEC45
+ _gldReadFramebufferData        +0xbeea -> 0x7FFB064F5EEA
+本次 -segments 的 section 行显示了不合理的重复加基址地址（例如 __text=0xFFF60C9D4A20），未用这些行推导机器地址。上述地址由 segment 基址+导出偏移、反汇编、section_bytes 指令字节交叉确认。
+远端新证据均在 /var/tmp/vgpu-fb/：
+ gld-shared-state-float-disassembly.txt：64172字节，四个主要函数。
+ SHA256 3a10bee948a32a9a6392a30fe81e5a065b3128faa3b0f5d07618d818a6df8c42
+ gld-shared-state-float-extra.txt：53043字节，PixelSettings/SetReadBufferPtrs/SetDrawBufferPtrs/ClipUpdateRect/AttachDrawable/LoadCurrentDrawFramebuffer/LoadCurrentReadFramebuffer/ClearFramebufferData。
+ SHA256 e356c50757adf9193f00e4ff903227aa7d74aef3ff85baf0b2e8e2fcf17185d1
+ gld-shared-state-engine-xrefs.txt：80448字节，146处目标位移直接引用及上下文；最近标签不能直接当函数名。
+ SHA256 1cde306e60156263db2818cbd107743dacf00fa6a737d12355488c2834d97184
+ gld-shared-state-engine-selected.txt：22340字节，API写入、attach片段。
+ SHA256 beb8dcde1e003870d056abb5632750a3070791173d1bdf0a021811a03e0924ed
+ gld-shared-state-byte-check.txt：1849字节，关键机器字节、PixelStorei分派表解码。
+ SHA256 893f9ee52593eec597c7dc707ada98c4d14640da684b1240715b8574dfcf5512
+ gld-shared-state-final-xrefs.txt：3844字节，整数clear写入、初始化、clamping更新。
+ SHA256 4cae497f0b35fdf2f25f23c057184ecb774eb030360d4cfdde002a9db6afbd78
+ gld-shared-state-engine-contract.txt：9452字节，dirty、depth/stencil、read临时stride与API名称锚点。
+ SHA256 febe78e8146b9e8f316c3c3487f824112afd1a95d0a6a959a9d5a94eb917fc87
+
+3. create 的保存关系：不是推测
+GLEngine 调用点仍为 0x7FFB0637B27A，参数来源见 out/glengine-contract.txt。
+Float：
+ 0x7FFB064EDB08 movq %r9,%r12：暂存 B。
+ 0x7FFB064EDB0B movq %r8,%r14：暂存 H。
+ 0x7FFB064EDB0E movq %rcx,%r15：暂存 A。
+ 0x7FFB064EDB3E EDI=0x36f8；0x7FFB064EDB48 malloc；0x7FFB064EDB56 R12=C。
+ 0x7FFB064EDC84 C+0x1030 <- share-group 参数。
+ 0x7FFB064EDC8C C+0x1038 <- R14=H。
+ 0x7FFB064EDC94/98 C+0x1040 <- 先前栈存的 B。
+ 0x7FFB064EE4EA C+0xbf8 <- R15=A。
+ 0x7FFB064EE51E *context_output_slot <- C。
+C 的0x36f8是此软件驱动实际分配大小，不是自研驱动必须复制的布局；以上偏移只用于证明 Float 的实现。
+关键字节复核：0x7FFB064EDC8C = 4d 89 b4 24 38 10 00 00（保存H）；0x7FFB064F5F6C = 4c 8b 97 38 10 00 00（读取H）。
+生命周期只证明保留到后续操作，尚未恢复完整销毁顺序/多线程同步；自研实现应保留传入指针，不复制一个猜测大小的完整对象。
+
+4. 可编写的最小共享状态视图
+以字节指针 H 为基址，用 memcpy/显式load访问已证实宽度，避免硬拼完整结构与未证实对齐。
+ H偏移     G偏移     宽度    含义/证据等级
+ +0x3bd8   +0x44b8   8       clear depth，double；API写入及GLEngine读取已证实。
+ +0x3bf0   +0x44d0   16      clear color原始16字节；普通路径float[4]，整数EXT路径int32/uint32[4]，不可固定float解释。
+ +0x3c04   +0x44e4   4       clear stencil容器；普通API只保留输入低8位。
+ +0x3c08   +0x44e8   2       默认read-buffer选择值；Float直接读取，见第7节。
+ +0x3c0c   +0x44ec   2/项    默认draw-buffer枚举序列首项；只声明当前已见访问，不声明完整数组上界。
+ +0x4ec8   +0x57a8   4       pack row length。
+ +0x4ecc   +0x57ac   4       pack row stride（字节）；0时计算，ReadPixels可临时覆盖。
+ +0x4ed8   +0x57b8   4       pack skip rows。
+ +0x4edc   +0x57bc   4       pack skip pixels。
+ +0x4ee4   +0x57c4   4       pack alignment。
+ +0x4ee8   +0x57c8   1       pack swap bytes。
+ +0x4ee9   +0x57c9   1       pack lsb first。
+最后六项有PixelStorei枚举分派、写入与驱动消费证据。其他pack字段本次虽见访问，未全部命名，不补完整结构。
+H+0xac90/+0xac94（G+0xb570/+0xb574）可算术定位默认宽高，H+0xad38（G+0xb618）可算术定位dirty容器；没有证明它们属于 H 的正式结构覆盖范围，Float也未见以这些位移直接读取。它们应留在“上层地址关系”而非最小GLD共享视图中。
+
+5. 字段由哪些API写入
+5.1 浮点与整数clear color
+glClearColor_Exec 真入口 0x7FFB0639E990，由 0x7FFB063857CD 的 RIP-relative LEA（下一条地址+0x191bc）定名；0x7FFB06388E51有另一锚。该处没有独立标签，最近的 _glEnableClientState_Exec 标签不能用来命名。
+0x7FFB0639E990字节 55 48 89 e5 53 50 48 89 fb，证实函数序言；线性反汇编曾从+2开始显示 movl %esp,%ebp，不应照抄为真实入口。
+0x7FFB0639E9BF..E9D7 先把4个float原值写 G+0xb598..+0xb5a4。
+0x7FFB0639EA49（clamp）或 0x7FFB0639EA5C（原值）写16字节 G+0x44d0。
+0x7FFB0639EA63..EA7A：A+0x6e==0时置dirty 0x8并清G+0xaebc。
+glClearColorIiEXT_Exec 0x7FFB063C11B1/B7/BD/C3 按4个32位原样写 G+0x44d0/+d4/+d8/+dc。
+glClearColorIuiEXT_Exec 0x7FFB063C120D/1213/1219/121F 同样写四个32位槽；两者各自只在A+0x6e==0时置0x8。
+另有ListExec（0x7FFB063C1034、0x7FFB063C10C5）与CompExec（0x7FFB063C1312、0x7FFB063C13B7）直接写入，故不能认为字段仅由单一公开入口更新。
+gleUpdateBufferColorClamping 在 0x7FFB06471137/1165 重算该16字节，并在0x7FFB0647116C置0x8；这是其他状态变化也可更新clear color的证据。
+glClearBuffer_Core还会临时替换并恢复color/depth/stencil，例如0x7FFB063C00FF/01C0写color，0x7FFB063C0250写depth，0x7FFB063C0286写stencil；0x7FFB063C0417/043E/045E恢复。这里未恢复每个公开ClearBuffer入口，不能把这些临时值当永久API状态。
+
+5.2 depth/stencil
+_glClearDepth_Exec：0x7FFB063A5530..5547在A+0x6e==0时置dirty 0x10；0x7FFB063A554E..5563执行double边界处理；0x7FFB063A5567 movlpd 写G+0x44b8。
+_glClearStencil_Exec：0x7FFB063A71D0..71E7在A+0x6e==0时置0x20；0x7FFB063A71EE movzbl %sil,%eax；0x7FFB063A71F2 movl写G+0x44e4。
+其ListExec/CompExec在0x7FFB063C15FC/166B也写stencil。
+gleSetAttrib 0x7FFB063B190B与0x7FFB063B24CE分别恢复stencil和depth；仅直接位移搜索不包含所有成块复制路径，不声称已枚举所有写入。
+
+5.3 PixelStore与临时stride
+_glPixelStorei_Exec 真入口0x7FFB06390FB0，由0x7FFB0638443E LEA定名。
+_glPixelStoref_Exec 真入口0x7FFB063E3B20，由0x7FFB06384421 LEA定名。
+二者入口字节均以55 48 89 e5开始。最近标签分别误落在_glPixelTransferi_Exec与_glGetPixelMapusv_Exec，不能依最近标签归属。
+PixelStorei以ESI=pname，EDX=value；从__TEXT,__text机器字节解码相对跳转表：
+ 表0x7FFB063911F8，索引pname-0xcf0；表0x7FFB06391260，索引pname-0x8a15。
+ pname   目标分支             实际写指令           字段
+ 0x0d00  0x7FFB0639115C       0x7FFB06391160       G+0x57c8（byte，swap bytes）
+ 0x0d01  0x7FFB063910A4       0x7FFB063910AC       G+0x57c9（byte，lsb first）
+ 0x0d02  0x7FFB06391091       0x7FFB06391099       G+0x57a8（row length）
+ 0x0d03  0x7FFB063910D9       0x7FFB063910E1       G+0x57b8（skip rows）
+ 0x0d04  0x7FFB06391150       0x7FFB06391154       G+0x57bc（skip pixels）
+ 0x0d05  0x7FFB06391139       0x7FFB06391148       G+0x57c4（alignment）
+ 0x8a15  0x7FFB0639103B       0x7FFB06391043       G+0x57ac（row bytes/stride扩展枚举，正式头文件名称未在目标SDK核对）
+整数stride/length/skip分支拒绝负值。alignment用0x116位图测试1/2/4/8。
+PixelStoref 0x7FFB063E3DA2写alignment、0x7FFB063E3DD1写row length（先浮点转换）；本次未完整恢复其全部pname表，不假定它与整数扩展完全同构。
+glReadPixels_Exec 0x7FFB063B68B2读取旧stride，若0则取length/alignment计算；0x7FFB063B6951保存旧值，0x7FFB063B695A写临时stride；0x7FFB063B6B0F恢复原值。
+因此驱动必须在调用过程中读取当前H+0x4ecc，不得仅在create时缓存。其他imaging/copy/attrib路径也有临时覆盖和恢复，详见engine-xrefs。
+
+6. pack 的完整驱动消费链
+_gldReadFramebufferData 0x7FFB064F5F6C：R10=*(C+0x1038)=H。
+0x7FFB064F601A：RAX=H+0x4ec8=G+0x57a8；0x7FFB064F6021写入调用栈+0x10，作为_gldPixelSettings的第9参数；0x7FFB064F6047调用。
+_gldPixelSettings 起点0x7FFB064F4A1E：
+ 0x7FFB064F4A3C RBX=[rbp+0x20]=第9参pack；0x7FFB064F4A49 RDI=pack。
+ 0x7FFB064F4A56 ECX=*(pack+4)，字节8b 4f 04。
+ 0x7FFB064F4A63 非0直达0x7FFB064F4AD0，不重新计算。
+ 0x7FFB064F4A65读取pack+0（length）；0x7FFB064F4ABA与每像素字节数相乘。
+ 0x7FFB064F4ABD读取pack+0x1c（alignment），0x7FFB064F4AC4 divl，并向上对齐。
+ 0x7FFB064F4AD3把row bytes写入输出；0x7FFB064F4AED读取pack+0x14（skip pixels），0x7FFB064F4B0F乘pack+0x10（skip rows），最终0x7FFB064F4B15写偏移。
+回到read：0x7FFB064F6053..6059将该偏移加到目标pixels；0x7FFB064F605D..6060把row bytes放入局部转换描述。
+0x7FFB064F6087与0x7FFB064F609B直接读H+0x4ee8/+0x4ee9，以决定转换flags（第9个read实参为0时）。
+ReadFramebufferData在0x7FFB064F5F01读取第10参[rbp+0x28]，0x7FFB064F5F3C测试该指针，非NULL在0x7FFB064F5F41..5F55返回0；这是Float该实现的分支，不能推广为硬件PBO契约。
+
+7. 第4/6参数、默认缓冲选择与clear
+A：0x7FFB064EE0AD movw $0x101,0x6e(%r15)，机器字节66 41 c7 47 6e 01 01，明确A+0x6e=1且A+0x6f=1。
+A+0x6e的行为定义：0选择render[0]的公开GL mask路径及clear状态dirty；非0选择gldClearFramebufferData的内部mask+显式数据块路径。正式字段名/全部影响范围未知；A+0x6f不因相邻而赋相同语义。
+A+0x38/+0x39分别于0x7FFB064EE18A/EE196由C+0x320c/+0x3210低字节写入；它们来自像素格式节点+0x1c/+0x20的能力位转换（0x7FFB064EDE01..DE63），且GLEngine用它们判定默认depth/stencil可读。可作为已见位深能力，不代表整个A布局恢复。
+B：UpdateDraw 0x7FFB064EEC88读取C+0x1040=B，0x7FFB064EEC8F读取B+0x4a0的draw framebuffer句柄；Read对应0x7FFB064EEB62/EEB69读取B+0x4a8。并非从H取当前FBO句柄。
+UpdateDraw 0x7FFB064EECDE/EECE8把H作为第2参传给_gldSetDrawBufferPtrs；其默认目标分支0x7FFB064EAD54将RSI加0x3c0c，0x7FFB064EAD67读取uint16枚举，比较0x400/0x402等。
+UpdateRead 0x7FFB064EEB88/EEB92把H作为第2参传给_gldSetReadBufferPtrs；默认目标分支0x7FFB064EB1E2 movzwl 0x3c08(%rsi),%esi读取uint16 read-buffer枚举，0x7FFB064EB1E9/EB1F5比较0x402/0x400。
+Float clear起点0x7FFB064EE7F8：RDX数据块保存为R14（0x7FFB064EE80F）；低8位mask决定颜色；0x7FFB064EE826把同一数据块传_gldClearDrawBuffer。
+0x7FFB064EE85C/EE88A读取数据块+0x10 float depth；0x7FFB064EE862/EE8C0读取数据块+0x14低byte stencil；bit8/bit9分别选择depth/stencil。
+0x7FFB064EE84C读取H，0x7FFB064EE853检查H+0x3c9c是否0xff，是掩码相关条件，不是读取clear stencil值H+0x3c04。
+静态直接位移搜索没有命中Float的0x3bd8/0x3bf0/0x3c04，不等于证明任何间接路径永不访问，但不足以用此软件驱动证明A+0x6e==0硬件clear状态消费。
+
+8. 目标尺寸来源
+默认目标：
+ gleInitializeContext 0x7FFB0637C164以8字节写0到G+0xb570（宽高初始为0）。
+ gliAttachDrawableWithOptions 0x7FFB0638EBFB令R8=&G+0xb570，0x7FFB0638EC0F调用plugin+0x4a0=gldAttachDrawable。
+ Float gldAttachDrawable 0x7FFB064EFB7B保存该R8到RBX。
+ 0x7FFB064EFD29读取C+0x3078的drawable状态对象V；V非NULL时0x7FFB064EFD35读取V+8、0x7FFB064EFD44读取V+0xc。
+ 0x7FFB064EFD42写out[0]，0x7FFB064EFD4B或EFD59写out[1]，各上限0x4000；V为空则0x7FFB064EFD50写8字节0。
+ 因此G+0xb570/+0xb574是32位默认目标width/height输出，实际尺寸不在A+0x6e附近。
+ glReadPixels_Exec 0x7FFB063B6885/688B用它们裁剪读取范围。FBO存在时改读GLEngine FBO+0x1da/+0x1dc的uint16；不能把默认尺寸当所有目标尺寸。
+Float FBO消费：
+ _glrLoadCurrentDrawFramebuffer 0x7FFB064F0E94令C+0xc00=驱动FBO，0x7FFB064F1013取其首指针Q。
+ 0x7FFB064F1075取Q+0xb2 uint16、0x7FFB064F1085取Q+0xb4 uint16，乘采样相关倍率后写C+0xc10/+0xc14（0x7FFB064F107F/108F），并写+0xc18/+0xc1c。
+ Read对应0x7FFB064F1199/11A9取Q+0xb2/+0xb4，0x7FFB064F11A3/11B3写C+0xd10/+0xd14。
+ Q是驱动FBO首指针指向的描述，不是已证明的GLEngine FBO基址，不能把Q+0xb2和上层FBO+0x1da硬合并为一个结构。
+ _gldClipUpdateRect 0x7FFB064EF95B读取H，0x7FFB064EF97E读H+0x3e88，0x7FFB064EF984基址推进到H+0x3d90；结合H+0x3d88起的矩形值和C+0xc10尺寸做裁剪。这里只给观察范围，不把它当完整scissor/viewport结构。
+FBO+0x1da/+0x1dc的上层完整写入链、附件尺寸计算和资源分配仍未知。本次未因直接位移搜索少量候选就给最近标签下的函数强行定名。
+
+9. dirty 更新的已证实定义
+上层容器D=uint32(G+0xb618)。以下是已证实行为名，不声称正式枚举名。
+ 0x00000008：clear color相关；普通setter在A+0x6e==0时置位，clamping重算也置位。
+ 0x00000010：clear depth setter在A+0x6e==0时置位。
+ 0x00000020：clear stencil setter在A+0x6e==0时置位。
+ draw消费者0x7FFB0644B1BB ESI=D&0x443c0478；0x7FFB0644B1D1调用gldUpdateDrawFramebuffer。
+ 返回EAX==2时0x7FFB0644B1DC清G+0xaebc、0x7FFB0644B1E6置G+0x5f0 bit7。0x7FFB0644B1ED以0xbbc3fb87清掉本次传递集合。不能把返回2当普通错误。
+ read消费者0x7FFB0644B3C6 ESI=D&0x80000000；0x7FFB0644B3DC调用gldUpdateReadFramebuffer；0x7FFB0644B3E2清bit31。
+Float draw：
+ 0x7FFB064EEC61..EEC7A比较drawable对象+0x14与缓存C+0x36c4；变化时invalidate并内部OR 0x40000000。
+ 0x7FFB064EEC81测试bit30，置位则从B+0x4a0重载draw FBO、分配必要depth/stencil、用H重设buffer pointers（0x7FFB064EEC88..EECF0）。
+ 0x7FFB064EED02测试0x44000000（bit30或bit26），非0调用ClipUpdateRect（0x7FFB064EED0E）。
+ 0x7FFB064EECFC把正常返回设为2；depth/stencil分配失败分支返回0x2720（0x7FFB064EECC8、EECD0、EECDC到EED13）。这是Float行为，不证明任意驱动返回码语义。
+ Float此函数不按0x8/0x10/0x20读取clear值，符合A+0x6e=1的显式数据clear路径。
+Float read：
+ 0x7FFB064EEB43..EEB5D比较drawable版本C+0x36c8并invalidate；或者0x7FFB064EEB4E/EEB50检查ESI符号位（bit31）。
+ 随后从B+0x4a8重载read FBO并用H重设read pointers；0x7FFB064EEB97返回0。
+attach上层更新：0x7FFB0638ED41对D最高byte OR 0xc0，即置bit30/31；插件切换条件下0x7FFB0638ED76还OR 0xde3c0478。
+本次没有定义0x443c0478中其余每个位，也没有证明所有dirty位应由驱动自己回写共享容器；已见模式是上层传mask并由上层清位。
+
+10. 下一阶段最小可编写边界与未知
+可以先写版本限定、基于字节指针的稀疏视图：保存A/H/B，按第4节宽度读取clear原始值与pack；明确普通float clear与整数clear的不同解释；pack必须每次read取当前值。
+可以实现并单独验证CPU目标下pack row bytes/length/alignment/skip的寻址计算，并记录收到的update mask；不能把该计算视为资源读取已完成。
+可以按已证实输出关系处理AttachDrawable的width/height输出槽，并把B+0x4a0/+0x4a8视作不透明驱动FBO句柄槽，不能伪造其资源。
+仍阻塞完整驱动实现：
+ - A+0x6e正式名称/其他消费者、其余能力字段和A+0x6f含义。
+ - A+0x6e==0的真实驱动对clear值和0x8/0x10/0x20的消费；Float的非零分支不能代替该证据。
+ - H/B完整结构范围、销毁顺序、线程同步、跨版本ABI。
+ - 目标FBO/texture/renderbuffer完整描述、附件尺寸生成、backing/pitch/格式及LoadFramebuffer资源协议。
+ - Float描绘的C/V/Q布局与自研驱动的资源实现没有等价要求，不能直接复制布局充当资源。
+ - read第9/10参完整类型与硬件同步语义；本次只证明Float若第10参非NULL直接返回0。
+ - clear/writeback真正执行、flush/wait、排除fallback/IOSurface的运行验证均未进行。
+未遇目标主要导出缺失或远端权限拒绝。dyld_info -help不支持，改用无参打印实际用法；宿主PowerShell的python命中Store占位符，使用已可用Bash python执行同一mssh任务，未安装工具。

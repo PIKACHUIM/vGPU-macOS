@@ -6104,3 +6104,27 @@ read的format可规范化、目标指针受裁剪与pack行步长调整；PBO分
 `gl_probe.c`先清屏为RGBA=(17,83,149,255)，finish后读取全部64×64像素，4096个像素必须一致，再执行原三角形验收。客体`-Wall -Wextra -Werror`编译通过；Apple Software Renderer清屏mismatch=0，三角形及黑背景通过。默认和强制加速上下文当前仍因未登录会话报invalid CoreGraphics connection，探针exit1，不能记为硬件通过。
 
 最终目标未完成：尚无自研GLD插件、标准硬件CGL上下文或Metal设备。下一步以本节经过核对的字段和调用点实现共享状态/资源契约，再接入GPU；不能靠能力位和固定返回值冒充系统API工作。
+
+### 74.5 后续复核校正
+
+提交后发现客体默认renderer探针路径仍是旧二进制，已用已提交源码重新上传、严格构建并复测：1043通过/0失败，门控1044次/CGL调用1043次；强制拒绝版exit2且CGL调用0。两新探针宿主/客体源码SHA256一致。此项纠正避免把不同路径的旧二进制误认为最终门控版。
+
+再次审查CreateContext后的指令，`0x7ffb0637b2ab cmp rcx,rax; 0x7ffb0637b2ae cmovae rcx,rax`在RCX=0x4000时得到无符号min(value,0x4000)。旧`out/glengine-contract.txt`把S+0x268写成取较大值，现改为上限截断；不由此推断字段正式名称。arg5=G+0x8e0处初始`0x10004`为32位写入，不能擅自改作64位字段。
+
+应用探针进一步加入pack状态验收：alignment=8、rowLength=5、skipRows=1、skipPixels=1，读3×2 RGBA像素。每行24字节，96字节缓冲中仅[28,40)、[52,64)应变为清屏色，其余保持0x5a。严格编译通过，软件基线96字节mismatch=0，恢复pack默认值后原三角形仍通过。硬件失败仍保持exit1。首次外层Python过滤命令因Git Bash参数改写产生SyntaxError，未影响已成功编译的探针；加MSYS2_ARG_CONV_EXCL后直接运行取得上述真实结果。
+
+### 74.6 共享状态取得驱动侧交叉证据
+
+系统GLRendererFloat UUID `A41FE4B0-484A-3AA4-934E-E42F99453798`。其CreateContext在`0x7ffb064edc8c`将第五参数H=G+0x8e0保存到自有context+0x1038；后续ReadFramebufferData在`0x7ffb064f5f6c`取回H，`0x7ffb064f601a`传H+0x4ec8给PixelSettings。后者读取pack+4作为当前row bytes，使用pack+0x10/+0x14计算skipRows/skipPixels；不能只在create时缓存stride。
+
+| 相对H偏移 | 已确认内容与宽度 |
+|---|---|
+| +0x3bd8/+0x3bf0/+0x3c04 | clear depth 8字节、color原始16字节、stencil 4字节；由GLEngine写入 |
+| +0x3c08/+0x3c0c | 默认read-buffer枚举u16、draw-buffer枚举序列首项u16 |
+| +0x4ec8/+0x4ecc | pack rowLength/rowBytes，各32位 |
+| +0x4ed8/+0x4edc/+0x4ee4 | pack skipRows/skipPixels/alignment，各32位 |
+| +0x4ee8/+0x4ee9 | pack swapBytes/lsbFirst，各1字节 |
+
+Float设置arg4能力区+0x6e为1，clear通过显式数据块，因此它不能证明+0x6e为0时硬件render[0]如何读clear状态。arg6=B保存到context+0x1040，update从B+0x4a0/+0x4a8读取draw/read FBO句柄；FBO句柄不在H里。默认目标尺寸通过AttachDrawable的第五参数输出，FBO尺寸则另走附件描述，不能统一硬编码。
+
+完整机器地址、关键字节及客体证据SHA在`out/gld-shared-state-research.txt`。本轮恢复的是可保留指针和稀疏字段视图；没有实现完整context资源、FBO描述、销毁/同步或硬件API插件。
