@@ -30,6 +30,9 @@
 			<string>vgpuFramebuffer</string>
 			<key>IOMatchCategory</key>
 			<string>IOAccelerator</string>
+			<!-- Negative loader diagnostic: always rejects device creation. -->
+			<key>IOGLBundleName</key>
+			<string>VGPUDriverDiagnostic</string>
 		</dict>
 		<key>vgpuFramebuffer</key>
 		<dict>

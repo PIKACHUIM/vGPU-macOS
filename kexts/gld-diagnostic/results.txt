@@ -1,0 +1,61 @@
+第一份严格负向 GLD diagnostic bundle — 主代理交接
+实际验证日期：2026-11-16
+状态：源码实现、严格编译、本地 dlopen harness 验证通过；正常 loader 发现未执行；不是3D实现。
+
+允许范围
+本地仅新增 kexts/gld-diagnostic/ 下文件与 kexts/probes/gld_bundle_probe.c。
+未执行 git 操作、系统安装、/Library 写入、安全设置修改、重启、IOKit/CGL调用或GPU命令。
+远端仅写入新目录 /var/tmp/gld-diagnostic.ylmykC；保留构建产物供主代理后续使用。
+清理已验证为两次 gldTerminateLibrary + 两次 dlclose；临时文件有意保留，不代表存在设备资源。
+
+产物与名称
+bundle：VGPUDriverDiagnostic.bundle
+CFBundleExecutable / CFBundleName：VGPUDriverDiagnostic
+identifier：org.vgpu-macos.gld-diagnostic
+后续 IOGLBundleName 候选：VGPUDriverDiagnostic
+远端已验证产物：/var/tmp/gld-diagnostic.ylmykC/build-v2/VGPUDriverDiagnostic.bundle
+本地已取回产物：kexts/gld-diagnostic/verified-build/VGPUDriverDiagnostic.bundle
+实际 Mach-O executable：Contents/MacOS/VGPUDriverDiagnostic
+bundle只依赖 /usr/lib/libSystem.B.dylib，未显式codesign，不推断GPU信任。
+
+实际目标与命令
+通过 tools/mssh.py 连接，普通用户 uid=501；sw_vers=15.7.3 / 24G419，uname -m=x86_64。
+Apple clang 17.0.0 (clang-1700.0.13.5)，Target x86_64-apple-darwin24.6.0。
+bash /var/tmp/gld-diagnostic.ylmykC/gld-diagnostic/build.sh /var/tmp/gld-diagnostic.ylmykC/build-v2
+编译/链接/probe流水线最终退出0。完整命令与输出：build-v2-transcript.txt。
+严格C选项：-std=c11 -Wall -Wextra -Werror -Wpedantic -Wstrict-prototypes -Wmissing-prototypes -Wconversion -Wshadow -O2 -fno-common -fvisibility=hidden，-arch x86_64 -mmacosx-version-min=15.0。
+链接：-bundle -Wl,-fatal_warnings；默认未解析符号报错。最终构建无编译/链接warning/error。
+首轮失败保留在 build-transcript.txt：ld 对冗余 -undefined error 选项报弃用warning，fatal_warnings使构建失败。移除此选项后换新build-v2目录成功；未降低警告级别。
+
+原始验证结果
+probe pid=656；verified-build/probe.log为含stderr的原始有序日志。
+cycle=1 dlopen mode=0x6（NOW|LOCAL）；cycle=2 mode=0x5（LAZY|LOCAL，与目标loader一致）。
+两轮均：129/129必需入口 + 初始化/终止；全部131符号来源、精确名字、起始地址和同映像基址通过。
+127/127未知入口代码首字节为UD2 0f0b，没有猜签名调用它们。
+nm实际导出集合精确匹配131个预期导出；required_entries.inc与原始ENTRY证据顺序独立比对129/129。
+version rc=1 fields=4/1/0x11/0x7e00 driver-id=0x00027e00，输出前后哨兵完整。
+每轮真实日志顺序：initialize -> version -> device四次 -> terminate -> dlclose。
+mask分别0、1、0x80000000、0xffffffff；共8次结果均-1，device=NULL，第三输出清零400字节，记录前区与尾部哨兵保持0xa5。
+两次初始化均未修改输入数组，两个回调从未调用。
+两次终止和dlclose成功；不宣称dlclose后映像一定被dyld卸载。
+最终原文：PASS required=129 traps=127 cycles=2 device-rejections=8 cleanup=2 diagnostic-only
+
+SHA256（实际产物）
+VGPUDriverDiagnostic binary:
+2b6706eba22815dd3c4b359ad30f9c87728d3435ae6295ffd7f1bf64d9322247
+gld_bundle_probe binary:
+950a215310775ba0c6712efee4579e29db55e86d113313a3b385d1a92b753a76
+Info.plist:
+148f813929040c7ad06f9d7b9f2da0217d36fe0fd307fee1a4cc6e3279a5f737
+probe.log:
+e3266800347b0919d4838f37f34f07e15894dcb990167efe56c1d2e66db62925
+verified-build/SHA256SUMS记录6项产物哈希，取回后本地校验6/6一致。
+source-sha256.txt记录7项远端源码哈希，均与本地最终源码比对一致7/7。
+
+ABI证据与限制
+详见 abi-evidence.txt，包含终止函数无参数调用点0x7ffb06178048、失败设备直接free而非destroy、0x1b0分配及+0x20输出范围。
+初始化/终止返回值被调用者忽略，不宣称恢复原始C返回类型；回调只按地址位传递。
+0x190仅是已核实24G419调用者的安全尾区，不是通用私有结构体定义。
+0x7e00为诊断选用合法字段，不使用float分类；是否与正常运行插件集合冲突由loader实际去重检查，尚未实测全局唯一性。
+正常发现路径还需要关联的IOAccelerator发布IOGLBundleName、bundle及executable通过信任检查；本任务未尝试这些系统变更。
+这些日志来自显式dlopen harness，不是正常loader发现日志；不构成可用硬件renderer、硬件上下文、OpenGL或Metal支持证明。

@@ -6225,3 +6225,34 @@ selector0输出直接写设备对象+0x270，容量64字节。GetConfig64在0x7F
 ### 77.4 后续
 
 此阶段闭合真实GPU纯清屏能力，仍是固定256x256管理员私有接口，不代表标准OpenGL/Metal可用。下一步验证自研GLD正常发现/加载，再实现真实device/context、资源与shader桥接。
+
+## §78：自研GLD由系统正常发现与装载（2026-11-16）
+
+### 78.1 负向诊断bundle
+
+新增kexts/gld-diagnostic及kexts/probes/gld_bundle_probe.c。VGPUDriverDiagnostic.bundle导出129必需入口及initialize/terminate共131符号：四个已核验入口实际实现，其余127项UD2 fail-closed；任何未知入口误调用都会失败，不能进入成功设备路径。GetVersion返回4/1/0x11/0x7e00，通过的是loader协议版本门槛，不是OpenGL能力。CreateDevice将句柄与caller配置区清零并返回-1；不分配GPU资源，不发布renderer能力。
+
+独立harness严格构建，2轮dlopen、129/129符号、127/127 trap、8次设备拒绝、2次清理及边界哨兵通过。随后主代理复核原始调用点：W分配0x1b0、out=W+0x18、config=W+0x20、非零返回仅free W，零设备插件terminate后dlclose。文件名构造在0x7FFB06174336..74349直接用IOGLBundleName拼接，不读取CFBundleExecutable；旧报告对此的plist描述不准确，目录名/属性名/可执行文件名均保持VGPUDriverDiagnostic。
+
+### 78.2 真实系统发现实验
+
+已安装/Library/GPUBundles/VGPUDriverDiagnostic.bundle，未显式codesign该用户态bundle；仅内核候选按既有身份签名。没有修改安全配置。Info.plist accelerator personality发布IOGLBundleName=VGPUDriverDiagnostic。旧驱动已备份并cmp核验：/var/tmp/vgpu-fb/vgpuFramebuffer.pre78.kext。
+
+客体启动时间15:45:20，15:45:41.767打印§78-gld-discovery；ioreg确认关联服务active且名称属性正确。安装kext UUID 8B1934DE-99CC-3439-844A-1A05F3E935D8，SHA256 227dc5d2173c59f6518ee511ddc2a4547b3a700583b70181b68c7180d47d07bf。用户态bundle SHA256 2b6706eba22815dd3c4b359ad30f9c87728d3435ae6295ffd7f1bf64d9322247。
+
+普通用户运行既有公开CGL探针/var/tmp/vgpu-fb/glprobe_resources，pid319的stderr真实出现：
+
+```
+initialize mask=0x00000001 flags=0x80000010 mode=reject-all-devices
+version 4/1/0x11/0x7e00 result=1 diagnostic-only
+device mask=0x00000001 result=-1 device=NULL caller-tail-zero=0x190
+terminate resources=0
+```
+
+这些调用来自系统loader，未由此探针显式dlopen或调用GLD。已证明IOAccelerator关联、IOGLBundleName发现、两级信任、dlopen、全部符号及版本校验、device拒绝与清理在当前目标走通。修改后的gld_trust_probe可接受单一bundle名称：真实目录和可执行文件stat成功，find=0、两处trust=0、errno=0。该结果不外推默认SIP配置。
+
+### 78.3 回归与尚未完成项
+
+重启后管理员--accelerator完整回归35次新提交（generation1..35）再次PASS，clear和固定/用户顶点全像素mismatch=0。公开OpenGL软件纹理/FBO基线仍全部通过；硬件CGL仍invalid CoreGraphics connection且进程exit1，当前console=root，无已登录Aqua会话。诊断device本来就拒绝创建，不能把加载成功计作硬件上下文成功。
+
+下一步是独立实现持有真实vGPU连接的device生命周期和精确context/render dispatch；现有负向bundle的trap不能被用于成功device路径。标准OpenGL/Metal仍未完成。

@@ -1,0 +1,62 @@
+VGPUDriverDiagnostic：严格负向 GLD 诊断；非渲染器、非 3D 实现。
+限定目标：macOS 15.7.3 / 24G419 / x86_64。
+依据：out/gld-loader-contract.txt、out/gld-loader-memory-v3.txt、out/gld-trust-verified.txt、out/gfx-loader.txt、out/gld-bundle-feasibility.txt。
+libGFXShared UUID ceb3ff13179a3afdab0731be4c2073b9；以下地址均为 unslid。
+
+名称与后续发现实验
+bundle 目录名：VGPUDriverDiagnostic.bundle
+IOGLBundleName 候选值：VGPUDriverDiagnostic（不带 .bundle）
+CFBundleExecutable：VGPUDriverDiagnostic
+二进制相对路径：Contents/MacOS/VGPUDriverDiagnostic
+CFBundleIdentifier：org.vgpu-macos.gld-diagnostic
+CFBundlePackageType：BNDL
+本任务只在新 /var/tmp 目录构建和显式 dlopen，不安装，不发布 IOGLBundleName。
+注意 gfx-loader.txt 0x7ffb06174336–74349 实际直接使用 bundle name 拼接可执行文件名；没有在此段读取 CFBundleExecutable。部分旧摘要将此段描述成读取 plist，不符合该段指令。本实现将三个名字保持一致，满足两种表述要求。
+
+初始化
+0x7ffb06174697–746c0 明确六参数：服务句柄数组指针、字节数组指针、32位槽掩码、flush地址、bind地址、32位flags。
+实现以 uintptr_t 接收两个回调地址，符合该平台整数寄存器传参；不臆测回调签名、不调用、不保存、不解引用服务数组。
+调用者忽略返回值。本实现 void 只是本地实现约定，不证明系统原型返回类型。
+
+版本
+0x7ffb061746e1–74719 初始化四个32位槽并传地址。
+0x7ffb0617471b–7476e 要求 EAX非0，4/1/0x11，(v3 & 0xffff00ff)==0。
+本实现返回1，v3=0x7e00，loader driver id=0x27e00。
+该字段为此诊断选用；不使用 0x0400 float 分类，不伪装 Apple renderer ID。
+0x7ffb06174778–74789 会检查运行中插件列表是否存在相同 driver id；本地 harness 未创建该真实列表，因此不能保证任何未来插件集合都无冲突。
+这些字段是 loader 协议检查值，不代表宣告 OpenGL 4.1 能力。
+
+设备拒绝与输出范围
+0x7ffb061748a4–748c6：gfxAddDevice 分配并清零0x1b0字节。
+0x7ffb06174815–74820：RDI=record+0x18、ESI=mask、RDX=record+0x20。
+其他使用点 0x7ffb06174a19 将 record+0x18 读取为64位设备指针。
+诊断清零8字节设备槽及 record+0x20 到 record+0x1b0 的0x190字节调用者尾区，然后返回 int32 -1。
+0x7ffb06174827–7483d：非零结果调用 gfxDeleteDevice 并递减插件设备计数。
+gfxDeleteDevice 0x7ffb06177f98–77fdc 只摘链、free，不调用gldDestroyDevice。
+0x7ffb06174844–74875：零设备的插件进入 gfxPluginDisconnect，再删除插件。
+0x190是已知调用者分配中可安全清零的尾区上界，不是声称恢复了第三参数私有结构体的独立 sizeof。
+禁止将本实现用于未核实的其他系统版本或自行分配较短第三输出缓冲区的调用者。
+probe 使用相同实际分配布局和前后哨兵，检查完整清零及无越界。
+
+终止签名核验
+out/gfx-loader.txt 4656–4676行 gfxPluginDisconnect：
+0x7ffb0617802b 读取 dlopen 句柄；0x7ffb0617803e dlsym("gldTerminateLibrary")。
+0x7ffb06178043 test rax；0x7ffb06178048 call *rax。
+dlsym后不准备任何参数寄存器/栈参数，调用后不使用返回值；接着0x7ffb06178051 dlclose。
+因此按此调用点 ABI 实现 void gldTerminateLibrary(void)，不是仅从字符串存在猜签名。
+本实现无堆分配、GPU连接或引用持有，终止只向stderr记录pid。
+
+其他入口
+required_entries.inc逐项对应内存证据ENTRY 0..128。
+129项包含2个已实现入口及127个汇编UD2入口；另外导出初始化和终止，共131个。
+在已核验的全设备拒绝路径上，其余入口不可达。误调用会SIGILL，不返回成功或伪造输出。
+probe用dlsym+dladdr+realpath核验全部131符号的映像、精确名称、起始地址、映像基址；127入口逐一检查0f 0b字节，不以猜测函数签名调用。
+构建同时通过nm与预期列表比较实际导出集合；入口列表另与原始内存证据独立比对。
+
+日志与验证边界
+初始化/version/device/terminate各次真实入口调用用fprintf(stderr)打印pid。
+probe日志为harness主动驱动的调用序列，不代表正常系统loader发现已经成功。
+两轮分别使用RTLD_NOW|RTLD_LOCAL及目标loader的RTLD_LAZY|RTLD_LOCAL(5)，每轮终止并dlclose。
+清理成功指入口调用和dlclose返回成功，不据此保证dyld已卸载映像。
+不链接OpenGL或IOKit，不调用CGL，不发GPU命令，无图形能力、renderer record、上下文或dispatch实现。
+正常loader发现、两级GPU信任检查及driver id运行时冲突仍由主代理后续实验核验。

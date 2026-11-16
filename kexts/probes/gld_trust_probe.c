@@ -55,7 +55,7 @@ static void query_path(path_trusted_fn trusted, const char *path)
            result, trust_errno);
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     struct utsname system;
     if (uname(&system) != 0) {
@@ -73,6 +73,28 @@ int main(void)
     _Static_assert(sizeof(find) == sizeof(find_symbol), "pointer size");
     memcpy(&trusted, &path_symbol, sizeof(trusted));
     memcpy(&find, &find_symbol, sizeof(find));
+
+    if (argc == 2) {
+        /* 单个名称仅查询标准搜索根，不加载候选。 */
+        if (argv[1][0] == '\0' || strchr(argv[1], '/') != NULL) return 2;
+        char candidate[PATH_MAX] = {0};
+        errno = 0;
+        int found = find(argv[1], candidate, sizeof(candidate));
+        int saved_errno = errno;
+        printf("FIND name=%s result=%d errno=%d path=%s\n", argv[1], found,
+               saved_errno, found == 0 ? candidate : "");
+        if (found != 0) return 1;
+        query_path(trusted, candidate);
+        char executable[PATH_MAX];
+        int written = snprintf(executable, sizeof(executable),
+                               "%s/Contents/MacOS/%s", candidate, argv[1]);
+        if (written < 0 || (size_t)written >= sizeof(executable)) return 1;
+        query_path(trusted, executable);
+        struct stat executable_stat;
+        return stat(executable, &executable_stat) == 0 &&
+               S_ISREG(executable_stat.st_mode) && trusted(executable) == 0 ? 0 : 1;
+    }
+    if (argc != 1) return 2;
 
     const char *paths[] = {
         "/Library/GPUBundles",
