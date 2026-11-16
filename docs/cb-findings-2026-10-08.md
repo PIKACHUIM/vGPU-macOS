@@ -6509,3 +6509,19 @@ TCL静态补证关闭直接入口pattern：两个指针归一化均为gleBeginPr
 系统bundle隔离SDK构建 out/integration-render-sdk-20261116T173803553767Z 完成，空表1127项、元数据各382项和生命周期注入各417项通过；真实设备--metadata却在EnableMetadata返回0xe00002d8。根因：gld_device存活探测主动以selector1/generation0取得NotReady，并将该预期响应归一为整体成功；integration与context_exports三个门控错误地要求原始liveness_status==0。三个CPU fixture也错误模拟零状态，掩盖了缺陷。已修正门控为预期kIOReturnNotReady及fixture真实契约。新隔离构建 out/integration-render-sdk-20261116T174807448875Z 的SDK构建、空表、CPU strict/NDEBUG/UBSan通过，真实设备--metadata通过5438项检查，含两种dlopen模式和重复生命周期；metadata-device.log exit0。旧失败日志保留，不能称旧构建实机通过。
 
 B3补证 out/gld-triangle-state-contract.txt 恢复矩阵/viewport/主要enable稀疏H字段，glEnd不检查End回调返回，而gldGetError非零u32原样进入glGetError，故需要独立错误锁存。position-only路径只核对Begin/End当前红色会漏掉中途改绿再恢复红色的逐顶点历史；必须补逐顶点颜色输出/验证，或明确仅限受控实验。完整系统dispatch和Metal仍未实现。
+
+### 86.2 内部 primitive 实机闭环与阶段提交
+
+普通及ASan/UBSan版本的 gld_primitive_draw_probe --gpu 在同一冷启动通过，各164检查、9次真实submit、10次flush。证据 out/primitive-draw-macos-20261116T174612126458Z/gpu.log 与 gpu-sanitized.log；覆盖64顶点有界16字节对齐staging、负GL z映射、两次draw累积、7类拒绝后完整像素与代次不变、pending错误阻止flush、有效draw恢复、最后引用保活及归还资源。该链为项目内部primitive接口到真实GPU，不是公开OpenGL，也未验证GLEngine JIT写入。LeakSanitizer关闭。
+
+核心H状态稀疏decoder及自有错误锁存CPU三组各87809检查通过，含保护页/短视图/别名；输出all_state_verified固定0，显式保留逐顶点色、program/TF、polygon mode、真实目标及其他状态未验证。
+
+已验证底层资源/context/texture阶段28文件提交c72c9bfc3ce8f757e8a3adcc80ebe96f91d8447c，并成功推送origin/main。integration/framebuffer/state/primitive后续模块仍在本地整合；禁止误称该提交包含这些未提交模块。
+
+### 86.3 position+RGBA 真实 GPU 验收及默认 pipeline 门槛收敛
+
+primitive 新增独立 colored probe 模式：每顶点 position float4 + RGBA float4、stride32、16字节对齐，descriptor为02 00 08 00 00 18 00 00 04 98 00 00。End先快照三个完整记录，逐顶点拒绝非红；不再用Begin/End当前色代替颜色历史。旧position-only模式保留。模块CPU strict/UBSan/NDEBUG各3937检查（其中旧模式1824）通过。
+
+主代理扩展gld_primitive_draw_probe.c，先运行原有链，再共享同一真实native owner测试全红、红绿红拒绝和全红恢复。固定快照 out/primitive-draw-macos-20261116T180126201793Z，SDK strict与ASan+UBSan构建、旧CPU136及新CPU168检查通过，构建结束WORKSPACE_CHANGED为空。主代理串行真实GPU普通任务hlLjXK与sanitizer任务DL30SZ均exit0：196检查、submit12、flush13、retain2、release3、freed1。红绿红拒绝时完成代次保持12，全图RGBA/pack不变、未增加submit；有效全红恢复至13，最后释放后槽可重租。汇总在该目录gpu-colored-result.txt。LSan关闭；不将此结果称为公开GL/JIT验证。
+
+out/gld-vertex-submit-final-evidence.txt闭合解释器索引6到float4 store及position helper真实入口492730；四分量按原顺序写出，JIT生成端仍未验证。out/gld-pipeline-gate-final-evidence.txt证明UseProgram前置拒绝未链接对象，并明确新建无共享、无用户program/TF调用历史的受控legacy实验可联合默认VP/FP身份、H支持域和稳定A+65=1/策略5放行，不要求扩读PD或先恢复通用shader compiler。系统dispatch接线、公开CGL三角形及Metal仍未完成。
