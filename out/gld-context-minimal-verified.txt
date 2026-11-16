@@ -301,7 +301,7 @@ AMD BeginPrimitiveBuffer的实际入口由function_starts确认是0x21EA4，下�
 所选描述符必须存在且+2非零才满足这个AMD路径的解引用/除法前置；初始A+0x208/+0x210都NULL不能直接进入Begin。这是具体硬件路径前置，不把AMD私有资源布局强加给独立驱动。
 
 12.4 槽1第9参的证据边界
-按function_starts限定AMD DrawPixels范围[0x606BE,0x612D3)。已见消费第7参pixels和第8参mode，未见直接访问rbp+0x20。此前九实参内部调用本身不证明callee需要第9形参；仍保留其正式ABI/语义未恢复，不将传0推断为buffer句柄或固定32位值。
+按function_starts限定AMD DrawPixels范围[0x606BE,0x612D4)。已见消费第7参pixels和第8参mode，未见直接访问rbp+0x20。此前九实参内部调用本身不证明callee需要第9形参；仍保留其正式ABI/语义未恢复，不将传0推断为buffer句柄或固定32位值。
 
 12.5 本次追加原始证据
  gld-context-init-consumers-raw.txt：Initialize、Constants邻域、Derived、Populate、UpdateDispatch原始标签块；注意12.1所述缺失标签。
@@ -309,3 +309,10 @@ AMD BeginPrimitiveBuffer的实际入口由function_starts确认是0x21EA4，下�
  gld-context-amd-dispatch-bounded-raw.txt：AMD Begin、GFX9 UpdatePrimitiveBufferState、DrawPixels实际函数边界与机器消费。
  gld-context-amd-primitive-state-raw.txt：AMD描述符生产者glrATI_UpdatePrimitiveBufferState及函数边界记录。
 续查未闭合的阻塞仍是B1..B7；特别是完整25槽签名、A能力最小充分集、clear状态、资源和完成协议。没有新增运行成功结论。
+
+12.6 新增证据SHA256
+ d0b6612890be58d88bc0cbf1b7b2a78fa52dc7bb2da617f04fbd87b8a72dad1b  gld-context-init-consumers-raw.txt
+ 8d427e97d33cac778f92bab3ce64f23dc81ada3669b38fecdc42630ea67abfe6  gld-context-init-dispatch-bounded-raw.txt
+ 7716951aec902b1830791b1a10b9c871701f34160a34f518acf2dd76c6df40c6  gld-context-amd-dispatch-bounded-raw.txt
+ ae2646da97b53192a3150eaf44908c16ac8e7ee4bfb3a3bbb249fec337304ff5  gld-context-amd-primitive-state-raw.txt
+续查检查：报告25槽唯一；所有证据引用存在；原10份证据哈希均保持一致。新增4份静态证据，无运行验收。

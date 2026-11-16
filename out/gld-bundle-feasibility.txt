@@ -1,0 +1,47 @@
+GLD diagnostic bundle feasibility (research only)
+Target: macOS 15.7.3 / 24G419 / x86_64
+Historical conclusion at the read-only feasibility stage: normal loading was not yet demonstrated. Later §78 supersedes that observation: the installed rejecting VGPUDriverDiagnostic passed both trust queries and was loaded through public CGL, invoking initialize/version/device(-1)/terminate. See out/gld-system-discovery-20261116.txt. System OpenGL 3D remains incomplete. The older guest-state observations below are retained as historical evidence.
+
+Evidence reviewed
+- docs/cb-findings-2026-10-08.md, §72.1-72.7 and §74.1-74.6.
+- out/gld-loader-contract.txt, especially sections 2-4 and 6.
+- out/gld-loader-memory-v3.txt, lines 264-275, 560-688, 781-839.
+- Read-only guest commands via python D:/Codes/vGPU-macOS/tools/mssh.py -- "...".
+
+Discovery and trust gates
+1. The framebuffer must be associated with an IOAccelerator accepted by IOAccelFindAccelerator. §72.1 records that this gate previously failed (IOAccelTypes/IOAccelIndex absent); §73 says a vgpuAccelerator service was subsequently added and linked. That service currently has no IOGLBundleName, and the §73 implementation intentionally did not publish IOGLBundleName.
+2. libGFXShared reads IOGLBundleName from the associated accelerator, passes it to gpu_bundle_find_trusted, forms <bundle>/Contents/MacOS/<IOGLBundleName>, then calls gpu_bundle_is_path_trusted. Only a zero trust result proceeds to dlopen(path, 5). The observed search roots are /Library/GPUBundles and /System/Library/Extensions.
+3. The guest's /Library/GPUBundles was empty at inspection. System GLDriver bundles exist under /System/Library/Extensions, including AppleIntelICLGraphicsGLDriver.bundle, AppleIntelKBLGraphicsGLDriver.bundle, and AMDRadeonX5000GLDriver.bundle. ICL's plist reports executable AppleIntelICLGraphicsGLDriver and identifier com.apple.driver.AppleIntelICLGraphicsGLDriver.
+4. The implementation and policy of gpu_bundle_is_path_trusted and the exact accepted signing identity/entitlements for a third-party GLD were not recovered. Therefore neither an ad-hoc signature nor the guest's available self-signed vgpu-macos signing identity can be claimed sufficient. Placing a bundle in a discovered root and setting IOGLBundleName is necessary for an experiment, not proof it will pass trust.
+
+Bundle metadata and entry ABI
+- Correction from loader instructions 0x7FFB06174336..74349: the executable path directly uses IOGLBundleName, not a CFBundleExecutable lookup. A diagnostic bundle should keep its directory, IOGLBundleName and Contents/MacOS/<name> consistent; CFBundlePackageType BNDL, a unique non-Apple CFBundleIdentifier and matching CFBundleExecutable remain conventional metadata. The diagnostic template was added later under kexts/gld-diagnostic/.
+- On the observed x86_64 target, dlsym must find gldInitializeLibrary, called with six explicit arguments: RDI accelerator-service array; RSI per-entry byte array; EDX associated-slot bitmask; RCX flush callback; R8 bind-surface callback; R9D flags. Callback signatures, several flag semantics, and argument-2 byte meaning remain incomplete.
+- The loader separately requires gldGetVersion and all 129 symbols in the libGFXShared table. The version call has four uint32 output slots and must return nonzero with v0=4, v1=1, v2=0x11, and (v3 & 0xffff00ff)==0. Missing any of the 129 exports rejects the plugin. gldInitializeLibrary is an additional required lookup, not one of those 129 entries.
+- 129 exported stubs that return failure can support a negative diagnostic experiment only if signatures, symbol visibility, initialization and cleanup ABI are correct. They do not constitute a functioning renderer. More importantly, publishing fabricated accelerated/renderer capabilities is expressly out of scope; the diagnostic must make gldCreateDevice fail and must not claim or advertise hardware rendering.
+- Renderer record, pixel-format node, context/shared-state, resource, dispatch, callback and teardown contracts are still incomplete (§72.4, §72.7, §74.1-74.3, §74.6; out/gld-loader-contract.txt section 6). The available evidence is not a safe basis for a working GLD implementation.
+
+Guest state (read-only)
+- sw_vers: macOS 15.7.3, build 24G419; uname -m: x86_64.
+- csrutil status: custom/unsupported configuration; kext signing, filesystem protections, debugging restrictions, NVRAM protections and BaseSystem verification reported disabled. csrutil authenticated-root status: disabled.
+- security find-identity -v -p codesigning listed two valid entries named vgpu-macos (same SHA-1 identity). This only proves a local signing identity exists; it does not establish GLD trust acceptance.
+- /Library/GPUBundles exists and was empty. System GLDriver bundles were present in /System/Library/Extensions.
+- A first codesign query used an incorrect OpenGL.framework executable path and returned no such file; it is not evidence about system GLD signatures. The ICL bundle codesign -dv query returned “bundle format is ambiguous (could be app or framework)”, so no signature verdict is inferred.
+- No system setting was changed; no bundle was built, installed, loaded, or signed; no restart or Git operation was performed.
+
+Reusable project templates
+- No GLD/user-space graphics bundle template or GLD Info.plist was found.
+- Reusable structural references only: kexts/probe/Info.plist and kexts/probe/build.sh (kernel extension, not a GLD bundle); kexts/framebuffer/Info.plist/build.sh; refs/MacHyperVSupport/MacHyperVFramebuffer/Info.plist and its Xcode project. None supplies a user-space GLD entry ABI or signing recipe.
+
+Feasibility decision and blockers
+A non-installing static diagnostic bundle can be authored and checked locally. A system-loaded negative diagnostic bundle is plausible only after the guest accelerator publishes the bundle name and the unresolved system trust gate accepts the bundle. Neither condition was experimentally verified in this task. Even if the loader accepts it, a negative stub must be tested only in a controlled application session and cannot establish rendering.
+
+Blocking items before a useful controlled load experiment:
+1. Recover or experimentally establish gpu_bundle_is_path_trusted requirements without weakening system security or modifying protected system files.
+2. Confirm whether a third-party bundle in /Library/GPUBundles with a unique identifier and ordinary bundle metadata is accepted, and determine any required code signature/entitlements.
+3. Reconcile the accelerator's IOGLBundleName publication path with normal loader discovery; keep capability reporting disabled and gldCreateDevice failing.
+4. Establish exact function prototypes and safe failure/cleanup semantics for gldInitializeLibrary, gldGetVersion, gldCreateDevice and every callable entry before loading any executable test bundle.
+5. Re-check Aqua/login-session state for a future CGL acceptance run. §73/§74 records the latest guest session as console=root without an Aqua user session; accelerated CGL results from that session are invalid as a renderer test.
+
+No 3D completion claim
+§74 explicitly records no self-authored GLD plugin, no hardware CGL context and no Metal device. Software-renderer pixel tests and the §73 private framebuffer drawing path do not satisfy system OpenGL 3D. A diagnostic bundle that refuses device creation is only a loader/trust experiment, not graphics support.

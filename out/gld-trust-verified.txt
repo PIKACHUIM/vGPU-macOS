@@ -2,7 +2,11 @@
 
 Target: macOS 15.7.3 (24G419), x86_64. Read-only investigation. No settings, authorization, bundle contents, restart, or Git state were changed. 初版未调用私有信任函数；本次追加验证仅以 dlsym 解析并调用两个已核实签名的只读 GPU 查询函数，结果见文末。
 
-## Conclusion
+## Later verification (2026-11-16, §78–§79)
+
+The observations below describe the earlier read-only investigation. §78 subsequently installed the real VGPUDriverDiagnostic candidate and verified directory/executable trust=0, normal name lookup, and public-CGL-triggered initialize/version/device-rejection/terminate. See out/gld-system-discovery-20261116.txt. This resolves candidate discovery/loading for this guest configuration only; it does not establish default-SIP compatibility or a usable hardware CGL context. §79 corrects the executable-name source to IOGLBundleName based on the loader instructions.
+
+## Conclusion at the earlier investigation
 
 A third-party GLD under `/Library/GPUBundles` is not accepted merely because it is placed there, has ordinary bundle metadata, or is signed. The loader can reach it only if its accelerator supplies a bundle name, the exact `<name>.bundle` directory is found and passes the GPU bundle rootless trust check, and the resulting `Contents/MacOS/<executable>` path also passes that check. The wrappers inspected do not test a signing identity or entitlement directly. Whether a newly created third-party bundle on this target passes the underlying trusted-class check remains unverified; therefore normal third-party loading is possible only conditionally, not demonstrated.
 
@@ -12,7 +16,7 @@ A third-party GLD under `/Library/GPUBundles` is not accepted merely because it 
 
 2. `gpu_bundle_is_path_trusted(path)` calls `rootless_check_trusted_class(path, "KernelExtensionManagement")`. If and only if that returns exactly 1, it returns the logical negation of `__dyld_shared_cache_contains_path(path)`; otherwise it returns the rootless result unchanged. Exact acceptance truth table: rootless result 0 passes unchanged; rootless result 1 passes only when __dyld_shared_cache_contains_path(path) is true, because logical negation then yields 0; any other result is propagated. A rootless result of 1 with no cache entry fails (returns 1). The initial prose interpretation had inverted cache membership and omitted the rootless=0 success path; the instruction-level table here supersedes it. This is a storage-class/cache-membership check in the wrapper, not a direct code-signature identity or entitlement check. Disassembly: `out/sandbox-gpu-code.txt` at 0x7FF80E5A73D0-0x7FF80E5A73FD; helper at 0x7FF80E5A73BE-0x7FF80E5A73CB.
 
-3. The caller applies the checks to two distinct paths: first `gpu_bundle_find_trusted` checks the bundle directory; then `libGFXShared` forms `<bundle>/Contents/MacOS/<CFBundleExecutable>` and calls `gpu_bundle_is_path_trusted` on that executable path. Only result 0 reaches `dlopen(path, 5)`. Evidence: `out/gfx-loader.txt` at 0x7FFB06174321-0x7FFB06174361 and 0x7FFB0617462B-0x7FFB06174672; `out/gld-loader-contract.txt` lines 17-25.
+3. The caller applies the checks to two distinct paths: first `gpu_bundle_find_trusted` checks the bundle directory; then `libGFXShared` forms `<bundle>/Contents/MacOS/<IOGLBundleName>` and calls `gpu_bundle_is_path_trusted` on that executable path. Only result 0 reaches `dlopen(path, 5)`. Evidence: `out/gfx-loader.txt` at 0x7FFB06174321-0x7FFB06174361 and 0x7FFB0617462B-0x7FFB06174672; `out/gld-loader-contract.txt` lines 17-25.
 
 4. The target rootless policy contains `KernelExtensionManagement /Library/GPUBundles` (read-only guest file `/System/Library/Sandbox/rootless.conf`, line 7); the two GPU search roots are also independently present in the target shared-cache constant table (`out/gld-loader-memory-v3.txt`, lines 781-839). The target `/Library/GPUBundles` currently exists, is empty, and `ls -ldeO@` reports the `restricted` flag; `xattr -px com.apple.rootless /Library/GPUBundles` returns the bytes for `KernelExtensionManagement`. This proves the directory itself is associated with that rootless storage class, not that an arbitrary child bundle/executable inherits or passes the path check.
 
@@ -33,7 +37,7 @@ For the observed loader path, all of the following must hold:
 - The associated IOAccelerator must publish a nonempty `IOGLBundleName` which reaches `gpu_bundle_find_trusted`.
 - The name must resolve to an existing directory exactly at `/Library/GPUBundles/<name>.bundle` (or the second hard-coded root); `find_trusted` does not enumerate arbitrary directory contents.
 - `gpu_bundle_is_path_trusted` on that directory must return 0: rootless result 0 is sufficient; alternatively rootless result 1 is accepted only if the path is present in the dyld shared cache. No semantic meaning is assigned to rootless return codes beyond the observed wrapper behavior.
-- The bundle metadata must provide `CFBundleExecutable` such that `<name>.bundle/Contents/MacOS/<CFBundleExecutable>` exists as a loadable executable, and `gpu_bundle_is_path_trusted` on that exact executable path must also return 0.
+- The observed loader directly uses `IOGLBundleName` for `<name>.bundle/Contents/MacOS/<name>`; the path-building instructions at 0x7FFB06174336..74349 do not read `CFBundleExecutable`. The exact executable must be loadable and `gpu_bundle_is_path_trusted` on it must return 0. Matching plist metadata is conventional packaging, not the source of this observed filename.
 - Only after those gates does the caller invoke `dlopen`; normal loading additionally requires the GLD symbols/version contract documented in `out/gld-loader-contract.txt`.
 
 Not established: exact child trusted-class inheritance/attribute requirements; whether rootless accepts the candidate directory and executable on this current custom SIP configuration; whether signing, notarization, team identity, or entitlements affect the lower-level check; and successful normal third-party bundle loading. Those require an authorized controlled test with a real candidate bundle, which was explicitly outside this read-only task.

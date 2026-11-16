@@ -1,0 +1,224 @@
+GLD context 初始化与最小命名颜色 FBO backing：可实施收敛
+日期：2026-11-16
+目标：macOS 15.7.3 / 24G419，x86_64 / x86_64h。
+范围：只读静态研究；仅新增本报告。未运行 git、未安装/重启、未调用 GLD 或提交 GPU。没有读取或打印凭据。
+
+1. 实施决策
+已有证据足以立即实施独立 context 生命周期、A/H/B 稀疏视图、texture/FBO 对象生命周期与 backing 后端接口；不应再等待完整25槽或全部私有结构恢复才开始这些独立模块。
+但不能将“六参 create 能分配 C”称为 GLEngine context 初始化成功。已确认 gleInitializeContext 在任何 clear/read 前创建11个默认 texture，并继续创建 sampler/program 类对象。必须真实实现这些对象的元数据生命周期，不能用无类型成功桩跳过。
+首条资源路径建议：单插件、命名 FBO、一个普通 RGBA8 renderbuffer、单采样、float clear、GL_RGBA/GL_UNSIGNED_BYTE CPU read、无 PBO。renderbuffer 已证复用 texture ABI，省去普通纹理采样/mipmap完整性，不能省去 texture backing。
+A 的“已查直接初始化消费者”和“FBO 操作必要字段”已列为精确清单；它不是涵盖全部递归初始化与 profile 的充分配置。可实施模块与尚未闭合的集成入口在第7节明确分开。
+
+2. 记号、版本与来源
+GLEngine UUID FB994F78-34C6-39F3-857D-99F9B3013E8F；libGFXShared UUID CEB3FF13-179A-3AFD-AB07-31BE4C2073B9；Mercury UUID F206CE07-BCA7-3CC7-A494-112686CDE945。UUID沿用已核验版本，本轮补充读取同一客体。
+G=GLEngine context；S_i=G+0xc6b0+i*0xe20；A=S_i+0x10；H=G+0x8e0；B=S_i+0x270。
+当前/主配置别名 G+0xb4d8 / G+0xb318；C=独立驱动 context；SG=独立 share。
+为避免已有报告中的 D/H/T 重名：本文用 TD=texture create第3参，TU=第4参，X=独立texture句柄；FQ=framebuffer create第3参，FD=第4参，FB=独立framebuffer句柄。
+缓存地址均为 unslid 地址。AMD证据中的小地址为其preferred VM地址，不是运行时地址。
+主来源：out/gld-context-minimal-verified.txt、out/gld-context-init-consumers-raw.txt、out/gld-context-init-dispatch-bounded-raw.txt、out/gld-context-hardware-raw.txt、out/gld-context-intel-clear-config-raw.txt、out/gld-texture-resource-research.txt、out/gld-texture-verified-snippets.txt、out/gld-framebuffer-verified-snippets.txt。
+本轮新增消费者复用客体 /var/tmp/vgpu-fb/glengine-code.txt（已有 dyld_info 全文），通过 tools/mssh.py 只读提取。仅 Mercury texture四入口在已有本地证据不足时重新 dyld_info -arch x86_64 -disassemble，输出在内存筛选，无客体新文件。关键原始指令附于第8节。
+已核对可用解释器 C:/Users/Pika/WorkBuddy/2026-09-27-20-30-43/.venv/Scripts/python.exe。
+
+3. A 初始化责任与精确字段
+字段宽度以实际load/store为准；没有证据的枚举名称和硬件常量不补写。所有偏移相对A，H/B不由驱动create整体清零。
+
+3.1 已查直接初始化消费者（本表是有限函数集合的精确清单）
++0x1a u16：gleInitializeContext 0x7FFB0637C4B5读取 G+0xc6da+i*0xe20，对插件值求OR/AND，再以0x4ef和补mask组合写shared+0x19a。单插件时结果就是该u16；语义各bit未恢复，不能复制KBL的0x16。
++0x29 u8：0x7FFB0637C17B/182/185从主A复制到G+0xc693；0x7FFB0637C772/779按是否为0设置G+0xc689。KBL生产者 0x7FFB020B3D34..3D3F：((u8(pixel_format+0x10)>>3)&1)。
++0x65 u8：0x7FFB0637C4AD读取 G+0xc725+i*0xe20做OR；gleInitDerivedState 0x7FFB0637DA73..DA8F复制至G+0xc691并选择G+0xb614（输入0得4，非0得5）；0x7FFB0637DEEF..DEFD选择H+4和G+0xb63a。gleSetBaseTCLState 0x7FFB064473A8..73CF亦按此byte选择TCL状态。它是实际执行策略输入，尚不能凭“只有clear”指定为0或1。
++0x40、+0x48 float32：gleInitDerivedState 0x7FFB0637DE4A/4F/54取两者max写G+0x4598。必须来自自身能力，不能复制KBL常量池。
++0x2b u8：0x7FFB0637DE65..DE7D复制至G+0xc698/699，并以零/非零选择G+0x44ea/eb。KBL 0x7FFB020B3D4A/50生产：(u32(pixel_format+0x14)&0x3f000000)!=0。
++0x38、+0x39 u8：0x7FFB0637DE9E..DEBC构建默认附件有效mask：初始1，depth非零加0x100，stencil非零加0x600。选择真实无depth/stencil的pixel format时可以均为0；不等于命名FBO附件容量为0。
++0x208、+0x210 pointer64：gliUpdateDispatchState 0x7FFB064DA904/912复制到G+0xa550/558。非空时会写所指对象+2为1（DA929..DA941），gleSelectVertexSubmitFunc 0x7FFB0638064D..0681读取其+2。因此不是函数指针！该GLEngine局部路径允许NULL，但不能推广成全部driver回调允许NULL：AMD Begin 0x21EDD/21F08对A+0x208取出的指针不检查即读+2（见amd-dispatch-bounded-raw第19/27行）。
++0x258 机器字长槽：GLEngine在create前预写pagesize，之后限制到0x4000；保留调用者值，不覆盖或把A到B的0x260间距当正式结构sizeof。
+
+gleInitConstants并不从A推导一份完整能力表；其大量G写入是engine常量。gleInitGLDState入口0x7FFB0637CD18的RDI是H，不是A：例如pack+alignment写在H+0x4ee4。gleInitGLIState入口0x7FFB0637D703的RDI则是G。不能把这些初始化写点错列为驱动应填A字段。
+
+3.2 最小renderbuffer/FBO操作额外必需字段
++0x04、+0x08 u32：gleCheckRenderbufferStorageArgs 0x7FFB0645469A/A1/A7，分别与width/height无符号比较。必须>=请求尺寸，且值由本后端支持的最大尺寸给出。填0会拒绝任意非空renderbuffer；不能因命名FBO就省略。
++0xaa u8：gleCheckRenderableFormatArgs 0x7FFB0645470C/14，全局samples上限。普通RenderbufferStorage将EDX清0（0x7FFB063CAD15），故单采样入口传的是samples=0，A+0xaa=0可通过这处检查并拒绝正samples；不应把GL单采样存储误编码为samples=1。
++0x225 bit5：0x7FFB064548EF额外sample-limit分支开关；触发后按target/格式读取+0xab/+0xac/+0xad。对已跟踪的RGBA8 renderbuffer、samples=0，该格式路线R8D=0，target=0x8d41，跳过这些附加上限。无需为此复制硬件sample能力。
++0x6e u8：0x7FFB0639792F的clear选择。独立实现显式ClearFramebufferData时写1；此值表示本实现具备该协议，不是照抄硬件能力。KBL 0x7FFB020B3E05、AMD 0x1364C/0x575A0已有交叉生产者证据。
++0x221 bit6：已有FBO完整性消费者决定附件尺寸不同时取最小尺寸或拒绝；仅单附件时无需依靠该能力放宽。不得因此宣称整个A+0x220能力字可任意清0。
++0x6f：已发现消费者 0x7FFB0639891B（附近还查+0x6d）和0x7FFB06456C29；它不是本次证实的clear开关。本轮没有恢复完整语义，不因KBL写1跟随写1。
+
+RGBA8=0x8058格式在gleCheckRenderableFormatArgs进入 0x7FFB0645482B：0x8058-0x804f=9<0xd，跳到548ED。该条格式合法性路线无需从硬件复制“RGBA8支持位”；实际存储可用性仍须后端验证。
+普通texture备选路径：gleCheckTexImage2DArgs内0x7FFB064750BF读A+0xa0 u16；0x7FFB064750B2/50F9读A+0x225 bit6控制非2幂尺寸接受。其他target读+a6/+a8，不能统一当同一个limit。本轮未解该函数target跳转表，故这里保留为按分支成立的消费者，不冒充全target映射。
+
+3.3 pixel format派生写入可实施部分
+已由KBL生产者证明：+0x28=(pf.colorMask&0x3ffffffc)!=0；+0x29=(pf.flags10>>3)&1；+0x2a=(pf.flags10>>1)&1；+0x2b=(pf.colorMask&0x3f000000)!=0；+0x2c=(u32(pf+0x0c)>>11)&1。
++0x2e及+0x30..33来自gpusColorSizes(pf+0x14)，+0x34..37来自pf+0x18；+0x38/39来自gpusDepthSize(pf+0x1c/20)；+0x2f/+0x3a/+0x3b分别取pf+0x26/+0x28/+0x2a低byte。
+生产者地址0x7FFB020B3D27..3DDA。只对自身已支持且已解码的pixel format填值，拒绝其他格式；不把gpus辅助函数参数猜成私有可调用API，不直接移植KBL整块配置。
+
+4. 初始化最小依赖：不是25槽全恢复，也不是仅六参create
+4.1 gleInitializeContext 0x7FFB0637C6C9调用gleInitTextureState。
+gleInitTextureState 0x7FFB0637DF20..DF73循环i=0..10，每轮以flags=0x1000|i调用gleCreateTextureObject，再安装到各纹理单元。
+gleCreateTextureObject 0x7FFB0637E143..E152将对象+0x28交gfxInitializeGLTexture；0x7FFB0637E1B0无条件调用gfxCreatePluginTexture。
+已存GFX证据 0x7FFB06175244..75256调用gldCreateTexture(SG,&X,TD,TU)，随后0x7FFB06175272调用plugin+0x748的sampler create。
+因此CreateTexture必须允许合法但尚无image/backing的默认对象；“只支持RGBA8”应该限制存储materialization，不应令所有无图像默认texture create失败。每个默认对象需要真实句柄、借用TD/TU和正确销毁；此类元数据对象无需提交GPU。
+4.2 0x7FFB0637C6D1、C6E1继续shader/pipeline初始化；本轮复用全文看到0x7FFB0637E29D..E2B1直接调plugin+0x658，参数SG/输出槽/descriptor/state，循环与G+0xc6a1有关。必须对接现有program研究，不能假定“不画三角形”便不调用它。
+4.3 gliInitDispatchTable 0x7FFB06380756..079A按G+0xc6a6选择profile分支；0x1e78字节即975槽是上层API表，不是GLD 25槽render表。当前证据未证明某个A byte能任意改变profile并绕过上述初始化。
+4.4 A+0x6e=1使已查glClear路线不调用R[0]，故不必为该路线恢复render[0]硬件callee。render[13..16]也不是开展独立资源模块的先决条件；但未证明所有R槽NULL能通过整个GLEngine初始化/UpdateState。
+
+5. texture/renderbuffer backing ABI收敛
+5.1 可实施的机器ABI形态
+int32_t gldCreateTexture(void *SG, void **out_X, void *TD, void *TU);
+int32_t gldModifyTexture(void *SG, void *X, uint32_t flags);
+int32_t gldLoadTexture(void *SG, void *X);
+int32_t gldDestroyTexture(void *SG, void *X);
+这是x86_64调用方+Mercury/Float载体恢复，不是Apple头文件声明。modify第3参来自GFX；本轮Mercury实现不使用EDX，不能由此删除形参。Load返回语义必须按后端区分：Mercury 1=已完成/无dirty，0=失败；不能复制Float的返回解释，更不能套统一0成功。
+Mercury create 0x7FF918358F70/F73保存TD/TU，8FAB写out_X，8FAE清EAX；destroy 0x7FF918359246调Dev+0x68，924F Reclaim，9257 free自身，925C返回0。
+X内部结构可自行定义，绝不需要仿Mercury的X+0=TD、+8=TU或IOAccel资源布局；保存借用视图是跨侧数据流事实。
+
+5.2 backing真正发生处
+Mercury Load在0x7FF918359053/57读TU+0x14。为0时0x913A直接返回1；非0时普通无TU[0]且kind!=7路径于0x915F调用Dev+0x128(SG,X,u8_dirty,TU+8)。回调返回非0才清TU+8..+0x14共13字节，失败返回0并保留dirty。
+更关键：Mercury LoadFramebuffer并不要求先调用导出gldLoadTexture。0x7FF91835608F读取FQ+0xc0附件bitmap，60BD从FD+8*j拿X，60C1/60C6读取X的TU+0x14；非0直接60F3调用同一个Dev+0x128(SG,X,dirty,TU+8)，成功才6105/6109清TU掩码和dirty。
+因此普通FBO附件的延迟materialization时机已经闭合；此前“只找到IOSurface gldLoadTexture调用”不再阻塞这条FBO路径。独立实现应使LoadTexture与LoadFramebuffer共用真实ensure_backing动作，不能要求上层先显式load。
+注意：TU+8..+0x13是6个u16 level masks，TU+0x14为dirty；只在对应处理确已成功后清除。不要复制Mercury回调对象布局或调用Dev+0x128借用硬件内部资源系统。
+
+5.3 renderbuffer复用，已闭合具体kind
+_gleBindRenderbuffer 0x7FFB06454617写ESI=0x2002，461F调用gleCreateTextureObject；因此此构造的TD.flags低nibble=2，且带0x2000标志（其余位随后还会改变）。
+gleCreateTextureObject 0x7FFB0637E0E0/E0E3对kind=2取一level；非cube组数为1。这个“单组单level”有实际分配分支支持。
+_glRenderbufferStorageEXT_Exec 0x7FFB063CAD81令T=object+0x28；CAD89令L=object+0x3c0=TD+0xb0；CADBD调用gleEvaluateTextureImageChange；CADC6写object+0x380=0x10005，即TD+0x70处的32位值，语义未定，不由驱动create主动写它。
+这条storage路径没有在已查函数内调用gfxAllocateTextureLevel或上传用户pixels。renderbuffer可以没有L+0x18 CPU backing；驱动必须独立分配可渲染资源，不能把NULL CPU地址认作“无需资源/已成功”。
+普通GL_TEXTURE_2D从gleLookUpTexture2D 0x7FFB06392BC1/BC7跳92CE5/CE9取单元表第3项；默认texture初始化按i创建同一表项，支持普通2D默认kind=3的映射。完整用户绑定flags高位组合尚不据此补全。
+
+5.4 可直接读取的backing输入（由通用GFX/engine生产；沿用texture证据）
+TD+0 u16 flags（低nibble内部kind）；+0x68 u16 sized internalformat；+0x6a/6c/6e u16基础尺寸；+0x78/79/7a u8几何level起点/数量/末点；+0x7b u8组数；+0x7c u8 sample选择码；+0x7e u16 level/border位域。
+L=TD+0xb0+0x1e0*face+0x20*level：+4/6/8 u16宽高深；+0xa byte border；+0xb byte存储flags；+0xc u16行texel跨度；+0xe u16片跨度行数；+0x10/+0x12 u16存储format/type；+0x18 pointer64 CPU基址。
+生产者：0x7FFB0639336D/3372/3377尺寸；0x7FFB06393488/348D行片跨度；0x7FFB06177B42 CPU指针。L行字节=PixelBytes(format,type)*rowTexels，仅用于CPU源；不是GPU pitch。
+RGBA8普通RGBA/UNSIGNED_BYTE输入可以是L.format=0x1908/type=0x1401；不得一概写BGRA，Float的BGRA私有转换不是公共ABI。
+独立后端须自己拥有：资源handle、实际pitch/size/format、当前有效代次、clear完成与CPU读取可见性。TD/TU/L和L.cpu是借用输入，销毁X只释放自身资源；不释放调用者TD/TU或借用CPU指针。
+
+6. FBO清除/读取的模块边界
+CreateFramebuffer(SG,&FB,FQ,FD)保存借用FQ/FD。FD+8*j是X句柄，FQ+0xc0 u32是附件bitmap；FQ+0xb2/+0xb4 u16是宽高。已查FBO上层生产者地址0x7FFB06455914/55919。
+LoadFramebuffer先标FD+0x51=1，逐附件ensure_backing，再验证/构造实际后端target。全部成功后FD+0x51=0且FD+0x50=0；失败维持失败状态，不能固定返回成功。Mercury若附件update提前失败，不经过清FD+0x50的尾段。
+UpdateDraw(C,dirty) bit30时从B+0x4a0取FB；UpdateRead bit31时从B+0x4a8取FB。第二实参绝不是FB指针。C内部可保存draw/read各自句柄并持有有效引用。
+ClearFramebufferData(C,u32_internal_mask,V_inout)：V+0..0xf颜色原始四分量，+0x10 float depth，+0x14 stencil，+0x18附加word。最小float color路线仅处理有效color target bit，不能把低8bit当RGBA通道。V栈内存不得延迟借用，须复制命令值。
+ReadFramebufferData(C,x,y,w,h,format,type,pixels,mode32,buffer)：十参ABI见minimal报告；CPU模式mode=0/buffer=NULL。pack每次读取H+0x4ec8：+0 rowLength、+4现用stride、+0x10 skipRows、+0x14 skipPixels、+0x1c alignment，H+0x4ee8/9为swap/lsb。
+RGBA8普通路径：stride=非零currentStride，否则align_up((rowLength>0?rowLength:w)*4,alignment)；offset=skipRows*stride+skipPixels*4。pixels已含engine裁剪修正，不可再加一次。使用有界宽整数检查。
+这是地址和ABI适配，不代表GPU可见性完成；必须等待真实clear写入后再read，flush/wait对接后端完成机制。
+
+7. 可立即交给实现者的独立接口（项目自定义，不冒充GLD ABI）
+struct VgpuContext { SG* share; uint8_t* A; uint8_t* H; uint8_t* B; FB* draw; FB* read; };
+struct VgpuTexture { SG* share; uint8_t* TD; uint8_t* TU; BackendImage* image; uint64_t geometry_generation; };
+struct VgpuFramebuffer { SG* share; uint8_t* FQ; uint8_t* FD; };
+这些类型布局完全自有；具体引用计数/锁由现有项目实现决定。
+
+VgpuStatus context_create(SG*, void* pixel_format, uint8_t* A, uint8_t* H, uint8_t* B, Context** out);
+void context_destroy(Context*);
+VgpuStatus decode_color_rb_level(const Texture*, uint32_t face, uint32_t level, ImageDesc* out);
+VgpuStatus ensure_backing(Texture*, const BackendOps*);
+VgpuStatus framebuffer_materialize(Framebuffer*, const BackendOps*);
+VgpuStatus context_bind_draw(Context*, uint32_t dirty);
+VgpuStatus context_bind_read(Context*, uint32_t dirty);
+VgpuStatus decode_pack_rgba8(const Context*, uint32_t width, PackLayout* out);
+VgpuStatus backend_create_image(SG*, const ImageDesc*, BackendImage** out);
+VgpuStatus backend_clear_color(Context*, Framebuffer*, const ClearDesc*, Completion* out);
+VgpuStatus backend_read_rgba8(Context*, Framebuffer*, const Rect*, const PackLayout*, void* dst);
+void backend_destroy_image(BackendImage*);
+
+context_create先验证六参、分配真正C、保存A/H/B借用关系、保持*out为空直到自身成功；A只按已证偏移及明确能力策略写入，不memset猜测sizeof；driver自有内存清零即可。
+当前可以完成上述生命周期、字段解码、尺寸/stride溢出拒绝、dirty事务和后端接口，并用synthetic caller buffers验证内存行为。这是独立模块的真实功能，不是以伪造GLD成功状态代替完整实现。
+对外gldCreateContext何时允许返回0，仍须以其承诺的后续配置/对象入口可用为条件；没有真实后端时不能将backend_clear/read定义为空操作然后返回成功。测试替身不能成为正式驱动导出。
+建议接入顺序：独立句柄与视图 -> default texture/sampler/program元数据生命周期 -> 单level kind2 RGBA8实际backing -> LoadFramebuffer dirty握手 -> UpdateDraw/Read -> 明确状态的clear/read与flush/wait。
+
+精确剩余项（不阻塞独立模块，阻塞完整GL初始化或真实clear/read验收）：
+R1 A+0x1a各位、+0x65执行模式及+0x40/+0x48能力语义；完整递归初始化还包含shader/buffer/query等消费者。本轮没有声称写这几个字段即能满足完整profile。
+R2 sampler/program初始化入口需真实元数据实现；已证存在调用，完整ABI对接尚未在本报告恢复。11个默认texture不能只支持有尺寸RGBA8才创建。
+R3 FQ各attachment的layer/level/format精确硬件消费仍待对接；最小renderbuffer可限制单组level0，但必须检查实际descriptor，不自行伪造FQ。
+R4 clear的scissor、每目标颜色写mask、sRGB与整数格式消费仍需闭合；不能用“传了V”替代全部状态。最小验收可明确约束默认状态，但实现不能对未知非默认状态谎报完成。
+R5 自有vGPU后端的image allocation、pitch、format映射、提交与完成协议必须真实实现；没有要求借用Intel/Mercury内部IOAccel ABI，也不必等待恢复其全部tiling。
+R6 所有GLD错误/返回路径尚未统一恢复；内部使用VgpuStatus隔离，然后仅对已证GLD入口映射。禁止统一0成功或1成功。
+
+8. 新增关键原始证据摘录（复现输入已在第2节给出）
+[E1] GLEngine，已有 glengine-code.txt：renderbuffer尺寸与samples
+0x7FFB0645469A movq 0xb4d8(%rdi), %rax
+0x7FFB064546A1 cmpl %r8d, 0x4(%rax)
+0x7FFB064546A5 jb 0x7ffb064546b8
+0x7FFB064546A7 cmpl %r9d, 0x8(%rax)
+0x7FFB064546AB jb 0x7ffb064546b8
+0x7FFB0645470C movzbl 0xaa(%rax), %r8d
+0x7FFB06454714 cmpl %edx, %r8d
+0x7FFB06454717 jb 0x7ffb0645494e
+0x7FFB063CAD15 xorl %edx, %edx
+0x7FFB063CAD20 callq _gleCheckRenderbufferStorageArgs
+
+[E2] renderbuffer走texture，level记录由storage函数原地更新
+0x7FFB06454617 movl $0x2002, %esi
+0x7FFB0645461C movl %r12d, %edx
+0x7FFB0645461F callq _gleCreateTextureObject
+0x7FFB063CAD81 leaq 0x28(%r13), %rsi
+0x7FFB063CAD89 leaq 0x3c0(%r13), %rdx
+0x7FFB063CADBD callq _gleEvaluateTextureImageChange
+0x7FFB063CADC6 movl $0x10005, 0x380(%r13)
+0x7FFB063CADE6 jmp _gleDirtyRenderbufferCurrentBindPointsGeom
+
+[E3] 默认texture初始化（不是推测调用）
+0x7FFB0637DF27 movl %r15d, %esi
+0x7FFB0637DF2A orl $0x1000, %esi
+0x7FFB0637DF30 xorl %edx, %edx
+0x7FFB0637DF32 callq _gleCreateTextureObject
+0x7FFB0637DF68 incq %r15
+0x7FFB0637DF6F cmpq $0xb, %r15
+0x7FFB0637DF73 jne 0x7ffb0637df20
+0x7FFB0637E1B0 callq _gfxCreatePluginTexture
+
+[E4] Mercury /System/Library/PrivateFrameworks/GPUSupport.framework/Versions/A/Libraries/libGPUSupportMercury.dylib
+0x7FF918358F46 movq %rcx, %r12
+0x7FF918358F49 movq %rdx, %r13
+0x7FF918358F4C movq %rsi, %rbx
+0x7FF918358F4F movq %rdi, %r14
+0x7FF918358F70 movq %r13, (%rax)
+0x7FF918358F73 movq %r12, 0x8(%rax)
+0x7FF918358FA8 callq *0x60(%rax)
+0x7FF918358FAB movq %r15, (%rbx)
+0x7FF918358FAE xorl %eax, %eax
+Modify:
+0x7FF918358FCB movq 0x8(%rsi), %rax
+0x7FF918358FCF orb $0x2, 0x14(%rax)
+0x7FF91835903E xorl %eax, %eax
+Load普通分支:
+0x7FF918359053 movq 0x8(%rsi), %rcx
+0x7FF918359057 movb 0x14(%rcx), %r12b
+0x7FF91835905E je 0x7ff91835913a
+0x7FF91835913A movl $0x1, %r15d
+0x7FF91835914D movq 0x8(%rbx), %rax
+0x7FF918359151 addq $0x8, %rcx
+0x7FF918359155 movzbl %r12b, %edx
+0x7FF918359159 movq %rbx, %rdi
+0x7FF91835915C movq %r14, %rsi
+0x7FF91835915F callq *0x128(%rax)
+0x7FF918359165 testl %eax, %eax
+0x7FF918359167 je 0x7ff918359179
+0x7FF918359169 movq 0x8(%r14), %rax
+0x7FF91835916D xorl %ecx, %ecx
+0x7FF91835916F movq %rcx, 0xd(%rax)
+0x7FF918359173 movq %rcx, 0x8(%rax)
+0x7FF918359179 xorl %r15d, %r15d
+0x7FF9183591A0 movl %r15d, %eax
+以上成功分支在9177跳918B，绕过9179；不得线性误读成总返回0。
+Destroy:
+0x7FF918359246 callq *0x68(%rax)
+0x7FF91835924F callq _gldReclaimTexture
+0x7FF918359257 callq _free
+0x7FF91835925C xorl %eax, %eax
+
+[E5] FBO触发同一texture backing更新：原始文件gld-context-hardware-raw.txt第1540..1593行
+0x7FF91835608F movl 0xc0(%rax), %r13d
+0x7FF9183560BD movq (%rax,%r15,8), %r12
+0x7FF9183560C1 movq 0x8(%r12), %rcx
+0x7FF9183560C6 movb 0x14(%rcx), %al
+0x7FF9183560E6 addq $0x8, %rcx
+0x7FF9183560EA movzbl %al, %edx
+0x7FF9183560ED movq %r14, %rdi
+0x7FF9183560F0 movq %r12, %rsi
+0x7FF9183560F3 callq *0x128(%r8)
+0x7FF9183560FA testl %eax, %eax
+0x7FF9183560FC je 0x7ff91835615c
+0x7FF918356105 movq %rcx, 0xd(%rax)
+0x7FF918356109 movq %rcx, 0x8(%rax)
+
+9. 交付检查
+本轮新增结论有实际消费者/生产者地址；将renderbuffer、texture与FBO的D别名明确区分；未复制硬件能力常量，未定义假成功桩。新提取仅为静态dyld_info和已有文本筛选；没有GPU或动态GLD验收。
+本报告完成的是可实施边界与关键新增ABI闭合，不声称已实现真实OpenGL驱动或已通过完整context初始化。
