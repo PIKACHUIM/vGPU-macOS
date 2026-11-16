@@ -6043,3 +6043,64 @@ READY后依次运行`vgpu-user-draw --accelerator 2`及`vgpu-user-draw 1`，两�
 本次重启后console=root、没有用户Aqua会话；软件GL仍像素正确，强制加速CGL报invalid CoreGraphics connection，不能把该会话错误作为新的驱动兼容结论。Metal枚举仍0。前一启动用户已登录时的有效基线仍见§72.1。本轮无需为底层验收重复请求用户登录；真正安装GLD插件并运行有效Aqua验收时再核对会话状态。
 
 当前新增成果是**系统能关联真实IOAccelerator服务，并经它访问真实GPU绘制后端**；仍没有硬件GLD renderer或Metal设备。后续需实现GLD结构/回调和通用资源/shader/同步，再完成标准Metal设备客户端与插件。不会以服务枚举成功代替OpenGL/Metal调用完成。
+
+## §74：GLD字段契约与clear/read/finish调用链（2026-11-16）
+
+本轮继续使用§73同一次启动，console=root，vgpuAccelerator仍registered/matched/active；未更换内核驱动、未重启、未安装图形插件。目标限定macOS 15.7.3 / 24G419 x86_64，OpenGL UUID `EEBF4330-76CB-3E0E-AD13-BD031235E27F`、GLEngine UUID `FB994F78-34C6-39F3-857D-99F9B3013E8F`。
+
+### 74.1 renderer记录：公开消费者映射
+
+恢复34项公开CGLRendererProperty的消费规则。GLD写入0x88字节记录R；CGL复制它到包装对象O+8+i*0x90，故0x90是包装步长，不是GLD记录大小。关键字段：
+
+| 属性 | 相对R偏移 | 消费规则 |
+|---|---|---|
+| RendererID | +0x08 | 32位；GLEngine另OR 0x20000 |
+| Accelerated/Window/Robust | +0x0c | 分别bit8/bit0/bit6 |
+| Buffer/Color/Accum/Depth/StencilModes | +0x10/+0x14/+0x18/+0x1c/+0x20 | 位图；BufferModes公开返回清除bit1 |
+| DisplayMask | +0x24 | 可能被可移除GPU策略覆盖 |
+| MaxAuxBuffers/MaxSampleBuffers/MaxSamples | +0x28/+0x2a/+0x2c | 有符号16位；仅-1返回BadProperty |
+| SampleAlpha/SampleModes | +0x2e/+0x30 | u8/32位位图 |
+| RegistryIDLow/High | +0x34/+0x38 | 各32位 |
+| VideoMemory/TextureMemory | +0x4c/+0x54 | 源按MiB；旧字节接口在2048MiB及以上饱和INT32_MAX |
+
+Online由在线显示掩码交集及策略决定，没有独立的已恢复Online位。MajorGLVersion由flags bit18优先返回4，否则2+bit17；不能由此宣称支持对应完整GL能力。完整34项及指令地址在`out/renderer-properties-research.txt`。
+
+新增`kexts/probes/renderer_contract_probe.c`以自有合成包装记录调用真实CGLDescribeRenderer，核对字段位隔离、显存饱和、s16边界、两记录步长、非法index/property及输出sentinel。它是版本限定的结构契约测试，不注册renderer、不调用合成对象销毁，不作为GPU验收。初版在目标客体1043项通过/0失败，31项静态属性全覆盖，OffScreen/DisplayMask/Online三项策略属性跳过。独立审查发现仅UUID门控不足：CGLDescribeRenderer可在字段读取前调用可选全局hook，故增加hook表必须为空的门控后再交付；相关全局unslid地址为0x7ffb4342f978，DescribePixelFormat亦使用同表。修复后严格编译并重跑：1043通过/0失败，1044次门控检查/1043次实际CGL调用；保留每次调用前检查，单线程诊断不声称抗外部注入竞态。
+
+### 74.2 像素格式输入并非固定request结构
+
+沿CGLChoosePixelFormat→GLI→GLD逐条追踪，第二参数是CGL在栈上重建的32位token/value流T，以0终止，不是调用者原始属性数组A，也不是用于上层候选评分的Q/V结构。
+
+- DoubleBuffer(5)、ColorSize(8,value)、AlphaSize(11,value)、DepthSize(12,value)、StencilSize(13,value)进入T；存在配置覆盖。
+- Accelerated(73)、OpenGLProfile(99,value)、NoRecovery(72)由上层策略消费，不原样保留。上层仍通过候选flags筛选，不代表忽略应用要求。
+- CGL追加内部token4，其驱动侧完整语义尚未恢复。
+- GLD输出节点N的前0x38字节被CGL缓存复制；原链随后交给驱动销毁。0x38是已证实消费范围，不保证驱动实际allocation总长。
+- 对外包装步长0x40，D=P+8+screen*0x40。Describe以P[0]的**一个字节**检查screen数量；P[3]另存profile标志，不能把整个32位头当纯count。
+- D+0x14是颜色模式位图，ARGB8888(0x8000)公开ColorSize返回32；D+0x1c的depth24应为0x800，直接写24会返回0。
+- profile兼容性在N+0x0c的bit17/18；实际Describe profile来自包装头P[3]的0x10/0x20（4.1优先），不是把0x3200/0x4100写进节点。
+
+完整指令链、输入/输出字段和跳转表证据在`out/pixel-format-research.txt`。尚未恢复全部私有token、节点尾部及所有筛选策略，不据此构造伪完整GLD头文件。
+
+新增`kexts/probes/pixel_format_contract_probe.c`，UUID/架构/边界机器指令及NULL回调表门控后，调用真实CGLDescribePixelFormat验证合成记录。严格编译，最终893通过/0失败，2组动态或非本轮范围属性跳过；包含颜色/alpha/depth位图、samples、逐位flags、profile头与节点冲突、255条记录末端、无效index/property和sentinel。强制拒绝构建返回2且cgl_calls=0，未写系统全局。两套合约测试合计1936通过/0失败，均为用户态字段消费验收，不能证明驱动能力或GPU执行。结果分别保留`out/renderer-contract-probe-output.txt`、`out/pixel-format-contract-probe-output.txt`。
+
+### 74.3 clear/read/finish到驱动的实际调用
+
+当前操作使用G+0xb4c8/context、+0xb4d8/能力区、+0xb4e0/render表、+0xb4e8/GLD表；存在fallback切换，不能始终等同主context字段。
+
+| API路径 | 驱动调用点（unslid） | 已确认传参/行为 |
+|---|---|---|
+| glClear，能力区+0x6e为0 | 0x7ffb063979c9，render[0] | context、过滤后的公开GL clear mask；clear值走共享状态 |
+| glClear，+0x6e非0 | 0x7ffb06397a42，GLD[26] | gldClearFramebufferData(context,内部mask,栈记录)，记录至少28字节 |
+| glReadPixels普通CPU目标 | 0x7ffb063b6b02，GLD[28] | context、裁剪x/y/w/h、format、type、pixels、0、0，共10参 |
+| glFinish常规分支 | 0x7ffb063ca6a2，GLD[30] | gldFlushContext(context) |
+| glFinish共同后继 | 0x7ffb063ca6dc，plugin+0x520 | 遍历各插件gldWaitForContext；此路径不是gldFinishContext |
+
+read的format可规范化、目标指针受裁剪与pack行步长调整；PBO分支第10参为buffer条目，返回值影响同步分支，不能概括为0成功/非0错误。还存在IOSurface读取旁路。clear的内部mask低8位不能误当RGBA通道位；颜色16字节也并非所有路径都是float。完整证据在`out/gld-clear-readback-research.txt`。
+
+目前仍需恢复CreateContext共享区、FBO/texture资源、update/load回调、pack状态和真实提交/等待。仅填clear/read回调仍可能在GLEngine前置条件处退出。
+
+### 74.4 应用验收新增独立清屏检查
+
+`gl_probe.c`先清屏为RGBA=(17,83,149,255)，finish后读取全部64×64像素，4096个像素必须一致，再执行原三角形验收。客体`-Wall -Wextra -Werror`编译通过；Apple Software Renderer清屏mismatch=0，三角形及黑背景通过。默认和强制加速上下文当前仍因未登录会话报invalid CoreGraphics connection，探针exit1，不能记为硬件通过。
+
+最终目标未完成：尚无自研GLD插件、标准硬件CGL上下文或Metal设备。下一步以本节经过核对的字段和调用点实现共享状态/资源契约，再接入GPU；不能靠能力位和固定返回值冒充系统API工作。

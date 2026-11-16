@@ -1,0 +1,206 @@
+GLEngine 清除、读取与同步：调用点研究
+日期：2026-11-16
+范围：macOS 15.7.3 / 24G419，x86_64；所有地址为 unslid。
+目标 UUID：FB994F78-34C6-39F3-857D-99F9B3013E8F。
+
+0. 范围与证据
+已阅读 out/glengine-contract.txt、out/gld-loader-memory-v3.txt，并交叉使用 out/gld-loader-contract.txt。
+客体反汇编：/var/tmp/vgpu-fb/glengine-code.txt。
+通过宿主 Python tools/mssh.py 的 stdin 传入远端 python3，只输出指定函数/地址/引用片段；没有下载反汇编全文。
+用 dyld_info -arch x86_64 -uuid 对目标映像重新确认上述 UUID。
+用 dyld_info -arch x86_64 -section_bytes __TEXT __const 在远端取常量并仅输出相关行。
+目标在 dyld shared cache 中，普通 open(映像路径) 返回 FileNotFoundError；dyld_info 能解析。未尝试提取整个缓存或加载私有入口。
+本次未改驱动、未安装、未重启、未运行 git，未执行绘制或调用 GLD；仅新增本研究文本。
+这是消费者调用点证据，不是完整私有头文件，不把残留寄存器一律算作参数，不把不检查返回视为 void 返回。
+反汇编局部存在异常文本（例如 0x7FFB063B69BA 的 %r14X），依上下文只能把它解释为指针保存意图；实际机器字节未独立复核，相关细节应在实现前二次核验。
+
+1. 最重要的新结果
+1) glClear_Exec 有两条主要路径：能力区域 +0x6e 为0时调用当前 render dispatch 的第0单元；非0时调用129项GLD表第26项 gldClearFramebufferData。
+2) glReadPixels_Exec 通常调用第28项 gldReadFramebufferData，显式6个寄存器参数+4个栈参数；没有发现本函数直接调用25单元render表读取槽。
+3) glFinish_Exec 常规分支调用第30项 gldFlushContext，然后遍历各插件调用第32项 gldWaitForContext；不能按 glFinish 名称断言这里调用第31项 gldFinishContext。
+4) 调用使用的 G+0xb4c8/+0xb4d8/+0xb4e0/+0xb4e8 是当前操作的上下文、能力区域、render表、GLD表别名。初始化时与已知主表对应，但存在 fallback/插件切换，不能永久等同于 G+0xb308 等主字段。
+
+2. 表别名和槽号依据
+记 G 为 GLEngine GLIContext；S_i=G+0xc6b0+i*0xe20；P_i=*(S_i+0xe08)；A_i=S_i+0x10。
+初始化证据 0x7FFB0637B3C2..0x7FFB0637B45E：
+ G+0xb308 和 G+0xb4c8 都取 *(S_i+0)，即驱动 context 句柄。
+ G+0xb310 和 G+0xb4d0 为 share-group 句柄。
+ G+0xb318 和 G+0xb4d8 为 A_i。
+ G+0xb4b8 和 G+0xb4e8 为 P_i+0x420，即129项GLD表起点。
+ G+0xb4e0 为 G+0xb320，即25单元render表。
+关键常量实测：
+ 0x7FFB064E42C0 的两个 uint64 为 (0x420,0x20)，被 0x7FFB0637B425 的 paddq 使用。
+ 0x7FFB064E49A0 的两个 uint64 为 (0x10,0xb320)，被 0x7FFB0637B42D 使用。
+ 0x7FFB064E42D0 开头两个 int16 为 (0x420,0x20)，由 0x7FFB06472060 的 pmovsxwq 使用。
+插件切换证据 0x7FFB06471FDA..0x7FFB064720B9：
+ 主字段由 r14 索引选取；操作别名由 r15 索引选取。r15 在存在 *(G+0xb2f0) 时可取 G+0xc6a3，否则取 r14。
+ 0x7FFB06472081: G+0xb4c8/+0xb4d0 <- S_r15 的 context/share-group。
+ 0x7FFB06472088: G+0xb4d8 <- A_r15。
+ 0x7FFB0647209C: G+0xb4e8 <- P_r15+0x420。
+ 0x7FFB064720AB..B9: G+0xb4e0 <- 非NULL的 *(G+0xb2f0)，否则 G+0xb320。
+ gleInitializeContext 0x7FFB0637C307 将 G+0xb2f0 清0；gleFallbackBegin 0x7FFB06458BB0 可设置它，另有结束路径清零。
+故以下 C=*(G+0xb4c8)、A=*(G+0xb4d8)、R=*(G+0xb4e0)、T=*(G+0xb4e8) 均指当前操作目标。
+
+129项GLD表相关槽（由 gld-loader-memory-v3.txt 的 ENTRY 定名）：
+ index  table偏移  plugin偏移  名称
+ 19     0x98       0x4b8       gldUpdateReadFramebuffer
+ 20     0xa0       0x4c0       gldUpdateDrawFramebuffer
+ 26     0xd0       0x4f0       gldClearFramebufferData
+ 28     0xe0       0x500       gldReadFramebufferData
+ 29     0xe8       0x508       gldPresentFramebufferData
+ 30     0xf0       0x510       gldFlushContext
+ 31     0xf8       0x518       gldFinishContext
+ 32     0x100      0x520       gldWaitForContext
+ 66     0x210      0x630       gldLoadFramebuffer
+render表第0项没有已确认的导出名称，本报告仅称 clear 回调。
+
+3. 上层分派与线程包装
+_gliInitDispatchTable 在 0x7FFB063857B6/BD 把 glClear_Exec 安装到GL API表 +0x50。
+0x7FFB063807E8/EF 安装 glFinish_ExecThread 到 +0x2c8；0x7FFB06380A0F/16 安装 glReadPixels_PackThread 到 +0x768。
+此API表与129项GLD表、25项render表完全不同；此处恢复到GLEngine已安装消费者，未重新恢复OpenGL公开入口的TLS/context注入汇编。
+glFinish_ExecThread 0x7FFB063CA5F8 先以 RDI=G 调 *(G+0xab38)，再在 0x7FFB063CA607 尾跳 glFinish_Exec。该线程回调完整契约未知。
+glReadPixels_PackThread：
+ *(G+0xa608)==0 时，0x7FFB063E7854 调 *(G+0xab38)，恢复 G/x/y/w/h/format 和原栈参数，0x7FFB063E787B 尾跳 Exec。
+ 非0时，0x7FFB063E781A 用 gleAddCommand(G,glReadPixels_UnpackThread,0x20) 写入32字节命令：六个32位值x/y/w/h/format/type在+0..+0x14，pixels在+0x18。
+ Unpack 0x7FFB063E7880..78A0 恢复六个寄存器参数，并压入 pixels、type 后调用 Exec。
+ 线程排队本身不能作为像素已可供CPU读取的证明。
+
+4. glClear_Exec：参数、分流、清除值
+入口 0x7FFB06397822，RDI=G，ESI=公开 clear mask。
+前置条件：
+ 0x7FFB06397830 检查 int16(G+0xaec4)<0，否则记录0x502。
+ 0x7FFB06397841 检查 mask & 0xffffb8ff==0，即只接受0x4700范围，否则记录0x501。
+ mask位0x200为累积缓冲分支，可能调用 gleAccumFast(G,0x1500,xmm0=0)，然后mask &=0x4500；不属于本文最小颜色路径。
+ byte(G+0x604)&0x04 非0时先更新矩阵相关状态。
+ 若 uint32(G+0xb618)&0x743c0478 非0，0x7FFB063978E8 调 gleUpdateDrawFramebufferState(G)，非0返回导致退出；0xff0000为特殊不写GL错误路径，其余值可写入 G+0xb638。
+ 0x7FFB0639790B/16 要求 uint16(G+0xb636)==0x1c00 且 byte(G+0x5258)==0，才继续。
+
+4.1 A+0x6e==0：render clear 回调
+ 0x7FFB0639792F/33 分流。
+ mask经过 G+0x458e/+0x458f 的存在性掩码过滤：
+ 颜色：mask包含0x4000而 byte(G+0x458e)==0时去掉颜色位；
+ 深度：mask包含0x100而 byte(G+0x458f)&1==0时去掉；
+ stencil：mask包含0x400而 byte(G+0x458f)&2==0时去掉。
+ mask最终为0则不调用。
+ 精确调用点 0x7FFB063979C9: call *(R+0)。
+ RDI=C；ESI=过滤后的公开GL clear mask；本调用点没有显式准备其他参数。
+ clear值不在本次显式参数中传入；不能因此做无参桩。值经共享状态/dirty/update契约到驱动，完整布局未恢复。
+ glClearColor 0x7FFB0639EA63..7A、glClearDepth 0x7FFB063A5530..47、glClearStencil 0x7FFB063A71D0..E7 均在 A+0x6e==0 时分别置 G+0xb618 的0x8/0x10/0x20位，促成后续 draw state update。
+ 返回值在此调用点不被检查。
+
+4.2 A+0x6e!=0：gldClearFramebufferData
+ 精确调用点 0x7FFB06397A42: call *(T+0xd0)，第26项。
+ RDI=C。
+ ESI=内部清除掩码M，不是公开GL clear mask：
+ 初值 zero_extend(uint16(G+0x458e)) & 0xfbff。
+ 无公开颜色位时 M &=0xfb00；有颜色位且 M低8位非0才复制颜色值。
+ 无公开深度位0x100时 M &=0xfeff；存在深度位且M位8置位时写入depth。
+ 无公开stencil位0x400时 M &=0xfdff；存在stencil位且M位9置位时写入stencil。
+ M==0时不调用。低8位各位的正式附件命名尚未独立恢复，不把它们误称RGBA通道位。
+ RDX=&栈局部D（rbp-0x30），至少28字节：
+ D+0x00..0x0f：从 G+0x44d0 复制的16字节颜色值；未选择颜色时为0。
+ D+0x10：float，由 double(G+0x44b8) 转为float；未选择深度时为0。
+ D+0x14：uint32，从 G+0x44e4 读取；未选择stencil时为0。
+ D+0x18：明确写32位0。
+ 0x7FFB06397935..44 先清零前24字节，0x7FFB06397A2D 明确写D+0x18。
+ 不宣称D完整类型/完整大小或最后字段的语义；驱动不可在返回后持有这个栈指针。
+ 颜色普通float路径来源：glClearColor 在 G+0xb598 保存原值，0x7FFB0639EA09..5C 按clamping条件写G+0x44d0；整数EXT清除色函数也写这16字节，因此不能在所有路径一律声明float[4]。
+ depth由 glClearDepth 在0x7FFB063A5567保存double；stencil由 glClearStencil 在0x7FFB063A71EE..F2截取输入低8位后保存32位值。
+ 返回值在此调用点不被检查。
+ 两条clear调用之后均可能按共享状态计数变化执行 gleInvalidateCurrentDrawFramebufferTextures；成功返回不等于资源内容已正确变化。
+
+5. glReadPixels_Exec：常规CPU目标的实际10参数调用
+入口0x7FFB063B6754；参数：RDI=G，ESI=x，EDX=y，ECX=width，R8D=height，R9D=format；入口标准栈第7参type、第8参pixels。
+采用rbp后type在rbp+0x10、pixels在rbp+0x18。
+格式/范围准备：
+ 0x7FFB063B6775 要求int16(G+0xaec4)<0；width或height负数则0x501。
+ 0x7FFB063B679B 调 glePixelStorageFromFormatType(G,format,type)；返回描述位61或cold路径决定是否接受，全部格式支持矩阵未恢复。
+ 0x8a1f/0x85b9格式还要求width为偶数。
+ 0x7FFB063B6808 检查 byte(G+0xb61b)&0x8a，需要时调用 gleUpdateReadFramebufferState；非0则退出。
+ 0x7FFB063B6850 调 gleCheckReadPixelsNeeds(G,format,0,(storage>>31)&1)；返回0退出。
+ 0x7FFB063B6860 调 gleStandardizeIntegerFormat，GLD收到标准化后的format；普通GL_RGBA=0x1908保持不变。
+ 来源范围尺寸：有 read FBO即*(G+0xb2c0)!=0时读取该对象+0x1da/+0x1dc的uint16，否则取 G+0xb570/+0xb574 的32位尺寸。
+ 0x7FFB063B6911 调 gleClipReadableRange，直接修改局部x/y/w/h。负x/y截断会产生skipX/skipY，目标指针增加 skipX*每像素字节数+skipY*行步长。
+ 行步长来自 G+0x57ac，若为0，使用G+0x57a8（非0时作为行长度，否则原width）和G+0x57c4的对齐值计算。计算后暂存G+0x57ac，返回前恢复。
+ w/h裁剪后<=0直接返回，不发GLD调用。
+
+最小路径设定：无PBO（*(G+0x5b20)==0），没有命中IOSurface分支（r12==0）。
+精确调用点0x7FFB063B6B02: call *(T+0xe0)，第28项 gldReadFramebufferData。
+ RDI=C。
+ ESI=x'，EDX=y'，ECX=width'，R8D=height'，均为裁剪后的32位值。
+ R9D=标准化format。
+ 调用前push次序 0、0、r14、r10；故按形参序第7..10项为：
+   arg7=type（原type的32位值，经r10保存并以8字节栈槽传递）；
+   arg8=修正后的目标pixels指针；
+   arg9=0；
+   arg10=0。
+ 在被调用函数刚入栈时对应 [rsp+8]type、[rsp+16]pixels、[rsp+24]0、[rsp+32]0；没有把返回地址算作参数。
+ 本分支不检查EAX。第9/10参正式类型与语义不完整，不能生成自信的完整typedef。
+ GLD没有显式收到pack状态/row stride指针，但G+0x57ac已经暂时更新；这要求继续恢复create提供的共享状态与驱动消费契约，不能假定紧密RGBA布局通用于所有路径。
+
+5.1 PBO路径及返回值的特殊含义
+存在*(G+0x5b20)=B时，检查偏移范围、按单元尺寸对齐、B+0x124映射状态、B+0xa4等，失败可能0x502或退出。
+像素地址增加 *(B+0x88)，可能执行 gfxWaitBufferOnDevices。
+0x7FFB063B6B5A 第二个 call *(T+0xe0)：前6参数同上，arg7=type，arg8=调整后的地址，arg9=0，arg10=*(B+0x28+8*byte(G+0xc6a5))，即按当前插件索引选择的buffer条目。
+此调用检查EAX：EAX==0进入CPU侧同步/dirty处理路径；非0则清 B+0xa7 并记录 *(G+0xb4d0) 到 B+0xc0等。
+因此不能把它粗暴解释为“0成功/非0错误”；这里只能说返回值选择数据同步/所有权处理分支。
+完整PBO同步契约不在最小CPU读取路径内。
+
+5.2 IOSurface旁路
+read FBO存在时，根据标准化format、read attachment条目+0x31和level描述+0xb位4，可能得到r12/r11。
+r12非0时在0x7FFB063B6AD8调用 gleReadPixelFromIOSurface，绕过上述常规GLD读取调用（PBO还可先走GLD尝试）。
+因此单纯观察API返回正确像素还必须排除该旁路/软件fallback，不能当作自研硬件路径成功。
+
+5.3 gleCheckReadPixelsNeeds关键拒绝条件（起点0x7FFB06474B70）
+ byte(G+0xc69f)&0x01 非0时立即拒绝（正式字段名未恢复）。
+ read FBO存在且byte(FBO+0x1de)!=0拒绝；按用途是多采样相关限制，但正式布局仍待核验。
+ 默认颜色读取要求uint16(G+0x44e8)!=0，且传入integer-storage标志为0。
+ FBO颜色读取要求有效read attachment与对象，且attachment内部格式的整数类别与请求一致。
+ stencil/depth读取要求相应FBO附件，或默认能力区域A+0x39/A+0x38非0。
+ 拒绝路径在G+0xb638尚无错误时记录0x502。
+
+6. 帧缓冲更新：clear/read前不能只填回调
+_gleUpdateDrawFramebufferState 0x7FFB0644AFD4：
+ FBO存在时按+0x1e0检查完整性，必要时调用 gleUpdateFramebufferCompleteness；按每插件+0x278/+0x279状态检查资源可用性。
+ 0x7FFB0644B080: call *(T+0x210)=gldLoadFramebuffer，RDI=当前share-group，RSI=*(FBO+0xc8+8*i)。
+ dirty位29要求可用draw目标（G+0xc696），有drawable G+0xb300或FBO G+0xb2b8，并受 G+0xc68d 等字段限制；无目标可返回0xff0000，失效FBO可返回0x506。
+ 0x7FFB0644B1D1: call *(T+0xa0)=gldUpdateDrawFramebuffer，RDI=C，ESI=(当时dirty bits & 0x443c0478)。
+ EAX==2导致重置部分上层状态，然后清除相应dirty bits。不能解释其全部返回码。
+_gleUpdateReadFramebufferState 0x7FFB0644B27A：
+ 读FBO同样检查完整性/资源状态，可在0x7FFB0644B330调用 gldLoadFramebuffer(share-group, framebuffer_handle)。
+ dirty位27要求 G+0xc695有效，并检查drawable/read FBO；无目标特殊路径会返回0xff0000。
+ 0x7FFB0644B3DC: call *(T+0x98)=gldUpdateReadFramebuffer，RDI=C，ESI=dirty &0x80000000（到达调用时该位必非0）。随后清位。
+这些参数是实际调用前寄存器准备，不足以完整定义所有回调签名；已明确观察到的ESI不能在实现时忽略。
+
+7. glFinish_Exec：flush/present + wait，不是凭名称选FinishContext
+入口0x7FFB063CA60C，RDI=G；不在允许执行状态时记录0x502并返回。
+A. byte(G+0xc688)==0（0x7FFB063CA627）：
+ 0x7FFB063CA694..A2：RDI=C；call *(T+0xf0)=gldFlushContext。
+ 本调用点仅显式准备RDI，未初始化ESI等。只能报告一个明确参数，不能据此跨入口宣称完整原型必然只有一个参数。
+B. byte(G+0xc688)!=0：
+ 可能先更新draw framebuffer；成功后0x7FFB063CA658调用 *(T+0xe8)=gldPresentFramebufferData，RDI=C、ESI=0。
+ 若*(G+0xb2e8)!=0，0x7FFB063CA6B1再调用该上层回调：EDI/ESI/EDX取*(G+0xb300)的+0/+4/+8，RCX根据G+0xc69f位0x40为0或G+0xb2d8，R8D=(G+0xb60f!=0)。正式呈现回调签名仍未知。
+ 更新失败也会进入后续wait；该分支结束把G+0xc687复制到G+0xc688。
+共同后继：
+ 0x7FFB063CA6BF..F6 对 i=0..byte(G+0xc6a1)-1 遍历所有S_i。
+ 0x7FFB063CA6D2取 P_i=*(S_i+0xe08)，0x7FFB063CA6D5取RDI=*(S_i+0)。
+ 0x7FFB063CA6DC: call *(P_i+0x520)=gldWaitForContext，当前调用仅明确准备该context句柄。
+ 没有显式NULL指针保护，也未检查返回。
+glFinishRender_Exec 0x7FFB063CA75A 与0x7FFB063CA77D同样为 FlushContext 后 WaitForContext。
+本次目标函数路径没有直接调用 gldFinishContext（表+0xf8）；不声称整个系统从不调用它。
+同步真实语义必须由驱动提交、fence/完成等待保证，不能用固定返回值伪造。
+
+8. 下一阶段实现阻塞点与建议验收边界
+可以选择的最小候选：单一目标插件、非fallback、单采样、颜色附件、无PBO、普通GL_RGBA/GL_UNSIGNED_BYTE、正坐标小矩形；clear->finish->readback。
+但这只是缩小研究分支，不代表现在可以靠少量空桩构建可运行硬件上下文。
+必须先解决：
+1) create/share-group/pixel-format与drawable或FBO资源契约。G+0xb300/FBO与尺寸/完整性字段都未能凭空构造，clear/read可在到达驱动前静默退出。
+2) A+0x6e的驱动侧定义及填充责任：选0要求render[0]和状态更新；选非0要求实现三参数ClearFramebufferData及D/mask，不能仅为了少实现回调随意宣告能力。
+3) gldCreateContext第4/5/6参数所指共享状态的完整布局和生命周期，尤其clear值/掩码、readbuffer、pack行步长如何被驱动取得。
+4) 目标attachment/backing storage的创建、格式、pitch、可见性与读取转换；普通CPU路径第9/10参未恢复，PBO返回分支语义也不完整。
+5) gldUpdateDrawFramebuffer/ReadFramebuffer、gldLoadFramebuffer以及resource同步的驱动侧行为；消费者已实际调用，不能全部固定返回0。
+6) FlushContext+WaitForContext的真实提交和完成契约，以及需要Present分支时的drawable回调。
+7) 25项渲染表其余路径、fallback切换及重新填表条件尚未完整恢复；本报告只确认clear用第0项，不能推导其余24项都可NULL。
+8) 反汇编标签不总覆盖每个内部函数起点，且至少出现一处异常寄存器文本。最终ABI实现应再以机器字节/实际驱动消费者或受控调用轨迹交叉核验。
+后续验收必须同时证明：目标硬件插件被选中；资源属于目标驱动；预期GLD/render回调真实执行；提交和等待实际完成；非trivial颜色图案/区域clear读回一致；排除IOSurface读取旁路、软件fallback及只枚举renderer的假成功。
+本次没有运行这些验收，结论只到静态调用契约。

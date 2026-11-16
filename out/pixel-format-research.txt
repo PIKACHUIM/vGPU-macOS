@@ -1,0 +1,182 @@
+Pixel Format 输入与输出契约恢复
+日期：2026-11-16
+目标：macOS 15.7.3 / 24G419，x86_64。下述代码地址均为 unslid。
+地址简写约定：0x68DE4等五位OpenGL地址表示0x7FFB06100000+该值；0x6A799即0x7FFB0616A799。0x637ADFE等GLEngine简写表示0x7FFB00000000+该值。跳转表条目保留完整地址。
+范围：只读研究；未改驱动、安装、重启或执行 git。只创建本必要研究产物。
+
+证据来源
+- 已读 out/glengine-contract.txt、out/glengine-contract-snippets.txt、out/opengl-loader.txt。
+- 通过 python D:/Codes/vGPU-macOS/tools/mssh.py，在客体用 Python 按地址范围提取 /var/tmp/vgpu-fb/opengl-loader.txt 和 glengine-code.txt；未下载全文。
+- 客体 SDK：/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/OpenGL.framework/Headers/CGLTypes.h。
+- 为恢复 switch 对应关系，客体 Python ctypes 仅 dlopen 系统 OpenGL、取得导出函数地址、读取本进程映像中的少量跳转表字节；没有调用 CGLChoosePixelFormat/私有 GLD 函数或改客体文件。
+  slide = address(CGLChoosePixelFormat) - 0x7FFB06168DE4；本次读得 0x6271000。
+  CGLDescribePixelFormat 导出地址减 slide = 0x7FFB0616A960；已有反汇编在此边界漏解码开头两字节，不能把 0xA962 当入口。
+- GLEngine UUID 沿用契约记录：FB994F78-34C6-39F3-857D-99F9B3013E8F。
+
+一、主要结论：不存在已证实的“传给 GLD 的固定字段 request struct”
+本版本 CGL -> gliChoosePixelFormat -> gldChoosePixelFormat 的第二参数是 CGL 在栈上重建的32位 token/value 流，以0结束；它不是调用者原始 CGL 属性数组，也不是下述用于上层排序的0x38字节候选模板。
+这是指令数据流结论，并非按函数名猜测。
+
+定义四个互不混淆的对象：
+A：调用者的公开 CGLPixelFormatAttribute 数组。
+T：CGLChoose 内部栈 rbp-0xf0 的归一化 token/value 流，传给 GLI/GLD。
+Q：CGLChoose 内部栈 rbp-0x250 的候选筛选模板；另有 rbp-0x210 的数值约束块 V。Q/V 仅在本次已追踪的 CGL 上层筛选调用中使用。
+N：GLD 输出的链表节点。CGL 缓存复制其前0x38字节，之后构造每虚拟屏0x40字节包装记录。
+
+端到端指令链：
+1. CGLChoosePixelFormat 0x7FFB06168DE4，保存 A 于 r15；可选 hook 后，0x7FFB06168E2C..8E3A 将 A 传给内部函数0x7FFB06168EF2。
+2. 内部函数0x7FFB06168F12保存 A 于 r12。0x68F23..68F64把 rbp-0xf0..rbp-0x31 清零（0xc0字节栈区）。
+3. 0x690E1..690E4 将当前32位属性写入 T[index]；是否推进输出 index 由 switch 决定。不能因为存在这次临时写入，就认为所有属性最终保留。
+4. 0x69612追加内部 token 4；0x69707写0终止。
+5. 0x69C6D lea rbp-0xf0,r12；0x69C7D rsi=r12；0x69C83调用0x61FB9。
+6. 0x61FCA r12=rsi；0x62076 rsi=r12；0x62079调用 GLI 表首槽 gliChoosePixelFormat。（临时 dlopen 路径0x6211E..62121同样传入该指针。）
+7. GLEngine 0x637ADC1保存 rsi，0x637ADFB还原到 rsi，0x637ADFE call *plugin+0x468，即 gldChoosePixelFormat；没有进一步解析/转换 T。
+8. RDI=&localHead，RSI=T；EAX为32位状态，0表示成功。输出 head 指向 N 链。
+
+因此可实现的入口形态仍为 status32 gldChoosePixelFormat(head_output_slot, normalized_tokens_pointer)，不用虚假的完整 C typedef。token 是32位，含标志项及后继值项；内部 token 4 的意义尚未恢复，不能直接交给公开 CGL parser。
+
+二、A -> T 的重点转换与上层 Q/V（输入方向）
+SDK 常量（CGLTypes.h 行54..99、230..233）：
+ kCGLPFADoubleBuffer=5；kCGLPFAColorSize=8；kCGLPFAAlphaSize=11；
+ kCGLPFADepthSize=12；kCGLPFAStencilSize=13；kCGLPFAAccelerated=73；
+ kCGLPFAOpenGLProfile=99；kCGLPFANoRecovery=72；kCGLPFATripleBuffer=3；
+ kCGLOGLPVersion_Legacy=0x1000；kCGLOGLPVersion_3_2_Core/GL3_Core=0x3200；GL4_Core=0x4100。
+
+属性                 T 中实际行为                         Q/V中独立的上层筛选表示
+DoubleBuffer(5)       保留无值token 5                      Q+0x10 OR 0x8
+ColorSize(8)          保留8及后继32位值                    V+0x00写16位请求大小
+AlphaSize(11)         保留11及后继值                       V+0x02写16位值，V+0x0b=1
+DepthSize(12)         保留12及后继值；存在配置覆盖分支      V+0x06写16位值；也存在配置覆盖
+StencilSize(13)       保留13及后继值                       V+0x08写16位值
+Accelerated(73)       不推进T索引，最终不保留该token        Q+0x0c OR 0x100
+OpenGLProfile(99)     消耗属性和值，但不推进T索引           Q+0x0c OR 0x20000(3.2)或0x40000(4.1)
+NoRecovery(72)        不保留；清上层策略 bit0x10            改变Q默认flags和后续fallback行为
+
+T证据：
+- DoubleBuffer：normalize-low 表5 -> 0x6934A，incl r15d；0x69115推进A游标1。
+- ColorSize：8 -> 0x693D1；0x693DA..693E2复制后继值到 T[index+1]，0x693E9..693F2推进输出2、输入2。
+- AlphaSize/StencilSize：11/13 -> 0x693DA，同一对值拷贝。
+- DepthSize：12 -> 0x6938F；0x693C7..693CA读 A 下一值，或0x693FA读配置+4；0x693FD写 T[index+1]。
+- Accelerated：73 -> 0x69115，r13d初值1，r15d不增加，之前T[index]的73将被下一项或末尾token4覆盖。
+- Profile：99 -> 0x69183，r13d=2；Legacy直接到0x69115，3.2在0x6919D准备0x80，4.1在0x691B6准备0x100，0x691BB OR到策略local rbp-0x174；未知值到0x6971B错误。输出index不增加。
+- 如profile同时有3.2和4.1策略位，0x69455..69469会在bit0x100存在时清0x80，优先4.1。不能将此上层规范化误写成GLD字段。
+- 0x69612无条件追加token4；0x69634可追加BackingStore(76)，0x697D1/697FC等可重插SampleBuffers/Samples；0x69707零终止。故T不是A的原样转交。
+- 输入重建区容量由0xc0字节清零与遍历0x2f上限可见，但没有做全部边界形式证明；不据此编造完整公共数组容量契约。
+
+Q/V证据与限制：
+0x69A3D RDX=&Q，0x69A44 RCX=&V，0x69A4B RDI=A，0x69A51调用0x6C174。
+该解析器0x6C185 rbx=Q、0x6C182 r12=V。
+DoubleBuffer case0x6C457 orb $8,Q+0x10。
+Color case0x6C45D..6C466将A的值截成16位写V+0。
+Depth case0x6C3EE..6C419写V+6。
+Accelerated case0x6C3E1..6C3E6：EAX|=0x100，再写Q+0xc。
+Profile case0x6C339..6C359、0x6C495..6C49C：3.2 -> 0x20000，4.1 -> 0x40000，OR到Q+0xc。
+Q默认flags：0x6C1CA..6C1D7 = 0x400 + ((policy&0x10)<<3)，通常0x480；有明确属性/配置分支会清0x400/改bit0x100等。
+0x6C190..6C1AC初始化Q部分字段；0x6C1AC Q+0x34=0xffffffff，0x6C4DC..6C4E1再经显示mask函数规范化。
+0x69D35..69D4F：RDI=&Q，RSI=&V，RDX=N，调用排序函数0x6C69A。
+0x6C784..6C793要求 (Q.flags & ~N.flags)==0；0x6C795..6C7A4比较buffer模式并忽略bit0x10差异。
+0x6C8D2..6C8ED使用 V.depth 和解码后的N+0x1c比较评分；0x6C9D3..6CA05使用V.color及解码后N+0x14。
+这解释了Accelerated/profile可从T被删除，仍由CGL上层过滤候选；不能因此认为应用的这两个请求被忽略。
+Q/V没有传入GLD的证据。它们的已见字段仅作为CGL内部筛选记录，不是另一个已经恢复的GLD request struct。
+
+三、N -> CGL包装对象 -> Describe（输出方向）
+GLD节点消费范围：
+- N+0x00：8字节 next。
+- N+0x08：32位renderer/driver标识；GLEngine 0x637AE19 OR 0x20000，后续节点0x637AE2F对+0xa OR2。
+- OpenGL缓存函数0x60DCE按节点数*0x38分配；0x60E3D..60E5B复制N+0..0x37，0x60E63..60E96按0x38步长重链。
+- 0x62088复制完成后，0x620A4经GLI destroy释放原始GLD链。因此原节点必须在复制期间有效，不能假定上层保留其地址；销毁仍通过驱动入口，不可随意free。
+- 0x38是明确的上层消费/缓存副本尺寸；不能据此断言驱动分配对象总大小恰为0x38，也不排除私有尾部。
+
+设 P=CGLPixelFormatObj，s=虚拟屏索引，B=P+0x40*s，D=B+8。
+0x6A163分配屏数*0x40；0x6A2BC..6A2DA把N前0x38字节复制到D。
+0x6A2E9将D+0x34与选择后的display mask相与；0x6A2ED清D.next；0x6A2FC将D+0x31与Q+0x31相与。
+0x6A3B8 P[0]=屏数，0x6A3C8 P+4=初始引用计数1。
+GLCDescribePixelFormat入口0x6A5BA：0x6A5C5以movzbl读P[0]的一个字节检查s（不能读整个32位头为count，P[3]另含profile）；0x6A5D1 s*=0x40；0x6A5F9..6A5FD生成D。
+0x6A5D5取 B+0x14 = D+0xc 到r8d；0x6A5DE..6A5EB如P[3]&0x30非零，flags &= 0xffffd1b8。后续布尔属性从这个过滤后的r14d读。
+此mask仍保留accelerated bit0x100。公开Describe wrapper在0x6A97A调用GLCDescribe；0x6A99D可能再调用可选hook，因此本表描述内建GLC路径。
+
+已恢复字段映射：
+SDK属性                     从D/N读取                       指令地址或转换
+Accelerated=73              u32+0x0c bit8                    0x6A6FF shr8 -> 0x6A7CC &1
+AcceleratedCompute=97       u32+0x0c bit16                   0x6A7B5 shr16 -> &1
+DoubleBuffer=5              u32+0x10 bit3                    0x6A70D..6A71A
+TripleBuffer=3              u32+0x10 bit4                    0x6A6C8..6A71A
+Stereo=6                   u32+0x10 bit1                    0x6A715..6A71A（Choose的输入case仍拒绝6）
+ColorSize=8                u32+0x14颜色模式位图             0x6A735 -> 0x6A759 -> 0x62E91
+AlphaSize=11               同u32+0x14                       0x6A6AA -> 0x62F13
+AccumSize=14               u32+0x18颜色模式位图             0x6A756 -> 0x62E91
+DepthSize=12               u32+0x1c深度模式位图             0x6A72B -> 0x62EE4
+StencilSize=13             u32+0x20深度模式位图             0x6A708 -> 0x62EE4
+AuxBuffers=7               s16+0x26                         0x6A6EF movswl
+SampleBuffers=55           s16+0x28                         0x6A687 movswl
+Samples=56                 s16+0x2a                         0x6A6DD movswl
+Multisample=59             u32+0x2c bit1                    0x6A6F5 -> shr1/&1
+Supersample=60             u32+0x2c bit0                    0x6A6FA -> &1
+SampleAlpha=61             u8+0x30                          0x6A698 movzbl
+DisplayMask=84             u32+0x34                         0x6A76F
+RendererID=70              u32+0x08                         0x6A690
+OpenGLProfile=99           P头部byte+3，不直接读N字段       0x6A799..6A7B0，详见下节
+
+额外flags消费（均从可能已过滤的r14d）：Window80 bit0，FullScreen54 bit1，OffScreen53 bit2，BackingStore76 bit3，BackingVolatile77 bit4，Robust75 bit6，MultiScreen81 bit9，Compliant83 bit10，AuxDepthStencil57 bit11，PBuffer90 bit13。RemotePBuffer91还检查CGS连接。所有这些都不能概括成完整flags定义；未列出的位保持未知。
+N+0x24..0x25、+0x32..0x33没有在本次恢复出正式语义；N+0x31有初始化、过滤、上下文消费，但正式属性名未知。不要补成padding或编造名称。
+
+四、color/depth是位图，不是请求中的bits数
+SDK CGLTypes.h行265..269：
+ kCGLMonoscopicBit=1，Stereoscopic=2，SingleBuffer=4，DoubleBuffer=8，TripleBuffer=0x10。
+行274..286：kCGL0Bit=1，kCGL8Bit=0x80，kCGL16Bit=0x400，kCGL24Bit=0x800，kCGL32Bit=0x1000。
+行303..308：kCGLRGB888Bit=0x4000，kCGLARGB8888Bit=0x8000，kCGLRGB888A8Bit=0x10000，kCGLRGB101010Bit=0x20000，kCGLARGB2101010Bit=0x40000，kCGLRGB101010_A8Bit=0x80000。
+
+ColorSize转换0x62E91：按顺序命中掩码后返回值：
+ input&0x3c -> 8；input&0x3fc0 -> 16；input&0xfc000 -> 32；
+ input&0x3f00000 ->64；input&0xc000000 ->128；否则(input&0x30000000)!=0 ->256，否则0。
+证据0x62E95..62EDF。例：N+0x14=kCGLARGB8888Bit(0x8000)时，Describe ColorSize返回32，即使A请求ColorSize24。不能把字段直接写24，也不能把公开结果臆断为RGB分量总数24。
+
+Depth/Stencil转换0x62EE4：优先bit12 ->32，bit11 ->24，bit10 ->16，最后bit7 ->8，否则0（地址0x62EED、62EF8、62F03、62F09..62F0F）。
+例：N+0x1c=kCGL24Bit(0x800)才是Describe depth24；直接写十进制24会返回0。
+上层此转换不等于SDK所有kCGLnBit都可被此函数完整返回；不扩展其未见支持。
+
+五、profile的三个层次，不能混用
+1. A: [99,0x3200] 或 [99,0x4100]。外层策略local分别得到0x80或0x100；归一化T不保留99/值。
+2. Q+0xc: 解析原始A后分别OR 0x20000或0x40000，筛选要求这些位存在于N+0xc。
+   0x6C784..6C793明确做 Q.flags & ~N.flags 测试，因此驱动输出这些位才可能通过对应profile的上层选择。
+   这是节点能力/兼容性位，并不是把0x3200/0x4100直接放入某个16位profile字段。
+3. P[3]: 构造包装时0x6A231..6A23C将策略0x80转为byte bit0x10、策略0x100转为bit0x20；0x6A293..6A2AD OR入记录头。
+   Describe的0x6A5DA从P[3]读取；0x6A799..6A7B0：bit0x20 ->0x4100；否则bit0x10 ->0x3200；否则0x1000。
+   因此公开Describe并非直接从N+0xc反推profile；仅给N加能力位也不会自动让Legacy请求返回Core profile。
+N+8的0x20000是GLEngine/driver标识，与N+0xc的0x20000 profile兼容性位完全不同。
+
+六、跳转表可复核证据（纠正反汇编将数据误解成指令的问题）
+规则：target = table_base + signed_i32(table_base + 4*(attribute-first))。
+normalize-low base=0x7FFB0616A3E8 first=1；normalize-high base=0x7FFB0616A420 first=51。
+describe-low base=0x7FFB0616A7E0 first=1；describe-high base=0x7FFB0616A930 first=90。
+score-template-low base=0x7FFB0616C568 first=1；high=0x7FFB0616C5A0 first=51。
+这些地址分别由0x6905C/69063、0x6A601/6A64A、0x6C24F/6C256的RIP相对lea直接计算。
+
+关键原始条目（4字节为小端字节串）：
+normalize attr5  cell0x7FFB0616A3F8 bytes62efffff ->0x7FFB0616934A
+normalize attr8  cell0x7FFB0616A404 bytese9efffff ->0x7FFB061693D1
+normalize attr12 cell0x7FFB0616A414 bytesa7efffff ->0x7FFB0616938F
+normalize attr73 cell0x7FFB0616A478 bytesf5ecffff ->0x7FFB06169115
+normalize attr99 cell0x7FFB0616A4E0 bytes63edffff ->0x7FFB06169183
+describe attr5   cell0x7FFB0616A7F0 bytes2dffffff ->0x7FFB0616A70D
+describe attr8   cell0x7FFB0616A7FC bytes55ffffff ->0x7FFB0616A735
+describe attr12  cell0x7FFB0616A80C bytes4bffffff ->0x7FFB0616A72B
+describe attr73  cell0x7FFB0616A900 bytes1fffffff ->0x7FFB0616A6FF
+describe attr99  cell0x7FFB0616A954 bytes69feffff ->0x7FFB0616A799
+
+七、可实现范围与明确未知
+已足以实现/审查的部分：
+- 正确区分原始A、归一化T、上层Q/V、GLD输出N与CGL包装对象P，拒绝把任一者混作另一者。
+- GLD choose入口的双指针形态、输出链、EAX状态、节点前0x38字节消费范围及销毁路由。
+- 对已知T token（5、8/value、11/value、12/value、13/value等）做有界解释的设计；内部token4需继续查驱动侧，不能擅自假定公开枚举语义。
+- 为候选节点正确编码accelerated、doublebuffer、颜色/深度模式，并理解上层profile兼容性筛选和Describe返回来源。
+- 基于证据做最小字段偏移访问器/常量表；本报告没有写驱动或宣称能成功创建/绘制。
+
+仍不可宣称：
+- 已恢复“完整内部request struct”。实际传入的是重建token流；其全部私有token语义和驱动侧解析器未恢复。
+- 输出N完整正式C类型、驱动实际allocation size、所有flags位、+0x24/+0x32空隙语义、+0x31正式名称。
+- 只设置accelerated/profile位就获得硬件能力；它们还必须与真实上下文创建、资源、分派及绘制行为一致。
+- 输出候选一定通过所有策略、显示mask、恢复、配置覆盖路径；本次未穷尽评分策略和可选hook。
+- 不同macOS版本/arm64同ABI。
+
+相对于glengine-contract.txt第七节的增量：已经把choose第二参数从未知opaque指针收紧为“本版本CGL重建的32位token流”；已经恢复节点被上层复制的0x38字节范围和上述关键输出映射。原契约文件未改动。

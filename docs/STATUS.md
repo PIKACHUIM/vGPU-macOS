@@ -155,7 +155,7 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 
 ## 当前开放问题
 
-> 最后更新：2026-11-16（§73：真实IOAccelerator服务已加载，framebuffer关联成功，经新旧入口29帧/1,900,544新帧像素零差异，权限及未知连接拒绝通过；§72恢复GLD加载与GLEngine调用契约，补齐Metal render验收代码。当前没有GLD插件/Metal设备；重启后在登录界面，硬件OpenGL/Metal仍未实现）
+> 最后更新：2026-11-16（§74：恢复34项renderer属性映射、像素格式归一化token流和节点字段、clear/read/finish实际调用链；新增真实CGL结构契约探针及4096像素清屏基线。§73真实IOAccelerator关联和29帧/1,900,544新帧像素回归已通过。当前没有GLD插件/Metal设备，客体仍在登录界面，硬件OpenGL/Metal仍未实现）
 
 ### 两级目标的最终状态（11-15 夜间修订）
 

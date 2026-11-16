@@ -211,6 +211,24 @@ static int report(const char *label, CGLPixelFormatAttribute *attrs, int require
     }
     glViewport(0, 0, 64, 64);
     glDisable(GL_DITHER);
+    /* Separate clear/readback from drawing so a broken clear path cannot be
+     * hidden by the triangle. Nonzero asymmetric channels also catch swizzles. */
+    glClearColor(17.0f / 255.0f, 83.0f / 255.0f, 149.0f / 255.0f, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glFinish();
+    unsigned char cleared[64 * 64 * 4];
+    memset(cleared, 0x5a, sizeof(cleared));
+    glReadPixels(0, 0, 64, 64, GL_RGBA, GL_UNSIGNED_BYTE, cleared);
+    if (!check_gl(label, "clear/readback")) goto cleanup;
+    size_t clear_mismatch = 0;
+    for (size_t i = 0; i < 64 * 64; ++i) {
+        const unsigned char *p = cleared + i * 4;
+        if (p[0] != 17 || p[1] != 83 || p[2] != 149 || p[3] != 255)
+            ++clear_mismatch;
+    }
+    printf("%s: clear/readback pixels=4096 mismatch=%zu -> %s\n",
+           label, clear_mismatch, clear_mismatch ? "FAIL" : "PASS");
+    if (clear_mismatch) goto cleanup;
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
     glBegin(GL_TRIANGLES);

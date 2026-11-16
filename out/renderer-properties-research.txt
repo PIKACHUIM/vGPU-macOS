@@ -1,0 +1,212 @@
+CGL renderer 属性 → GLD 0x88 字节记录：只读研究
+日期：2026-11-16
+目标：macOS 15.7.3 / 24G419 / x86_64；全部指令地址均为 unslid 地址。
+范围：恢复目标 CGLDescribeRenderer 对全部公开 CGLRendererProperty 的实际消费行为；不声明完整私有 C 结构。
+本次仅读取本地 out、客体已有反汇编、SDK 头文件、dyld 缓存，执行 dyld_info -exports；不改驱动、不安装、不重启、不运行 git、不调用 CGL/GLD 查询入口、不读取或显示凭证内容。
+仅本研究 txt 为本次持久新增；正式 docs 与既有研究文件未修改。
+
+一、来源与可信度
+1. OpenGL UUID：EEBF4330-76CB-3E0E-AD13-BD031235E27F；unslid base 0x7ffb06160000。
+2. GLEngine UUID：FB994F78-34C6-39F3-857D-99F9B3013E8F；unslid base 0x7ffb0637a000。
+   两者本次直接由客体 dyld 缓存中的 Mach-O LC_UUID 核对，与旧记录一致。
+3. 本地 out/opengl-loader.txt 与客体 /var/tmp/vgpu-fb/opengl-loader.txt 完全同 SHA256：
+   90525832080fefa7143ce6fe3bb3d504104da93c368c61e1aa48a7c2c04a16aa（682123 字节）。
+4. 客体 /var/tmp/vgpu-fb/glengine-code.txt：16639703 字节，SHA256
+   52e06fc1f3940828ced1943459b3895941dbd7f0956ab579bf987dce5dfcf248；未下载全文。
+5. 属性名称、编号与公开位常量来源：客体
+   /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/CGLTypes.h
+   SHA256 6e7f302c334dbb33790df6a42c184b380585ffab12768fd54be3d04075f0a9ce。
+   该头文件 CGLRendererProperty 共34项（包括废弃项）；目标行为以15.7.3二进制为准，头文件只用于命名。
+6. 跳转表来自客体文件只读解析，不是根据分支顺序或属性名推测：
+   /System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64h.03
+   mapping.address=0x7ffb00000000，mapping.size=0x1f2dc000，mapping.fileOffset=0。
+   跳转表 unslid=0x7ffb0616c050，文件偏移=0x616c050，73项，每项 signed int32，共292字节。
+   表 SHA256：9cd45a30d8451dd58b436287a60714108f383b6505f39946ee8e2b88a264fc7c。
+7. 证据等级：下列34项的编号→分支→读取/计算行为已证实；正式字段名称、声明类型及未消费字节仍未知。
+
+二、调用链及记录基址，避免把包装对象偏移当成 GLD 偏移
+令 P 为 gldPopulateRendererInfo 收到的 caller-owned 0x88 字节记录。
+既有 out/glengine-contract.txt:43 起及 out/glengine-contract-snippets.txt:521 起证实：
+  0x7ffb0638ea21 movl $0x88,%esi；0x7ffb0638ea2b calloc。
+  0x7ffb0638ea63..0x7ffb0638ea77 计算 index*0x88 并将 P 传到 RSI。
+  0x7ffb0638ea7a callq *0x438(%rax)：gldPopulateRendererInfo(device,P)。
+  0x7ffb0638ea84..0x7ffb0638ea8b：GLEngine 写 P+0 的 next。
+  0x7ffb0638ea8e orb $2,0xa(%rbx)：P+8 的32位标识 OR 0x00020000。
+本次导出证据确认 gliQueryRendererInfo RVA=0x149c8，即 0x7ffb0638e9c8。
+原反汇编在该处受之前跳转表的数据误解码影响，漏掉函数名并从 +2 的 e9ca 开始显示；不得把 e9ca 当真正入口。
+  从缓存读取 0x7ffb0638e9c8 原始12字节：55 48 89 e5 41 57 41 56 41 55 41 54。
+
+OpenGL 查询链：
+  0x7ffb0616b9d5 调内部 helper 0x7ffb06162459。
+  0x7ffb06162489 读取 GLI plugin+0x430 的函数表；0x7ffb06162493 call *0x10(%rax)。
+  既有 gld-loader-memory-v3.txt:4..19 的16项 GLI 名称表 index2 为 gliQueryRendererInfo。
+  0x7ffb0616ba8a movl $0x88,%edx；ba8f RDI=R15；ba92 RSI=R14；ba95 memcpy。
+  即将整个 P 复制到 CGL 包装记录 R，随后 ba9a 将 R+0 清零。
+  0x7ffb0616baa5 将剩余 renderer 数写到 R-8；baaf 下一个 R 加0x90。
+令 O 为 CGLRendererInfoObj，index=i，则 CGLDescribeRenderer 读取基址 R=O+8+i*0x90：
+  0x7ffb0616bce3..bcf1 明确执行 i*9*16+O+8。
+所以 R+k 对应原始 GLD P+k（除 next 清零）。下文所有 +偏移均相对 P/R，不相对 O。
+CGL 包装对象中的计数不是 P 内的字段，0x90 也不是 GLD 单条记录大小。
+
+三、没有已证实的 gliDescribeRenderer 入口
+本次 dyld_info -exports 在 GLEngine 中找到：
+  _gliQueryRendererInfo RVA 0x149c8；_gliDestroyRendererInfo RVA 0x14b0a。
+没有 _gliDescribeRenderer 导出；完整已有 GLEngine 反汇编也未出现这个符号。
+OpenGL 导出 _CGLDescribeRenderer RVA 0xbc8a；本函数直接 switch 并读取 R。
+既有16项 GLI 表中也没有 gliDescribeRenderer。因此不虚构该函数的 ABI 或字段映射。
+这不能证明所有无符号内部代码绝无类似帮助函数；只证明本目标已观察路径无需该导出。
+CGLDescribeRenderer 的 0x7ffb0616bcd3 可选 call *0x28(%rax) 返回后仍继续本地处理；不能把它命名为 gliDescribeRenderer。
+
+四、跳转分派规则
+0x7ffb0616bcf5 leal -0x46(%r14),%eax  → index=property-70。
+0x7ffb0616bcf9 cmpl $0x48,%eax；bcfc ja bd41 → 70..142 的73项进入表。
+0x7ffb0616bcfe leaq 0x34b(%rip),%rcx；下一条地址bd05 +0x34b = c050。
+0x7ffb0616bd05 movslq (%rcx,%rax,4),%rax；bd09 addq %rcx,%rax；bd0c jmp *%rax。
+目标 = 0x7ffb0616c050 + signed32(table[property-70])，不是以当前表项地址为相对基点。
+53、54 不在表内，bd41/bd45 直接比较53跳 bfff，bd4b/bd4f 比较54进入 bd55。
+成功路径统一 0x7ffb0616bf4b movl %r13d,(%rbx)，写32位公开 GLint；bf4e 清零状态。
+布尔分支统一 0x7ffb0616bf47 andl $1,%r13d。
+
+五、全部34项公开属性的可靠映射
+命名省略共同前缀 kCGLRP。u32/u16/u8/s16 表示消费者读取宽度及零/符号扩展，不代表恢复了驱动源代码 typedef。
+“全32位”表示原始位模式原样写入 GLint；无法仅凭 movl 判定正式字段是 int32_t 还是 uint32_t。
+所有行的目标地址可由第九节的 signed rel 和上述表基址复算。
+
+编号 属性                    偏移/消费类型              位掩码或返回规则                     分支目标/读取指令
+ 53 OffScreen               +0x0c u8                   bit2(0x04) 且全局字节<8；见后文       0x7ffb0616bfff
+ 54 FullScreen              +0x0c u32                  (value>>1)&1，mask=0x00000002         0x7ffb0616bd55；移位bd59
+ 70 RendererID              +0x08 32位                 全32位，含GLEngine写入的标识位        0x7ffb0616bd0e
+ 73 Accelerated             +0x0c u32                  (value>>8)&1，mask=0x00000100         0x7ffb0616beb8；移位bebc
+ 75 Robust                  +0x0c u32                  (value>>6)&1，mask=0x00000040         0x7ffb0616bea2；移位bea6
+ 76 BackingStore            +0x0c u32                  (value>>3)&1，mask=0x00000008         0x7ffb0616bec5；移位bec9
+ 78 MPSafe                  无记录字段                 固定返回1                            0x7ffb0616bf03
+ 80 Window                  +0x0c u32                  value&1，mask=0x00000001              0x7ffb0616be90
+ 81 MultiScreen             +0x0c u32                  (value>>9)&1，mask=0x00000200         0x7ffb0616bdce；移位bdd2
+ 83 Compliant               +0x0c u32                  (value>>10)&1，mask=0x00000400        0x7ffb0616bd8a；移位bd8e
+ 84 DisplayMask             +0x24 32位                 默认原值；策略分支可覆盖，见后文      0x7ffb0616bde5
+100 BufferModes             +0x10 32位位集             value & 0xfffffffd，清除0x2           0x7ffb0616bdc1；AND bdc5
+103 ColorModes              +0x14 32位位集             全32位                               0x7ffb0616bedc
+104 AccumModes              +0x18 32位位集             全32位                               0x7ffb0616beaf
+105 DepthModes              +0x1c 32位位集             全32位                               0x7ffb0616be99
+106 StencilModes            +0x20 32位位集             全32位                               0x7ffb0616bd81
+107 MaxAuxBuffers           +0x28 s16                  符号扩展；-1报BadProperty             0x7ffb0616bddb movswq
+108 MaxSampleBuffers        +0x2a s16                  符号扩展；-1报BadProperty             0x7ffb0616bf0b movswq
+109 MaxSamples              +0x2c s16                  符号扩展；-1报BadProperty             0x7ffb0616be7d movswq
+110 SampleModes             +0x30 32位位集             全32位                               0x7ffb0616bed6
+111 SampleAlpha             +0x2e u8                   零扩展，未归一化为0/1                0x7ffb0616becf movzbl
+120 VideoMemory             +0x4c u32，按MiB消费        转字节并饱和至INT32_MAX              0x7ffb0616bdb8；转换beec
+121 TextureMemory           +0x54 u32，按MiB消费        转字节并饱和至INT32_MAX              0x7ffb0616bee8；转换beec
+122 GPUVertProcCapable      +0x0c u32                  (value>>14)&1，mask=0x00004000        0x7ffb0616bf35；移位bf39
+123 GPUFragProcCapable      +0x0c u32                  (value>>15)&1，mask=0x00008000        0x7ffb0616bd74；移位bd78
+128 RendererCount           不在0x88记录内             返回进入switch前读取的O+0计数        0x7ffb0616bcdb；表直接跳bf4b
+129 Online                  间接使用+0x24              动态显示器交集/策略值；见后文         0x7ffb0616bf7e；读取bfce
+130 AcceleratedCompute      +0x0e u16，与+0x0c重叠     u16&1，即+0x0c bit16=0x00010000       0x7ffb0616bd6a movzwl；AND bf47
+131 VideoMemoryMegabytes    +0x4c 32位                 原值                                 0x7ffb0616bd61
+132 TextureMemoryMegabytes  +0x54 32位                 原值                                 0x7ffb0616bf78
+133 MajorGLVersion          +0x0c u32                  bit18优先4，否则2+bit17；见后文       0x7ffb0616bd97
+140 RegistryIDLow           +0x34 32位                 原值                                 0x7ffb0616be87
+141 RegistryIDHigh          +0x38 32位                 原值                                 0x7ffb0616bee2
+142 Removable               +0x0c u32                  (value>>19)&1，mask=0x00080000        0x7ffb0616bf3f；移位bf43
+
+六、转换、动态属性及错误规则
+1. OffScreen：0x7ffb0616bfff movb R+0xc,%al；c003 shrb $2,%al。
+   c006 LEA 得到全局基址 0x7ffb4342f998；c00d cmpb $8,6(%rcx)，即检查全局地址0x7ffb4342f99e。
+   c011 setb %cl（无符号<8）；c014 andb %al,%cl；c016 零扩展结果到R13D。
+   精确表达：(u8(R+0xc)>>2) & (u8(0x7ffb4342f99e)<8 ? 1 : 0)。
+   全局字节的正式含义未在本轮恢复，不能无证据称为某个特定OS版本号。
+2. DisplayMask：bde5 先读 R+0x24；bde9 gfxPreferRemovable；假则返回原值。
+   若为真，bdf6 调 CGSMainConnectionID；结果0也返回原值。
+   两者满足后，be42 调 CGSGetOnlineDisplayList；be57..be76 循环调用 CGSGetDisplayOpenGLDisplayMask 并 OR 全部在线显示器掩码。
+   此分支替换原值，不是与原值做AND；无在线显示器时 c040 返回0。
+3. Online：bfbd 调 CGSGetOnlineDisplayList；bfce 读 R+0x24；bfda 取显示器 OpenGLDisplayMask；bfdf test 两者。
+   有任一交集时 c024 设置结果1，否则0；c02a 再调 gfxPreferRemovable，返回真时强制结果1。
+   精确已见逻辑：preferRemovable ? 1 : any(onlineDisplayMask & u32(R+0x24))。
+   因此没有证据支持“Online在能力字段的某个固定位”。
+4. MajorGLVersion：bd9d btl $0x11,%eax；bda1 adcq $2,%rcx，得到2或3。
+   bda5 btl $0x12,%eax；bda9 R13D=4；bdaf cmovae %rcx,%r13（CF清零时选择2/3）。
+   返回 (flags & 0x00040000) ? 4 : (2 + ((flags>>17)&1))。
+   这是最大主版本查询的编码，不足以证明完整GL4.1能力或恢复profile支持契约。
+5. 旧字节单位显存属性120/121：beec 初始化0x7fffffff；bef2 将零扩展的源值与0x7ff比较；bef8 无符号大于则直接返回上限；否则 befa 左移20。
+   等价：M<=2047 ? M*1048576 : 2147483647（源消费为u32）。
+   所以0xffffffff并不会表示负MiB参与乘法，而会走饱和分支。131/132本身只传32位位模式。
+   本函数仅证实读取+0x4c与+0x54各4字节，不能由间距8认定存在两个uint64字段，也不能认定+0x50/+0x58为对应高32位。
+6. 三个s16最大值：bf10 cmpq $-1,%r13；bf14 非-1则成功；-1进入bf16。
+   只检查-1，并未把所有负数钳为0。SampleAlpha的u8也未做AND 1。
+7. 不支持属性：bf16/bff5 返回0x2711=10001=kCGLBadProperty；无成功写回。
+   index<0（bcd6/bcd9）或index>=O+0（bcdb/bce1）返回0x2718=10008=kCGLBadValue。
+   RendererCount依旧经过index校验；不是无需有效index即可查询。
+   本轮没有执行无效指针测试，也不凭本函数未见检查去推断所有调用前置条件。
+
+七、公开位常量与记录位集的区别
+下列为上述SDK公开常量，只解释返回位集中的各位名称，不证明某个真实驱动实际支持全部位。
+BufferModes（+0x10，返回时清0x2）：
+  Monoscopic=0x1，Stereoscopic=0x2，SingleBuffer=0x4，DoubleBuffer=0x8，TripleBuffer=0x10。
+DepthModes(+0x1c)/StencilModes(+0x20)：
+  深度位数→掩码：0→0x1，1→0x2，2→0x4，3→0x8，4→0x10，5→0x20，6→0x40，8→0x80，
+  10→0x100，12→0x200，16→0x400，24→0x800，32→0x1000，48→0x2000，64→0x4000，96→0x8000，128→0x10000。
+ColorModes(+0x14)/AccumModes(+0x18)，名称省略kCGL前缀及Bit后缀：
+  RGB444=0x00000040，ARGB4444=0x00000080，RGB444A8=0x00000100，RGB555=0x00000200，
+  ARGB1555=0x00000400，RGB555A8=0x00000800，RGB565=0x00001000，RGB565A8=0x00002000，
+  RGB888=0x00004000，ARGB8888=0x00008000，RGB888A8=0x00010000，RGB101010=0x00020000，
+  ARGB2101010=0x00040000，RGB101010_A8=0x00080000，RGB121212=0x00100000，ARGB12121212=0x00200000，
+  RGB161616=0x00400000，RGBA16161616=0x00800000，RGBFloat64=0x01000000，RGBAFloat64=0x02000000，
+  RGBFloat128=0x04000000，RGBAFloat128=0x08000000，RGBFloat256=0x10000000，RGBAFloat256=0x20000000。
+  旧名ARGB16161616Bit等同RGBA16161616Bit。
+SampleModes(+0x30)：Supersample=0x1，Multisample=0x2。
+注意+0x0c是另一个能力位字段，不能把以上Buffer/Color/Sample位常量直接OR进+0x0c。
+
+八、未知与不应推断的部分
+- P+0x2f、P+0x3c..0x4b、P+0x50..0x53、P+0x58..0x87：本消费者没有建立公开属性含义；不得擅自定义为padding、保留、字符串、指针或额外显存位。
+- +0x0c未被本次公开查询使用的各位含义未知；+8标识的完整位分区仍需其他证据。
+- OffScreen全局门控字节的语义、gfxPreferRemovable全部策略实现未知；本轮仅恢复被调用点如何使用返回值。
+- 对32位字段，movl证明位宽和公开返回位模式，不证明正式字段的signedness；32位读取也不证明底层分配字段只有4字节。
+- 各能力位与驱动实际实现之间的约束、资源/dispatch初始化、完整可运行GLD结构仍未恢复。
+- 不推广至其他macOS版本或arm64，不构造虚假的gliDescribeRenderer签名，不将公开查询可返回值等同真实硬件能力。
+
+九、跳转表可复核数据
+下表列全部非默认表项（包括全部32个处于70..142的公开属性）；53/54由直接比较处理。
+默认表项全部为 -314 → 0x7ffb0616bf16；本73项范围内没有额外非公开成功分支。
+属性  表项地址             signed rel   分支目标
+70    0x7ffb0616c050       -834         0x7ffb0616bd0e
+73    0x7ffb0616c05c       -408         0x7ffb0616beb8
+75    0x7ffb0616c064       -430         0x7ffb0616bea2
+76    0x7ffb0616c068       -395         0x7ffb0616bec5
+78    0x7ffb0616c070       -333         0x7ffb0616bf03
+80    0x7ffb0616c078       -448         0x7ffb0616be90
+81    0x7ffb0616c07c       -642         0x7ffb0616bdce
+83    0x7ffb0616c084       -710         0x7ffb0616bd8a
+84    0x7ffb0616c088       -619         0x7ffb0616bde5
+100   0x7ffb0616c0c8       -655         0x7ffb0616bdc1
+103   0x7ffb0616c0d4       -372         0x7ffb0616bedc
+104   0x7ffb0616c0d8       -417         0x7ffb0616beaf
+105   0x7ffb0616c0dc       -439         0x7ffb0616be99
+106   0x7ffb0616c0e0       -719         0x7ffb0616bd81
+107   0x7ffb0616c0e4       -629         0x7ffb0616bddb
+108   0x7ffb0616c0e8       -325         0x7ffb0616bf0b
+109   0x7ffb0616c0ec       -467         0x7ffb0616be7d
+110   0x7ffb0616c0f0       -378         0x7ffb0616bed6
+111   0x7ffb0616c0f4       -385         0x7ffb0616becf
+120   0x7ffb0616c118       -664         0x7ffb0616bdb8
+121   0x7ffb0616c11c       -360         0x7ffb0616bee8
+122   0x7ffb0616c120       -283         0x7ffb0616bf35
+123   0x7ffb0616c124       -732         0x7ffb0616bd74
+128   0x7ffb0616c138       -261         0x7ffb0616bf4b
+129   0x7ffb0616c13c       -210         0x7ffb0616bf7e
+130   0x7ffb0616c140       -742         0x7ffb0616bd6a
+131   0x7ffb0616c144       -751         0x7ffb0616bd61
+132   0x7ffb0616c148       -216         0x7ffb0616bf78
+133   0x7ffb0616c14c       -697         0x7ffb0616bd97
+140   0x7ffb0616c168       -457         0x7ffb0616be87
+141   0x7ffb0616c16c       -366         0x7ffb0616bee2
+142   0x7ffb0616c170       -273         0x7ffb0616bf3f
+292字节原始十六进制（连续一行）：
+befcffffc6feffffc6feffff68feffffc6feffff52feffff75feffffc6feffffb3feffffc6feffff40feffff7efdffffc6feffff3afdffff95fdffffc6feffffc6feffffc6feffffc6feffffc6feffffc6feffffc6feffffc6feffffc6feffffc6feffffc6feffffc6feffffc6feffffc6feffffc6feffff71fdffffc6feffffc6feffff8cfeffff5ffeffff49feffff31fdffff8bfdffffbbfeffff2dfeffff86feffff7ffeffffc6feffffc6feffffc6feffffc6feffffc6feffffc6feffffc6feffffc6feffff68fdffff98feffffe5feffff24fdffffc6feffffc6feffffc6feffffc6fefffffbfeffff2effffff1afdffff11fdffff28ffffff47fdffffc6feffffc6feffffc6feffffc6feffffc6feffffc6feffff37feffff92feffffeffeffff
+
+十、证据定位与复核方法
+- 本地 out/opengl-loader.txt:11191：CGLQueryRendererInfo；11345附近：复制0x88、写计数、步长0x90。
+- 本地 out/opengl-loader.txt:11481：CGLDescribeRenderer；11516：分派；11523起：字段分支；11656：布尔掩码与32位输出；11705：OffScreen门控。
+- 本地 out/gld-loader-memory-v3.txt:4：GLI名称表；out/glengine-contract-snippets.txt:547起：GLD填充记录调用点。
+- 客体已存在 opengl-loader.txt 和 glengine-code.txt；远端Python只输出所需行/摘要，不下载GLEngine全文。
+- 读取缓存时用头部offset16的mappingOffset/mappingCount，按32字节<QQQII>解析映射；以fileOffset+(unslid-mapping.address)定位数据。
+- 复核跳转表：bytes.fromhex(上述数据)，长度应为292；struct.iter_unpack('<i',data)，每项与0x7ffb0616c050相加；序号+70即属性编号。
+- 本轮未运行动态renderer查询；结论为目标二进制静态消费契约，并非运行效果测试。
