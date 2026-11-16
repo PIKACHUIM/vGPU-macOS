@@ -6137,7 +6137,7 @@ Float设置arg4能力区+0x6e为1，clear通过显式数据块，因此它不能
 
 `out/gld-framebuffer-lifecycle-research.txt`确认GLEngine为每插件保留独立的8字节GLD framebuffer句柄槽。GLD create将不透明句柄写入调用者提供的槽；draw/read状态更新按条件调用`gldLoadFramebuffer(share-group, handle)`；解绑单独调用unbind；销毁后GLEngine清零句柄槽。Float的私有句柄对象保存两个descriptor指针，但其分配大小和字段不能外推为公共ABI。
 
-Float的Load会从句柄对象+8取得descriptor首指针Q，检查Q+0xb2/+0xb4两个u16值不超过0x4000，并依据附件/纹理层状态执行真实纹理层加载。尚未找到Q及这两个尺寸字段的生产者；也未证明descriptor所有权、完整类型或尺寸语义。因此不能把这些偏移映射到GLEngine FBO，也不能硬编码尺寸以绕过完整性检查。
+**后续原始指令复核纠错（见§76）：** 初版把Q归到句柄+8是错误的。Float实际保存H[0]=Q、H[8]=D；Q来自Create第三参数，第二参数才是输出槽。尺寸生产者已追到GLEngine实际movw写入，与Q+0xb2/+0xb4闭合。此处保留初版调查时间边界，但不能再沿用错误指针层级。完整格式、backing和同步契约仍未恢复。
 
 ### 75.2 texture对象关系与backing仍是阻塞项
 
@@ -6157,3 +6157,35 @@ Float的Load会从句柄对象+8取得descriptor首指针Q，检查Q+0xb2/+0xb4�
 - Metal：只恢复到type-5初始化调用方协议；服务端握手和后续设备执行协议未知。没有标准Metal设备。
 - 系统级3D仍未完成。专用IOUserClient绘制、软件OpenGL基线、accelerator服务关联或诊断bundle加载均不能代替系统OpenGL/Metal验收。
 - 继续只读恢复GLD纹理load/attachment及FBO descriptor生产者，另从Metal loader实际发现路径恢复属性读取与插件信任条件；在协议足够完整且安全回滚条件明确前，不安装负载插件或重启客体。
+
+## §76：普通纹理/FBO资源基线、framebuffer契约纠错与Metal输出消费（2026-11-16）
+
+### 76.1 公开API资源验收与负对照
+
+`kexts/probes/gl_probe.c`新增普通CPU纹理上传（UNPACK alignment=8、rowLength=w+3、skipRows/skipPixels=1）、3×2子区域更新、A/B附件切换与内容保留、附着期间13×7→5×17存储重定义、删除附件、B在A重定义/删除后保留、重建A、删除FBO后glGetTexImage读回。每次上传查询GL_TEXTURE_WIDTH/HEIGHT；整层读回前再次核验尺寸。删除附件后先令draw/read buffer=GL_NONE，隔离MISSING_ATTACHMENT条件，避免EXT完整性多错误条件导致误报。
+
+客体使用`clang -Wall -Wextra -Werror`及OpenGL/IOKit/CoreFoundation框架严格编译通过。显式`--software-only`模式全部通过，8次资源回读字节数364/364/396/364/340/396/140/140，mismatch=0、guard=0；既有clear、strided pack、三角形也通过。该模式明确打印硬件未测试。无参数仍由强制加速分支决定退出码；当前exit1，默认/加速CGL均报invalid CoreGraphics connection，console=root。非法参数exit2。
+
+临时源码副本省略glTexSubImage2D，准确得到mismatch=24、exit1；另一个副本故意扰动尺寸断言，进入尺寸失败路径并exit1（仅证明断言接入，不是模拟驱动实际错误尺寸）。仓库源码保持正确。最终宿主/客体源码SHA256一致：`f11aee0f6972bb54c955032dc297bca8093373a87e2888bfbc6cb1962d3c4e23`。未覆盖纹理采样绘制或硬件资源实现；软件通过不能替代硬件验收。
+
+### 76.2 framebuffer参数、Q/D与实际尺寸生产者
+
+以目标GLEngine UUID `FB994F78-34C6-39F3-857D-99F9B3013E8F`、Float UUID `A41FE4B0-484A-3AA4-934E-E42F99453798`重新核验。完整地址/字节见`out/gld-framebuffer-verified-snippets.txt`；修订报告见`out/gld-framebuffer-lifecycle-research.txt`。
+
+- Create(share, output_slot, Q, D)四参数：Float 0x7FFB064F0648/064B保存第三/第四参数到H+0/H+8；064F写入第二参数RSI所指输出槽。初版“第三参数输出”错误。
+- P为framebuffer数据基址，命名FBO基址F对应P=F+0x28；Q=P+0x100、D_i=P+0x200+0x58*i、输出槽O_i=P+0xa0+8*i。Q由所有插件共享，D_i和O_i逐插件步进。
+- D_i前0x50字节为十个附件纹理句柄。0x7FFB06455914/55919将`*(T_j+0x28+8*i)`写入D_i+8*j。D首指针不是Q。
+- `_gleUpdateFramebufferCompleteness`从附件层记录读取尺寸，在0x7FFB06456331/56339实际写P+0x1b2/+0x1b4的u16。Float 0x7FFB064F06E8先取Q=H[0]，再读取Q+0xb2/+0xb4；这与命名FBO的F+0x1da/+0x1dc是同一存储，已由真实调用和写入链证明。
+- Load入口对D+0x50写word 0x100（pending=0、failed=1），成功清D+0x51。GLEngine调用后检查该failed位，不以Load的EAX判定。Destroy仅释放驱动自有H，不释放借用的Q/D；更完整的并发/格式契约仍未知。
+
+### 76.3 Metal初始化报告纠错
+
+原始`out/ioaccel-code.txt`确认：selector9在0x7FF80D339E7D返回后未检查EAX，不能写成“9成功才继续”或“9失败释放”。selector2与selector0失败才走CFRelease/NULL路径；selector7失败跳过可选字段复制，仍继续返回设备对象。
+
+selector0输出直接写设备对象+0x270，容量64字节。GetConfig64在0x7FF80D33A123..A15C从该区+0/+4/+8/+0x10/+0x18读取32/32/64/64/32位值。selector7输出在栈上，容量24字节：首个u64写对象+0x248；输出+0x10处u32至少4时，第二个u64写+0x250。这两组输出不能混写。已修订`out/metal-device-contract-research.txt`，仍不等于服务端完整ABI或Metal设备可用。
+
+### 76.4 执行边界与继续方向
+
+本轮未安装驱动或插件、未重启。前一轮按kern.boottime过滤日志已复核当次启动DX清屏65,536像素一致、三角形红18,432/绿47,104/其他0且mismatch0，读回后健康检查COMPLETED；这是历史执行证据，不代表后续每一时刻的队列状态。LLDB启动公开探针被非交互调试授权拒绝，Developer mode disabled；未绕过授权。
+
+目前普通纹理资源的软件参考与FBO稀疏契约更完整，但GLD可信加载、普通texture backing/同步、完整shader/draw接入及Metal插件/队列仍未完成。继续围绕这些缺口推进，不把服务枚举、私有三角形或软件基线标记为系统3D完成。

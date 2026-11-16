@@ -1,0 +1,388 @@
+GLD framebuffer 独立复核：原始证据摘录
+日期：2026-11-16
+目标实测：macOS 15.7.3 / 24G419 / x86_64
+GLEngine UUID：FB994F78-34C6-39F3-857D-99F9B3013E8F
+GLRendererFloat UUID：A41FE4B0-484A-3AA4-934E-E42F99453798
+所有机器地址均为 unslid。以下是选定的连续小片段；片段之间可能有省略，不是完整函数。
+GLEngine 原文：客体 /var/tmp/vgpu-fb/glengine-code.txt。
+Float 实际映像：/System/Library/Frameworks/OpenGL.framework/Versions/A/Resources/GLRendererFloat.bundle/GLRendererFloat。
+方法：python D:/Codes/vGPU-macOS/tools/mssh.py，从 stdin 传远端命令；远端 python3 只读现有 GLEngine 反汇编，dyld_info -arch x86_64 -disassemble Float 后在内存按地址筛选。-uuid、-function_starts、-section_bytes __TEXT __text 独立交叉核验。未下载完整反汇编，未调用这些私有函数。
+
+[E1] 函数边界 / 导出
+dyld_info -function_starts GLEngine：
+0x7FFB06454ABC  _gleCreatePluginFramebuffer
+0x7FFB06454B45  _gleInitializeFramebuffer
+0x7FFB06455859  _gleFramebufferTexture
+0x7FFB06456028  _gleUpdateFramebufferCompleteness
+0x7FFB0645682C  _gleCheckFramebufferStatus
+dyld_info -exports Float，映像基址 0x7FFB064EA000：
+0x0000661C  _gldCreateFramebuffer
+0x0000666A  _gldDestroyFramebuffer
+0x0000667A  _gldUnbindFramebuffer
+0x000066A8  _gldLoadFramebuffer
+0x00004C45  _gldUpdateDrawFramebuffer
+0x00004B2D  _gldUpdateReadFramebuffer
+原始字节（线性反汇编曾从函数入口+2错位显示 movl %esp,%ebp；不得据此错定函数名）：
+0x7FFB064F061C: 55 48 89 E5 41 57 41 56 53 50 48 89 CB 49 89 D7
+0x7FFB064F062C: 49 89 F6 BF 01 00 00 00 BE 70 02 00 00 BA C0 10
+0x7FFB06454ABC: 80 BF A1 C6 00 00 00 74 7F 55 48 89 E5 41 57 41
+0x7FFB06456028: 55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC
+
+[E2] Float Create：RSI 为输出地址，RDX/RCX 为分别保留的指针
+0x7FFB064F0626   movq     %rcx, %rbx
+0x7FFB064F0629   movq     %rdx, %r15
+0x7FFB064F062C   movq     %rsi, %r14
+0x7FFB064F062F   movl     $0x1, %edi
+0x7FFB064F0634   movl     $0x270, %esi
+0x7FFB064F0639   movl     $0x476310c0, %edx
+0x7FFB064F063E   callq    _malloc_type_calloc
+0x7FFB064F0643   testq    %rax, %rax
+0x7FFB064F0646   je       0x7ffb064f065f
+0x7FFB064F0648   movq     %r15, (%rax)
+0x7FFB064F064B   movq     %rbx, 0x8(%rax)
+0x7FFB064F064F   movq     %rax, (%r14)
+0x7FFB064F0652   xorl     %eax, %eax
+0x7FFB064F065F   callq    _abort
+
+[E3] GLEngine FBO 分配、数据基址与四实参
+0x7FFB06454EFA   movzbl   0xc6a1(%r14), %eax
+0x7FFB06454F02   imulq    $0x58, %rax, %rdi
+0x7FFB06454F06   addq     $0x228, %rdi
+0x7FFB06454F12   callq    _malloc_type_malloc
+0x7FFB06454F3C   movq     %rax, -0x30(%rbp)
+0x7FFB06454F40   leaq     0x28(%rax), %rsi
+0x7FFB06454F44   movq     %r14, %rdi
+0x7FFB06454F47   callq    _gleInitializeFramebuffer
+0x7FFB06454F59   movq     -0x30(%rbp), %r15
+0x7FFB06454F5D   leaq     0xc8(%r15), %r12
+0x7FFB06454F64   leaq     0x128(%r15), %rax
+0x7FFB06454F6B   movq     %rax, -0x38(%rbp)
+0x7FFB06454F6F   addq     $0x228, %r15
+0x7FFB06454F76   leaq     0xd4b8(%r13), %r14
+0x7FFB06454F7D   xorl     %ebx, %ebx
+0x7FFB06454F7F   movq     (%r14), %rax
+0x7FFB06454F82   movq     -0xe00(%r14), %rdi
+0x7FFB06454F89   movq     %r12, %rsi
+0x7FFB06454F8C   movq     -0x38(%rbp), %rdx
+0x7FFB06454F90   movq     %r15, %rcx
+0x7FFB06454F93   callq    *0x628(%rax)
+0x7FFB06454F99   incq     %rbx
+0x7FFB06454F9C   movzbl   0xc6a1(%r13), %eax
+0x7FFB06454FA4   addq     $0x58, %r15
+0x7FFB06454FA8   addq     $0x8, %r12
+0x7FFB06454FAC   addq     $0xe20, %r14
+0x7FFB06454FB3   cmpq     %rax, %rbx
+0x7FFB06454FB6   jb       0x7ffb06454f7f
+
+[E4] 辅助创建使用无对象头数据基址；不是另一种第三参数输出 ABI
+0x7FFB06454AD3   movq     %rsi, %rbx
+0x7FFB06454AD6   movq     %rdi, %r14
+0x7FFB06454AD9   leaq     0xa0(%rsi), %r15
+0x7FFB06454AE0   leaq     0x100(%rsi), %rax
+0x7FFB06454AE7   movq     %rax, -0x30(%rbp)
+0x7FFB06454AEB   addq     $0x200, %rbx
+0x7FFB06454AFC   movq     (%r13), %rax
+0x7FFB06454B00   movq     -0xe00(%r13), %rdi
+0x7FFB06454B07   movq     %r15, %rsi
+0x7FFB06454B0A   movq     -0x30(%rbp), %rdx
+0x7FFB06454B0E   movq     %rbx, %rcx
+0x7FFB06454B11   callq    *0x628(%rax)
+0x7FFB06454B22   addq     $0x58, %rbx
+0x7FFB06454B26   addq     $0x8, %r15
+实际辅助分配与初始化：
+0x7FFB06440250   movzbl   0xc6a1(%r14), %eax
+0x7FFB06440258   imulq    $0x58, %rax, %rdi
+0x7FFB0644025C   addq     $0x200, %rdi
+0x7FFB06440268   callq    _malloc_type_malloc
+0x7FFB06440276   movq     %rax, %r13
+0x7FFB06440279   movq     %r14, %rdi
+0x7FFB0644027C   movq     %rax, %rsi
+0x7FFB0644027F   callq    _gleInitializeFramebuffer
+0x7FFB064402AC   movq     %r14, %rdi
+0x7FFB064402AF   movq     %r13, %rsi
+0x7FFB064402B2   callq    _gleCreatePluginFramebuffer
+
+[E5] 初始化实际写入：P=RSI，命名 FBO 路径 P=F+0x28
+0x7FFB06454BCE   xorl     %eax, %eax
+0x7FFB06454C23   movl     %eax, 0x1b2(%rsi)
+0x7FFB06454C52   movw     $0x0, 0x100(%rsi,%rax)
+0x7FFB06454C5C   movq     $0x0, 0x104(%rsi,%rax)
+0x7FFB06454C68   movl     $0x0, 0x10c(%rsi,%rax)
+0x7FFB06454C73   addq     $0x10, %rax
+0x7FFB06454C77   cmpq     $0xa0, %rax
+0x7FFB06454C7D   jne      0x7ffb06454c52
+0x7FFB06454C7F   movzbl   0xc6a1(%rdi), %eax
+0x7FFB06454C86   testq    %rax, %rax
+0x7FFB06454C89   je       0x7ffb06454cc8
+0x7FFB06454C8B   addq     $0x252, %rsi
+0x7FFB06454C92   imulq    $0x58, %rax, %rax
+0x7FFB06454C96   xorl     %ecx, %ecx
+0x7FFB06454C98   xorps    %xmm0, %xmm0
+0x7FFB06454C9B   movups   %xmm0, -0x12(%rsi,%rcx)
+0x7FFB06454CA0   movups   %xmm0, -0x22(%rsi,%rcx)
+0x7FFB06454CA5   movups   %xmm0, -0x32(%rsi,%rcx)
+0x7FFB06454CAA   movups   %xmm0, -0x42(%rsi,%rcx)
+0x7FFB06454CAF   movups   %xmm0, -0x52(%rsi,%rcx)
+0x7FFB06454CB4   movw     $0x1, -0x2(%rsi,%rcx)
+0x7FFB06454CBB   movb     $0x0, (%rsi,%rcx)
+0x7FFB06454CBF   addq     $0x58, %rcx
+0x7FFB06454CC3   cmpq     %rcx, %rax
+0x7FFB06454CC6   jne      0x7ffb06454c9b
+
+[E6] D_i 首部生产者：十个附件的每插件纹理指针，非 Q 指针
+_gleFramebufferTexture 保存 RSI=P、EDX=j、R8=T：
+0x7FFB0645586E   movq     %r8, %r12
+0x7FFB06455874   movl     %edx, %r14d
+0x7FFB06455877   movq     %rsi, %rbx
+0x7FFB0645587A   movq     %rdi, %r13
+0x7FFB0645588D   callq    _gleSetUnknownFramebufferCompleteness
+0x7FFB06455892   movl     %r14d, %edx
+0x7FFB06455895   movq     %rdx, %rax
+0x7FFB06455898   shlq     $0x4, %rax
+0x7FFB0645589C   leaq     (%rbx,%rax), %rdi
+0x7FFB064558A0   addq     $0x100, %rdi
+0x7FFB064558A7   movq     -0x100(%rdi), %rsi
+0x7FFB064558AE   movq     %r12, -0x100(%rdi)
+0x7FFB064558CC   testq    %r12, %r12
+0x7FFB064558CF   je       0x7ffb0645596b
+0x7FFB064558D5   movl     -0x34(%rbp), %ecx
+0x7FFB064558D8   movw     %cx, (%rdi)
+0x7FFB064558DB   movl     -0x38(%rbp), %ecx
+0x7FFB064558DE   movl     %ecx, 0x4(%rdi)
+0x7FFB064558E1   movl     -0x2c(%rbp), %ecx
+0x7FFB064558E4   movl     %ecx, 0x8(%rdi)
+0x7FFB064558E7   movl     -0x30(%rbp), %ecx
+0x7FFB064558EA   movl     %ecx, 0xc(%rdi)
+0x7FFB064558F9   movzbl   0xc6a1(%r13), %ecx
+0x7FFB06455901   testq    %rcx, %rcx
+0x7FFB06455904   je       0x7ffb06455928
+0x7FFB06455906   leaq     (%rbx,%rdx,8), %rdx
+0x7FFB0645590A   addq     $0x200, %rdx
+0x7FFB06455911   xorl     %r9d, %r9d
+0x7FFB06455914   movq     0x28(%r12,%r9,8), %r8
+0x7FFB06455919   movq     %r8, (%rdx)
+0x7FFB0645591C   incq     %r9
+0x7FFB0645591F   addq     $0x58, %rdx
+0x7FFB06455923   cmpq     %r9, %rcx
+0x7FFB06455926   jne      0x7ffb06455914
+字节交叉核验：
+0x7FFB06455909: D3 48 81 C2 00 02 00 00 45 31 C9 4F 8B 44 CC 28
+0x7FFB06455919: 4C 89 02 49 FF C1 48 83 C2 58 4C 39 C9 75 EC 41
+解除附件的记录清零片段（成对处理插件，步长0xb0）：
+0x7FFB064559AF   leaq     (%rbx,%rdx,8), %rcx
+0x7FFB064559B3   addq     $0x258, %rcx
+0x7FFB06455A1D   movq     $0x0, -0x58(%rcx,%r9)
+0x7FFB06455A37   movq     $0x0, (%rcx,%r9)
+0x7FFB06455A43   addq     $0xb0, %r9
+
+[E7] 尺寸生产者：不是偏移加法推定
+调用前明确 P=F+0x28：
+0x7FFB0644B030   leaq     0x28(%r15), %rsi
+0x7FFB0644B034   movq     %rbx, %rdi
+0x7FFB0644B037   callq    _gleUpdateFramebufferCompleteness
+函数入口及实际清零：
+0x7FFB06456039   movq     %rsi, %rbx
+0x7FFB0645603C   xorl     %eax, %eax
+0x7FFB0645603E   movl     %eax, 0x1b2(%rsi)
+附件数据/level 索引：
+0x7FFB064560BD   leaq     0x10c(%rbx), %rdx
+0x7FFB06456148   movq     -0x10c(%rdx), %r14
+0x7FFB06456163   movl     -0x8(%rdx), %r10d
+0x7FFB06456167   movl     -0x4(%rdx), %r9d
+0x7FFB0645616B   imulq    $0x1e0, %r10, %rdi
+0x7FFB06456172   addq     %r14, %rdi
+0x7FFB06456175   addq     $0x3c0, %rdi
+0x7FFB0645617C   movq     %r9, %r11
+0x7FFB0645617F   shlq     $0x5, %r11
+0x7FFB06456183   movzwl   0x4(%r11,%rdi), %r8d
+0x7FFB06456189   movzwl   0x6(%r11,%rdi), %r15d
+0x7FFB0645618F   movl     %r15d, -0x6c(%rbp)
+分支会为附件类型值6把 height 置1：
+0x7FFB064561EE   movzwl   -0xc(%rdx), %r9d
+0x7FFB064561F3   cmpl     $0x6, %r9d
+0x7FFB064561F7   movl     -0x6c(%rbp), %r15d
+0x7FFB064561FB   movl     $0x1, %r10d
+0x7FFB06456201   cmovel   %r10d, %r15d
+首次尺寸写入：
+0x7FFB06456327   cmpw     $0x0, -0x98(%rbp)
+0x7FFB0645632F   jne      0x7ffb06456355
+0x7FFB06456331   movw     %r8w, 0x1b2(%rbx)
+0x7FFB06456339   movw     %r15w, 0x1b4(%rbx)
+0x7FFB06456341   movl     %r15d, %eax
+0x7FFB06456344   movl     %r8d, %r13d
+0x7FFB06456347   movl     %r15d, %r9d
+0x7FFB0645634A   movq     %r9, -0x78(%rbp)
+0x7FFB0645634E   movl     %r8d, %r9d
+0x7FFB06456351   movq     %r9, -0x58(%rbp)
+能力条件 / 后续最小值写入：
+0x7FFB06456355   movq     0xb4d8(%rdi), %r9
+0x7FFB0645635C   testb    $0x40, 0x221(%r9)
+0x7FFB0645636C   jne      0x7ffb0645639b
+0x7FFB0645636E   movl     $0x8cd9, %r12d
+0x7FFB06456374   cmpw     %r8w, %r13w
+0x7FFB06456378   jne      0x7ffb064567d1
+0x7FFB0645638C   cmpw     %r15w, %ax
+0x7FFB06456394   je       0x7ffb064563d6
+0x7FFB06456396   jmp      0x7ffb064567d1
+0x7FFB0645639B   cmpw     %r8w, -0x58(%rbp)
+0x7FFB064563A0   jbe      0x7ffb064563b1
+0x7FFB064563A2   movw     %r8w, 0x1b2(%rbx)
+0x7FFB064563B1   cmpw     %r15w, -0x78(%rbp)
+0x7FFB064563B6   jbe      0x7ffb064563cc
+0x7FFB064563B8   movw     %r15w, 0x1b4(%rbx)
+循环/结果：
+0x7FFB06456552   incq     %rcx
+0x7FFB06456555   addq     $0x10, %rdx
+0x7FFB0645655F   cmpq     $0xa, %rcx
+0x7FFB06456563   jne      0x7ffb06456137
+0x7FFB064567D1   movl     %r12d, 0x1b8(%rbx)
+尺寸存储原始字节：
+0x7FFB06456328: 83 BD 68 FF FF FF 00 75 24 66 44 89 83 B2 01 00
+0x7FFB06456338: 00 66 44 89 BB B4 01 00 00 44 89 F8 45 89 C5 45
+
+[E8] Float Load：两个独立指针，尺寸来自 H+0，不是 H+8 或其首指针
+0x7FFB064F06B9   movq     %rsi, %r12
+0x7FFB064F06BC   movq     %rdi, %r14
+0x7FFB064F06BF   movq     0x8(%rsi), %rax
+0x7FFB064F06C3   movw     $0x100, 0x50(%rax)
+0x7FFB064F06C9   movw     $0x0, 0x268(%rsi)
+0x7FFB064F06D2   movq     %rax, -0x38(%rbp)
+0x7FFB064F06D6   movb     $0x0, 0x52(%rax)
+0x7FFB064F06DA   leaq     0x10(%rsi), %rdi
+0x7FFB064F06DE   movl     $0x258, %esi
+0x7FFB064F06E3   callq    ___bzero
+0x7FFB064F06E8   movq     (%r12), %rcx
+0x7FFB064F06EC   xorl     %eax, %eax
+0x7FFB064F06EE   cmpw     $0x4000, 0xb2(%rcx)
+0x7FFB064F06F7   ja       0x7ffb064f0e08
+0x7FFB064F06FD   cmpw     $0x4000, 0xb4(%rcx)
+0x7FFB064F0706   ja       0x7ffb064f0e08
+0x7FFB064F071D   movq     (%r12), %rax
+0x7FFB064F0721   movl     0xc0(%rax), %eax
+0x7FFB064F0731   btl      %r15d, %eax
+0x7FFB064F0735   jae      0x7ffb064f0789
+0x7FFB064F0737   movq     -0x38(%rbp), %rax
+0x7FFB064F073B   movq     (%rax,%r15,8), %r12
+0x7FFB064F073F   cmpq     $0x0, 0x20(%r12)
+0x7FFB064F0747   movq     %r12, %rdi
+0x7FFB064F074A   callq    _glsmAllocateTextureLevels
+0x7FFB064F074F   movq     %r12, %rdi
+0x7FFB064F0752   callq    _gldCleanTextureGeometry
+0x7FFB064F0757   movq     -0x30(%rbp), %rax
+0x7FFB064F075B   movq     (%rax), %rax
+0x7FFB064F075E   movl     0x8(%rax,%r13), %edx
+0x7FFB064F0763   movq     %r14, %rdi
+0x7FFB064F0766   movq     %r12, %rsi
+0x7FFB064F0769   callq    _gldLoadTextureLevelBuffer
+0x7FFB064F0789   incq     %r15
+0x7FFB064F078C   addq     $0x10, %r13
+0x7FFB064F0790   cmpq     $0xa, %r15
+0x7FFB064F0794   jne      0x7ffb064f071d
+成功收尾：
+0x7FFB064F0DF7   movq     -0x38(%rbp), %rax
+0x7FFB064F0DFB   movb     $0x0, 0x51(%rax)
+0x7FFB064F0DFF   movl     $0x1, %eax
+0x7FFB064F0E04   jmp      0x7ffb064f0e08
+0x7FFB064F0E06   xorl     %eax, %eax
+0x7FFB064F0E08   addq     $0x18, %rsp
+字节：
+0x7FFB064F06E8: 49 8B 0C 24 31 C0 66 81 B9 B2 00 00 00 00 40 0F
+
+[E9] 上层实际检查 D+0x50/+0x51；未检查 Load 的 EAX
+失效写入：
+0x7FFB0645561F   movl     $0xffff, 0x1b8(%rsi)
+0x7FFB06455635   imulq    $0x58, %rax, %rax
+0x7FFB0645563B   movw     $0x1, 0x250(%rsi,%rcx)
+0x7FFB06455645   addq     $0x58, %rcx
+draw Load：
+0x7FFB0644B054   movzbl   0xc6a5(%rbx), %eax
+0x7FFB0644B05B   imulq    $0x58, %rax, %rcx
+0x7FFB0644B05F   cmpb     $0x0, 0x278(%r15,%rcx)
+0x7FFB0644B068   je       0x7ffb0644b086
+0x7FFB0644B06A   movq     0xb4d0(%rbx), %rdi
+0x7FFB0644B071   movq     0xb4e8(%rbx), %rcx
+0x7FFB0644B078   movq     0xc8(%r15,%rax,8), %rsi
+0x7FFB0644B080   callq    *0x210(%rcx)
+0x7FFB0644B086   movzbl   0xc6a5(%rbx), %eax
+0x7FFB0644B08D   imulq    $0x58, %rax, %rax
+0x7FFB0644B091   testb    $0x1, 0x279(%r15,%rax)
+read 对应实参及状态检查：
+0x7FFB0644B31A   movq     0xb4d0(%rbx), %rdi
+0x7FFB0644B321   movq     0xb4e8(%rbx), %rcx
+0x7FFB0644B328   movq     0xc8(%r15,%rax,8), %rsi
+0x7FFB0644B330   callq    *0x210(%rcx)
+0x7FFB0644B336   movzbl   0xc6a5(%rbx), %eax
+0x7FFB0644B33D   imulq    $0x58, %rax, %rax
+0x7FFB0644B341   testb    $0x1, 0x279(%r15,%rax)
+
+[E10] Update 的参数是 context、mask；句柄另从 context 保留的 B 读取
+0x7FFB0644B1BB   andl     $0x443c0478, %esi
+0x7FFB0644B1C3   movq     0xb4c8(%rbx), %rdi
+0x7FFB0644B1CA   movq     0xb4e8(%rbx), %rax
+0x7FFB0644B1D1   callq    *0xa0(%rax)
+0x7FFB0644B1D7   cmpl     $0x2, %eax
+0x7FFB0644B3C6   andl     $0x80000000, %esi
+0x7FFB0644B3CE   movq     0xb4c8(%rbx), %rdi
+0x7FFB0644B3D5   movq     0xb4e8(%rbx), %rax
+0x7FFB0644B3DC   callq    *0x98(%rax)
+Float draw：
+0x7FFB064EEC4F   movl     %esi, %r14d
+0x7FFB064EEC52   movq     %rdi, %rbx
+0x7FFB064EEC81   btl      $0x1e, %r14d
+0x7FFB064EEC88   movq     0x1040(%rbx), %rax
+0x7FFB064EEC8F   movq     0x4a0(%rax), %r15
+0x7FFB064EECB5   movq     %rbx, %rdi
+0x7FFB064EECB8   movq     %r15, %rsi
+0x7FFB064EECBB   callq    _glrLoadCurrentDrawFramebuffer
+0x7FFB064EECFC   movl     $0x2, %r15d
+0x7FFB064EED13   movl     %r15d, %eax
+Float read：
+0x7FFB064EEB4E   testl    %esi, %esi
+0x7FFB064EEB50   jns      0x7ffb064eeb97
+0x7FFB064EEB62   movq     0x1040(%rbx), %rax
+0x7FFB064EEB69   movq     0x4a8(%rax), %r14
+0x7FFB064EEB7D   movq     %rbx, %rdi
+0x7FFB064EEB80   movq     %r14, %rsi
+0x7FFB064EEB83   callq    _glrLoadCurrentReadFramebuffer
+0x7FFB064EEB97   xorl     %eax, %eax
+当前 draw/read helper 的同一 Q 来源：
+0x7FFB064F0E94   movq     %rsi, 0xc00(%rdi)
+0x7FFB064F1013   movq     (%rsi), %rax
+0x7FFB064F1075   movzwl   0xb2(%rax), %edx
+0x7FFB064F107C   imull    %ecx, %edx
+0x7FFB064F107F   movl     %edx, 0xc10(%rbx)
+0x7FFB064F1085   movzwl   0xb4(%rax), %eax
+0x7FFB064F108C   imull    %ecx, %eax
+0x7FFB064F108F   movl     %eax, 0xc14(%rbx)
+0x7FFB064F10DA   movq     %rsi, 0xc08(%rdi)
+0x7FFB064F1145   movq     (%rsi), %rax
+0x7FFB064F1199   movzwl   0xb2(%rax), %edx
+0x7FFB064F11A9   movzwl   0xb4(%rax), %eax
+上层 read 的同一尺寸存储：
+0x7FFB063B6865   movq     0xb2c0(%rbx), %rcx
+0x7FFB063B6875   movzwl   0x1da(%rcx), %esi
+0x7FFB063B687C   movzwl   0x1dc(%rcx), %edx
+
+[E11] Unbind/Destroy：第一参数分别是 context/share；句柄均为第二参数
+0x7FFB06454E0D   movq     -0xe08(%r15), %rdi
+0x7FFB06454E14   movq     0xc8(%rbx,%r12,8), %rsi
+0x7FFB06454E1C   callq    *0x638(%rax)
+0x7FFB06454E25   movq     -0xe00(%r15), %rdi
+0x7FFB06454E2C   movq     0xc8(%rbx,%r12,8), %rsi
+0x7FFB06454E34   callq    *0x650(%rax)
+0x7FFB06454E3A   movq     $0x0, 0xc8(%rbx,%r12,8)
+Float Destroy：
+0x7FFB064F066A   pushq    %rbp
+0x7FFB064F066B   movq     %rsp, %rbp
+0x7FFB064F066E   movq     %rsi, %rdi
+0x7FFB064F0671   callq    _free
+0x7FFB064F0676   xorl     %eax, %eax
+0x7FFB064F0679   retq
+Float Unbind：
+0x7FFB064F067E   cmpq     %rsi, 0xc00(%rdi)
+0x7FFB064F0685   jne      0x7ffb064f0692
+0x7FFB064F0687   movq     $0x0, 0xc00(%rdi)
+0x7FFB064F0692   cmpq     %rsi, 0xc08(%rdi)
+0x7FFB064F0699   jne      0x7ffb064f06a6
+0x7FFB064F069B   movq     $0x0, 0xc08(%rdi)
+0x7FFB064F06A7   retq

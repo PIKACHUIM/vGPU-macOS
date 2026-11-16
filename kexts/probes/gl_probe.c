@@ -139,6 +139,193 @@ static int check_gl(const char *label, const char *stage) {
     return ok;
 }
 
+/* Public-API resource tests: all images use ordinary CPU uploads, no IOSurface
+ * import. A software pass is a reference result, never hardware acceptance. */
+enum { RESOURCE_MAX_DIM = 17, RESOURCE_GUARD = 16 };
+
+static void resource_pixel(unsigned char *p, int x, int y, unsigned seed) {
+    p[0] = (unsigned char)(seed + 17u * (unsigned)x + 3u * (unsigned)y);
+    p[1] = (unsigned char)(seed * 3u + 5u * (unsigned)x + 29u * (unsigned)y);
+    p[2] = (unsigned char)(seed * 7u + 11u * (unsigned)x + 13u * (unsigned)y);
+    p[3] = (unsigned char)(31u + (seed + 7u * (unsigned)x + 19u * (unsigned)y) % 211u);
+}
+
+static int resource_dimensions(const char *label, const char *stage, int w, int h) {
+    GLint actual_w = 0, actual_h = 0;
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &actual_w);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &actual_h);
+    if (!check_gl(label, stage)) return 0;
+    if (actual_w != w || actual_h != h) {
+        printf("%s: resources %s dimensions=%dx%d expected=%dx%d -> FAIL\n",
+               label, stage, actual_w, actual_h, w, h);
+        return 0;
+    }
+    return 1;
+}
+
+static int resource_upload(const char *label, int w, int h, unsigned seed,
+                           unsigned char *expected) {
+    unsigned char source[(RESOURCE_MAX_DIM + 2) * (RESOURCE_MAX_DIM + 5) * 4];
+    if (w <= 0 || h <= 0 || w > RESOURCE_MAX_DIM || h > RESOURCE_MAX_DIM) return 0;
+    const size_t stride = ((size_t)(w + 3) * 4 + 7) & ~(size_t)7;
+    memset(source, 0xa6, sizeof(source));
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            unsigned char *p = expected + ((size_t)y * (size_t)w + (size_t)x) * 4;
+            resource_pixel(p, x, y, seed);
+            memcpy(source + (size_t)(y + 1) * stride + (size_t)(x + 1) * 4, p, 4);
+        }
+    }
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 8);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, w + 3);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, 1);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, source);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+    return check_gl(label, "resource upload/restore unpack") &&
+           resource_dimensions(label, "upload dimensions", w, h);
+}
+
+static int resource_read(const char *label, const char *stage, int w, int h,
+                         const unsigned char *expected, int via_texture) {
+    unsigned char result[RESOURCE_MAX_DIM * RESOURCE_MAX_DIM * 4 + 2 * RESOURCE_GUARD];
+    if (w <= 0 || h <= 0 || w > RESOURCE_MAX_DIM || h > RESOURCE_MAX_DIM) return 0;
+    const size_t bytes = (size_t)w * (size_t)h * 4;
+    memset(result, 0x5a, sizeof(result));
+    if (!via_texture) {
+        GLenum status = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
+        if (!check_gl(label, stage) || status != GL_FRAMEBUFFER_COMPLETE_EXT) {
+            printf("%s: resources %s incomplete FBO=0x%04x\n", label, stage, (unsigned)status);
+            return 0;
+        }
+    }
+    if (via_texture && !resource_dimensions(label, stage, w, h)) return 0;
+    glFinish();
+    if (via_texture)
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, result + RESOURCE_GUARD);
+    else
+        glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, result + RESOURCE_GUARD);
+    if (!check_gl(label, stage)) return 0;
+    size_t mismatch = 0, guard_mismatch = 0;
+    for (size_t i = 0; i < bytes; ++i)
+        if (result[RESOURCE_GUARD + i] != expected[i]) ++mismatch;
+    for (size_t i = 0; i < sizeof(result); ++i)
+        if ((i < RESOURCE_GUARD || i >= RESOURCE_GUARD + bytes) && result[i] != 0x5a)
+            ++guard_mismatch;
+    printf("%s: resources %s %dx%d bytes=%zu mismatch=%zu guard=%zu -> %s\n",
+           label, stage, w, h, bytes, mismatch, guard_mismatch,
+           (mismatch || guard_mismatch) ? "FAIL" : "PASS");
+    return mismatch == 0 && guard_mismatch == 0;
+}
+
+static void resource_attach(GLuint texture) {
+    glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT,
+                             GL_TEXTURE_2D, texture, 0);
+    glDrawBuffer(GL_COLOR_ATTACHMENT0_EXT);
+    glReadBuffer(GL_COLOR_ATTACHMENT0_EXT);
+}
+
+static int check_texture_resources(const char *label) {
+    GLuint fbo = 0, textures[2] = {0, 0};
+    unsigned char a[RESOURCE_MAX_DIM * RESOURCE_MAX_DIM * 4];
+    unsigned char b[RESOURCE_MAX_DIM * RESOURCE_MAX_DIM * 4];
+    int ok = 0;
+    glGenFramebuffersEXT(1, &fbo);
+    glGenTextures(2, textures);
+    if (!check_gl(label, "resource object creation") || !fbo || !textures[0] || !textures[1])
+        goto cleanup;
+    glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, fbo);
+    for (unsigned i = 0; i < 2; ++i) {
+        glBindTexture(GL_TEXTURE_2D, textures[i]);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    }
+    glBindTexture(GL_TEXTURE_2D, textures[0]);
+    if (!resource_upload(label, 13, 7, 23, a)) goto cleanup;
+    resource_attach(textures[0]);
+    if (!resource_read(label, "upload-A", 13, 7, a, 0)) goto cleanup;
+
+    /* 3x2 patch from a padded/offset source: bytes [28,40), [52,64).
+     * The reference image is updated by destination coordinates separately. */
+    unsigned char patch[96];
+    memset(patch, 0xc7, sizeof(patch));
+    for (int y = 0; y < 2; ++y) {
+        for (int x = 0; x < 3; ++x) {
+            unsigned char p[4];
+            resource_pixel(p, x, y, 181);
+            memcpy(patch + (size_t)(y + 1) * 24 + (size_t)(x + 1) * 4, p, 4);
+            memcpy(a + ((size_t)(y + 2) * 13 + (size_t)(x + 4)) * 4, p, 4);
+        }
+    }
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 8);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 5);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, 1);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 1);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 4, 2, 3, 2, GL_RGBA, GL_UNSIGNED_BYTE, patch);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+    if (!check_gl(label, "resource subimage") ||
+        !resource_read(label, "subimage-A", 13, 7, a, 0)) goto cleanup;
+
+    glBindTexture(GL_TEXTURE_2D, textures[1]);
+    if (!resource_upload(label, 9, 11, 79, b)) goto cleanup;
+    resource_attach(textures[1]);
+    if (!resource_read(label, "switch-B", 9, 11, b, 0)) goto cleanup;
+    resource_attach(textures[0]);
+    if (!resource_read(label, "preserved-A", 13, 7, a, 0)) goto cleanup;
+
+    /* Redefine storage while the image remains attached to the FBO. */
+    glBindTexture(GL_TEXTURE_2D, textures[0]);
+    if (!resource_upload(label, 5, 17, 113, a) ||
+        !resource_read(label, "resize-attached-A", 5, 17, a, 0)) goto cleanup;
+    glDeleteTextures(1, &textures[0]);
+    textures[0] = 0;
+    GLint attachment_type = -1;
+    glGetFramebufferAttachmentParameterivEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT,
+                                             GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE_EXT,
+                                             &attachment_type);
+    /* Isolate the missing-attachment rule from draw/read-buffer completeness. */
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    GLenum detached_status = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
+    if (!check_gl(label, "delete attached texture") || attachment_type != GL_NONE ||
+        detached_status != GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT_EXT) {
+        printf("%s: resources delete-attachment type=0x%x status=0x%x -> FAIL\n",
+               label, (unsigned)attachment_type, (unsigned)detached_status);
+        goto cleanup;
+    }
+    printf("%s: resources delete-attachment -> PASS\n", label);
+    resource_attach(textures[1]);
+    if (!resource_read(label, "B-survives-A-resize-delete", 9, 11, b, 0)) goto cleanup;
+    glGenTextures(1, &textures[0]);
+    if (!check_gl(label, "recreate texture") || !textures[0]) goto cleanup;
+    glBindTexture(GL_TEXTURE_2D, textures[0]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    if (!resource_upload(label, 7, 5, 151, a)) goto cleanup;
+    resource_attach(textures[0]);
+    if (!resource_read(label, "reattach-new-A", 7, 5, a, 0)) goto cleanup;
+    glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+    glDeleteFramebuffersEXT(1, &fbo);
+    fbo = 0;
+    if (!check_gl(label, "destroy FBO") ||
+        !resource_read(label, "texture-survives-FBO", 7, 5, a, 1)) goto cleanup;
+    ok = 1;
+cleanup:
+    glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    if (fbo) glDeleteFramebuffersEXT(1, &fbo);
+    glDeleteTextures(2, textures);
+    if (!check_gl(label, "resource cleanup")) ok = 0;
+    printf("%s: ordinary texture/FBO resource lifecycle -> %s\n", label, ok ? "PASS" : "FAIL");
+    return ok;
+}
+
 static int report(const char *label, CGLPixelFormatAttribute *attrs, int require_accelerated) {
     CGLPixelFormatObj pix = NULL;
     CGLContextObj ctx = NULL;
@@ -276,6 +463,7 @@ static int report(const char *label, CGLPixelFormatAttribute *attrs, int require
            label, (unsigned)centre[0], (unsigned)centre[1], (unsigned)centre[2], (unsigned)centre[3],
            (unsigned)background[0], (unsigned)background[1], (unsigned)background[2], (unsigned)background[3],
            ok ? "OPENGL RASTERISES" : "FAIL: pixel mismatch");
+    if (ok) ok = check_texture_resources(label);
 
 cleanup:
     if (current) {
@@ -309,21 +497,32 @@ cleanup:
     return ok;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    int software_only = argc == 2 && strcmp(argv[1], "--software-only") == 0;
+    if (argc != 1 && !software_only) {
+        fprintf(stderr, "Usage: %s [--software-only]\n", argv[0]);
+        return 2;
+    }
     report_accelerator_links();
     // 默认和软件结果不参与硬件验收判定。
-    CGLPixelFormatAttribute any[] = {
-        kCGLPFAColorSize, (CGLPixelFormatAttribute)24,
-        kCGLPFADoubleBuffer, (CGLPixelFormatAttribute)0
-    };
-    (void)report("default", any, 0);
+    if (!software_only) {
+        CGLPixelFormatAttribute any[] = {
+            kCGLPFAColorSize, (CGLPixelFormatAttribute)24,
+            kCGLPFADoubleBuffer, (CGLPixelFormatAttribute)0
+        };
+        (void)report("default", any, 0);
+    }
 
     CGLPixelFormatAttribute soft[] = {
         kCGLPFARendererID, (CGLPixelFormatAttribute)kCGLRendererGenericFloatID,
         kCGLPFAColorSize, (CGLPixelFormatAttribute)24,
         (CGLPixelFormatAttribute)0
     };
-    (void)report("software", soft, 0);
+    int software_ok = report("software", soft, 0);
+    if (software_only) {
+        puts("SOFTWARE DIAGNOSTIC ONLY: hardware acceleration was not tested.");
+        return software_ok ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
 
     // 禁止软件回退，并核对实际虚拟屏幕的加速属性。
     CGLPixelFormatAttribute accel[] = {

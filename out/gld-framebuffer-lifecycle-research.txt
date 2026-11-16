@@ -1,0 +1,148 @@
+GLD framebuffer 句柄与生命周期研究（独立反汇编复核修订）
+日期：2026-11-16
+限定目标：macOS 15.7.3 / 24G419，x86_64；本次 sw_vers / uname -m 实测一致。
+GLEngine UUID：FB994F78-34C6-39F3-857D-99F9B3013E8F
+GLRendererFloat UUID：A41FE4B0-484A-3AA4-934E-E42F99453798
+地址均为 unslid。UUID 本次均以 dyld_info 重新核验。
+原始证据：out/gld-framebuffer-verified-snippets.txt，以下引用 [E1]..[E11]。
+
+0. 明确纠错（保留旧说法及纠错地址）
+0.1 旧报告“第三参数指向输出槽”错误。Float 0x7FFB064F062C 保存 RSI 到 R14，0x7FFB064F064F movq %rax,(%r14)。第二参数 RSI 是 void ** 输出地址。RDX/RCX 分别保留到新句柄 +0/+8（0x7FFB064F0648/064B）。[E2]
+0.2 旧报告把 0x7FFB064F06BF 读取的 *(handle+8) 和尺寸基址 Q 混用。这里 RAX=D；真正尺寸检查前，0x7FFB064F06E8 movq (%r12),%rcx 取 Q=*(handle+0)。随后 06EE/06FD 读 Q+0xb2/+0xb4。Q 既不是 *(handle+8)，也不是 **(handle+8)。draw/read helper 同样直接取 *(handle+0)，见 0x7FFB064F1013/1145。[E8][E10]
+0.3 “arg4 首指针指向 FBO+0x128”的候选被实际生产者否定。arg4=D_i 的前0x50字节是十个8字节附件指针。初始化清零；绑定附件时 0x7FFB06455914 读取 *(T+0x28+8*i)，0x7FFB06455919 写入 D_i+8*j。首项 j=0 是该插件的附件0纹理指针，不是 Q。[E5][E6]
+0.4 旧报告将 0x7FFB06454AF2..4B34 归入 _gleCheckRenderableFormatArgs 是最近标签误归属。dyld_info -function_starts 明确真正函数为 _gleCreatePluginFramebuffer，入口 0x7FFB06454ABC。其输入是 framebuffer 数据基址 P；有直接分配 0x200+0x58*N 并以其原地址初始化/创建的辅助 framebuffer 路径，不可全都解释成带对象头的命名 FBO。[E1][E4]
+0.5 命名 FBO 创建循环只有输出槽按8步进、D按0x58步进。第三参数 Q=F+0x128 保存在栈中不变，并未按8步进。0x7FFB06454F8C 每轮重载同一指针；FA4/FA8 分别推进 D/输出槽。[E3]
+0.6 “尺寸写入未知，不能关联 FBO+0x1da/+0x1dc”已被本次实际调用与存储链闭合。不是只因 0x128+0xb2=0x1da 相等：GLEngine 明确传 P=F+0x28 给尺寸生产者，并对 P+0x1b2/+0x1b4 执行 movw；Create又明确把 Q=F+0x128 保存为句柄首字段。[E3][E7][E8]
+0.7 out/gld-shared-state-research.txt 第8节关于“Q+0xb2/+0xb4与上层尺寸尚未关联、写入仍未知”的边界已由本报告更新；该文件按任务限制未改。它所述 draw/read helper 取驱动FBO首指针这一观察正确，但不应与本报告旧版误称的 handle+8 混在一起。
+
+1. 已闭合的布局关系与最小契约
+术语均为本报告的稀疏视图名称，不声称是 Apple 私有头文件正式类型。
+G：GLEngine context。N=uint8(G+0xc6a1)，i为插件索引。
+F：带对象头的命名 FBO 分配基址。
+P：framebuffer 数据基址；命名 FBO 路径 P=F+0x28；辅助 framebuffer 可直接分配 P。
+Q=P+0x100：所有插件共用的附件元数据/尺寸视图；命名 FBO 路径 Q=F+0x128。
+D_i=P+0x200+0x58*i：每插件可写记录；命名 FBO 路径 D_i=F+0x228+0x58*i。
+O_i=P+0xa0+8*i：8字节句柄输出槽；命名 FBO 路径 O_i=F+0xc8+8*i。
+H_i=*O_i：驱动自有、不透明 framebuffer 句柄，不能等同 F/P/Q/D。
+T_j=*(P+0x10*j)：上层附件纹理对象，j=0..9。
+
+调用契约（仅该目标、已验证路径）：
+- Create(share_i, O_i, Q, D_i)：RDI/RSI/RDX/RCX 四个有意义输入。Float 仅保留Q、D并通过*O_i返回句柄；EAX=0，OOM调用abort。R8/R9不构成本次证据支持的额外参数。
+- Load(share_i, H_i)：RDI/RSI；Float已见成功收尾返回1，尺寸越界路径返回0；其它失败分支返回值未逐一核验。上层已核验调用点实际以D_i状态字节判断结果，不检查这个EAX。
+- UpdateDraw(C_i, uint32_mask)、UpdateRead(C_i, uint32_mask)：RDI/ESI；第二参数不是H_i。当前H_i由Float从context保留的B读取：B+0x4a0(draw)/+0x4a8(read)。
+- Unbind(C_i, H_i)：Float清掉匹配的C_i+0xc00/+0xc08缓存，不释放H_i。该导出未设置EAX，不为其臆定有意义返回值。
+- Destroy(share_i, H_i)：Float free(RSI)，EAX=0；不能释放借用的Q/D。
+
+对于自研驱动，可实现自己的句柄结构保存Q、D、必要的自有资源，并写*O_i。无需也不应复制Float的0x270私有布局。访问Q/D用字节偏移和已证实宽度，不将两块内存拼成未验证完整结构。指针内容会在Create后改变，Load/update时应读取当前值，不能在Create时冻结快照。
+
+2. Create与对象生存期证据
+2.1 命名 FBO：_gleBindFramebuffer
+0x7FFB06454EFA..4F12 分配 0x228+N*0x58 字节。0x7FFB06454F40 计算 P=F+0x28 并在4F47调用 _gleInitializeFramebuffer。
+0x7FFB06454F5D 设 O_0=F+0xc8；4F64 设 Q=F+0x128；4F6F设 D_0=F+0x228。
+0x7FFB06454F82 取插件share到RDI；4F89/4F8C/4F90将O_i/Q/D_i放RSI/RDX/RCX；4F93 call *0x628(%rax)。
+4FA4 D+=0x58；4FA8 O+=8；4FAC 插件context记录+=0xe20；Q保持同一值。[E3]
+
+2.2 辅助 framebuffer：_gleCreatePluginFramebuffer
+入口0x7FFB06454ABC，本次用function_starts正名。P来自RSI，O=P+0xa0，Q=P+0x100，D=P+0x200。调用0x7FFB06454B11同为plugin+0x628，循环与上述完全相同。
+0x7FFB06440250..4027F实际分配0x200+N*0x58并传原地址给Initialize；402AF/402B2传同一P给CreatePluginFramebuffer。这证明两种偏移写法来自不同基址/对象头，而不是不同Create参数 ABI。[E4]
+
+2.3 Float 保存与所有权
+入口0x7FFB064F061C；0626/0629/062C分别保存RCX/RDX/RSI。063E调用_malloc_type_calloc(1,0x270,type_tag)。
+0648 H[0]=Q；064B H[8]=D；064F *O=H；0652 EAX=0。失败065F abort。
+Q、D均是上层分配内存中的视图；Float的Destroy只free(H)。在已核验命名FBO释放路径，GLD Destroy发生在上层FBO释放前。未恢复跨线程同步或所有辅助对象销毁入口。
+
+3. D记录生产者：直接回答“首指针是否Q”
+3.1 初始化
+Initialize的RSI=P。0x7FFB06454C8B使RSI=P+0x252；4C9B..4CAF用五次16字节movups清零每条D_i+0..0x4f。4CB4 movw $1到D_i+0x50：低字节1、高字节0；4CBB清D_i+0x52。循环4CBF步进0x58。[E5]
+因此Create刚执行时，D_i首指针通常仍为NULL；不存在初始化时把Q存入D_i[0]的步骤。
+
+3.2 绑定附件
+_gleFramebufferTexture入口0x7FFB06455859，RSI=P，EDX=j，R8=T。
+558AE将T写P+0x10*j；558D8/558DE/558E4/558EA分别写Q+0x10*j的uint16类型值、+4/+8/+0xc的32位元数据。
+55906/5590A计算目标P+0x200+8*j；55914从T+0x28+8*i读8字节；55919写到目标；5591F每插件目标步进0x58。故精确赋值为：
+  *(uint64_t *)(D_i+8*j) = *(uint64_t *)(T+0x28+8*i)。
+Float在0x7FFB064F0737/073B按D_i+8*j取此值，并将其作为纹理对象给_glsmAllocateTextureLevels/_gldCleanTextureGeometry/_gldLoadTextureLevelBuffer。该源值是驱动侧附件纹理指针/句柄，而非Q。
+附件解绑分支0x7FFB06455A1D/5A37把相应插件槽清零。[E6][E8]
+本次未跨入gfxCreatePluginTexture恢复纹理句柄自身的完整创建协议；这不影响已证明的D记录写入来源与Q的独立来源。
+
+3.3 可实现的D稀疏视图
++0x00..+0x48：10个8字节附件纹理指针，按j索引。
++0x50：byte，非零触发上层调用Load；暂称load-pending。
++0x51：byte，bit0为上层消费的load-failed状态。
++0x52：byte，Float Load入口清零；完整语义未恢复。
+0x58是已证实每插件记录步长；+0x53..+0x57不命名，不据此增加字段。
+
+4. 尺寸生产者与消费链（实际写入闭环）
+4.1 初始化/失效
+Initialize在0x7FFB06454C23用32位0写P+0x1b2，覆盖两项uint16尺寸。
+_gleSetUnknownFramebufferCompleteness（0x7FFB0645561F）写P+0x1b8=0xffff；0x7FFB0645563B对每插件D_i+0x50写word 1，标记待Load并清旧failed字节。附件更新5588D先调用此函数。[E5][E9]
+
+4.2 实际生产者
+_gleUpdateFramebufferCompleteness真入口0x7FFB06456028，function_starts及入口字节55 48 89 E5核验；不能按最近标签误记为_gleFramebufferTexture。
+调用前0x7FFB0644B030明确RSI=F+0x28，4B037调用；read对应4B2E0/4B2E7。函数56039保存RSI到RBX=P，5603E先清P+0x1b2的4字节。
+循环j=0..9，RDX从P+0x10c起按0x10步进。56148读T_j；56163/56167读该附件元数据a=uint32(Q+0x10*j+4)、b=uint32(Q+0x10*j+8)。
+5616B..56189形成并读取：
+  L = T_j + 0x3c0 + 0x1e0*a + 0x20*b；
+  width_candidate = uint16(L+4)，height_candidate = uint16(L+6)。
+a的完整正式类型本次未命名；b亦被Float作为gldLoadTextureLevelBuffer的第三参数使用。此处不靠步长把整个纹理层布局补齐。
+561EE..56201存在类型值6将height_candidate置1的分支。其它附件格式/层/采样校验仍应以完整函数为准，不能简化为无条件复制任一附件尺寸。
+56331 movw %r8w,0x1b2(%rbx)；56339 movw %r15w,0x1b4(%rbx)：这是首次选取有效附件尺寸的实际写入。
+56355/5635C检查*(G+0xb4d8)+0x221的bit6：置位分支用无符号比较选最小尺寸，并在563A2/563B8实际覆写width/height；未置位分支56374/5638C要求尺寸相等，不同则以0x8cd9状态退出。未给该能力位臆造正式名称。
+567D1写完整性结果到P+0x1b8；失败时不能把部分已写尺寸视为可渲染目标。
+
+4.3 与Float尺寸读取的确证关系
+由[E3]实际LEA和[E2]实际存储，H[0]=Q=F+0x128。由[E7]调用前LEA和实际movw，width存储在(F+0x28)+0x1b2=F+0x1da，height在F+0x1dc。
+Float Load 0x7FFB064F06E8取H[0]到RCX，06EE/06FD读uint16(Q+0xb2/+0xb4)，分别拒绝大于0x4000的值（不是>=）。两者因此就是同一width/height存储位置。
+draw helper 0x7FFB064F1013取Q，1075/1085读这两项；read helper1145取Q，1199/11A9读这两项。Float会乘其采样相关倍率后写自己的context尺寸缓存；原始Q尺寸仍是uint16。
+上层read消费者0x7FFB063B6875/687C从F+0x1da/+0x1dc读取，独立交叉确认。[E7][E8][E10]
+本次已闭合“附件层记录读取 -> P上的实际尺寸写入 -> Create保存Q -> Float加载/当前目标消费”。未恢复所有公开纹理存储API怎样产生L+4/L+6，此更上游内容不在此次窄问题范围。
+
+5. Load时机、返回值与共享状态握手
+5.1 上层
+GLEngine在调用Load前检查高层完整性：0x7FFB0644B01E..4B045，必要时先调用上节生产者。
+4B05F检查D_i+0x50；非零才调用：RDI=*(G+0xb4d0) share，RSI=*(F+0xc8+8*i) H_i；4B080 call主GLD表+0x210。
+4B086立即以当前插件索引覆盖EAX，没有检查Load返回值。4B091检查D_i+0x51 bit0。read对应4B30F/4B330/4B336/4B341。
+辅助CheckFramebufferStatus路径0x7FFB06456880..568B0也不检查Load的EAX，调用后取D+0x51 bit0，经0x8cd5+8*bit得到0x8cd5或0x8cdd。[E9]
+插件入口+0x630与主GLD表+0x210是不同表基址下的Load槽，不能混用。create/unbind/destroy对应plugin+0x628/+0x638/+0x650。
+
+5.2 Float工作与状态协议
+Load入口0x7FFB064F06A8：RSI=H，RDI=share。06BF取D=H[8]；06C3对D+0x50写word 0x100，即pending=0、failed=1；06D6清D+0x52。
+06DA..06E3把H+0x10起0x258字节清零，并在06C9清H+0x268的word；这是Float私有状态，不是外部布局要求。
+06E8取Q=H[0]检查尺寸；071D..0794以Q+0xc0位图选择十个附件，从D_i+8*j读纹理、从Q+0x10*j+8读level，再调用gldLoadTextureLevelBuffer(share, texture, level)。这不是空Load。
+成功收尾0x7FFB064F0DFB清D+0x51，0DFF置EAX=1。尺寸超限从06EE/06FD跳到0E08，沿用06EC预置的EAX=0；其它失败跳转/返回值未逐一核验。不是仅凭返回值就完成协议：已证实上层依赖D状态字节。
+可实现目标：在确实完成已支持附件加载后清failed并返回成功；未支持/失败不能伪造成功。尺寸<=0x4000只是Float接受条件之一，不足以证明附件/目标完整可用。
+
+6. Update参数、当前句柄与Destroy
+6.1 Update
+GLEngine draw：0x7FFB0644B1BB mask=dirty&0x443c0478；4B1C3 RDI=*(G+0xb4c8)驱动context；4B1D1 call主GLD表+0xa0；返回2有专用dirty处理，不是普通错误。
+read：4B3C6 mask=dirty&0x80000000；4B3CE取同一context；4B3DC call主GLD表+0x98。
+Float draw入口0x7FFB064EEC45保存ESI mask/RDI context；在bit30或drawable变化时经C+0x1040取B，再读B+0x4a0传入_glrLoadCurrentDrawFramebuffer(C,H)。
+Float read入口0x7FFB064EEB2D，在bit31或drawable变化时读同一B的+0x4a8，再调用_glrLoadCurrentReadFramebuffer(C,H)。
+draw正常返回2；depth/stencil分配失败分支返回0x2720（EECC8/EED13）；read该实现返回0。这不是所有GLD函数统一的成功码。
+两个helper分别在0x7FFB064F0E94/10DA保存当前句柄到C+0xc00/+0xc08，随后从H[0]取Q。[E10]
+
+6.2 解绑/销毁
+GLEngine同一路径0x7FFB06454E0D用plugin-record-0xe08作为Unbind第一参数（context），4E25用-0xe00作为Destroy第一参数（share）。第二参数都来自F+0xc8+8*i。调用地址4E1C/4E34，4E3A将输出槽清零。[E11]
+另一路径_FreeFramebufferObject：0x7FFB06454D61..4D70调用Destroy，4D76清零；其入口首参数为share-group侧对象，插件记录步长0x20，与context侧0xe20循环不可混同。
+Float Unbind入口0x7FFB064F067A，只比较/清C+0xc00和+C08；Destroy入口0x7FFB064F066A，066E把RSI移RDI，0671 free，0676 EAX=0。没有释放Q/D或附件纹理的操作。
+上层其后对F+0x28起十个附件引用计数递减，必要时调用gleFreeTextureObject（0x7FFB06454D9C..4DB6）。这支持“驱动只拥有自己的H，Q/D由上层拥有”的已见生命周期，不证明全部并发规则。
+
+7. 可交付实现范围与明确未知
+已可实现/检验：
+- 四实参Create的第二参数输出、保留Q/D、每插件独立H。
+- Q尺寸uint16读取、D十个纹理句柄槽、D+0x50/+0x51的Load握手。
+- Load接受share/H，update接受context/mask，destroy接受share/H，unbind接受context/H。
+- 自研H内存完全自定；保存借用视图，附件变更后读取新内容；Destroy不free上层Q/D。
+- 将宽高与F+0x1da/+0x1dc关联，用实际写入链定位；无需且不得把D[0]解释成Q。
+
+仍未知/未执行：
+- Q/D完整正式类型、全部格式/采样/分层规则、各失败分支及资源backing/pitch/同步协议。D+0x52完整语义未恢复。
+- 附件纹理句柄自身的完整创建/释放协议，以及所有纹理存储API到L+4/+6的更上游生产链。
+- 多线程/跨context同步、每种辅助framebuffer对象的完整销毁路径、其他GLD实现对返回值/flags的扩展契约。
+- 未做动态GLD调用、驱动安装或实际绘制/读回验证；仅完成静态原始反汇编与关键字节复核。不将此文宣称为完整可运行驱动。
+- 不外推其它macOS build/架构。
+
+8. 复现与文件边界
+使用 python D:/Codes/vGPU-macOS/tools/mssh.py，远端命令经stdin传入。GLEngine只读客体现有 /var/tmp/vgpu-fb/glengine-code.txt；Float以无Contents/MacOS的实际cache映像路径读取。dyld_info不支持按函数限定disassemble，输出在远端内存按地址筛选后仅返回必要片段。
+关键函数边界由-function_starts核验，部分入口与尺寸/指针读写由-section_bytes交叉核验；线性反汇编混入跳转表时不照抄最近标签。
+本次仅修订本文件并新增 out/gld-framebuffer-verified-snippets.txt；未改shared-state报告、代码或其它项目文件，未使用git、安装、重启或调用未知私有函数。

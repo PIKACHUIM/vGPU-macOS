@@ -1,0 +1,74 @@
+Metal设备契约研究
+目标：macOS 15.7.3 (24G419), x86_64
+范围：静态分析 Metal.framework、IOAccelerator.framework、IOKit 客户端调用；不实现驱动，不将 GLD ABI 当作 Metal ABI。
+
+结论摘要
+
+`MTLCreateSystemDefaultDevice` 的底层路径并非仅仅枚举 `IOAccelerator` 服务。Metal 的 `MTLIOAccelDevice initWithAcceleratorPort:` 将连接端口和 ASCII API 属性 `Metal` 传入 `_IOAccelDeviceCreateWithAPIProperty`。后者执行 `IOServiceOpen(service, owningTask=当前任务端口, type=5)`，然后以结构方法 selectors 9、2、0、7 查询/初始化私有设备对象。成功返回的 `IOAccelDeviceRef` 被保存到 Objective-C 设备对象，并进一步用于读取 registry ID、配置、peer、共享内存和 trace ID。当前驱动虽可被 `IOAccelFindAccelerator` 关联，type 5 尚明确 Unsupported，所以这不构成 Metal 可用。
+
+1. 证据与可复核位置
+
+- 目标系统与版本、Metal 设备枚举为0、Aqua会话条件以及 §72/73 现状见 `docs/cb-findings-2026-10-08.md` §72.1、§72.5–72.7、§73。
+- Metal.framework 完整共享缓存反汇编位于客体 `/var/tmp/vgpu-fb/metal-code.txt`（25 MB），本地 `out/metal-code.txt` 是不完整副本。`dyld_info` 符号表交叉检查保存在客体 `/var/tmp/vgpu-fb/metal-loader.txt`。
+- IOAccelerator.framework 的完整函数片段另存客体 `/var/tmp/vgpu-fb/ioaccel-code.txt`；这比大文件 `out/iokit-code.txt` 更直接。关键函数从 `0x7FF80D339DE0` 开始，调用点地址为 unslid 反汇编所示地址（目标共享缓存地址）。
+- IOKit 库的 `IOServiceOpen` 定义在客体 `/var/tmp/vgpu-fb/iokit-code.txt`，但以下 type/selector 参数是由 IOAccelerator 调用点静态恢复，不由 IOKit 通用实现决定。
+- `docs/b0-gate-answers.md` 记录 AppleParavirtGPU personality 的 `MetalPluginName=AppleParavirtGPUMetal`、`MetalPluginClassName=AppleParavirtDevice`，以及 Apple 插件 bundle 路径，作为目标系统上的实际发现属性样例。
+
+2. Metal 创建调用及寄存器参数
+
+调用方 `-[MTLIOAccelDevice initWithAcceleratorPort:]`：Metal.framework `0x7FF80D34356F` 起。`0x7FF80D3435B3` 将 `"Metal"` 地址放入 RSI，`0x7FF80D3435BA` 将端口放 EDI，`0x7FF80D3435BD` 调 `_IOAccelDeviceCreateWithAPIProperty`。按 x86_64 SysV ABI，函数入口 RDI=io_connect_t（32位端口值），RSI=以 NUL 结尾的 API 名称指针。返回 RAX 是 CoreFoundation 私有 `IOAccelDeviceRef`；调用方保存到 `_deviceRef`，若为 NULL 初始化失败。之后读取 registry entry ID，并 retain 原 accelerator port。
+
+IOAccelerator.framework `_IOAccelDeviceCreateWithAPIProperty`（客体完整片段）：
+
+- `0x7FF80D339DE0` 函数入口；`0x7FF80D339DF2` 保存 RSI 字符串指针，`0x7FF80D339DF5` 保存 EDI 端口。
+- `0x7FF80D339E0D` 从进程/库状态取得 owning-task mach port 到 ESI；`0x7FF80D339E16` 设置 EDX=5；`0x7FF80D339E1B` 调 `_IOServiceOpen`，连接结果写在栈上 `-0x284(%rbp)`。这是 `IOServiceOpen(service, owningTask, type=5, &connect)`。
+- 成功后，若 API 字符串非空，`strncpy` 复制最多 16 字节至栈缓冲区 `-0x280(%rbp)`。然后 `IOConnectCallStructMethod(connect, selector=9, input=buffer, inputSize=16, output=NULL, outputSize=NULL)`。实际指针/长度：RDI=connect；ESI=9；RDX=缓冲区；ECX=16；R8D=0；R9D=0。对 `Metal`，缓冲区是零填充/终止的16字节字段。注意源代码的 `strncpy` 本身并不意味着所有长度均有显式 NUL 保障；对本次字面量 `Metal` 有保障。
+- selector 9 在 `0x7FF80D339E7D` 返回后没有检查 EAX；后续初始化不以该调用成功为分支条件。随后 selector 2：RDI=connect，ESI=2，RDX=0，R8=`-0x280(%rbp)` 输出缓冲区，`*R9=0x258` (600) 输入输出长度槽；输入长度为0。成功返回后将输出首个64位值保存到设备对象 `+0x20`；读取输出 `-0x26c` 的有符号32位计数保存 `+0x30`。计数若至少2，按 `count*8` 分配指针表，并对输出中 `count` 个32位偏移做 `base + offset`，构成64位指针表；随后每项读一个32位值，存于设备对象 `+0x44 + 4*i`。小于2时指针表直接指向对象内联字段 `+0x20`。另将输出 `-0x278` 的64位字段存 `+0x34`，`-0x270` 的32位字段存 `+0x3c`。这是调用方消费方式，不足以在没有服务端实现时为每个偏移赋予语义。
+- selector 0：selector 2 成功并消费其输出后调用。RDI=connect；ESI=0；RDX=0；RCX=0；R8=`IOAccelDeviceRef + 0x270`（对象内配置缓冲区）；`*R9=0x40`（64字节）。`0x7FF80D339FC1` 检查 EAX，失败进入 CFRelease 并返回 NULL，成功转入 selector 7。配置消费者 `_IOAccelDeviceGetConfig64` 在 `0x7FF80D33A123..A15C` 从对象 `+0x270/+0x274/+0x278/+0x280/+0x288` 分别读取 32/32/64/64/32 位值，并写至该函数第2至第6个参数指向的输出位置。这些字段来自 selector 0 的对象内输出区，不是 selector 7 的栈缓冲区。
+- selector 7：RDI=connect；ESI=7；RDX=0；RCX=0；R8=`-0x2a0(%rbp)`；`*R9=0x18`（24字节）。成功时复制输出首个64位字段到设备对象 `+0x248`；输出 `-0x290` 32位值至少4时，也复制第二个64位值至 `+0x250`。selector 0 失败时 selector 7 不执行。若 selector 7 失败，函数不因此释放设备对象；selector 2/0 失败会释放已分配的对象并返回 NULL；selector 9 的返回状态在这里不检查。随后全局 comm page 初始化路径清零对象 `+0x258..+0x267` 和 `+0x268`，不能将其归为 selector 0 的直接输出消费。
+
+3. 可确认的静态协议面：地址与宽度，而非臆测字段语义
+
+| 阶段 | selector / 方法 | 可确认输入 | 输出长度/消费者 | 证据边界 |
+|---|---|---|---|---|
+| 打开 | `IOServiceOpen` | type 为32位整数5；service 与 owning task 为 mach port | 返回连接端口（32位 `io_connect_t`） | `ioaccel-code.txt` `0x7FF80D339E0D–E` |
+| 宣告 API | struct selector 9 | 16字节输入；`Metal` NUL 字符串经 `strncpy` 进入该缓冲区；无输出 | 无输出 | `0x7FF80D339E48–E7D` |
+| 获取初始描述 | struct selector 2 | 输入长度0 | 输出缓冲区容量600字节；消费若干64/32位字段和32位相对偏移表 | `0x7FF80D339ECE–F8D`。成功响应的实际长度/版本规则未完全恢复 |
+| 获取配置 | struct selector 0 | 输入长度0；输出容量64字节；输出目的指针为对象 `+0x270` | GetConfig64 从该区 +0/+4/+8/+0x10/+0x18 读取 32/32/64/64/32 位值 | 初始化 `0x7FF80D339F90–A006`；消费 `0x7FF80D33A123–A15C` |
+| 获取/补充共享页字段 | struct selector 7 | 输入长度0；输出容量24字节 | 读取64位值；按32位门槛再读取64位值 | `0x7FF80D33A006–55` |
+
+上述 600/64/24 是调用方提供的结构输出缓冲区长度，不等于服务端必须返回的真实长度或公开 ABI 结构定义。静态代码证明需要响应这些 selector 并满足消费者读取约束，但没有恢复全部校验、版本条件、错误语义、所有字段意义或 selector 的其他调用场景。selector 9 是 16 字节 struct method，不是 scalar method。实现时必须由经验证的目标结构契约驱动，不能只返回零填充缓冲区冒充设备。
+
+4. 对 IOAccelerator / user client 的实现含义
+
+至少需要一个真正匹配的 `IOAccelerator` 服务、允许 owning task 以 type 5 打开连接的 user client，以及支持上述 struct-method selectors 的服务端分发。selector 9 应接收/核对 API 属性；selector 2 提供设备描述与偏移表；selector 0/7 要和设备共享页/配置/事件状态一致。Metal 后续还会通过 IOAccelDevice API 调用 config、peer、shared-memory、resource、command queue 与 event 等操作；不能因为 init 的四个 selector 返回成功就等同于 Metal compute/render 可用。
+
+公开 IOKit 客户端头文件能提供 `IOServiceOpen`、`IOConnectCallStructMethod` 等通用 IPC 声明，但没有公开的 Metal 私有 type-5 服务协议、这四个 selector 编号/结构，亦没有公开 `IOAccelDeviceRef` 结构布局。现有 macOS SDK 的内核侧公开 `IOAccelerator` 类可用于服务类型/生命周期声明（见 §73）；它不公开这套用户客户端 Metal ABI。私有 IOAccelerator.framework 导出符号也不是稳定公开 SDK 契约，发布软件不能依赖其跨版本稳定性。
+
+5. Metal plugin 属性与发现
+
+现有本地证据中的 AppleParavirtGPU personality 使用 `MetalPluginName=AppleParavirtGPUMetal`、`MetalPluginClassName=AppleParavirtDevice`，bundle 为 `/System/Library/Extensions/AppleParavirtGPUMetal.bundle`。这是本系统现成驱动的真实配置样例，说明 Metal 用户态驱动由独立 bundle/plugin 提供；它不证明任意第三方 IOAccelerator 都可仅加同名属性后加载。目标私有框架存在 `_gpu_bundle_find_trusted` 导入，但本轮没有对 Metal 调用端恢复其属性读取、目录搜索和可信性检查全链，因此对 Metal 搜索目录、签名/信任校验细节保持未知；不要把 GLD 的 `/Library/GPUBundles`、`IOGLBundleName` 或 GLD 初始化 ABI 套用到 Metal。Metal personality 是否读取并使用上述两个字段，应继续从具体服务发现函数及 bundle loader 调用链逐项核实。
+
+6. GLD / 软件 OpenGL 与 SM4 问题
+
+Apple 系统已有软件 OpenGL renderer；现有探针可在登录 Aqua 会话中执行软件 GL 绘制，但软件 renderer 的存在不等于 SM4/Direct3D shader model 4 执行后端。SM4 是 D3D 的 shader 模型，不是 OpenGL 的标准版本名；OpenGL 的对应能力需按 GL/GLSL 版本和扩展逐项判断。当前报告没有证据表明 Apple 自带 GLD 软件 renderer 可接收现成 SM4 bytecode、将其转换为 GLSL，或执行 D3D 专有状态/资源语义。因此不能宣称“安装 Apple 软件 GLD 即可把现成 SM4 程序转成 OpenGL 调用”。可行性需要独立的软件翻译层/运行时，将应用级图形 API、shader IR/bytecode、资源/同步语义转换到该 GL renderer 真正支持的 API 子集；此工作不是驱动自动转换，也不由 GLD 暴露的加载入口保证。
+
+7. 未知项与后续需证实事项
+
+- type 5 对应 user-client 类/安全策略、`IOServiceOpen` 调用的精确 task port 来源，以及非 root/沙箱客户端的权限边界。
+- selectors 9/2/0/7 的服务端完整结构定义、字段含义、输出有效字节数、版本/能力协商、端序与错误码；600字节 selector 2 响应中的相对偏移具体指向哪些记录。
+- `IOAccelDeviceRef` 内部字段和后续所有 Metal 命令/资源/队列/同步 selector ABI；本报告只恢复设备初始化最小入口。
+- Metal plugin 发现时具体读取的注册表属性、搜索路径与信任链，以及 plugin principal class 对版本的兼容要求。
+- `MetalPluginName`/`MetalPluginClassName` 在非 Apple 服务上的准入条件；不能以属性注册测试替代插件成功加载证据。
+- 是否存在受限的 SM4→GLSL/GL IR 软件兼容层，以及其正确性、特性覆盖与性能；目前没有证据支持直接转换结论。
+
+8. 登录 Aqua 会话验收步骤
+
+本地历史基线中有一次有效登录会话（`/dev/console` 用户 pika/501，`launchctl print gui/501` 为 Aqua），但当前 §73 之后的启动记录为 console=root、无 GUI/501。涉及 CGL 的验收应在用户真正登录的 Aqua 会话执行，不能从 SSH/root 的无窗口会话推断图形驱动失败或成功。
+
+1. 登录桌面后确认 `/dev/console` 属于当前用户，并确认 `launchctl print gui/$(id -u)` 对应 `session=Aqua`；记录 macOS build 与启动时间。
+2. 先运行现有 Metal 探针，记录 `MTLCopyAllDevices`/`MTLCreateSystemDefaultDevice` 设备数量和错误；零设备即失败，不要只看 Metal.framework 已加载。
+3. 若设备出现，记录其 registry ID、名称、`supportsFamily`/feature set；创建 command queue、buffer、library/function、compute pipeline，提交一个确定性最小 kernel，通过 command buffer 状态与读回结果验收；再单独做 render pipeline 与 drawable/离屏纹理像素校验。区分设备枚举、命令执行和显示呈现三种门槛。
+4. 同时检查 IORegistry 中实际 accelerator 服务、type-5 open 结果及服务端 selector 日志；只记录服务注册或 type-5 open 成功仍不足以宣布 Metal 可用。
+5. OpenGL 若单独验收，分别记录默认 renderer 与强制 accelerated + NoRecovery 的 CGL 结果及 renderer 属性。软件 renderer 的像素正确性只证明软件 GL，不算硬件 GL，也不验证 SM4 转换。
+6. 留存探针输出、系统日志、当前 console/Aqua 状态和 build 标识；避免用 root 无 Aqua 会话中的 `invalid CoreGraphics connection` 作为 ABI 结论。

@@ -4,7 +4,7 @@
 > macOS 客户机内实现 GPU 直通驱动栈。目标是最终支持 macOS 应用级 3D 加速
 > （Metal 对象层 → IOAccelerator）。
 
-> 最新系统API进度：见 `docs/cb-findings-2026-10-08.md` §75。GLD framebuffer句柄生命周期有静态证据，但descriptor与texture backing契约未闭合；Metal仅恢复type-5初始化调用方握手，标准OpenGL/Metal 3D仍未完成。
+> 最新系统API进度：见 `docs/cb-findings-2026-10-08.md` §76。公开texture/FBO资源软件基线及失败对照通过；GLD framebuffer的Q/D、尺寸生产者和Load状态握手已由原始指令闭合。texture backing/同步、可信插件加载及Metal执行协议仍未完成；标准硬件OpenGL/Metal 3D尚不可用。
 
 ## 环境与工具
 
