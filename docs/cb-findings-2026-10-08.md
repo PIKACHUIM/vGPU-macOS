@@ -6197,3 +6197,9 @@ selector0输出直接写设备对象+0x270，容量64字节。GetConfig64在0x7F
 稀疏level记录L=D+0xb0+face*0x1e0+level*0x20：+4/+6/+8是u16宽高深，+0xc是u16行跨度（texel），+0xe为每片行数，+0x10/+0x12为u16存储format/type，+0x18为CPU像素指针。普通未压缩分配字节数由PixelBytes*rowTexels*sliceRows*depth计算，硬件pitch和GPU地址仍不由此确定。RGBA8/RGBA/UNSIGNED_BYTE普通输入可保存为RGBA字节，Float内部则可转为BGRA/0x8367并将私有行宽按4 texel对齐；禁止直接混同两者。
 
 `_gfxUploadPluginTextureLevel`实际调slot+0x5a0的gldRestoreTextureData，而非gldLoadTexture。已知直接Load调用仍属于IOSurface分支，普通texture materialize时序、有效内容掩码/完整flags与硬件同步仍未闭合。同期FBO专项已补齐D_i附件句柄和Q中level的传递，修订纹理报告中旧FBO边界，并纠正RDX是栈槽保存的Q值、RCX是推进后的D_i而非原始P。
+
+### 76.6 GPU bundle信任包装层与目标只读实测
+
+新增`kexts/probes/gld_trust_probe.c`及`out/gld-trust-verified.txt`。真实函数包装层为：rootless_check_trusted_class返回0直接成功；返回1时仅dyld cache包含路径才成功；其他值原样返回。初版代理文字将cache条件反转且遗漏rootless=0，已按0x7FF80E5A73E5..73F7指令纠正。rootless底层在csr_check(2)==0时可在路径查询前直接返回0。
+
+当前目标已有Filesystem Protections disabled（本轮未修改），普通用户只读查询/Library/GPUBundles、系统Extensions、/var/tmp、现有Intel bundle/dylib以及一个经lstat确认不存在的路径，均trust=0。名称查找Intel bundle成功返回系统Extensions路径；成功时残留errno=ENOENT不作为失败判据。不存在路径也trust=0说明该查询并不证明文件存在或可加载。探针严格编译及运行exit0。尚未创建第三方bundle或验证真实发现/dlopen；不能外推默认安全配置。

@@ -1,0 +1,84 @@
+# GPU bundle trust verification
+
+Target: macOS 15.7.3 (24G419), x86_64. Read-only investigation. No settings, authorization, bundle contents, restart, or Git state were changed. 初版未调用私有信任函数；本次追加验证仅以 dlsym 解析并调用两个已核实签名的只读 GPU 查询函数，结果见文末。
+
+## Conclusion
+
+A third-party GLD under `/Library/GPUBundles` is not accepted merely because it is placed there, has ordinary bundle metadata, or is signed. The loader can reach it only if its accelerator supplies a bundle name, the exact `<name>.bundle` directory is found and passes the GPU bundle rootless trust check, and the resulting `Contents/MacOS/<executable>` path also passes that check. The wrappers inspected do not test a signing identity or entitlement directly. Whether a newly created third-party bundle on this target passes the underlying trusted-class check remains unverified; therefore normal third-party loading is possible only conditionally, not demonstrated.
+
+## Verified behavior
+
+1. `gpu_bundle_find_trusted(name, out, capacity)` in target `libsystem_sandbox.dylib` iterates exactly two roots, in order: `/Library/GPUBundles` and `/System/Library/Extensions`. For each it constructs `<root>/<name>.bundle`, calls `stat`, requires the resulting object type to be a directory, and then calls `gpu_bundle_is_path_trusted` on that bundle-directory path. Trust result 0 copies the path and returns success; nonzero advances to the next root; -1 aborts with error. If neither root succeeds it returns 1. Relevant disassembly: `out/sandbox-gpu-code.txt`, `_gpu_bundle_find_trusted` at 0x7FF80E5A7205, especially 0x7FF80E5A727A-0x7FF80E5A7349.
+
+2. `gpu_bundle_is_path_trusted(path)` calls `rootless_check_trusted_class(path, "KernelExtensionManagement")`. If and only if that returns exactly 1, it returns the logical negation of `__dyld_shared_cache_contains_path(path)`; otherwise it returns the rootless result unchanged. Exact acceptance truth table: rootless result 0 passes unchanged; rootless result 1 passes only when __dyld_shared_cache_contains_path(path) is true, because logical negation then yields 0; any other result is propagated. A rootless result of 1 with no cache entry fails (returns 1). The initial prose interpretation had inverted cache membership and omitted the rootless=0 success path; the instruction-level table here supersedes it. This is a storage-class/cache-membership check in the wrapper, not a direct code-signature identity or entitlement check. Disassembly: `out/sandbox-gpu-code.txt` at 0x7FF80E5A73D0-0x7FF80E5A73FD; helper at 0x7FF80E5A73BE-0x7FF80E5A73CB.
+
+3. The caller applies the checks to two distinct paths: first `gpu_bundle_find_trusted` checks the bundle directory; then `libGFXShared` forms `<bundle>/Contents/MacOS/<CFBundleExecutable>` and calls `gpu_bundle_is_path_trusted` on that executable path. Only result 0 reaches `dlopen(path, 5)`. Evidence: `out/gfx-loader.txt` at 0x7FFB06174321-0x7FFB06174361 and 0x7FFB0617462B-0x7FFB06174672; `out/gld-loader-contract.txt` lines 17-25.
+
+4. The target rootless policy contains `KernelExtensionManagement /Library/GPUBundles` (read-only guest file `/System/Library/Sandbox/rootless.conf`, line 7); the two GPU search roots are also independently present in the target shared-cache constant table (`out/gld-loader-memory-v3.txt`, lines 781-839). The target `/Library/GPUBundles` currently exists, is empty, and `ls -ldeO@` reports the `restricted` flag; `xattr -px com.apple.rootless /Library/GPUBundles` returns the bytes for `KernelExtensionManagement`. This proves the directory itself is associated with that rootless storage class, not that an arbitrary child bundle/executable inherits or passes the path check.
+
+5. `gpu_bundle_is_path_trusted`'s wrapper has no signing API calls or identity comparisons. The lower-level rootless trusted-class implementation may impose more conditions; its full semantics and the exact metadata/flags a new child requires were not established here. Existing reports' signing queries were inconclusive (`out/gld-bundle-feasibility.txt`, lines 24-29). Do not infer that ad-hoc, self-signed, or any particular Developer ID signature is sufficient or required from this evidence.
+
+## Target observations and limits
+
+- Read-only guest query reconfirmed macOS 15.7.3 / 24G419 / x86_64. SIP reports custom/unsupported configuration with filesystem protections and kext signing disabled; authenticated root is disabled. This is observed state only and is not a recommendation to change it.
+- `/Library/GPUBundles` is empty. No third-party bundle directory or executable exists to test, so neither path's trusted-class result nor a real `dlopen` outcome is known.
+- The system Intel ICL bundle's `Contents/MacOS` contains `libigdmd.dylib`; the apparent executable `AppleIntelICLGraphicsGLDriver` at that path does not exist on disk. Do not use that missing-path probe as evidence about bundle trust.
+- The `GLRendererFloat.bundle` was checked at the correct versioned framework path `/System/Library/Frameworks/OpenGL.framework/Versions/A/Resources/GLRendererFloat.bundle`; it exists but is empty. It has no `Contents/MacOS/GLRendererFloat` executable. The earlier unversioned path was incorrect and yielded no-such-file; neither result says anything about third-party trust. This float resource branch is separate from the hardware plugin discovery contract.
+- 初版探针仅使用 public `getattrlist`、`stat`、`xattr`、`ls` 和 `dyld_info`，未调用私有函数。追加的独立 `gld_trust_probe.c` 已调用 `gpu_bundle_is_path_trusted` 与 `gpu_bundle_find_trusted`，详见文末；两个阶段均未加载 bundle。 The call-site and sandbox implementation evidence is static disassembly from this target shared cache. Sandbox image UUID: `23238A76-3554-3EF9-93A5-D2DE566C6CAC`.
+
+## Concrete conditional requirements for `/Library/GPUBundles`
+
+For the observed loader path, all of the following must hold:
+
+- The associated IOAccelerator must publish a nonempty `IOGLBundleName` which reaches `gpu_bundle_find_trusted`.
+- The name must resolve to an existing directory exactly at `/Library/GPUBundles/<name>.bundle` (or the second hard-coded root); `find_trusted` does not enumerate arbitrary directory contents.
+- `gpu_bundle_is_path_trusted` on that directory must return 0: rootless result 0 is sufficient; alternatively rootless result 1 is accepted only if the path is present in the dyld shared cache. No semantic meaning is assigned to rootless return codes beyond the observed wrapper behavior.
+- The bundle metadata must provide `CFBundleExecutable` such that `<name>.bundle/Contents/MacOS/<CFBundleExecutable>` exists as a loadable executable, and `gpu_bundle_is_path_trusted` on that exact executable path must also return 0.
+- Only after those gates does the caller invoke `dlopen`; normal loading additionally requires the GLD symbols/version contract documented in `out/gld-loader-contract.txt`.
+
+Not established: exact child trusted-class inheritance/attribute requirements; whether rootless accepts the candidate directory and executable on this current custom SIP configuration; whether signing, notarization, team identity, or entitlements affect the lower-level check; and successful normal third-party bundle loading. Those require an authorized controlled test with a real candidate bundle, which was explicitly outside this read-only task.
+
+## 追加验证：真实 rootless 返回码与只读调用（2026-11-16）
+
+保留上述第 2 点和条件列表的已修正逻辑。以下补充底层用户态实现与当前目标实测，不将当前 custom SIP 配置的结果推广至默认配置。
+
+### rootless_check_trusted_class 的真实返回路径
+
+依据同一目标的 `out/sandbox-gpu-code.txt`，Sandbox UUID 再次核对为 `23238A76-3554-3EF9-93A5-D2DE566C6CAC`：
+
+- `0x7FF80E5A73BE–73CB` 将 class 移入第三参数，第二参数置 -1，尾调用 `rootless_check_trusted_internal(path, -1, class)`。路径非 NULL 时，不走 fd 专用分支。
+- `0x7FF80E5A6898–68A7` 调用 `csr_check(0x2)`，先将返回寄存器来源 r12d 清零；若 csr_check 返回 0，直接跳到 `69DA` 返回 **0**。这一分支在任何路径/属性查询之前。当前 `csrutil status` 明确显示 Filesystem Protections disabled；本次未直接调用 csr_check，未改变配置。
+- 未提前返回时，`68B2–68C7` 调用 `is_path_on_authenticated_root_volume(path)`；该 helper 为真同样返回 **0**。helper 位于 `A6A6–A7C2`，读取 getattrlist；首次读取失败返回 false，后续查询和标志组合决定结果。因此单凭路径前缀不能替代该判断。
+- 其余路径在 `6953–69C3` 构造 `__sandbox_ms("Sandbox", 2, &query)` 查询：操作字符串 `file-write-data`，path filter=1，flags=`0x20000005`，class 指针来自调用方。这里只调用查询接口，不写入目标文件。
+- `69C8–69D7` 的精确运算：`q = (*reply != 1)`；`neg eax; sbb r12d,r12d` 将 **任意非零 syscall 返回值**折成 -1，零折成 0；最后与 q 做 OR。因此 syscall 非零 => **-1**；syscall=0 且 reply=1 => **0**；syscall=0 且 reply!=1 => **1**。并非将 syscall 的错误码原样当成 rootless 返回码；errno 也不是 rootless 返回值。
+- GPU wrapper 随后保持原真值表：rootless=0 => GPU=0；rootless=1 => GPU=!cache_contains；rootless=-1 => GPU=-1。下层内核查询对 storage class 的完整判定与子项继承规则仍未分析完毕。
+
+### 实际构建与运行
+
+新增 `kexts/probes/gld_trust_probe.c`，未修改 `gld_loader_probe.c`。探针通过 `dlsym(RTLD_DEFAULT, ...)` 解析真实符号，并用 `dladdr` 确认函数名称和 `/usr/lib/system/libsystem_sandbox.dylib` 来源；签名分别为 `int(const char *)` 和 `int(const char *, char *, size_t)`。没有 dlopen、bundle 加载、属性写入、安全设置更改或权限更改。
+
+在普通用户 uid=501、macOS 15.7.3 / 24G419 / Darwin 24.6.0 / x86_64 上执行：
+
+    xcrun clang -std=c11 -Wall -Wextra -Werror -Wpedantic -O0 /var/tmp/gld-trust-query.DlhIcd/gld_trust_probe.c -o /var/tmp/gld-trust-query.DlhIcd/gld_trust_probe
+    /var/tmp/gld-trust-query.DlhIcd/gld_trust_probe
+
+编译与运行均退出 0，无诊断。仅在普通 `/var/tmp` 新建临时构建目录并写入探针源码/二进制；没有创建系统目录候选。每次 stat/trust/find 前将 errno 置 0，调用后立即保存：
+
+    path                                                                                                      stat/stat_errno  trust/trust_errno
+    /Library/GPUBundles                                                                                       0/0              0/0
+    /System/Library/Extensions                                                                                0/0              0/0
+    /var/tmp                                                                                                 0/0              0/0
+    /System/Library/Extensions/AppleIntelICLGraphicsGLDriver.bundle                                            0/0              0/0
+    /System/Library/Extensions/AppleIntelICLGraphicsGLDriver.bundle/Contents/MacOS/libigdmd.dylib                0/0              0/0
+    /var/tmp/gld-trust-probe-absent-2151                                                                      -1/2              0/0
+
+不存在路径先以 lstat 确认 ENOENT，没有创建。上述结果符合当前配置下 rootless 提前返回 0 的实现；未使用动态分支跟踪，不能将推断的分支称为直接观测。特别是不存在路径也得到 trust=0，说明该返回值不证明文件存在或可加载。
+
+先 stat 确认系统 Intel bundle 目录存在，再调用：
+
+    gpu_bundle_find_trusted("AppleIntelICLGraphicsGLDriver", output, sizeof(output))
+    result=0 errno=2 path=/System/Library/Extensions/AppleIntelICLGraphicsGLDriver.bundle
+
+成功但 errno=2 与先尝试不存在的 `/Library/GPUBundles/AppleIntelICLGraphicsGLDriver.bundle` 后成功查到第二根目录的流程一致。errno 仅作为原始观测记录，不能据此把 result=0 改判为失败。
+
+`/Library/GPUBundles` 仍为空。没有真实第三方目录或可执行文件候选，因而没有验证新 bundle 的两级检查、metadata/符号约定或正常加载；**不存在候选无法证明新 bundle 通过**。本次仅证明这些既有路径和这个不存在路径的单函数查询结果，以及现有系统 bundle 的名称查找成功；不证明新 bundle 能加载，也不证明默认 SIP 配置会有相同结果。
