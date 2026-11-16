@@ -164,7 +164,7 @@ IOReturn vgpu_surface_read(vgpu_surface *s, uint64_t generation,
         !mul_size(pack.skip_pixels, 4, &skip) || !add_size(offset, skip, &offset) ||
         !mul_size((size_t)rect.height - 1, stride, &last) ||
         !add_size(offset, last, &end) || !add_size(end, row_bytes, &end) ||
-        !mul_size(row_bytes, rect.height, &temporary_size) || end > capacity ||
+        !mul_size(row_bytes, rect.height, &temporary_size) || !temporary_size || end > capacity ||
         end > UINTPTR_MAX - (uintptr_t)destination) return kIOReturnBadArgument;
     unsigned char *temporary = malloc(temporary_size);
     if (!temporary) return kIOReturnNoMemory;

@@ -1,0 +1,218 @@
+GLD pixel 无length安全读取与owner适配层
+日期：2026-11-16
+
+范围
+本次本地仅新增：
+  kexts/gld-pixel/gld_pixel_adapter.c
+  kexts/gld-pixel/gld_pixel_adapter.h
+  kexts/probes/gld_pixel_adapter_probe.c
+  kexts/gld-pixel/adapter-results.txt
+未修改parser或其他既有文件；未git、未安装、未调用任何未知GLD函数。
+客体使用已有tools/mssh.py与已有配置，未输出凭据；源码副本及编译产物仅在
+/var/tmp/vgpu-fb/kexts/gld-pixel-adapter，包含clang生成的dSYM。
+
+实际ABI证据（读取既有原始反汇编，不调用函数）
+已读：gld_pixel.c/.h、results.txt、out/pixel-format-research.txt、
+out/glengine-contract-snippets.txt、gld-pixel/driver-evidence.txt；并通过mssh
+读取客体/var/tmp/vgpu-fb/glengine-code.txt中完整销毁路径。
+GLEngine UUID：FB994F78-34C6-39F3-857D-99F9B3013E8F（既有证据标识）。
+目标macOS 15.7.3 / 24G419，x86_64。以下均为unslid地址。
+
+choose：RDI=&head、RSI=normalized uint32 token/value流；GLEngine
+0x7FFB0637ADFE call *plugin+0x468，0x7FFB0637AE06 movl eax,r14d。
+0x7FFB0637AE41/AE46 testl r14d：0表示成功。
+
+完整destroy关键原始指令：
+0x7FFB0637AE82   pushq %rbp
+0x7FFB0637AE8C   testq %rdi,%rdi
+0x7FFB0637AE8F   je 0x7ffb0637aee5
+0x7FFB0637AE91   movq %rdi,%r14
+0x7FFB0637AE94   xorl %ebx,%ebx
+0x7FFB0637AE96   movq %r14,%r15
+0x7FFB0637AE99   movl 0x8(%r14),%edi
+0x7FFB0637AE9D   movq (%r14),%r14
+0x7FFB0637AEA0   testq %r14,%r14
+0x7FFB0637AEA3   je 0x7ffb0637aeb2
+0x7FFB0637AEA5   movl 0x8(%r14),%eax
+0x7FFB0637AEA9   xorl %edi,%eax
+0x7FFB0637AEAB   testl $0xff00,%eax
+0x7FFB0637AEB0   je 0x7ffb0637ae9d
+0x7FFB0637AEB2   andl $0xffff00,%edi
+0x7FFB0637AEB8   callq _gfxGetPluginWithDriverID
+0x7FFB0637AEBD   testq %rax,%rax
+0x7FFB0637AEC0   je 0x7ffb0637aecd
+0x7FFB0637AEC2   movq %r15,%rdi
+0x7FFB0637AEC5   callq *0x470(%rax)
+0x7FFB0637AECB   jmp 0x7ffb0637aed2
+0x7FFB0637AECD   movl $0x271f,%eax
+0x7FFB0637AED2   testl %ebx,%ebx
+0x7FFB0637AED4   movl %eax,%ecx
+0x7FFB0637AED6   cmovnel %ebx,%ecx
+0x7FFB0637AED9   testl %eax,%eax
+0x7FFB0637AEDB   cmovnel %ecx,%ebx
+0x7FFB0637AEDE   testq %r14,%r14
+0x7FFB0637AEE1   jne 0x7ffb0637ae96
+0x7FFB0637AEE5   movl $0x271e,%ebx
+0x7FFB0637AEEA   movl %ebx,%eax
+0x7FFB0637AEF6   retq
+
+结论：gldDestroyPixelFormat的确证参数是RDI中的段首head，不是void**或owner。
+GLEngine在调用前按renderer ID段推进，保留下一段指针；调用后消费EAX，累积首个
+非零状态。GLD destroy不能实现成void。未证明第二个外部参数；不能依赖RSI残值。
+GLI空head返回0x271e，找不到插件返回0x271f，这是上层错误，不当成本适配层错误表。
+
+真实Intel/GPUSupport反汇编（来自driver-evidence.txt）：
+Intel UUID 84D33620-0DE3-3032-877D-D0D21C75C4C1。
+0x7FFB020B6BCF pushq %rbp
+0x7FFB020B6BD0 movq %rsp,%rbp
+0x7FFB020B6BD3 leaq 0x411b9256(%rip),%rsi
+0x7FFB020B6BDA popq %rbp
+0x7FFB020B6BDB jmp _gpumDestroyPixelFormat
+GPUSupport UUID F206CE07-BCA7-3CC7-A494-112686CDE945。
+0x7FF918355F6D testq %rdi,%rdi
+0x7FF918355F70 je 0x7ff918355f7c
+0x7FF918355F72 pushq %rbp
+0x7FF918355F73 movq %rsp,%rbp
+0x7FF918355F76 callq _free
+0x7FF918355F7B popq %rbp
+0x7FF918355F7C xorl %eax,%eax
+0x7FF918355F7E retq
+因此Intel内部加的RSI状态不属于已证外部destroy参数；该GPUSupport销毁实际只用
+RDI，直接free一次（NULL也成功），明确置EAX=0。适配层拒绝NULL/非法句柄是独立API
+设计，不能宣称精确复刻系统实现。整个研究没有调用该私有函数。
+
+SDK官方声明核验
+通过客体读取Apple随CommandLineTools安装的SDK原文件：
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/mach/mach_vm.h
+/* Routine mach_vm_read_overwrite */
+extern kern_return_t mach_vm_read_overwrite
+(
+    vm_map_read_t target_task,
+    mach_vm_address_t address,
+    mach_vm_size_t size,
+    mach_vm_address_t data,
+    mach_vm_size_t *outsize
+);
+实际代码包含<mach/mach.h>、<mach/mach_vm.h>，使用SDK声明，不手写函数原型；
+mach_task_self()作为目标，每次只请求4字节到本地uint32_t数组元素。
+严格编译同时核验类型；uintptr_t与mach_vm_address_t尺寸有静态断言。
+
+接口与读取限制
+int32_t gpa_configure(const gp_format_cap *, size_t);
+int32_t gpa_choose(void **head, const uint32_t *tokens, uint64_t *generation);
+int32_t gpa_destroy(void *head, uint64_t generation);
+这是独立进程全局适配API，不是可安装GLD插件。前两个choose参数沿用目标形态，
+增加generation输出以形成安全销毁凭据；不导出gldChoosePixelFormat/gldDestroyPixelFormat。
+
+choose使用整数地址递进，先验证address+4不溢出；每词只有KERN_SUCCESS且outsize==4
+才认可。读取失败直接GPA_READ_FAILED，失败词/部分词不送parser。只对token位置的0
+终止，value0消费为值；4/5无值，8/11/12/13各一值；未知项立即停止并让原parser报错。
+负值位模式亦立即停止并让parser报GP_BAD_VALUE。成功拷贝的前缀与精确字节数传给
+原gp_parse_normalized，成功后才调原gp_choose_normalized。不读取终止之后内容。
+GPA_MAX_WORDS=256包含token、value和终止词，是本实现工作量/栈缓冲上限，不是源容量。
+第256词为终止可成功；第256词为value0或仍需继续时GPA_WORD_LIMIT，不探测第257词。
+第256词为非法值/未知token时优先报告其parser错误。
+
+重要边界：Mach读取检查当前进程VM映射可读性，不能知道malloc请求大小或C对象边界。
+真实4字节终止堆分配测试不会访问第2词；无终止的短堆分配若邻居仍映射，可继续成功读取
+其他分配或分配器空间，甚至遇到偶然0。这是无length输入无法消除的语义限制；不能声称
+“检测了所有短分配越界”。需要分配边界保证时仍须使用原caller-length API。
+ASan不拦截内核复制源读取，所以消毒器通过不能作为Mach读取遵循C对象边界的证明。
+逐词复制也不是全流原子快照；调用者须在调用期间稳定保活输入，不得并发修改/释放。
+只承诺本进程，不读取其他进程，不使用vm_region先检查再直接解引用的竞态方案。
+
+out_head/out_generation必须为调用者独占、实际可写、彼此及与输入不重叠的槽；并未用
+Mach安全探测任意输出地址。非NULL槽入口先清零，失败无owner泄漏或半成品发布。
+NULL输入返回GP_BAD_ARGUMENT，不解释为空流。
+
+能力与所有权
+默认能力表NULL/0，无候选，合法请求返回GP_NO_MATCH。gpa_configure显式复制外部完整
+组合，不自动添加accelerated/compliant等任何位；测试fixture flags=0，非GPU能力声明。
+配置输入必须由调用者保证实际可读/稳定，非token接口的任意指针安全读取承诺。
+原parser在choose时校验能力格式，配置只复制并校验长度/参数；不支持的能力在choose
+返回GP_UNSUPPORTED_FORMAT。存在任何活跃owner时configure返回GPA_BUSY，表不变。
+成功choose为每条链注册head->owner（唯一gp_pixel_list分配），pthread互斥锁保护配置、
+注册、查找、移除、释放。所有owner释放后configure(NULL,0)释放能力表。
+destroy只比较传入head及generation，不解引用外来指针，不遍历可被改成环的next。
+内部节点、NULL、未知head、错误代次、双重destroy全部拒绝。并发销毁同一凭据只有一个
+成功；正确生命周期仍要求读链与destroy由调用者同步，不保证读链与销毁并发安全。
+配置表与注册表为进程全局；无多实例、信号安全或多线程fork后子进程支持。
+
+ABA与系统导出缺口
+释放malloc块后新链可获得相同head。仅接受head的系统ABI无法区分旧指针与新owner；
+普通head注册表只能拦截“当前无此head”，不能保证跨重分配的重复销毁拒绝。
+本实现不隐藏这一问题：使用单调不重用uint64 generation，耗尽后拒绝新建，不回绕。
+测试在新owner有效地址上使用旧generation，确认不会误释放新owner。
+尚未恢复完整非零GLD错误码语义，也未接入插件renderer ID路由、GLD初始化和backend。
+GLEngine会按ID拆段调用destroy，本适配表允许外部不同ID组合，独立gpa_destroy仍释放
+完整注册owner；不能直接把它挂在系统插件槽。系统包装若要落地，必须定义单驱动段
+能力约束、错误映射、生命周期隔离以及无generation ABI的可接受ABA策略。
+不添加臆造renderer ID，不靠伪造accelerated/compliant通过上层筛选。
+
+返回状态
+0..GP_NO_MEMORY沿用原gp_status（独立枚举，不是CGLError）。
+100 GPA_READ_FAILED；101 GPA_WORD_LIMIT；102 GPA_INVALID_HANDLE；103 GPA_BUSY；
+104 GPA_LOCK_FAILED；105 GPA_GENERATION_EXHAUSTED。
+成功=0，API返回int32_t，保证明确32位状态；没有把这些码宣称为系统可接受错误码。
+
+客体验证原始输出摘要（所有命令退出0）
+COMMAND sw_vers
+ProductName: macOS
+ProductVersion: 15.7.3
+BuildVersion: 24G419
+COMMAND clang --version
+Apple clang version 17.0.0 (clang-1700.0.13.5)
+Target: x86_64-apple-darwin24.6.0
+
+工作目录 /var/tmp/vgpu-fb/kexts/gld-pixel-adapter
+严格编译标志：
+-std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow
+-Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I.
+源码：gld_pixel.c gld_pixel_adapter.c gld_pixel_adapter_probe.c
+普通编译追加：-O2 -o probe
+./probe
+  gld_pixel_adapter: 323 checks, 0 failures; 4x500 concurrent lifecycles
+消毒器编译追加：-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -o probe_sanitized
+ASAN_OPTIONS=halt_on_error=1:abort_on_error=1
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
+./probe_sanitized
+  gld_pixel_adapter: 323 checks, 0 failures; 4x500 concurrent lifecycles
+静态分析：clang [上述严格标志] --analyze -Xanalyzer -analyzer-output=text gld_pixel_adapter.c
+  无诊断，退出0。
+nm -gU probe
+0000000100000000 T __mh_execute_header
+0000000100000740 T _gp_choose_normalized
+00000001000005b0 T _gp_parse_normalized
+0000000100000ae0 T _gp_pixel_list_destroy
+0000000100000c20 T _gpa_choose
+0000000100000b20 T _gpa_configure
+0000000100000e80 T _gpa_destroy
+0000000100000f40 T _main
+无系统GLD导出。
+
+覆盖证据
+- 默认空表/清空表、不匹配、配置拷贝、坏配置、参数与范围溢出、输出清零。
+- 真实malloc(4)的0/未知项；malloc字节偏移1的未对齐合法流。
+- PROT_NONE保护页前最后一个词为0：成功；未知项：拒绝且不触碰保护页。
+- 保护页指针、跨页1/2/3字节残词：读失败；尾部4无终止、8无值、8/0无终止：读失败。
+- 8/0/11/0/12/0/13/0/0正确消费；负值、1..103所有未支持token拒绝。
+- 达到256限额、最后一词终止、最后一词值0、最后一词负值、保护页前恰好限额。
+- 不改变flags0；内部节点/外来地址/NULL/错误generation拒绝；next自环仍一次释放。
+- 双destroy、两个不同owner凭据错配、新owner配旧generation、两线程竞争销毁。
+- 4线程各500轮choose/destroy/重复destroy，线程检查各自结果；总2000轮。
+未使用LeakSanitizer/ThreadSanitizer；未做malloc失败注入；检查通过不代表所有竞态已穷尽。
+
+SHA256
+原parser gld_pixel.c（与既有results.txt一致）：
+3efed4ac09e2be797c915577049a0789c0649b0daca61148967f1a2769f4c44e
+gld_pixel.h（与既有results.txt一致）：
+8c5629f521377f5bc6177899ebabc6c2580f182cec0bd52c8849d10e55aa86f3
+gld_pixel_adapter.c：
+b2f7d79a0d88acd0b0f9986fe78a4584f936795ab6baadfac68d43f3d34969fe
+gld_pixel_adapter.h：
+dfb2c44850b380ad1e4fffd40e9be00d82fe654a275ccb488b43c0942735afe2
+gld_pixel_adapter_probe.c：
+cf2b709a5032d7c1c28cffdfbb027a4537b731bfc551013cdb61a4bb70b62428
+
+本交付闭合：无length指针到逐词受控复制、精确本地长度到既有parser、显式能力到
+owner注册、带代次的互斥销毁。未证明系统CGL接入、真实GPU能力、上下文创建或绘制。

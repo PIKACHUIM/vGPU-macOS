@@ -4,14 +4,14 @@
 > macOS 客户机内实现 GPU 直通驱动栈。目标是最终支持 macOS 应用级 3D 加速
 > （Metal 对象层 → IOAccelerator）。
 
-> 最新进度：见 `docs/cb-findings-2026-10-08.md` §80。真实GPU surface桥接完成清屏、事务性generation回读与pack；非对称三角形整图/非原点子区域的普通及ASan/UBSan验证像素零差异。独立device与有界pixel已验证；系统pixel导出与context/FBO对象链正在复核，多资源及shader接入仍待实现。当前安装的§78诊断bundle仍明确拒绝设备；标准硬件OpenGL/Metal均未实现。
+> 最新进度：见 `docs/cb-findings-2026-10-08.md` §81。已核验现有客体记录及对应源码SHA：真实GPU context/FBO桥接普通与ASan/UBSan各103项通过；pixel导出、分配失败注入、adapter、parser分别342/351/323/28154项，两种构建均零失败。surface显式零临时容量防护后的静态分析无告警，历史日志和旧hash保留。Metal只读发现诊断在MRC/ARC下停于G1_NO_METAL_PLUGIN_NAME；负向候选仅编译/链接及静态检查，未动态运行。新双资源内核补丁尚未完成完整SDK构建和GPU验收；源码上传被工具安全拒绝阻塞，同时出现Socket is closed，工具未给具体规则，不能确定两者因果。texture/defaultobjects另行推进，本轮不宣称验证。当前安装的§78诊断bundle仍明确拒绝设备；标准硬件OpenGL/Metal均未实现。
 
 ## 环境与工具
 
 | 项 | 值 |
 |---|---|
 | 宿主 | Windows，VMware Workstation |
-| VM | `E:\Vboxs\MacOSX\MacOS-R15\`（SSH 192.168.9.131 pika/IM0612） |
+| VM | `E:\Vboxs\MacOSX\MacOS-R15\`（SSH 凭据从本地环境配置读取） |
 | 仓库 | `D:\Codes\vGPU-macOS` |
 | 客体构建 | `/var/tmp/vgpu-fb/build.sh`（SSH 推送源码构建） |
 | 安装 | `install.sh`（签名 + KextPolicy + auxKC；`Code=28` = 重启生效） |

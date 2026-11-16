@@ -1,0 +1,111 @@
+_MTLDevice 直接子类：最小负向加载诊断构建契约（2026-11-16）
+
+结论
+“initWithAcceleratorPort: 记录入口然后返回 nil”足以作为正常 loader 的负向初始化终点，但裸写这两句不是完整安全实现：MRC 会遗失 alloc 的对象；ARC 隐式释放或显式 [self release] 可能进入尚未初始化的基类 dealloc。本轮得到并严格构建一个不访问私有 ivar、不调用私有基类初始化的 MRC 候选：入口 fprintf → object_dispose(self) → return nil。仅编译、链接及静态检查通过；尚未加载、安装或执行候选，不能宣称运行时安全已实证，更不能称 Metal 可用。
+
+1. 目标版本与证据
+macOS 15.7.3 / 24G419 / x86_64。
+Metal UUID：0CFB909C-C488-3186-AE3B-47E504BA1D78。
+原始证据：
+- out/metal-base-runtime.txt：公开 ObjC runtime 元数据 API 的实际输出。
+- out/metal-base-evidence-v2.txt：dyld_info UUID、导出、SDK .tbd 及既有完整反汇编定点摘录。
+- out/metal-failclosed-build.txt：候选 imports/exports/objc/inits/disassemble。
+- out/metal-base-metadata.m：只读取元数据；没有给设备类发送消息、alloc/init 或调用 Metal 设备枚举。
+- out/metal-base-inspect.py：只调用 dyld_info、读取目标机既有反汇编和 SDK stub。
+
+dyld_info -objc 对共享缓存中的 Metal 没有输出可用类条目，本轮没有把这个空结果当作“没有类”。使用公开 class_copyIvarList / class_copyMethodList / class_getSuperclass / class_getInstanceSize 在链接 Metal 的独立进程中补齐；没有调用私有方法。对自研候选 Mach-O，dyld_info -objc 正常输出直接父类。
+
+2. 已核验基类接口与对象布局
+out/metal-base-runtime.txt:1：_MTLDevice : NSObject，instanceSize=656 (0x290)。
+该类自身实现：
+  -init                         @16@0:8
+  -initWithAcceleratorPort:      @20@0:8I16（同文件632行）
+  -dealloc                      v16@0:8
+  -.cxx_construct               @16@0:8
+本机该类自身无 .cxx_destruct、+load、+initialize、+alloc/+allocWithZone: 条目；方法清单已保存，不能把这个结论外推到其它系统版本或后来注入的 category。
+MTLIOAccelDevice 的直接父类为 _MTLDevice，instanceSize=54368。它的端口初始化编码同样为 @20@0:8I16。
+I16 对应 unsigned int/io_service_t，而不是 io_connect_t。
+
+与安全失败有关的必需状态：
+  +0x118 _serialQueue
+  +0x120 _pipelineSerializationQueue
+  +0x128 _concurrentQueue
+  +0x1d0 _libraryBuilder
+  +0x1d8 _pipelineLibraryBuilder
+  +0x220/+0x228、+0x260、+0x270 为 once_flag 状态。
+此处偏移仅用于核验证据；候选源码不得复制这些字段或写偏移。
+其它 limits/features/command queue/library/pipeline state 在完整元数据中保留，不代表构建一个永远返回 nil 的子类必须实现这些 GPU 语义。
+
+3. init/dealloc 不能忽略
+-[_MTLDevice init]：0x7FF80D34378A 起。先 super init，然后创建三条 dispatch queue，构造 MTLLibraryBuilder、pipelineLibraryBuilder，创建 loader/pool 和其它 Foundation 状态。并非空 init；初始化对象依赖的 C++ 构造函数未在本轮递归穷尽，因此不选择调用 super init 作为“零副作用”方案。
+-[_MTLDevice initWithAcceleratorPort:]：0x7FF80D43D5DA–0x7FF80D43D5F1。把原 selector 作为参数发另一个 ObjC 消息，随后清零返回值。本轮未解码这个转发 selector，不能声称可安全调用 super 的同名方法。摘录在 ret 后带有后续无标签指令，分析边界仅到上述 ret。
+-[_MTLDevice dealloc]：0x7FF80D43D6E3 起。+0x1d0/+0x1d8 有非空检查；但 0x7FF80D43D742/74E/75A 加载 +0x118/+0x120/+0x128，分别无非空检查地调用 dispatch_release。这不支持对仅 alloc 的零状态对象执行普通 release；dispatch_release 不能按 objc_msgSend(nil) 来推理。
+-.cxx_construct：0x7FF80D4464C3–64E5，只清零上述 once_flag 并返回 self；没有资源分配或 GPU 操作。
+
+4. 可实现最小候选
+实际源码：out/metal-failclosed-candidate.m
+SHA256：83eabdcfe91bf20d98165cb9578fc1c99e6d38c4b4c7bff0e8026b89d30305fb
+
+最小声明只包含已核验关系和方法，不伪造完整 private header：
+@interface _MTLDevice : NSObject
+- (instancetype)initWithAcceleratorPort:(io_service_t)service;
+@end
+@interface VGPUMetalFailClosedDevice : _MTLDevice
+@end
+
+@implementation VGPUMetalFailClosedDevice
+- (instancetype)initWithAcceleratorPort:(io_service_t)service {
+    fprintf(stderr, "VGPU_METAL_DIAGNOSTIC_INIT service=0x%x result=nil GPU_NOT_EXECUTED\n", service);
+    object_dispose(self);
+    return nil;
+}
+@end
+
+必须以 MRC 编译；源码 #error 阻止 ARC。没有自定义 ivar，不声明 MTLDevice/MTLDeviceSPI 协议，不实现任何假资源/队列方法；ObjC 非脆弱 ABI 的实际 superclass 大小由运行时元数据决定，不能把本地简化声明当作真实基类布局。候选无 ivar访问，故不依赖伪造布局。
+object_dispose 是公开 ObjC runtime 函数：销毁实例并释放对象存储，不发送 -dealloc；会执行运行时销毁清理。适用前提是本机已核验基类构造仅清零且没有相应 C++ 析构、候选没有创建/持有资源、self 尚未暴露出去。此用法严格限定为本机负向诊断，不用于任何可用设备实现，不推广为一般 ObjC 初始化失败习惯用法。
+没有 IOObjectRetain/Release(service)，因为传入的是 wrapper 借用的服务句柄，候选没有获取所有权；绝不关闭或 deallocate 它。
+没有 [super init]、[super initWithAcceleratorPort:]、[self release]，没有 IOServiceOpen/IOConnectCall*。
+
+只记录再 return nil 的 MRC 版本会泄漏每次 alloc；重复热插拔/重枚举可能扩大泄漏，不采用。
+另一个可实现但较弱的方案是只覆盖 +allocWithZone: 返回 nil，验证类分配入口但不会进入 initWithAcceleratorPort:，不满足端口入口验证目标。
+本候选清理方案已静态审查但未执行；后续应先在隔离测试进程中验证 runtime 的实际分配大小、重复构造/失败销毁不崩溃，再进行正常 loader 验证。不得直接据本报告称动态安全通过。
+
+5. 实际构建与符号结果
+客体源码：/var/tmp/vgpu-fb/metal-failclosed-candidate.m
+实际无警告命令：
+clang -Wall -Wextra -Werror -fno-objc-arc -arch x86_64 -bundle -framework Foundation -framework Metal -Wl,-fatal_warnings /var/tmp/vgpu-fb/metal-failclosed-candidate.m -o /var/tmp/vgpu-fb/VGPUMetalFailClosedDevice
+xcrun dyld_info -imports -exports -objc -inits -disassemble /var/tmp/vgpu-fb/VGPUMetalFailClosedDevice
+shasum -a 256 /var/tmp/vgpu-fb/VGPUMetalFailClosedDevice
+均退出0。
+二进制 SHA256：e9f1abaeca6d77019ae9a5d1e80839550ef31fff2b36d7d80ff613e264957568
+先前用 -Wl,-undefined,error 也链接成功，但新 linker 报该显式选项 deprecated；最终删除该选项，采用默认未定义符号错误行为并增加 -fatal_warnings，未使用 dynamic_lookup 或 weak/dlsym fallback。
+
+Metal 导出：_OBJC_CLASS_$__MTLDevice、_OBJC_METACLASS_$__MTLDevice；SDK Metal.tbd objc-classes 列表包含 _MTLDevice。直接 -framework Metal 可解析，无需私有 framework search path、伪造导出或自定义符号桩。
+候选 imports 只有：
+  ___stderrp / _fprintf (libSystem)
+  _object_dispose / __objc_empty_cache / _OBJC_METACLASS_$_NSObject (libobjc)
+  _OBJC_CLASS_$__MTLDevice / _OBJC_METACLASS_$__MTLDevice (Metal)
+候选 exports 为自己的 ObjC class/metaclass；dyld_info -objc：VGPUMetalFailClosedDevice : _MTLDevice，只有 initWithAcceleratorPort:。
+-inits 为空；候选没有 +load/constructor。没有 user-client/GPU 提交符号导入。
+
+6. bundle 目录与 plist 的后续构建约定（本轮未安装）
+VGPUMetalFailClosed.bundle/
+  Contents/Info.plist
+  Contents/MacOS/VGPUMetalFailClosedDevice
+plist 至少：
+  CFBundleIdentifier = local.vgpu.metal.failclosed
+  CFBundleName = VGPUMetalFailClosed
+  CFBundlePackageType = BNDL
+  CFBundleVersion = 1
+  CFBundleExecutable = VGPUMetalFailClosedDevice
+  NSPrincipalClass = VGPUMetalFailClosedDevice
+未来真实服务候选：MetalPluginName=VGPUMetalFailClosed；可选 MetalPluginClassName=VGPUMetalFailClosedDevice；不复制 AppleParavirt 的属性或设备身份。
+Loader 已核验搜索 /Library/GPUBundles/<name>.bundle 再 /System/Library/Extensions/<name>.bundle。须满足其 trust、NSBundle/dyld 的实际要求，不能把当前私有临时目录的 -bundle 编译成功当成 trusted。当前服务 MetalPluginName absent，所以本轮不可能已验证标准 loader 加载。
+
+7. 真实加载验证能证明什么
+若以后在新进程中通过标准 Metal loader，看到唯一候选入口标记并确认它返回 nil，则证明路径选择/信任/可执行文件加载/ObjC 类查找/继承准入/服务 wrapper 条件/alloc/端口入口这一条负向链走通。
+依据已有 loader 反汇编：init 返回 nil 时不调用 _setAcceleratorService:、MTLAddDevice；因此无需实现后续 MTLDevice 完整接口就可完成负向测试。仍应确认没有候选被加入设备数组，不能把原有其它设备存在与候选成功混淆。
+若只 NSBundle/dlopen 手工加载或直接调用自定义 init，只能证明手工路径，不能证明 gpu_bundle_find_trusted 或系统服务发现；stderr 无记录也不能单独定位为继承失败。
+整个方案不验证 type5，也不需要该 user-client；type5 是 MTLIOAccelDevice 路线的独立问题。未来真正 Metal 功能仍需实现资源、shader、queue、同步和渲染语义。
+
+本轮执行范围：只读系统/运行时元数据；在 /var/tmp/vgpu-fb 编译诊断源码与候选并保存证据。未安装 bundle、未改注册表属性、未加载候选、未修改主 kext、未运行 GPU、未执行git。

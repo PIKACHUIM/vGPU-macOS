@@ -1,0 +1,33 @@
+更正：历史 0xe00002c1 为 kIOReturnNotPrivileged，来自非 root share open；不是服务不存在。kIOReturnNotFound 为 0xe00002f0。历史失败原始日志保留在 gpu-raw.log 开头。
+本次状态：PASS；完成：普通严格构建、ASan/UBSan 严格构建、clang --analyze 三个源文件（0 条告警）、非 root NotPrivileged（3 项断言）、root gld_context_probe、root gld_context_probe_sanitized。
+sudo 密码仅经 stdin；没有安装、重启或自动 NotReady 重试。LeakSanitizer 在该客体不受支持，关闭 detect_leaks，ASan/UBSan 保持启用。
+
+审查：context→draw/read framebuffer→image→share 引用有序释放；同一 draw/read 各持引用；image 析构释放 lease；load 失败保持 dirty，clear 失败保持 dirty/failed 与旧 generation。
+SHA256 973a0720835d6352dd27bf9aead92464e281acee90024b4a0c8db68973ecf498 gld-context/vgpu_context.h
+SHA256 cf71e853fb67aa3d87f659e604f395ab2ef29a19217a31a9d95a3f952bae90ef gld-context/vgpu_context.c
+SHA256 71785e22ade2c92c61f9126136507b99f40b550367a72a5fb03a125712a5663e gld-surface/vgpu_surface.h
+SHA256 9728d4ec52b2c2d6e68202bc47e4bd8315ae494c2a02906d599f8a5a8e75cb27 gld-surface/vgpu_surface.c
+SHA256 05f7c706dcb2eb99e8e05bbc11cafb105a4367656020ab9a5abe40e106032cec probes/gld_context_probe.c
+SHA256 a8ce7a0641207e300223ee91c20e08501191eaa8cd07b0c504a94e8fd5bf3093 verify.py
+RESULT checks=3 status=PASS exit=0
+GENERATION first=136 completed=136
+PIXELS width=256 height=256 pixels=65536 canary_bytes=2080 offset=16 stride=1032 fnv1a64=360c01dcac420e85 status=PASS
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=0 stride=12 fnv1a64=4b466014eb50dffd status=PASS
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=40 stride=32 fnv1a64=017c284b9dea8835 status=PASS
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=56 stride=48 fnv1a64=19929aad2db5de35 status=PASS
+GENERATION prior=136 next=137
+GENERATION external=138 stale=137
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=0 stride=12 fnv1a64=4b466014eb50dffd status=PASS
+GPU clear/read 已完成 generation=139，实时 pack/外部 stale 通过
+RESULT checks=103 status=PASS exit=0
+GENERATION first=140 completed=140
+PIXELS width=256 height=256 pixels=65536 canary_bytes=2080 offset=16 stride=1032 fnv1a64=360c01dcac420e85 status=PASS
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=0 stride=12 fnv1a64=4b466014eb50dffd status=PASS
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=40 stride=32 fnv1a64=017c284b9dea8835 status=PASS
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=56 stride=48 fnv1a64=19929aad2db5de35 status=PASS
+GENERATION prior=140 next=141
+GENERATION external=142 stale=141
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=0 stride=12 fnv1a64=4b466014eb50dffd status=PASS
+GPU clear/read 已完成 generation=143，实时 pack/外部 stale 通过
+RESULT checks=103 status=PASS exit=0
+完整命令、源文件与可执行文件 SHA256、boot/服务/进程证据见 gpu-raw.log。

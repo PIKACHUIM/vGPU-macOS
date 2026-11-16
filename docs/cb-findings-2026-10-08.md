@@ -6314,3 +6314,54 @@ read检查行长/stride/alignment/skip的全部乘加和容量、地址上界，
 本轮运行中驱动仍为§78-gld-discovery，UUID `8B1934DE-99CC-3439-844A-1A05F3E935D8`，启动时间未改变；没有安装或重启。该桥接不是Apple GLD导出，也不是公开CGL/Metal验收。
 
 context研究已闭合：GLEngine在CreateContext返回后初始化H默认状态；初始化先创建11个默认texture及sampler/program；FBO加载可直接触发附件backing准备，不必等待单独gldLoadTexture。无图像默认对象应先提供真实元数据生命周期，再在materialization检查格式。证据见 `out/gld-context-init-required-verified.txt`，已随e258ca5提交。像素格式系统包装及真实context/FBO对象链正在复核；多资源、alpha backing、shader、完整绘制状态和标准API集成仍开放。
+
+## §81：context/pixel证据复核、surface分析修正与Metal发现边界（2026-11-16）
+
+### 81.1 核验方式与context真实GPU结果
+
+本节通过本地文件逐项SHA256计算、现有客体命令/退出码和原始日志交叉核验形成；本次文档核验没有重新运行客体测试、安装或重启。`kexts/gld-context/results.txt` 的6项SHA与当前文件全部一致，也与 `gpu-raw.log` 最后一次追加轮次（第524行起）的6项SHA一致。包括context源/头、surface源/头、context probe及runner；远端shasum记录中的三个C源SHA也与该轮次相符。客体可执行文件SHA保留在原日志，本地未持有二进制，不把记录比对写成重新构建验证。
+
+最后一轮普通与ASan/UBSan严格构建均成功，root真实GPU probe各 `103 checks, PASS, exit=0`；非root拒绝测试为3项通过。普通generation136→139，sanitized140→143；每轮256×256整图65536像素与3×2非原点区域的不同pack/stride/skip、canary和外部提交stale均通过。context→draw/read framebuffer→image→share引用链、同一draw/read各持引用、image释放lease及失败保持dirty/旧generation的检查记录齐全。合成H/B只作为契约输入，clear/read通过真实连接；这不是系统GLEngine/CGL已调用该对象链的证据。
+
+原始首轮 `0xe00002c1` 是非root打开连接得到的 `kIOReturnNotPrivileged`，不是服务不存在；`kIOReturnNotFound` 是 `0xe00002f0`。历史失败不删除。最终日志记录三份源 `clang --analyze` 无告警；LeakSanitizer因客体不支持而关闭，ASan/UBSan保持启用，不能写为已通过泄漏检测。runner没有自动NotReady重试，sudo凭据取自既有环境并经既有连接流程传入，不写入命令日志。
+
+### 81.2 surface零临时容量分析修正与历史SHA
+
+`vgpu_surface_read` 在乘法成功后增加显式 `!temporary_size` 拒绝，再分配临时缓冲。合法rect原本已限制非零宽高及256×256界限；本次修改明确表达分配容量非零的前提，闭合静态分析的零大小分配路径，不能据旧告警宣称已实证合法输入越界。当前源码SHA为 `9728d4ec52b2c2d6e68202bc47e4bd8315ae494c2a02906d599f8a5a8e75cb27`，最终轮次构建、分析及两种GPU probe均使用此版本。
+
+`gpu-raw.log:255` 的旧surface SHA `1614f82fecfc2b503b4932a80926e93e150cdb70a70554023877843568d87b62` 和第259行的旧runner SHA属于前一轮；该轮第285行确有 `unix.Malloc` 告警，不能只凭分析器exit=0写成无告警。最后轮次第757/761行记录修正后的源/runner SHA，三个分析命令没有诊断。原始失败、旧告警及旧hash全部保留；§80和既有surface结果文件中的旧SHA继续指向当时版本，不回填成新hash。
+
+### 81.3 pixel系统形态导出与回归证据
+
+`kexts/gld-pixel/exports-test-results.txt` 的9项源/probe SHA与当前文件全部一致。现有macOS 15.7.3 / 24G419、Apple clang17严格构建日志中，各组结果如下，普通与ASan/UBSan完全一致：
+
+| 范围 | 每种构建检查数 | 失败数 |
+|---|---:|---:|
+| 正式自研dylib的dlopen/dlsym导出测试 | 342 | 0 |
+| 独立分配失败注入dylib | 351 | 0 |
+| adapter回归 | 323 | 0 |
+| parser回归 | 28154 | 0 |
+
+所有命令 `EXIT 0`；三个实现源的静态分析无诊断。正式库 `nm -gU` 只列出 `gldChoosePixelFormat`、`gldDestroyPixelFormat`、`gpx_configure`。无匹配返回成功且head=NULL；四种受支持数值token的负值映射SDK BadValue；destroy(NULL)成功。配置能力来自显式输入，默认空表，测试fixture不是GPU能力声明。每次exports/adapter生命周期测试含4线程各500轮；失败注入验证实际owner/节点/配置分配路径。
+
+逐词 `mach_vm_read_overwrite` 只能检查VM映射可读性，不证明malloc/C对象边界，也不形成全流原子快照；无generation的系统head销毁遵循free式生命周期，不承诺跨地址重用ABA拒绝。动态测试只加载自研库，没有调用Apple私有GLD入口或完成系统插件/CGL发现。`adapter-results.txt` 是较早适配层记录，其中旧adapter源/头hash及“无系统导出”描述保留历史意义；当前系统包装结果以 `exports-results.txt` 和 `exports-test-results.txt` 为准。
+
+### 81.4 Metal只读发现G1与未运行的负向候选
+
+已读取 `kexts/probes/metal_probe.m`、`out/metal-discovery-results.txt`、`out/metal-next-contract-verified.txt` 和 `out/metal-failclosed-contract.txt`；probe、发现测试及负向候选源码的SHA分别与记录一致。MRC/ARC严格构建和纯参数/CF类型检查通过；现有客体两种诊断输出均只有一个真实 `vgpuAccelerator`，`MetalPluginName` 缺失，停于 `G1_NO_METAL_PLUGIN_NAME`。诊断exit=0只表示发现检查完成，不表示Metal可用。
+
+`--discovery-contract-only` 在Metal设备API之前返回，不打开user client、不加载驱动bundle、不提交GPU；当前客体未进入文件候选分支。trust、类解析/继承、init、type5、GPU均标为 `NOT_EXECUTED/UNKNOWN`。默认compute/render/像素回读分支本轮未运行。
+
+静态契约表明loader要求 `_MTLDevice` 子类，并非强制 `MTLIOAccelDevice` 子类；后者的type5初始化是另一个独立协议缺口，不能将其外推为所有自研设备类的必经协议。`out/metal-failclosed-candidate.m` 的MRC负向候选仅严格编译、链接及imports/exports/ObjC静态检查通过：`initWithAcceleratorPort:`记录入口、`object_dispose(self)`后返回nil。**该候选尚未安装、加载或动态运行**，运行时清理安全性和标准loader负向链都未验收，更不代表资源、shader、queue或Metal设备实现。
+
+### 81.5 新双资源补丁与当前阻塞
+
+新双资源内核补丁仍属进行中，**尚未完成完整SDK构建和GPU验收**，本节context/surface的固定单目标结果不能替代双资源隔离验收。按本轮主任务反馈，当前源码上传遭工具安全拒绝而阻塞；工具没有提供具体命中规则，同时记录到 `Socket is closed`。现有信息不足以确定两者因果，不推断为某条代码规则、凭据原因或网络原因，也不将失败上传写成已部署。
+
+texture/defaultobjects由其他任务继续处理，本节没有核验其实现或测试，暂不宣称通过。当前安装的§78诊断bundle仍拒绝设备；标准硬件OpenGL/Metal仍未实现。下一验收应分别闭合双资源完整构建与真实GPU隔离、系统GLD对象/能力接入，以及Metal负向候选的独立动态与正常loader证据。
+
+### 81.6 提交证据与凭据审查边界
+
+本轮对context/pixel/surface相关日志和runner、Metal证据及两份状态文档进行本地凭据扫描和命中复核，未在所审查日志/runner中发现真实凭据字面值；runner中的password参数读取环境，不是硬编码秘密。发现既有 `docs/STATUS.md:14` 含明文凭据，主任务已从当前文件移除并改为本地环境配置说明，未回显内容。未改写历史提交；扫描不是对整个仓库及历史提交的无秘密保证。
+
+`kexts/gld-context/gpu-raw.log` 被 `.gitignore` 的 `*.log` 规则忽略，若主任务纳入本轮证据，应精确指定该文件，不扩大到全部日志。保留历史原文及旧hash；不要将二进制、截图、凭据配置或尚未验收的其他任务产物混入本轮已验证文件集合。

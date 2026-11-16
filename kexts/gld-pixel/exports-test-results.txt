@@ -1,0 +1,113 @@
+SHA256 gld_pixel.c 3efed4ac09e2be797c915577049a0789c0649b0daca61148967f1a2769f4c44e
+SHA256 gld_pixel.h 8c5629f521377f5bc6177899ebabc6c2580f182cec0bd52c8849d10e55aa86f3
+SHA256 gld_pixel_adapter.c ce7dc8a66f5a78426591c1767b28b267ac0ae222a22599e1b997aa4e0221a1e7
+SHA256 gld_pixel_adapter.h f3208c545ad8781b996423fd944e408beed5dadf62fddca8af17d48eaa92bb14
+SHA256 gld_pixel_exports.c b0a7e775347a0957b1e7868c35f91f019c35dc48afc0825b16a78879290b09f6
+SHA256 gld_pixel_exports.h eba7fc8d4f163b502204da72c4e513dd359c3ea6bcfd141e8e3fa6fb70a516ba
+SHA256 gld_pixel_probe.c 424c350f7ab14bb781669ba2b469100323a017eaa3a0d6983ba5944d48b97fc6
+SHA256 gld_pixel_adapter_probe.c cf2b709a5032d7c1c28cffdfbb027a4537b731bfc551013cdb61a4bb70b62428
+SHA256 gld_pixel_exports_probe.c 800f2e71310c6422b79834d6d5a3cb95e235befe46ed0826f15368ee1b507303
+COMMAND sw_vers
+ProductName:		macOS
+ProductVersion:		15.7.3
+BuildVersion:		24G419
+EXIT 0
+COMMAND clang --version
+Apple clang version 17.0.0 (clang-1700.0.13.5)
+Target: x86_64-apple-darwin24.6.0
+Thread model: posix
+InstalledDir: /Library/Developer/CommandLineTools/usr/bin
+EXIT 0
+SDK /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/CGLTypes.h
+240: 	kCGLNoError            = 0,     /* no error */
+241: 	kCGLBadAttribute       = 10000,	/* invalid pixel format attribute  */
+243: 	kCGLBadPixelFormat     = 10002,	/* invalid pixel format            */
+249: 	kCGLBadValue           = 10008,	/* invalid numerical value         */
+250: 	kCGLBadMatch           = 10009,	/* invalid share context           */
+257: 	kCGLBadAlloc           = 10016,	/* invalid memory allocation       */
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. -O2 -fvisibility=hidden -dynamiclib gld_pixel.c gld_pixel_adapter.c gld_pixel_exports.c -o libgld_pixel_exports.dylib
+EXIT 0
+COMMAND nm -gU libgld_pixel_exports.dylib
+0000000000001030 T _gldChoosePixelFormat
+0000000000001060 T _gldDestroyPixelFormat
+0000000000001270 T _gpx_configure
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. -O2 gld_pixel_exports_probe.c -o exports_probe
+EXIT 0
+COMMAND ./exports_probe ./libgld_pixel_exports.dylib
+gld_pixel_exports: 342 checks, 0 failures; 4x500 lifecycles; fault=0
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. -O2 -fvisibility=hidden -Dmalloc=gpx_test_malloc -Dcalloc=gpx_test_calloc -c gld_pixel.c -o gld_pixel_fault.o
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. -O2 -fvisibility=hidden -Dmalloc=gpx_test_malloc -Dcalloc=gpx_test_calloc -c gld_pixel_adapter.c -o gld_pixel_adapter_fault.o
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. -O2 -fvisibility=hidden -Dmalloc=gpx_test_malloc -Dcalloc=gpx_test_calloc -c gld_pixel_exports.c -o gld_pixel_exports_fault.o
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. -O2 -fvisibility=hidden -DGPX_FAULT_ALLOCATOR -c gld_pixel_exports_probe.c -o injection.o
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. -O2 -dynamiclib gld_pixel_fault.o gld_pixel_adapter_fault.o gld_pixel_exports_fault.o injection.o -o libgld_pixel_fault.dylib
+EXIT 0
+COMMAND ./exports_probe ./libgld_pixel_fault.dylib fault
+gld_pixel_exports: 351 checks, 0 failures; 4x500 lifecycles; fault=1
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. -O2 gld_pixel.c gld_pixel_adapter.c gld_pixel_adapter_probe.c -o adapter_probe
+EXIT 0
+COMMAND ./adapter_probe
+gld_pixel_adapter: 323 checks, 0 failures; 4x500 concurrent lifecycles
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. -O2 gld_pixel.c gld_pixel_probe.c -o pixel_probe
+EXIT 0
+COMMAND ./pixel_probe
+MODE structural/parser tests only; fixture capabilities are not device claims; no CGL or private ABI calls
+GROUP parser: valid, duplicate-max, token4-no-value, every-byte-truncation, missing-terminator, unknown, overflow
+GROUP selection: explicit-capabilities, no-default-flags, bitmaps, no-match, invalid-capability, allocation-failure, list-release
+GROUP lifetime: 4096-node chain and one-owner destruction
+GROUP bounds: PROT_NONE next-page guard, zero-length inaccessible pointer, 20000 deterministic streams
+SUMMARY checks=28154 failures=0
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fvisibility=hidden -dynamiclib gld_pixel.c gld_pixel_adapter.c gld_pixel_exports.c -o libgld_pixel_exports_sanitized.dylib
+EXIT 0
+COMMAND nm -gU libgld_pixel_exports_sanitized.dylib
+0000000000004538 T _gldChoosePixelFormat
+0000000000004568 T _gldDestroyPixelFormat
+0000000000004778 T _gpx_configure
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer gld_pixel_exports_probe.c -o exports_probe_sanitized
+EXIT 0
+COMMAND ./exports_probe_sanitized ./libgld_pixel_exports_sanitized.dylib
+gld_pixel_exports: 342 checks, 0 failures; 4x500 lifecycles; fault=0
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fvisibility=hidden -Dmalloc=gpx_test_malloc -Dcalloc=gpx_test_calloc -c gld_pixel.c -o gld_pixel_fault_sanitized.o
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fvisibility=hidden -Dmalloc=gpx_test_malloc -Dcalloc=gpx_test_calloc -c gld_pixel_adapter.c -o gld_pixel_adapter_fault_sanitized.o
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fvisibility=hidden -Dmalloc=gpx_test_malloc -Dcalloc=gpx_test_calloc -c gld_pixel_exports.c -o gld_pixel_exports_fault_sanitized.o
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -fvisibility=hidden -DGPX_FAULT_ALLOCATOR -c gld_pixel_exports_probe.c -o injection_sanitized.o
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -dynamiclib gld_pixel_fault_sanitized.o gld_pixel_adapter_fault_sanitized.o gld_pixel_exports_fault_sanitized.o injection_sanitized.o -o libgld_pixel_fault_sanitized.dylib
+EXIT 0
+COMMAND ./exports_probe_sanitized ./libgld_pixel_fault_sanitized.dylib fault
+gld_pixel_exports: 351 checks, 0 failures; 4x500 lifecycles; fault=1
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer gld_pixel.c gld_pixel_adapter.c gld_pixel_adapter_probe.c -o adapter_probe_sanitized
+EXIT 0
+COMMAND ./adapter_probe_sanitized
+gld_pixel_adapter: 323 checks, 0 failures; 4x500 concurrent lifecycles
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer gld_pixel.c gld_pixel_probe.c -o pixel_probe_sanitized
+EXIT 0
+COMMAND ./pixel_probe_sanitized
+MODE structural/parser tests only; fixture capabilities are not device claims; no CGL or private ABI calls
+GROUP parser: valid, duplicate-max, token4-no-value, every-byte-truncation, missing-terminator, unknown, overflow
+GROUP selection: explicit-capabilities, no-default-flags, bitmaps, no-match, invalid-capability, allocation-failure, list-release
+GROUP lifetime: 4096-node chain and one-owner destruction
+GROUP bounds: PROT_NONE next-page guard, zero-length inaccessible pointer, 20000 deterministic streams
+SUMMARY checks=28154 failures=0
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. --analyze -Xanalyzer -analyzer-output=text gld_pixel.c
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. --analyze -Xanalyzer -analyzer-output=text gld_pixel_adapter.c
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I. --analyze -Xanalyzer -analyzer-output=text gld_pixel_exports.c
+EXIT 0

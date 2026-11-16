@@ -1,0 +1,377 @@
+== UUID / exports ==
+/System/Library/Frameworks/Metal.framework/Versions/A/Metal [x86_64]:
+    -uuid:
+        0CFB909C-C488-3186-AE3B-47E504BA1D78
+        0x36ACB9D0  _OBJC_CLASS_$__MTLDevice
+        0x36ACC6C8  _OBJC_METACLASS_$__MTLDevice
+== Objective-C metadata ==
+== selected implementation bodies ==
+source_line= 252
+-[_MTLDevice init]:
+0x7FF80D34378A   pushq    %rbp                 
+0x7FF80D34378B   movq     %rsp, %rbp           
+0x7FF80D34378E   pushq    %r15                 
+0x7FF80D343790   pushq    %r14                 
+0x7FF80D343792   pushq    %r13                 
+0x7FF80D343794   pushq    %r12                 
+0x7FF80D343796   pushq    %rbx                 
+0x7FF80D343797   subq     $0x18, %rsp          
+0x7FF80D34379B   leaq     -0x40(%rbp), %rax    
+0x7FF80D34379F   movq     %rdi, (%rax)         
+0x7FF80D3437A2   movq     0x33ddcca7(%rip), %rcx  ; 
+0x7FF80D3437A9   movq     %rcx, 0x8(%rax)      
+0x7FF80D3437AD   movq     0x33dd785c(%rip), %rsi  ; 
+0x7FF80D3437B4   movq     %rax, %rdi           
+0x7FF80D3437B7   callq    _objc_msgSendSuper2  
+0x7FF80D3437BC   movq     %rax, %r13           
+0x7FF80D3437BF   testq    %rax, %rax           
+0x7FF80D3437C2   je       0x7ff80d343aeb       
+0x7FF80D3437C8   movabsq  $0x10a0c405c0b448e, %r14 
+0x7FF80D3437D2   leaq     0x1f6fc3(%rip), %rdi  ; string literal: "Device serial queue"
+0x7FF80D3437D9   xorl     %esi, %esi           
+0x7FF80D3437DB   callq    _dispatch_queue_create 
+0x7FF80D3437E0   movq     %rax, 0x118(%r13)    
+0x7FF80D3437E7   leaq     0x1f6fc2(%rip), %rdi  ; string literal: "Pipeline serialization queue"
+0x7FF80D3437EE   xorl     %esi, %esi           
+0x7FF80D3437F0   callq    _dispatch_queue_create 
+0x7FF80D3437F5   movq     %rax, 0x120(%r13)    
+0x7FF80D3437FC   leaq     0x1f6fca(%rip), %rdi  ; string literal: "Device concurrent queue"
+0x7FF80D343803   movq     0x32d0ffc6(%rip), %rsi  ; 
+0x7FF80D34380A   callq    _dispatch_queue_create 
+0x7FF80D34380F   movq     %rax, 0x128(%r13)    
+0x7FF80D343816   movl     $0x38, %edi          
+0x7FF80D34381B   movq     %r14, %rsi           
+0x7FF80D34381E   callq    __ZnwmSt19__type_descriptor_t 
+0x7FF80D343823   movq     %rax, %r15           
+0x7FF80D343826   movq     %rax, %rdi           
+0x7FF80D343829   movq     %r13, %rsi           
+0x7FF80D34382C   callq    __ZN17MTLLibraryBuilderC2EPU19objcproto9MTLDevice11objc_object 
+0x7FF80D343831   movq     %r15, 0x1d0(%r13)    
+0x7FF80D343838   movabsq  $0x80c40803f642b, %rsi 
+0x7FF80D343842   movl     $0x10, %edi          
+0x7FF80D343847   callq    __ZnwmSt19__type_descriptor_t 
+0x7FF80D34384C   movq     %rax, %r14           
+0x7FF80D34384F   movq     %r13, (%rax)         
+0x7FF80D343852   leaq     0x1f8166(%rip), %rdi  ; string literal: "libraryBuilder"
+0x7FF80D343859   xorl     %r15d, %r15d         
+0x7FF80D34385C   xorl     %esi, %esi           
+0x7FF80D34385E   callq    _dispatch_queue_create 
+0x7FF80D343863   movq     %rax, 0x8(%r14)      
+0x7FF80D343867   movq     %r14, 0x1d8(%r13)    
+0x7FF80D34386E   movb     %r15b, 0x130(%r13)   
+0x7FF80D343875   movb     %r15b, 0x1f8(%r13)   
+0x7FF80D34387C   xorps    %xmm0, %xmm0         
+0x7FF80D34387F   movups   %xmm0, 0x1e8(%r13)   
+0x7FF80D343887   movq     0x32cc601a(%rip), %rdi  ; 
+0x7FF80D34388E   callq    _objc_alloc_init     
+0x7FF80D343893   movq     %rax, 0x140(%r13)    
+0x7FF80D34389A   leaq     0x1f6f44(%rip), %rdi  ; string literal: "MTL_FORCE_COMMAND_BUFFER_ENHANCED_ERRORS"
+0x7FF80D3438A1   callq    _getenv              
+0x7FF80D3438A6   testq    %rax, %rax           
+0x7FF80D3438A9   je       0x7ff80d3438b6       
+0x7FF80D3438AB   movq     $0x1, 0x288(%r13)    
+0x7FF80D3438B6   leaq     0x36acd633(%rip), %rdi  ; _OBJC_CLASS_$_MTLLoader
+0x7FF80D3438BD   callq    _objc_opt_new        
+0x7FF80D3438C2   movq     %rax, 0x200(%r13)    
+0x7FF80D3438C9   movq     0x33d838b0(%rip), %rdi  ; 
+0x7FF80D3438D0   callq    _objc_alloc          
+0x7FF80D3438D5   movq     0x33dd9ddc(%rip), %rsi  ; 
+0x7FF80D3438DC   movq     0x32d08305(%rip), %r14  ; 
+0x7FF80D3438E3   movq     %rax, %rdi           
+0x7FF80D3438E6   movl     $0x400, %edx         
+0x7FF80D3438EB   callq    *%r14                
+0x7FF80D3438EE   movq     %rax, 0x218(%r13)    
+0x7FF80D3438F5   xorps    %xmm0, %xmm0         
+0x7FF80D3438F8   movups   %xmm0, 0x240(%r13)   
+0x7FF80D343900   movq     0x32cd7cf1(%rip), %rdi  ; 
+0x7FF80D343907   movq     0x33dd96da(%rip), %rsi  ; 
+0x7FF80D34390E   callq    *%r14                
+0x7FF80D343911   movq     0x33dd9da8(%rip), %rsi  ; 
+0x7FF80D343918   movq     %rax, %rdi           
+0x7FF80D34391B   callq    *%r14                
+0x7FF80D34391E   movq     0x33dd810b(%rip), %rsi  ; 
+0x7FF80D343925   leaq     0x33d8eee4(%rip), %rdx  ; 
+0x7FF80D34392C   movq     %rax, %rdi           
+0x7FF80D34392F   callq    *%r14                
+0x7FF80D343932   testb    %al, %al             
+0x7FF80D343934   setne    0x250(%r13)          
+0x7FF80D34393C   movq     0x32cd1abd(%rip), %rdi  ; 
+0x7FF80D343943   movq     0x33dd9d7e(%rip), %rsi  ; 
+0x7FF80D34394A   callq    *%r14                
+0x7FF80D34394D   testb    %al, %al             
+0x7FF80D34394F   setne    0x251(%r13)          
+0x7FF80D343957   leaq     0x1f6eb0(%rip), %rdi  ; string literal: "MTL_DISABLE_UPGRADER_DAEMON"
+0x7FF80D34395E   callq    _getenv              
+0x7FF80D343963   testq    %rax, %rax           
+0x7FF80D343966   sete     0x252(%r13)          
+0x7FF80D34396E   movb     $0x0, 0x278(%r13)    
+0x7FF80D343976   movw     $0x0, 0x268(%r13)    
+0x7FF80D343980   leaq     0x1edc71(%rip), %rdi  ; string literal: "Metal"
+0x7FF80D343987   leaq     0x1f6e9c(%rip), %rsi  ; string literal: "rate_limit_command_queue_generation"
+0x7FF80D34398E   callq    __os_feature_enabled_impl 
+0x7FF80D343993   movb     %al, 0x1c8(%r13)     
+0x7FF80D34399A   movabsq  $0x7e80000ffffffff, %rdi 
+0x7FF80D3439A4   callq    _dyld_program_sdk_at_least 
+0x7FF80D3439A9   testb    %al, %al             
+0x7FF80D3439AB   jne      0x7ff80d3439b7       
+0x7FF80D3439AD   movsd    0x228afb(%rip), %xmm0  ; 
+0x7FF80D3439B5   jmp      0x7ff80d3439bf       
+0x7FF80D3439B7   movsd    0x228ae9(%rip), %xmm0  ; 
+0x7FF80D3439BF   xorb     $0x1, %al            
+0x7FF80D3439C1   movsd    %xmm0, 0x1c0(%r13)   
+0x7FF80D3439CA   movb     %al, 0x1c9(%r13)     
+0x7FF80D3439D1   movl     $0x20, 0x1b8(%r13)   
+0x7FF80D3439DC   movq     0x32cc5ec5(%rip), %rdi  ; 
+0x7FF80D3439E3   callq    _objc_alloc          
+0x7FF80D3439E8   movl     0x1b8(%r13), %edx    
+0x7FF80D3439EF   movq     0x33dd93ea(%rip), %rsi  ; 
+0x7FF80D3439F6   movq     %rax, %rdi           
+0x7FF80D3439F9   callq    *%r14                
+0x7FF80D3439FC   movq     %rax, %rbx           
+0x7FF80D3439FF   callq    _objc_autoreleasePoolPush 
+0x7FF80D343A04   movq     %rax, -0x30(%rbp)    
+0x7FF80D343A08   cmpl     $0x0, 0x1b8(%r13)    
+0x7FF80D343A10   movq     %r13, %r12           
+0x7FF80D343A13   je       0x7ff80d343a49       
+0x7FF80D343A15   xorl     %r15d, %r15d         
+0x7FF80D343A18   movq     0x33dd7691(%rip), %r13  ; 
+0x7FF80D343A1F   movq     0x32cc5e12(%rip), %rdi  ; 
+0x7FF80D343A26   movq     0x33dd9ca3(%rip), %rsi  ; 
+0x7FF80D343A2D   callq    *%r14                
+0x7FF80D343A30   movq     %rbx, %rdi           
+0x7FF80D343A33   movq     %r13, %rsi           
+0x7FF80D343A36   movq     %rax, %rdx           
+0x7FF80D343A39   callq    *%r14                
+0x7FF80D343A3C   incl     %r15d                
+0x7FF80D343A3F   cmpl     0x1b8(%r12), %r15d   
+0x7FF80D343A47   jb       0x7ff80d343a1f       
+0x7FF80D343A49   movq     %r14, %r15           
+0x7FF80D343A4C   movq     -0x30(%rbp), %rdi    
+0x7FF80D343A50   callq    _objc_autoreleasePoolPop 
+0x7FF80D343A55   movq     %rbx, 0x1b0(%r12)    
+0x7FF80D343A5D   movl     $0x0, 0x1a8(%r12)    
+0x7FF80D343A69   leaq     0x1f6dde(%rip), %rdi  ; string literal: "MTL_LOG_LEVEL"
+0x7FF80D343A70   callq    _getenv              
+0x7FF80D343A75   movq     %rax, %rbx           
+0x7FF80D343A78   leaq     0x1f6ddd(%rip), %rdi  ; string literal: "MTL_LOG_BUFFER_SIZE"
+0x7FF80D343A7F   xorl     %esi, %esi           
+0x7FF80D343A81   callq    _MTLGetEnvDefault    
+0x7FF80D343A86   movq     %rax, %r14           
+0x7FF80D343A89   movq     %rbx, %rax           
+0x7FF80D343A8C   orq      %r14, %rax           
+0x7FF80D343A8F   movq     %r12, %r13           
+0x7FF80D343A92   je       0x7ff80d343aeb       
+0x7FF80D343A94   movq     0x33d8382d(%rip), %rdi  ; 
+0x7FF80D343A9B   movq     0x33dd9c36(%rip), %rsi  ; 
+0x7FF80D343AA2   movq     %rbx, %rdx           
+0x7FF80D343AA5   callq    *%r15                
+0x7FF80D343AA8   movq     %rax, %r12           
+0x7FF80D343AAB   movq     0x33d835d6(%rip), %rdi  ; 
+0x7FF80D343AB2   callq    _objc_alloc_init     
+0x7FF80D343AB7   testq    %r14, %r14           
+0x7FF80D343ABA   movq     %rax, 0x190(%r13)    
+0x7FF80D343AC1   movl     $0x100000, %edx      
+0x7FF80D343AC6   cmovneq  %r14, %rdx           
+0x7FF80D343ACA   movq     0x33dd7fff(%rip), %rsi  ; 
+0x7FF80D343AD1   movq     %rax, %rdi           
+0x7FF80D343AD4   callq    *%r15                
+0x7FF80D343AD7   movq     0x190(%r13), %rdi    
+0x7FF80D343ADE   movq     0x33dd7fe3(%rip), %rsi  ; 
+0x7FF80D343AE5   movq     %r12, %rdx           
+0x7FF80D343AE8   callq    *%r15                
+0x7FF80D343AEB   movq     %r13, %rax           
+0x7FF80D343AEE   addq     $0x18, %rsp          
+0x7FF80D343AF2   popq     %rbx                 
+0x7FF80D343AF3   popq     %r12                 
+0x7FF80D343AF5   popq     %r13                 
+0x7FF80D343AF7   popq     %r14                 
+0x7FF80D343AF9   popq     %r15                 
+0x7FF80D343AFB   popq     %rbp                 
+0x7FF80D343AFC   retq                          
+0x7FF80D343AFD   movq     %rax, %rbx           
+0x7FF80D343B00   movq     %r15, %rdi           
+0x7FF80D343B03   movq     %r14, %rsi           
+0x7FF80D343B06   callq    __ZdlPvSt19__type_descriptor_t 
+0x7FF80D343B0B   movq     %rbx, %rdi           
+0x7FF80D343B0E   callq    __Unwind_Resume      
+source_line= 269089
+-[_MTLDevice initWithAcceleratorPort:]:
+0x7FF80D43D5DA   pushq    %rbp                 
+0x7FF80D43D5DB   movq     %rsp, %rbp           
+0x7FF80D43D5DE   movq     %rsi, %rdx           
+0x7FF80D43D5E1   movq     0x33cdde00(%rip), %rsi  ; 
+0x7FF80D43D5E8   callq    *0x32c0e5fa(%rip)    ; 
+0x7FF80D43D5EE   xorl     %eax, %eax           
+0x7FF80D43D5F0   popq     %rbp                 
+0x7FF80D43D5F1   retq                          
+0x7FF80D43D5F2   addb     %dl, 0x48(%rbp)      
+0x7FF80D43D5F5   movl     %esp, %ebp           
+0x7FF80D43D5F7   subq     $0x30, %rsp          
+0x7FF80D43D5FB   leaq     -0x20(%rbp), %rax    
+0x7FF80D43D5FF   movq     %rdi, (%rax)         
+0x7FF80D43D602   leaq     -0x18(%rbp), %rcx    
+0x7FF80D43D606   movq     $0x0, (%rcx)         
+0x7FF80D43D60D   movq     %rax, -0x10(%rbp)    
+0x7FF80D43D611   movq     %rcx, -0x8(%rbp)     
+0x7FF80D43D615   movq     0x270(%rdi), %rax    
+0x7FF80D43D61C   cmpq     $-0x1, %rax          
+0x7FF80D43D620   je       0x7ff80d43d647       
+0x7FF80D43D622   addq     $0x270, %rdi         
+0x7FF80D43D629   leaq     -0x10(%rbp), %rax    
+0x7FF80D43D62D   leaq     -0x30(%rbp), %rcx    
+0x7FF80D43D631   movq     %rax, (%rcx)         
+0x7FF80D43D634   leaq     -0x28(%rbp), %rsi    
+0x7FF80D43D638   movq     %rcx, (%rsi)         
+0x7FF80D43D63B   leaq     0xa682(%rip), %rdx   ; __ZNSt3__117__call_once_proxyB8ne190102INS_5tupleIJOZ33-[_MTLDevice initDefaultLogState]E3$_0EEEEEvPv
+0x7FF80D43D642   callq    __ZNSt3__111__call_onceERVmPvPFvS2_E 
+0x7FF80D43D647   addq     $0x30, %rsp          
+0x7FF80D43D64B   popq     %rbp                 
+0x7FF80D43D64C   retq                          
+source_line= 269163
+-[_MTLDevice dealloc]:
+0x7FF80D43D6E3   pushq    %rbp                 
+0x7FF80D43D6E4   movq     %rsp, %rbp           
+0x7FF80D43D6E7   pushq    %r15                 
+0x7FF80D43D6E9   pushq    %r14                 
+0x7FF80D43D6EB   pushq    %r12                 
+0x7FF80D43D6ED   pushq    %rbx                 
+0x7FF80D43D6EE   subq     $0x10, %rsp          
+0x7FF80D43D6F2   movq     %rdi, %rbx           
+0x7FF80D43D6F5   movq     0x1d0(%rdi), %r14    
+0x7FF80D43D6FC   testq    %r14, %r14           
+0x7FF80D43D6FF   je       0x7ff80d43d71b       
+0x7FF80D43D701   movq     %r14, %rdi           
+0x7FF80D43D704   callq    __ZN17MTLLibraryBuilderD2Ev 
+0x7FF80D43D709   movabsq  $0x10a0c405c0b448e, %rsi 
+0x7FF80D43D713   movq     %r14, %rdi           
+0x7FF80D43D716   callq    __ZdlPvSt19__type_descriptor_t 
+0x7FF80D43D71B   movq     0x1d8(%rbx), %r14    
+0x7FF80D43D722   testq    %r14, %r14           
+0x7FF80D43D725   je       0x7ff80d43d742       
+0x7FF80D43D727   movq     0x8(%r14), %rdi      
+0x7FF80D43D72B   callq    _dispatch_release    
+0x7FF80D43D730   movabsq  $0x80c40803f642b, %rsi 
+0x7FF80D43D73A   movq     %r14, %rdi           
+0x7FF80D43D73D   callq    __ZdlPvSt19__type_descriptor_t 
+0x7FF80D43D742   movq     0x118(%rbx), %rdi    
+0x7FF80D43D749   callq    _dispatch_release    
+0x7FF80D43D74E   movq     0x120(%rbx), %rdi    
+0x7FF80D43D755   callq    _dispatch_release    
+0x7FF80D43D75A   movq     0x128(%rbx), %rdi    
+0x7FF80D43D761   callq    _dispatch_release    
+0x7FF80D43D766   movq     0x188(%rbx), %rdi    
+0x7FF80D43D76D   callq    *0x32c0e4e5(%rip)    ; 
+0x7FF80D43D773   movq     0x110(%rbx), %r14    
+0x7FF80D43D77A   testq    %r14, %r14           
+0x7FF80D43D77D   je       0x7ff80d43d7a2       
+0x7FF80D43D77F   movq     (%r14), %rdi         
+0x7FF80D43D782   testq    %rdi, %rdi           
+0x7FF80D43D785   je       0x7ff80d43d790       
+0x7FF80D43D787   movq     %rdi, 0x8(%r14)      
+0x7FF80D43D78B   callq    __ZdlPv              
+0x7FF80D43D790   movabsq  $0x10c402fefcb83, %rsi 
+0x7FF80D43D79A   movq     %r14, %rdi           
+0x7FF80D43D79D   callq    __ZdlPvSt19__type_descriptor_t 
+0x7FF80D43D7A2   movabsq  $0x1020c40f38fb7ce, %r14 
+0x7FF80D43D7AC   xorl     %r15d, %r15d         
+0x7FF80D43D7AF   movq     %r15, 0x110(%rbx)    
+0x7FF80D43D7B6   movq     0x140(%rbx), %rdi    
+0x7FF80D43D7BD   movq     0x32c0e494(%rip), %r12  ; 
+0x7FF80D43D7C4   callq    *%r12                
+0x7FF80D43D7C7   movq     %r15, 0x140(%rbx)    
+0x7FF80D43D7CE   movq     0x158(%rbx), %rdi    
+0x7FF80D43D7D5   callq    *%r12                
+0x7FF80D43D7D8   movq     %r15, 0x158(%rbx)    
+0x7FF80D43D7DF   movq     0x150(%rbx), %rdi    
+0x7FF80D43D7E6   callq    *%r12                
+0x7FF80D43D7E9   movq     %r15, 0x158(%rbx)    
+0x7FF80D43D7F0   movq     0x160(%rbx), %rdi    
+0x7FF80D43D7F7   callq    *%r12                
+0x7FF80D43D7FA   movq     %r15, 0x160(%rbx)    
+0x7FF80D43D801   movq     0x168(%rbx), %rdi    
+0x7FF80D43D808   callq    *%r12                
+0x7FF80D43D80B   movq     %r15, 0x168(%rbx)    
+0x7FF80D43D812   movq     0x170(%rbx), %rdi    
+0x7FF80D43D819   callq    *%r12                
+0x7FF80D43D81C   movq     %r15, 0x170(%rbx)    
+0x7FF80D43D823   movq     0x178(%rbx), %rdi    
+0x7FF80D43D82A   callq    *%r12                
+0x7FF80D43D82D   movq     %r15, 0x178(%rbx)    
+0x7FF80D43D834   movq     0x180(%rbx), %rdi    
+0x7FF80D43D83B   callq    *%r12                
+0x7FF80D43D83E   movq     %r15, 0x180(%rbx)    
+0x7FF80D43D845   movq     0x200(%rbx), %rdi    
+0x7FF80D43D84C   callq    *%r12                
+0x7FF80D43D84F   movq     0x210(%rbx), %rdi    
+0x7FF80D43D856   callq    *%r12                
+0x7FF80D43D859   movq     0x230(%rbx), %rdi    
+0x7FF80D43D860   callq    *%r12                
+0x7FF80D43D863   movq     0x218(%rbx), %rdi    
+0x7FF80D43D86A   callq    *%r12                
+0x7FF80D43D86D   movq     %r15, 0x218(%rbx)    
+0x7FF80D43D874   movq     0x240(%rbx), %r15    
+0x7FF80D43D87B   testq    %r15, %r15           
+0x7FF80D43D87E   je       0x7ff80d43d893       
+0x7FF80D43D880   movq     %r15, %rdi           
+0x7FF80D43D883   callq    __ZN14MTLVersionedDBD2Ev 
+0x7FF80D43D888   movq     %r15, %rdi           
+0x7FF80D43D88B   movq     %r14, %rsi           
+0x7FF80D43D88E   callq    __ZdlPvSt19__type_descriptor_t 
+0x7FF80D43D893   movq     0x248(%rbx), %r15    
+0x7FF80D43D89A   testq    %r15, %r15           
+0x7FF80D43D89D   je       0x7ff80d43d8b2       
+0x7FF80D43D89F   movq     %r15, %rdi           
+0x7FF80D43D8A2   callq    __ZN14MTLVersionedDBD2Ev 
+0x7FF80D43D8A7   movq     %r15, %rdi           
+0x7FF80D43D8AA   movq     %r14, %rsi           
+0x7FF80D43D8AD   callq    __ZdlPvSt19__type_descriptor_t 
+0x7FF80D43D8B2   movq     0x258(%rbx), %rdi    
+0x7FF80D43D8B9   callq    *%r12                
+0x7FF80D43D8BC   movq     0x1b0(%rbx), %rdi    
+0x7FF80D43D8C3   callq    *%r12                
+0x7FF80D43D8C6   movq     0x190(%rbx), %rdi    
+0x7FF80D43D8CD   callq    *%r12                
+0x7FF80D43D8D0   movq     0x280(%rbx), %rdi    
+0x7FF80D43D8D7   callq    *%r12                
+0x7FF80D43D8DA   leaq     -0x30(%rbp), %rdi    
+0x7FF80D43D8DE   movq     %rbx, (%rdi)         
+0x7FF80D43D8E1   movq     0x33ce2b68(%rip), %rax  ; 
+0x7FF80D43D8E8   movq     %rax, 0x8(%rdi)      
+0x7FF80D43D8EC   movq     0x33cdd725(%rip), %rsi  ; 
+0x7FF80D43D8F3   callq    _objc_msgSendSuper2  
+0x7FF80D43D8F8   addq     $0x10, %rsp          
+0x7FF80D43D8FC   popq     %rbx                 
+0x7FF80D43D8FD   popq     %r12                 
+0x7FF80D43D8FF   popq     %r14                 
+0x7FF80D43D901   popq     %r15                 
+0x7FF80D43D903   popq     %rbp                 
+0x7FF80D43D904   retq                          
+source_line= 279553
+-[_MTLDevice .cxx_construct]:
+0x7FF80D4464C3   pushq    %rbp                 
+0x7FF80D4464C4   movq     %rsp, %rbp           
+0x7FF80D4464C7   movq     %rdi, %rax           
+0x7FF80D4464CA   xorl     %ecx, %ecx           
+0x7FF80D4464CC   movq     %rcx, 0x260(%rdi)    
+0x7FF80D4464D3   movq     %rcx, 0x270(%rdi)    
+0x7FF80D4464DA   xorps    %xmm0, %xmm0         
+0x7FF80D4464DD   movups   %xmm0, 0x220(%rdi)   
+0x7FF80D4464E4   popq     %rbp                 
+0x7FF80D4464E5   retq                          
+== SDK link stub declarations ==
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Versions/A/Metal.tbd 148                        __MTLConstantDataSize, __MTLDecodeLinkingInfo, __MTLDeviceRemoveRequested, 
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Versions/A/Metal.tbd 149                        __MTLDeviceTerminated, __MTLEncodeLinkingInfo, __MTLFeatureSetDictionary, 
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Versions/A/Metal.tbd 261                        _MTLDevice, _MTLDynamicLibrary, _MTLFence, _MTLFunction, _MTLFunctionHandle, 
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Versions/A/Metal.tbd 385                        _MTLDepthStencilState._label, _MTLDevice._commandQueueCount, 
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Versions/A/Metal.tbd 386                        _MTLDevice._commandQueueID, _MTLDevice._commandQueueWaitLock, 
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Versions/A/Metal.tbd 387                        _MTLDevice._emulationMeshPrefixSum1PSO, _MTLDevice._emulationMeshPrefixSum2PSO, 
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Versions/A/Metal.tbd 388                        _MTLDevice._emulationMeshPrefixSum3PSO, _MTLDevice._emulationNoObjectPrefixSumPSO, 
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Versions/A/Metal.tbd 389                        _MTLDevice._emulationObjectPrefixSumPSO, _MTLDevice._featureQueries, 
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Versions/A/Metal.tbd 390                        _MTLDevice._globalTraceObjectID, _MTLDevice._kRateLimitCriticalCommandQueues, 
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Versions/A/Metal.tbd 391                        _MTLDevice._kRateLimitEnabled, _MTLDevice._kRateLimitShouldOnlyLogOnce, 
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Versions/A/Metal.tbd 392                        _MTLDevice._kRateLimitTimePenalty, _MTLDevice._limits, _MTLDevice._logStateDescriptor, 
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Versions/A/Metal.tbd 393                        _MTLDevice._needsEncoderTypeMatchingProgressBlits, _MTLDevice._nextCommandQueueAllowedDateBuffer, 
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Versions/A/Metal.tbd 394                        _MTLDevice._progressTrackBufferStack, _MTLDevice._progressTrackComputePipeline, 
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Versions/A/Metal.tbd 395                        _MTLDevice._progressTrackRenderPipeline, _MTLFunction._debugInstrumentationData, 
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Versions/A/Metal.tbd 464     symbols:         [ _MTLCopyAllDevicesWithObserver, _MTLDeviceRemovalRequestedNotification, 
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework/Versions/A/Metal.tbd 465                        _MTLDeviceWasAddedNotification, _MTLDeviceWasRemovedNotification, 

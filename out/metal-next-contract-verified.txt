@@ -1,0 +1,176 @@
+Metal 下一步契约复核（2026-11-16）
+目标：macOS 15.7.3 / 24G419 / x86_64；只读静态定点研究。
+
+结论
+
+本轮恢复了标准 Metal 的实际服务发现→bundle 选择→Objective-C 类校验→实例化链。当前服务存在，但缺少 MetalPluginName，因此实际链在查找 bundle 前即返回 Nil；type 5 Unsupported 是采用 MTLIOAccelDevice 初始化路线时的后一道独立阻断。
+关键新结论：loader 要求设备类是 _MTLDevice 的子类，不是必须直接/间接继承 MTLIOAccelDevice。AppleParavirtDevice 的确继承后者，后者会使用标准 IOAccelerator type 5 协议。不能把这个现成基类的协议外推为任何自研 _MTLDevice 子类必定执行的协议，也不能因此宣称绕过基类即可完成 Metal。
+
+建议立即实施且可客体验证的一个步骤：在现有 kexts/probes/metal_probe.m 中加入独立 --discovery-contract-only 模式，仅使用公开 IOKit/CF 和文件/plist 读取，输出本文定义的发现契约失败阶段。禁止在此模式加载插件、创建 Metal 设备、打开任何 user client 或提交 GPU。这是本轮权限范围内可直接落地的诊断入口；不能称作 Metal 功能实现。具体验收见第 6 节。
+
+1. 证据来源与版本限定
+
+已复核：
+- out/metal-loader.txt：目标 Metal 导出/导入；确认 _gpu_bundle_find_trusted 导入来自 libSystem。
+- out/metal-code.txt：本地为不完整副本，已包含 MTLIOAccelDevice initWithAcceleratorPort: 和 MTLCreateSystemDefaultDevice 的调用点。
+- out/paravirt-metal.txt:337：AppleParavirtDevice : MTLIOAccelDevice <MTLDeviceSPI>，具有 initWithAcceleratorPort:；同文件包含不同架构段，不混用偏移。
+- out/metal-device-contract-research.txt：初始化 selectors 与消费方式；本报告纠正其第 19 行把输入 service 写成 io_connect_t 的错误，未修改该旧报告。
+- out/gld-trust-verified.txt:15–17 与 out/sandbox-gpu-code.txt：复用相同 sandbox helper 的实现证据；不复用 GLD 的后续加载 ABI。
+- docs/cb-findings-2026-10-08.md §72–79：以新章节为准。真实 DX 清屏/三角形和私有 user client 已实现；§78 的 GLD 诊断 bundle 仍拒绝设备。旧“没有 accelerator/宿主不能渲染”等结论不能代表当前状态。
+- kexts/framebuffer/vgpuFramebuffer.cpp:1690–1694：handler 清零，type != kVgpuDrawConnection 即 kIOReturnUnsupported；私有常量为 0x56475055。type 5 不会进入后端。
+
+本轮 SSH 经 tools/mssh.py 既有凭据执行，只读 sw_vers/ioreg、既有反汇编局部区间、dyld_info 元数据，以及按映射读取共享缓存的几个地址。没有安装、重启、修改内核/注册表/安全设置、运行 GPU 或调用私有 ABI。没有下载完整 Metal/IOKit 反汇编。
+
+目标 UUID：
+Metal.framework                 0CFB909C-C488-3186-AE3B-47E504BA1D78
+IOAccelerator.framework         1BCC2238-1FAE-3691-B551-77F9F9D0636C
+libsystem_sandbox.dylib          23238A76-3554-3EF9-93A5-D2DE566C6CAC
+以下指令地址均为该目标反汇编的 unslid 地址，不可直接用于另一版本或运行时。
+
+2. 从公开入口到服务发现
+
+Metal:
+- MTLCopyAllDevices 在 0x7FF80D3433DD 调 MTLDeviceArrayInitialize。
+- MTLCreateSystemDefaultDevice 在 0x7FF80D35BCC3 同样调用此初始化；它还含 CoreGraphics 默认设备选择和 fallback，不能把其语义简化为“直接返回首个 IOAccelerator”。本地 out/metal-code.txt:22934、22995–23039。
+- MTLDeviceArrayInitialize 在 0x7FF80D45993D 尾调用 MTLRegisterDevices。
+- MTLRegisterDevices 0x7FF80D4E179F 起，在 17D6/17DD 构造 MTLIOAccelServiceGlobalContext。
+- -[MTLIOAccelServiceGlobalContext init] 在 0x7FF80D4E0CDD/0CE4 调 IOServiceMatching("IOAccelerator")；0CE9 选择 "IOServicePublish"，0D04 注册 IOServiceAddMatchingNotification，回调 __mtlIOAccelDeviceMatched。
+- 现有 iterator 中每个 service 在 0x7FF80D4E0D69/0D6C 传给 getMetalPluginClassForService；类为空则跳过，非空保存 service/class descriptor。
+- 匹配回调通过 registerService:deviceClass: 传 service、Nil；该方法 0x7FF80D4E0F47/0F49 在 class 未提供时调用相同 helper，非空后才构造 MTLIOAccelService。
+
+因此最小服务身份是可由 IOServiceMatching("IOAccelerator") 匹配的真实服务类。节点名、IOClass 字符串或 IOMatchCategory 单独不替代继承/匹配语义。当前 vgpuAccelerator : IOAccelerator 已满足该层，不能再把缺少 accelerator 作为当前原因。
+
+客体完整证据位置：/var/tmp/vgpu-fb/metal-code.txt
+  300915 起：MTLDeviceArrayInitialize；301159：尾调用 MTLRegisterDevices。
+  444199 起：getMetalPluginClassForService。
+  444450–444516：匹配通知与初始服务迭代。
+  444604–444668：registerService:deviceClass:。
+  444920–445073：MTLIOAccelService 实例化设备。
+  445238 起：MTLRegisterDevices。
+
+3. 插件属性、类和最小调用形态：已实证
+
+getMetalPluginClassForService(service)，0x7FF80D4E098D 起：
+
+(a) 必需 MetalPluginName，CFString
+0x7FF80D4E09B0 取得 CFString key（0x7FF8410DDA10）；09BE 调 IORegistryEntryCreateCFProperty(service,key,NULL,0)。没有属性则直接返回 Nil。09CE–09DE 以 CFGetTypeID/CFStringGetTypeID 检查类型，非字符串也返回 Nil。
+09E0–09F7 用 CFStringGetCString(name,stack,0xff,0x08000100=UTF-8)。该调用点未检查转换返回值，故候选应使用简短、可 UTF-8 表达的正常名称，不依赖超长/异常输入行为。
+0x7FF80D4E09FC–0A0B 调 gpu_bundle_find_trusted(name,pathBuffer,0x400)，仅返回 0 才继续；否则返回 Nil。
+
+(b) 实际 bundle 搜索
+同一 libsystem_sandbox helper 0x7FF80E5A7205 搜索：
+  /Library/GPUBundles/<MetalPluginName>.bundle
+  /System/Library/Extensions/<MetalPluginName>.bundle
+依次 stat 确认目录，再检查 gpu_bundle_is_path_trusted(bundleDirectory)。返回 0 才取用路径；-1 是错误。目录检查底层使用 rootless_check_trusted_class(path,"KernelExtensionManagement")，细节见已复核 sandbox 报告。
+这是从 Metal 实际 call site 连到同一 helper 得出的目录证据，不是从 IOGLBundleName 类推。
+Metal helper 随后经 NSString stringWithUTF8String:、NSBundle bundleWithPath: 得到 bundle；未见 GLD 那种自行拼 Contents/MacOS/<name> 并再次直接调用 gpu_bundle_is_path_trusted 的代码。不能把 GLD 的可执行文件名规则、两次直接信任检查或 dlopen flags 套到 Metal。
+NSBundle/dyld 内部后续签名/依赖/加载条件未完整恢复；现有 GLD bundle 可加载不证明新 Metal bundle 可加载。标准 NSBundle 元数据及正确 CFBundleExecutable 仍需真实候选验证。
+
+(c) 可选 MetalPluginClassName，CFString；可回退 principalClass
+0x7FF80D4E0A84 取得 key（0x7FF8410DDA30）；0A92 读属性。
+属性存在且 CFString 类型时，在 0AC1 调 [bundle classNamed:value]。
+以下情况都进入 0AE1–0AEB 的 [bundle principalClass]：属性不存在、类型不符、classNamed 返回 Nil。
+注意：classNamed 已返回非空类，但之后继承检查失败时，并不会再回退 principalClass。
+
+(d) 类准入要求是 _MTLDevice 子类
+0x7FF80D4E0AF4 从 class-reference 0x7FF8410C7290 取类，0AFB objc_opt_class；0B00–0B0D 调 [candidate isSubclassOfClass:base]；BOOL 非零才返回 candidate。
+从只读共享缓存逐级读取 class-reference → objc_class → class_ro_t.name，base 确认为 _MTLDevice。
+不是 NSObject、不是只声明 MTLDevice protocol，也不是硬性检查 MTLIOAccelDevice。
+AppleParavirtDevice : MTLIOAccelDevice 仅是本机现成实现实例。其 plist：CFBundleExecutable=AppleParavirtGPUMetal，NSPrincipalClass=AppleParavirtDevice。
+
+(e) 实例化入口和 service 生命周期
+-[MTLIOAccelService initWithAcceleratorPort:deviceClass:] 0x7FF80D4E1327 起，输入 RDX=32位 service，RCX=Class。
+0x7FF80D4E138A–139B：若 IOObjectConformsTo(service,"IOServiceCompatibility") 为真，拒绝该 service。
+retain service、读取 registry ID，并建立 IOGeneralInterest notification；建立失败则清理并返回 Nil。
+0x7FF80D4E1442–1488：当 avoidRemovable 策略为真且存在 Removable 属性时，清理并拒绝；此处检查属性存在，不解析 CFBoolean 真值。
+0x7FF80D4E14FF–151C：若存在 SafeEjectRequested 属性，保存 service 后不创建 device；此处也是存在性门槛。
+0x7FF80D4E1521–1537：
+  id device = [[deviceClass alloc] initWithAcceleratorPort:service];
+调用时 RDI=alloc 返回的对象，RSI=SEL(initWithAcceleratorPort:)，EDX=service；返回 RAX=id。
+若返回 Nil，不调用 MTLAddDevice。非空后 objc_storeWeak，调用 [device _setAcceleratorService:serviceWrapper]，再 MTLAddDevice(device)，随后释放当前 strong reference。
+这里 service 是 io_service_t（Mach port 名，32位），不是 io_connect_t；初始化方法名里的 Port 不代表已打开 user-client 连接。
+
+常量/selector 精确解析记录（只读共享缓存，未发 Objective-C 消息）：
+  CF  0x7FF8410DDA10 -> 字符串 0x7FF80D54B26A MetalPluginName
+  CF  0x7FF8410DDA30 -> 字符串 0x7FF80D54B27A MetalPluginClassName
+  CF  0x7FF8410DDA90 -> 字符串 0x7FF80D54B35F Removable
+  CF  0x7FF8410DDAB0 -> 字符串 0x7FF80D54B369 SafeEjectRequested
+  SEL 0x7FF84111B0A0 -> stringWithUTF8String:
+  SEL 0x7FF84111E168 -> bundleWithPath:
+  SEL 0x7FF84111E170 -> classNamed:
+  SEL 0x7FF84111F5E0 -> principalClass
+  SEL 0x7FF84111BC90 -> isSubclassOfClass:
+  SEL 0x7FF84111F638 -> initWithAcceleratorPort:
+  SEL 0x7FF84111F640 -> _setAcceleratorService:
+  SEL 0x7FF84111F5E8 -> registerService:deviceClass:
+  CLASSREF 0x7FF8410C7290 -> objc_class 0x7FF843E0D9D0 -> ro 0x7FF8410F4560 -> _MTLDevice
+  CLASSREF 0x7FF84001B5F8 -> NSBundle
+  CLASSREF 0x7FF84001BA00 -> NSString
+解码使用客体 dyld_shared_cache_x86_64h 及 .01–.06 的 mapping 表按地址 seek；该目标原始链式指针低34位加缓存基址 0x7FF800000000 得到上述字符串/对象地址。CF raw 示例：0x4000d54b26a；SEL raw 示例：0x20021444837。dyld_info section_bytes 的已重定位输出与原始缓存地址不能不处理 slide 就混用。本轮未把该解码规则推广到其它缓存版本。
+
+4. MTLIOAccelDevice 的 type 5 初始化：精确边界
+
+out/metal-code.txt:123 起，0x7FF80D3435B3/35BA/35BD：
+  IOAccelDeviceRef ref = IOAccelDeviceCreateWithAPIProperty(service, "Metal");
+RDI=32位 io_service_t，RSI=ASCII NUL 字符串指针，RAX=私有 CF 设备对象或 NULL。
+输入 service 在后续 IORegistryEntryGetRegistryEntryID / IOObjectRetain 使用，进一步证实它不是连接。
+
+客体 /var/tmp/vgpu-fb/ioaccel-code.txt 为本函数片段，不是全文：
+0x7FF80D339E06–9E1B：IOServiceOpen(service,owningTask,type=5,&connect)。task 值从 GOT 指针指向的进程状态读32位；本轮确认 GOT 0x7FF8400566B0 指向缓存地址 0x7FF8438D4EF8，但未在当前共享缓存符号表独立命名该地址。沿用此前当前任务端口解释，不能声称本轮已闭合其符号来源/所有权限边界。
+open 非零立即返回 NULL；此时不存在任何 selector 调用。设备对象 +0x10 保存 service，+0x14 保存新 connect。
+
+顺序/形态（均为 IOConnectCallStructMethod，不是 scalar method）：
+  selector 9：input 16字节，strncpy("Metal",16) 得 Metal+11个零；output=NULL，outputSize=NULL。
+              调用 0x7FF80D339E7D；调用者不检查该次状态。
+  selector 2：input=NULL/0；out 为栈缓冲区，size_t 初值 0x258=600。
+              调用 0x7FF80D339EEF；非零 CFRelease 并返回 NULL。
+  selector 0：input=NULL/0；out=ref+0x270，size_t 初值0x40=64。
+              调用 0x7FF80D339FBC；非零 CFRelease 并返回 NULL。
+  selector 7：input=NULL/0；out 为另一栈缓冲区，size_t 初值0x18=24。
+              调用 0x7FF80D33A027；失败跳过字段复制，不因此销毁 ref。
+
+最值得下一轮恢复的不是简单版本号，而是 selector 2 的有效用户态地址契约：
+  response +0x00 u64 -> ref+0x20，随后作为 base address；
+  response +0x08 u64 -> ref+0x34；response +0x10 u32 -> ref+0x3c；
+  response +0x14 s32 -> count/ref+0x30；
+  count>=2：分配 count*8 指针表，读取 response+0x58+4*i 的 u32 offset，构造 base+offset；
+  count<2：指针表直接指向 ref+0x20；
+  count>0：逐项解引用上述指针读取 u32，存 ref+0x44+4*i。
+证据 0x7FF80D339EFC–339F8D。说明服务端成功输出需要真实有效映射/地址和一致计数、偏移，不是仅填序列号。共享页究竟由服务端 open 还是 selector 2 建立，以及其生命周期/界限，仍需服务端证据。
+
+selector 0：GetConfig64 从 ref+0x270/+0x274/+0x278/+0x280/+0x288 读 32/32/64/64/32 位，即该输出区 +0/+4/+8/+0x10/+0x18。证据 0x7FF80D33A123–A15C。
+selector 7：输出+0 u64 -> ref+0x248；输出+0x10 u32>=4 时，输出+8 u64 -> ref+0x250。证据 0x7FF80D33A030–A04E。
+600/64/24 是调用方容量，不是已证实服务端固定结构长度。selector 9/7 的错误不是此函数的硬失败门槛，不能一概写成“四个 selector 必须全部成功才返回 ref”。
+成功创建 ref 后 MTLIOAccelDevice 还读取 config/peer/shared-memory/trace，并进一步检查设备条件。资源、command queue、事件同步、shader 编译与提交协议都不由这四个 selector 覆盖。
+
+5. 当前客体准确失败阶段
+
+本轮只读 ioreg -r -c IOAccelerator -l -w0：
+  vgpuAccelerator id=0x10000045e registered/matched/active
+  IOClass=vgpuAccelerator
+  IOProviderClass=vgpuFramebuffer
+  IOMatchCategory=IOAccelerator
+  IOGLBundleName=VGPUDriverDiagnostic
+  MetalPluginName 不存在
+  MetalPluginClassName 不存在
+
+因此当前标准枚举候选在 getMetalPluginClassForService 的第一次属性查询就返回 Nil。不存在“已经加载 Metal 插件但 type 5 失败”的本轮动态证据。本轮没有运行 Metal 枚举，既有零设备记录来自之前章节。
+第二道确定缺口：源码 type 5 返回 Unsupported，故若之后接入调用 MTLIOAccelDevice 基类初始化的插件，IOServiceOpen 仍会失败。现有私有管理员连接成功与 GPU 像素回读不满足该协议。
+第三道缺口：没有自研用户态 _MTLDevice 实现及通用 resource/shader/queue/event 语义。底层 DX 已能输出像素，但需要真实系统 API 到后端的对象、编译及同步桥接。复制 AppleParavirt 的属性或让 open/selector 返回成功不能完成这一层。
+
+6. 单一立即可实施步骤与客体验收合同
+
+在现有 metal_probe.m 增加 --discovery-contract-only，不新增内核服务，不加载任何 bundle：
+(1) 记录 OS/build/arch。使用 IOServiceGetMatchingServices(IOServiceMatching("IOAccelerator")) 遍历真实服务，记录 class、registry ID、path。所有句柄/CF对象释放。
+(2) 使用 IORegistryEntryCreateCFProperty 读取 MetalPluginName、MetalPluginClassName、Removable、SafeEjectRequested；先检查 CF 类型，记录 present/type/value；记录 IOObjectConformsTo(service,"IOServiceCompatibility")。
+(3) name缺失或非字符串时输出确定阶段 G1_NO_METAL_PLUGIN_NAME / G1_NAME_NOT_STRING，并结束该候选，不调用 MTLCreateSystemDefaultDevice/MTLCopyAllDevices。
+(4) 对正常短名称按已验证两个根目录做 lstat/stat 和只读 Info.plist 解析；报告 CFBundleExecutable、NSPrincipalClass、文件存在性、架构信息。异常/含路径分隔符/过长名称仅报“本诊断不处理”，不要向系统写属性测试。
+(5) 将 trust、class解析/继承、init、type5、GPU均标为 NOT_EXECUTED/UNKNOWN。没有运行 gpu_bundle_find_trusted 就不能把路径存在写成 trusted；没有加载类就不能宣称继承检查通过。
+(6) 当前客体预期：恰能看到 vgpuAccelerator；IOServiceCompatibility=false；MetalPluginName absent；止于 G1。IOGLBundleName 单独出现不使 Metal gate 成功。
+(7) 严格编译 -Wall -Wextra -Werror，通过纯参数/属性类型检查测试；客体运行输出只证明发现诊断可用。不要运行现有默认 compute/render 分支作为此检查的一部分。
+
+这一步可由主任务在当前“不安装/不重启/不调用未知私有ABI/GPU”的约束下直接实现并运行。本次子任务按要求仅交付研究，没有修改 metal_probe.m。
+
+紧接着、仍可静态开展的唯一后续协议目标：在 IOAcceleratorFamily2 的 type-5 对应 user-client dispatch 和 selector 2 实现中追踪 response+0/+0x14/+0x58 的生产者，锁定实际共享映射创建者、长度、计数上限与关闭时撤销规则；然后交叉核对 selector 0/7 结构。未经这些证据，不进入内核成功响应实现。
+
+未来安装诊断 Metal bundle 需另行允许修改/安装后才能验证正常系统 loader：候选应继承 _MTLDevice 并提供已核验的 initWithAcceleratorPort:，可先记录入口并明确返回 nil以验证加载链；这是负向加载测试，不是标准 Metal 设备。本文不建议复制 AppleParavirt 属性，不建议伪造其 type-5 响应，也未执行该安装方案。

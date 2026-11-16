@@ -1,0 +1,815 @@
+CLASS _MTLDevice SUPER NSObject SIZE 656 IMAGE /System/Library/Frameworks/Metal.framework/Versions/A/Metal
+IVAR _limits OFFSET 8 TYPE {?="maxFramebufferStorageBits"I"linearTextureArrayAlignmentBytes"I"linearTextureArrayAlignmentSlice"I"maxTileBuffers"I"maxTileTextures"I"maxTileSamplers"I"maxTileInlineDataSize"I"minTilePixels"I"maxColorAttachments"I"maxVertexAttributes"I"maxVertexBuffers"I"maxVertexTextures"I"maxVertexSamplers"I"maxVertexInlineDataSize"I"maxInterpolants"I"maxFragmentBuffers"I"maxFragmentTextures"I"maxFragmentSamplers"I"maxFragmentInlineDataSize"I"maxComputeBuffers"I"maxComputeTextures"I"maxComputeSamplers"I"maxComputeInlineDataSize"I"maxComputeLocalMemorySizes"I"maxTotalComputeThreadsPerThreadgroup"I"maxComputeThreadgroupMemory"I"maxLineWidth"f"maxPointSize"f"maxVisibilityQueryOffset"I"padmaxBufferLength"I"minConstantBufferAlignmentBytes"I"minBufferNoCopyAlignmentBytes"I"maxTextureWidth1D"I"maxTextureWidth2D"I"maxTextureHeight2D"I"maxTextureWidth3D"I"maxTextureHeight3D"I"maxTextureDepth3D"I"maxTextureDimensionCube"I"maxTextureLayers"I"linearTextureAlignmentBytes"I"iosurfaceTextureAlignmentBytes"I"iosurfaceReadOnlyTextureAlignmentBytes"I"deviceLinearTextureAlignmentBytes"I"deviceLinearReadOnlyTextureAlignmentBytes"I"maxFunctionConstantIndices"I"maxComputeThreadgroupMemoryAlignmentBytes"I"maxInterpolatedComponents"I"maxTessellationFactor"I"maxIndirectBuffers"I"maxIndirectTextures"I"maxIndirectSamplers"I"maxIndirectSamplersPerDevice"I"maxFenceInstances"I"maxViewportCount"I"maxCustomSamplePositions"I"maxVertexAmplificationFactor"I"maxVertexAmplificationCount"I"maxTextureBufferWidth"I"maxComputeAttributes"I"maxIOCommandsInFlight"I"maxPredicatedNestingDepth"I"maxAccelerationStructureLevels"I"maxConstantBufferArguments"I"maxBufferLength"Q}
+IVAR _supportedGPUFamilies OFFSET 272 TYPE ^v
+IVAR _serialQueue OFFSET 280 TYPE @"NSObject<OS_dispatch_queue>"
+IVAR _pipelineSerializationQueue OFFSET 288 TYPE @"NSObject<OS_dispatch_queue>"
+IVAR _concurrentQueue OFFSET 296 TYPE @"NSObject<OS_dispatch_queue>"
+IVAR _hasInitSerializationPaths OFFSET 304 TYPE c
+IVAR _shaderDebugInfoCaching OFFSET 305 TYPE c
+IVAR _compilerConnectionManager OFFSET 312 TYPE ^{MTLCompilerConnectionManager=^^?iBi}
+IVAR _progressTrackBufferStack OFFSET 320 TYPE @"NSMutableArray"
+IVAR _needsEncoderTypeMatchingProgressBlits OFFSET 328 TYPE B
+IVAR _progressTrackRenderPipeline OFFSET 336 TYPE @"<MTLRenderPipelineState>"
+IVAR _progressTrackComputePipeline OFFSET 344 TYPE @"<MTLComputePipelineState>"
+IVAR _emulationObjectPrefixSumPSO OFFSET 352 TYPE @"<MTLComputePipelineState>"
+IVAR _emulationNoObjectPrefixSumPSO OFFSET 360 TYPE @"<MTLComputePipelineState>"
+IVAR _emulationMeshPrefixSum1PSO OFFSET 368 TYPE @"<MTLComputePipelineState>"
+IVAR _emulationMeshPrefixSum2PSO OFFSET 376 TYPE @"<MTLComputePipelineState>"
+IVAR _emulationMeshPrefixSum3PSO OFFSET 384 TYPE @"<MTLComputePipelineState>"
+IVAR _featureQueries OFFSET 392 TYPE @"MTLDeviceFeatureQueries"
+IVAR _logStateDescriptor OFFSET 400 TYPE @"MTLLogStateDescriptor"
+IVAR _globalTraceObjectID OFFSET 408 TYPE Q
+IVAR _commandQueueCount OFFSET 416 TYPE Ai
+IVAR _commandQueueID OFFSET 420 TYPE AI
+IVAR _commandQueueWaitLock OFFSET 424 TYPE {os_unfair_lock_s="_os_unfair_lock_opaque"I}
+IVAR _nextCommandQueueAllowedDateBuffer OFFSET 432 TYPE @"NSMutableArray"
+IVAR _kRateLimitCriticalCommandQueues OFFSET 440 TYPE I
+IVAR _kRateLimitTimePenalty OFFSET 448 TYPE d
+IVAR _kRateLimitEnabled OFFSET 456 TYPE B
+IVAR _kRateLimitShouldOnlyLogOnce OFFSET 457 TYPE B
+IVAR _libraryBuilder OFFSET 464 TYPE ^v
+IVAR _pipelineLibraryBuilder OFFSET 472 TYPE ^{MTLPipelineLibraryBuilder=@@}
+IVAR _pipelineCollection OFFSET 480 TYPE ^v
+IVAR _pipelineDescriptorsOutputFile OFFSET 488 TYPE @"NSString"
+IVAR _librariesOutputDirectory OFFSET 496 TYPE @"NSString"
+IVAR _collectAllLibraries OFFSET 504 TYPE c
+IVAR _gpuAssertionsEnabled OFFSET 505 TYPE c
+IVAR _writableHeapsEnabled OFFSET 506 TYPE c
+IVAR _dynamicLoader OFFSET 512 TYPE @"MTLLoader"
+IVAR _GPUBVHBuilderLock OFFSET 520 TYPE {os_unfair_lock_s="_os_unfair_lock_opaque"I}
+IVAR _GPUBVHBuilder OFFSET 528 TYPE @"MTLGPUBVHBuilder"
+IVAR _akIOResourceListPool OFFSET 536 TYPE @"MTLResourceListPool"
+IVAR _initProgressTrackingOnceToken OFFSET 544 TYPE {once_flag="__state_"Q}
+IVAR _initMeshShaderEmulatorPrefixSumKernelsOnceToken OFFSET 552 TYPE {once_flag="__state_"Q}
+IVAR _pluginData OFFSET 560 TYPE @"NSDictionary"
+IVAR _serializedPluginData OFFSET 568 TYPE @"NSObject<OS_dispatch_data>"
+IVAR _recompiledBinaryArchiveMap OFFSET 576 TYPE ^{MTLArchiveMapDB=^{MDB_env}IBB}
+IVAR _binaryArchiveUsage OFFSET 584 TYPE ^{MTLArchiveUsageDB=^{MDB_env}IBB}
+IVAR _isFirstParty OFFSET 592 TYPE B
+IVAR _isPlugin OFFSET 593 TYPE B
+IVAR _enableAssetUpgraderDaemon OFFSET 594 TYPE B
+IVAR _architecture OFFSET 600 TYPE @"MTLArchitecture"
+IVAR _initConnectionOnceToken OFFSET 608 TYPE {once_flag="__state_"Q}
+IVAR _workaroundNewLibraryWithSourceImplicitInvariantPosition OFFSET 616 TYPE B
+IVAR _workaroundNewLibraryWithSourceReplaceFastMathWithRelaxedMath OFFSET 617 TYPE B
+IVAR _initDefaultLogState OFFSET 624 TYPE {once_flag="__state_"Q}
+IVAR _shouldMaximizeConcurrentCompilation OFFSET 632 TYPE c
+IVAR _defaultLogState OFFSET 640 TYPE @"<MTLLogState>"
+IVAR _commandBufferErrorOptions OFFSET 648 TYPE Q
+METHOD - dealloc TYPE v16@0:8
+METHOD - description TYPE @16@0:8
+METHOD - init TYPE @16@0:8
+METHOD - name TYPE @16@0:8
+METHOD - .cxx_construct TYPE @16@0:8
+METHOD - serialQueue TYPE @16@0:8
+METHOD - vendorName TYPE @16@0:8
+METHOD - GPUBVHBuilder TYPE @16@0:8
+METHOD - isBCTextureCompressionSupported TYPE c16@0:8
+METHOD - maxTileSamplers TYPE Q16@0:8
+METHOD - minConstantBufferAlignmentBytes TYPE Q16@0:8
+METHOD - newCommandQueue TYPE @16@0:8
+METHOD - newDynamicLibraryFromURL:error: TYPE @32@0:8@16^@24
+METHOD - newRenderPipelineStateWithDescriptor:options:completionHandler: TYPE v40@0:8@16Q24@?32
+METHOD - supportsBGR10A2 TYPE c16@0:8
+METHOD - supportsFamily: TYPE c24@0:8q16
+METHOD - supportsInvariantVertexPosition TYPE c16@0:8
+METHOD - supportsMemorylessRenderTargets TYPE c16@0:8
+METHOD - supportsStreamingCodecSignaling TYPE c16@0:8
+METHOD - supportsViewportAndScissorArray TYPE c16@0:8
+METHOD - acceleratorPort TYPE I16@0:8
+METHOD - defaultTextureWriteRoundingMode TYPE q16@0:8
+METHOD - maxInterpolants TYPE Q16@0:8
+METHOD - maxTileTextures TYPE Q16@0:8
+METHOD - newComputePipelineStateWithDescriptor:options:reflection:error: TYPE @48@0:8@16Q24^@32^@40
+METHOD - newDynamicLibraryWithURL:error: TYPE @32@0:8@16^@24
+METHOD - newLibraryWithDescriptor:error: TYPE @32@0:8@16^@24
+METHOD - newSharedTextureWithDescriptor: TYPE @24@0:8@16
+METHOD - supportsBufferWithAddressRanges TYPE c16@0:8
+METHOD - supportsIndirectDrawAndDispatch TYPE c16@0:8
+METHOD - supportsLargeFramebufferConfigs TYPE c16@0:8
+METHOD - supportsTextureOutOfBoundsReads TYPE c16@0:8
+METHOD - supportsWritableArrayOfTextures TYPE c16@0:8
+METHOD - _deviceWrapper TYPE @16@0:8
+METHOD - _registerInterestNotification TYPE c16@0:8
+METHOD - _removeRequested TYPE v16@0:8
+METHOD - _setDeviceWrapper: TYPE v24@0:8@16
+METHOD - _wasRemoved TYPE v16@0:8
+METHOD - accelerationStructureSizesWithDescriptor: TYPE {?=QQQ}24@0:8@16
+METHOD - allowLibrariesFromOtherPlatforms TYPE v16@0:8
+METHOD - architecture TYPE @16@0:8
+METHOD - areBarycentricCoordsSupported TYPE c16@0:8
+METHOD - areGPUAssertionsEnabled TYPE c16@0:8
+METHOD - areProgrammableSamplePositionsSupported TYPE c16@0:8
+METHOD - areRasterOrderGroupsSupported TYPE c16@0:8
+METHOD - areWritableHeapsEnabled TYPE c16@0:8
+METHOD - argumentBuffersSupport TYPE Q16@0:8
+METHOD - bufferRobustnessSupport TYPE Q16@0:8
+METHOD - commandBufferErrorOptions TYPE Q16@0:8
+METHOD - commandQueueLimit TYPE Q16@0:8
+METHOD - compileVisibleFunction:withDescriptor:completionHandler: TYPE v40@0:8@16@24@?32
+METHOD - compileVisibleFunction:withDescriptor:destinationBinaryArchive:error: TYPE v48@0:8@16@24@32^@40
+METHOD - compileVisibleFunction:withDescriptor:error: TYPE v40@0:8@16@24^@32
+METHOD - compilerPropagatesThreadPriority: TYPE v20@0:8B16
+METHOD - convertSparsePixelRegions:toTileRegions:withTileSize:alignmentMode:numRegions: TYPE v72@0:8r^{?={?=QQQ}{?=QQQ}}16^{?={?=QQQ}{?=QQQ}}24{?=QQQ}32Q56Q64
+METHOD - convertSparseTileRegions:toPixelRegions:withTileSize:numRegions: TYPE v64@0:8r^{?={?=QQQ}{?=QQQ}}16^{?={?=QQQ}{?=QQQ}}24{?=QQQ}32Q56
+METHOD - counterSets TYPE @16@0:8
+METHOD - currentCommandQueueCount TYPE Q16@0:8
+METHOD - currentPerformanceState TYPE q16@0:8
+METHOD - deserializeCompileTimeStats:addToDictionary: TYPE v32@0:8@16@24
+METHOD - deserializeInstanceAccelerationStructure:fromBytes:primitiveAccelerationStructures:withDescriptor: TYPE v48@0:8@16r^v24@32@40
+METHOD - deserializeInstanceAccelerationStructureFromBytes:primitiveAccelerationStructures:withDescriptor: TYPE @40@0:8^v16@24@32
+METHOD - deserializePrimitiveAccelerationStructure:fromBytes:withDescriptor: TYPE v40@0:8@16r^v24@32
+METHOD - deserializePrimitiveAccelerationStructureFromBytes:withDescriptor: TYPE @32@0:8^v16@24
+METHOD - deviceCreationFlags TYPE Q16@0:8
+METHOD - deviceLinearReadOnlyTextureAlignmentBytes TYPE Q16@0:8
+METHOD - deviceLinearTextureAlignmentBytes TYPE Q16@0:8
+METHOD - deviceOrFeatureProfileSupportsFeatureSet: TYPE c24@0:8Q16
+METHOD - deviceSupportsFeatureSet: TYPE c24@0:8Q16
+METHOD - endCollectingPipelineDescriptors TYPE @16@0:8
+METHOD - familyName TYPE @16@0:8
+METHOD - formattedDescription: TYPE @24@0:8Q16
+METHOD - getBVHBuilderLock TYPE ^{os_unfair_lock_s=I}16@0:8
+METHOD - getCompilerConnectionManager: TYPE ^{MTLCompilerConnectionManager=^^?iBi}20@0:8i16
+METHOD - getDefaultSamplePositions:count: TYPE v32@0:8^{?=ff}16Q24
+METHOD - getMostCompatibleArchitecture: TYPE @24@0:8@16
+METHOD - getRawBVHBuilderPtr TYPE @16@0:8
+METHOD - getShaderCacheKeys TYPE ^v16@0:8
+METHOD - getSupportedCommandBufferErrorOptions TYPE Q16@0:8
+METHOD - globalTraceObjectID TYPE Q16@0:8
+METHOD - heapAccelerationStructureSizeAndAlignWithDescriptor: TYPE {?=QQ}24@0:8@16
+METHOD - heapAccelerationStructureSizeAndAlignWithSize: TYPE {?=QQ}24@0:8Q16
+METHOD - indirectArgumentBufferCapabilities TYPE {IndirectArgumentBufferCapabilities=b1b1b1b29}16@0:8
+METHOD - iosurfaceReadOnlyTextureAlignmentBytes TYPE Q16@0:8
+METHOD - iosurfaceTextureAlignmentBytes TYPE Q16@0:8
+METHOD - isASTCPixelFormatsSupported TYPE c16@0:8
+METHOD - isAnisoSampleFixSupported TYPE c16@0:8
+METHOD - isClampToHalfBorderSupported TYPE c16@0:8
+METHOD - isCompatibleWithAccelerationStructure: TYPE c24@0:8{?=II}16
+METHOD - isCustomBorderColorSupported TYPE c16@0:8
+METHOD - isFixedLinePointFillDepthGradientSupported TYPE c16@0:8
+METHOD - isFloat32FilteringSupported TYPE c16@0:8
+METHOD - isFramebufferReadSupported TYPE c16@0:8
+METHOD - isLargeMRTSupported TYPE c16@0:8
+METHOD - isMagicMipmapSupported TYPE c16@0:8
+METHOD - isMsaa32bSupported TYPE c16@0:8
+METHOD - isPlacementHeapSupported TYPE c16@0:8
+METHOD - isQuadDataSharingSupported TYPE c16@0:8
+METHOD - isRGB10A2GammaSupported TYPE c16@0:8
+METHOD - isRTZRoundingSupported TYPE c16@0:8
+METHOD - isVendorSliceCompatibleWithDeploymentTarget:platform:sdkVersion:compilerPluginVersion: TYPE c32@0:8I16I20I24I28
+METHOD - latestSupportedGenericBVHVersion TYPE Q16@0:8
+METHOD - libraryCacheStats TYPE {?=II}16@0:8
+METHOD - limits TYPE r^{?=IIIIIIIIIIIIIIIIIIIIIIIIIIffIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIQ}16@0:8
+METHOD - linearTextureAlignmentBytes TYPE Q16@0:8
+METHOD - linearTextureArrayAlignmentBytes TYPE Q16@0:8
+METHOD - linearTextureArrayAlignmentSlice TYPE Q16@0:8
+METHOD - loadDynamicLibrariesForComputeDescriptor:error: TYPE @32@0:8@16^@24
+METHOD - loadDynamicLibrariesForComputeDescriptor:options:error: TYPE @40@0:8@16Q24^@32
+METHOD - loadDynamicLibrariesForFunction:insertLibraries:error: TYPE @40@0:8@16@24^@32
+METHOD - loadDynamicLibrariesForFunction:insertLibraries:options:error: TYPE @48@0:8@16@24Q32^@40
+METHOD - lookupRecompiledBinaryArchive: TYPE @24@0:8@16
+METHOD - maxAccelerationStructureLevels TYPE Q16@0:8
+METHOD - maxAccelerationStructureTraversalDepth TYPE Q16@0:8
+METHOD - maxArgumentBufferSamplerCount TYPE Q16@0:8
+METHOD - maxColorAttachments TYPE Q16@0:8
+METHOD - maxComputeAttributes TYPE Q16@0:8
+METHOD - maxComputeBuffers TYPE Q16@0:8
+METHOD - maxComputeInlineDataSize TYPE Q16@0:8
+METHOD - maxComputeLocalMemorySizes TYPE Q16@0:8
+METHOD - maxComputeSamplers TYPE Q16@0:8
+METHOD - maxComputeTextures TYPE Q16@0:8
+METHOD - maxComputeThreadgroupMemory TYPE Q16@0:8
+METHOD - maxComputeThreadgroupMemoryAlignmentBytes TYPE Q16@0:8
+METHOD - maxConcurrentExecutingCompilationTasks TYPE Q16@0:8
+METHOD - maxConstantBufferArguments TYPE Q16@0:8
+METHOD - maxCustomSamplePositions TYPE Q16@0:8
+METHOD - maxFenceInstances TYPE Q16@0:8
+METHOD - maxFragmentBuffers TYPE Q16@0:8
+METHOD - maxFragmentInlineDataSize TYPE Q16@0:8
+METHOD - maxFragmentSamplers TYPE Q16@0:8
+METHOD - maxFragmentTextures TYPE Q16@0:8
+METHOD - maxFramebufferStorageBits TYPE Q16@0:8
+METHOD - maxFunctionConstantIndices TYPE Q16@0:8
+METHOD - maxIOCommandsInFlight TYPE Q16@0:8
+METHOD - maxIndirectBuffers TYPE Q16@0:8
+METHOD - maxIndirectSamplers TYPE Q16@0:8
+METHOD - maxIndirectSamplersPerDevice TYPE Q16@0:8
+METHOD - maxIndirectTextures TYPE Q16@0:8
+METHOD - maxInterpolatedComponents TYPE Q16@0:8
+METHOD - maxLineWidth TYPE f16@0:8
+METHOD - maxPointSize TYPE f16@0:8
+METHOD - maxPredicatedNestingDepth TYPE Q16@0:8
+METHOD - maxRasterizationRateLayerCount TYPE Q16@0:8
+METHOD - maxTessellationFactor TYPE Q16@0:8
+METHOD - maxTextureBufferWidth TYPE Q16@0:8
+METHOD - maxTextureDepth3D TYPE Q16@0:8
+METHOD - maxTextureDimensionCube TYPE Q16@0:8
+METHOD - maxTextureHeight2D TYPE Q16@0:8
+METHOD - maxTextureHeight3D TYPE Q16@0:8
+METHOD - maxTextureLayers TYPE Q16@0:8
+METHOD - maxTextureWidth1D TYPE Q16@0:8
+METHOD - maxTextureWidth2D TYPE Q16@0:8
+METHOD - maxTextureWidth3D TYPE Q16@0:8
+METHOD - maxTileBuffers TYPE Q16@0:8
+METHOD - maxTileInlineDataSize TYPE Q16@0:8
+METHOD - maxTotalComputeThreadsPerThreadgroup TYPE Q16@0:8
+METHOD - maxVertexAmplificationCount TYPE Q16@0:8
+METHOD - maxVertexAmplificationFactor TYPE Q16@0:8
+METHOD - maxVertexAttributes TYPE Q16@0:8
+METHOD - maxVertexBuffers TYPE Q16@0:8
+METHOD - maxVertexInlineDataSize TYPE Q16@0:8
+METHOD - maxVertexSamplers TYPE Q16@0:8
+METHOD - maxVertexTextures TYPE Q16@0:8
+METHOD - maxViewportCount TYPE Q16@0:8
+METHOD - maxVisibilityQueryOffset TYPE Q16@0:8
+METHOD - maximumComputeSubstreams TYPE I16@0:8
+METHOD - maximumConcurrentCompilationTaskCount TYPE Q16@0:8
+METHOD - minBufferNoCopyAlignmentBytes TYPE Q16@0:8
+METHOD - minLinearTextureAlignmentForPixelFormat: TYPE Q24@0:8Q16
+METHOD - minLinearTextureBaseAddressAlignmentForDescriptor: TYPE Q24@0:8@16
+METHOD - minLinearTexturePitchAlignmentForDescriptor:mustMatchExactly: TYPE Q32@0:8@16^Q24
+METHOD - minTilePixels TYPE Q16@0:8
+METHOD - minimumLinearTextureAlignmentForPixelFormat: TYPE Q24@0:8Q16
+METHOD - motionEstimatorCapabilities TYPE @16@0:8
+METHOD - newAccelerationStructureWithBuffer:offset: TYPE @32@0:8@16Q24
+METHOD - newAccelerationStructureWithBuffer:offset:resourceIndex: TYPE @40@0:8@16Q24Q32
+METHOD - newAccelerationStructureWithDescriptor: TYPE @24@0:8@16
+METHOD - newAccelerationStructureWithSize: TYPE @24@0:8Q16
+METHOD - newAccelerationStructureWithSize:resourceIndex: TYPE @32@0:8Q16Q24
+METHOD - newAccelerationStructureWithSize:withDescriptor: TYPE @32@0:8Q16@24
+METHOD - newArgumentEncoderWithArguments: TYPE @24@0:8@16
+METHOD - newArgumentEncoderWithArguments:structType: TYPE @32@0:8@16^@24
+METHOD - newArgumentEncoderWithBufferBinding: TYPE @24@0:8@16
+METHOD - newArgumentEncoderWithLayout: TYPE @24@0:8@16
+METHOD - newBinaryArchiveWithDescriptor:error: TYPE @32@0:8@16^@24
+METHOD - newBinaryLibraryWithOptions:url:error: TYPE @40@0:8Q16@24^@32
+METHOD - newCommandQueueWithDescriptor: TYPE @24@0:8@16
+METHOD - newCommandQueueWithMaxCommandBufferCount: TYPE @24@0:8Q16
+METHOD - newComputePipelineDescriptorWithSerializedData:deserializationContext: TYPE @32@0:8@16@24
+METHOD - newComputePipelineStateWithDescriptor:completionHandler: TYPE v32@0:8@16@?24
+METHOD - newComputePipelineStateWithDescriptor:error: TYPE @32@0:8@16^@24
+METHOD - newComputePipelineStateWithDescriptor:options:completionHandler: TYPE v40@0:8@16Q24@?32
+METHOD - newComputePipelineStateWithFunction:completionHandler: TYPE v32@0:8@16@?24
+METHOD - newComputePipelineStateWithFunction:error: TYPE @32@0:8@16^@24
+METHOD - newComputePipelineStateWithFunction:options:completionHandler: TYPE v40@0:8@16Q24@?32
+METHOD - newComputePipelineStateWithFunction:options:reflection:error: TYPE @48@0:8@16Q24^@32^@40
+METHOD - newComputePipelineStateWithImageFilterFunctionsSPI:imageFilterFunctionInfo:error: TYPE @40@0:8@16r^{?=BQ^{?}}24^@32
+METHOD - newCounterSampleBufferWithDescriptor:error: TYPE @32@0:8@16^@24
+METHOD - newDagStringWithGraphs: TYPE @24@0:8@16
+METHOD - newDefaultLibrary TYPE @16@0:8
+METHOD - newDefaultLibraryWithBundle:error: TYPE @32@0:8@16^@24
+METHOD - newDynamicLibrary:computeDescriptor:error: TYPE @40@0:8@16@24^@32
+METHOD - newDynamicLibrary:error: TYPE @32@0:8@16^@24
+METHOD - newDynamicLibraryWithDescriptor:error: TYPE @32@0:8@16^@24
+METHOD - newDynamicLibraryWithURL:options:error: TYPE @40@0:8@16Q24^@32
+METHOD - newEvent TYPE @16@0:8
+METHOD - newEventWithOptions: TYPE @24@0:8q16
+METHOD - newFunctionWithGLCoreIR:functionType: TYPE @32@0:8^v16Q24
+METHOD - newFunctionWithGLCoreIR:inputsDescription:functionType: TYPE @40@0:8^v16@24Q32
+METHOD - newFunctionWithGLESIR:functionType: TYPE @32@0:8^v16Q24
+METHOD - newFunctionWithGLESIR:inputsDescription:functionType: TYPE @40@0:8^v16@24Q32
+METHOD - newFunctionWithGLIR:functionType: TYPE @32@0:8^v16Q24
+METHOD - newFunctionWithGLIR:inputsDescription:functionType: TYPE @40@0:8^v16@24Q32
+METHOD - newIOCommandQueueWithDescriptor:error: TYPE @32@0:8@16^@24
+METHOD - newIOFileHandleWithURL:compressionMethod:error: TYPE @40@0:8@16q24^@32
+METHOD - newIOFileHandleWithURL:error: TYPE @32@0:8@16^@24
+METHOD - newIOHandleWithURL:compressionMethod:error: TYPE @40@0:8@16q24^@32
+METHOD - newIOHandleWithURL:compressionType:error: TYPE @40@0:8@16q24^@32
+METHOD - newIOHandleWithURL:error: TYPE @32@0:8@16^@24
+METHOD - newLateEvalEvent TYPE @16@0:8
+METHOD - newLibraryWithCIFilters:imageFilterFunctionInfo:error: TYPE @40@0:8@16r^{?=BQ^{?}}24^@32
+METHOD - newLibraryWithDAG:functions:error: TYPE @40@0:8@16@24^@32
+METHOD - newLibraryWithData:error: TYPE @32@0:8@16^@24
+METHOD - newLibraryWithDescriptor:completionHandler: TYPE v32@0:8@16@?24
+METHOD - newLibraryWithDescriptorSPI:error: TYPE @32@0:8@16^@24
+METHOD - newLibraryWithFile:error: TYPE @32@0:8@16^@24
+METHOD - newLibraryWithImageFilterFunctionsSPI:imageFilterFunctionInfo:error: TYPE @40@0:8@16r^{?=BQ^{?}}24^@32
+METHOD - newLibraryWithSource:options:completionHandler: TYPE v40@0:8@16@24@?32
+METHOD - newLibraryWithSource:options:error: TYPE @40@0:8@16@24^@32
+METHOD - newLibraryWithStitchedDescriptor:completionHandler: TYPE v32@0:8@16@?24
+METHOD - newLibraryWithStitchedDescriptor:error: TYPE @32@0:8@16^@24
+METHOD - newLibraryWithStitchedDescriptorSPI:error: TYPE @32@0:8@16^@24
+METHOD - newLibraryWithURL:error: TYPE @32@0:8@16^@24
+METHOD - newLogStateWithDescriptor:error: TYPE @32@0:8@16^@24
+METHOD - newPerformanceStateAssertion:error: TYPE @32@0:8q16^@24
+METHOD - newPipelineLibraryWithFilePath:error: TYPE @32@0:8@16^@24
+METHOD - newPrecompiledComputePipelineStateWithDescriptor:options:pipelineCache:completionHandler: TYPE v48@0:8@16Q24@32@?40
+METHOD - newPrecompiledRenderPipelineStateWithDescriptor:options:pipelineCache:completionHandler: TYPE v48@0:8@16Q24@32@?40
+METHOD - newProfileWithExecutionSize: TYPE @24@0:8Q16
+METHOD - newRasterizationRateMapWithDescriptor: TYPE @24@0:8@16
+METHOD - newRenderPipelineDescriptorWithSerializedData:deserializationContext: TYPE @32@0:8@16@24
+METHOD - newRenderPipelineStateWithDescriptor:completionHandler: TYPE v32@0:8@16@?24
+METHOD - newRenderPipelineStateWithDescriptor:error: TYPE @32@0:8@16^@24
+METHOD - newRenderPipelineStateWithDescriptor:options:reflection:error: TYPE @48@0:8@16Q24^@32^@40
+METHOD - newRenderPipelineStateWithMeshDescriptor:completionHandler: TYPE v32@0:8@16@?24
+METHOD - newRenderPipelineStateWithMeshDescriptor:error: TYPE @32@0:8@16^@24
+METHOD - newRenderPipelineStateWithMeshDescriptor:options:completionHandler: TYPE v40@0:8@16Q24@?32
+METHOD - newRenderPipelineStateWithMeshDescriptor:options:reflection:error: TYPE @48@0:8@16Q24^@32^@40
+METHOD - newRenderPipelineStateWithTileDescriptor:options:completionHandler: TYPE v40@0:8@16Q24@?32
+METHOD - newRenderPipelineStateWithTileDescriptor:options:reflection:error: TYPE @48@0:8@16Q24^@32^@40
+METHOD - newResidencySetWithDescriptor:error: TYPE @32@0:8@16^@24
+METHOD - newSharedEvent TYPE @16@0:8
+METHOD - newSharedEventWithHandle: TYPE @24@0:8@16
+METHOD - newSharedEventWithMachPort: TYPE @20@0:8I16
+METHOD - newSharedEventWithOptions: TYPE @24@0:8q16
+METHOD - newSharedTextureWithHandle: TYPE @24@0:8@16
+METHOD - newSharedTextureWithHandle:withResourceIndex: TYPE @32@0:8@16Q24
+METHOD - newStructTypeWithSerializedData: TYPE @24@0:8@16
+METHOD - newTextureWithDescriptor:iosurface:plane:slice: TYPE @48@0:8@16^{__IOSurface=}24Q32Q40
+METHOD - newTextureWithSurface:buffer: TYPE @32@0:8Q16Q24
+METHOD - newTileRenderPipelineDescriptorWithSerializedData:deserializationContext: TYPE @32@0:8@16@24
+METHOD - newUncachedIOFileHandleWithURL:compressionMethod:error: TYPE @40@0:8@16q24^@32
+METHOD - newUncachedIOFileHandleWithURL:error: TYPE @32@0:8@16^@24
+METHOD - newUncachedIOHandleWithURL:compressionType:error: TYPE @40@0:8@16q24^@32
+METHOD - newUncachedIOHandleWithURL:error: TYPE @32@0:8@16^@24
+METHOD - pipelineCacheStats TYPE {?=II}16@0:8
+METHOD - pluginData TYPE @16@0:8
+METHOD - productName TYPE @16@0:8
+METHOD - readWriteTextureSupport TYPE Q16@0:8
+METHOD - requiredLinearTextureBytesPerRowForDescriptor: TYPE Q24@0:8@16
+METHOD - requiresBFloat16Emulation TYPE c16@0:8
+METHOD - requiresMeshShaderEmulation TYPE c16@0:8
+METHOD - requiresRaytracingEmulation TYPE c16@0:8
+METHOD - sampleTimestamps:gpuTimestamp: TYPE v32@0:8^Q16^Q24
+METHOD - samplerReductionModeSupport TYPE Q16@0:8
+METHOD - serializeComputePipelineDescriptor: TYPE @24@0:8@16
+METHOD - serializeRenderPipelineDescriptor: TYPE @24@0:8@16
+METHOD - serializeStructType: TYPE @24@0:8@16
+METHOD - serializeStructType:version: TYPE @28@0:8@16I24
+METHOD - serializeTileRenderPipelineDescriptor: TYPE @24@0:8@16
+METHOD - setCommandBufferErrorOptions: TYPE v24@0:8Q16
+METHOD - setCompilerProcessesCount: TYPE c20@0:8i16
+METHOD - setGPUAssertionsEnabled: TYPE v20@0:8c16
+METHOD - setPluginData: TYPE v24@0:8@16
+METHOD - setRawBVHBuilderPtr: TYPE v24@0:8@16
+METHOD - setShaderDebugInfoCaching: TYPE v20@0:8c16
+METHOD - setShouldMaximizeConcurrentCompilation: TYPE v20@0:8c16
+METHOD - setWritableHeapsEnabled: TYPE v20@0:8c16
+METHOD - shaderDebugInfoCaching TYPE c16@0:8
+METHOD - shouldMaximizeConcurrentCompilation TYPE c16@0:8
+METHOD - sparseTexturesSupport TYPE Q16@0:8
+METHOD - sparseTileSizeInBytes TYPE Q16@0:8
+METHOD - sparseTileSizeInBytesForSparsePageSize: TYPE Q24@0:8q16
+METHOD - startCollectingPipelineDescriptors TYPE v16@0:8
+METHOD - startCollectingPipelineDescriptorsUsingPrefixForNames: TYPE v24@0:8@16
+METHOD - supports2DLinearTexArraySPI TYPE c16@0:8
+METHOD - supports32BitFloatFiltering TYPE c16@0:8
+METHOD - supports32BitMSAA TYPE c16@0:8
+METHOD - supports32bpcMSAATextures TYPE c16@0:8
+METHOD - supports3DASTCTextures TYPE c16@0:8
+METHOD - supports3DBCTextures TYPE c16@0:8
+METHOD - supportsASTCHDRTextureCompression TYPE c16@0:8
+METHOD - supportsASTCTextureCompression TYPE c16@0:8
+METHOD - supportsAlphaYUVFormats TYPE c16@0:8
+METHOD - supportsAnisoSampleFix TYPE c16@0:8
+METHOD - supportsArgumentBuffers TYPE c16@0:8
+METHOD - supportsArgumentBuffersTier2 TYPE c16@0:8
+METHOD - supportsArrayOfSamplers TYPE c16@0:8
+METHOD - supportsArrayOfTextures TYPE c16@0:8
+METHOD - supportsAtomicFloat TYPE c16@0:8
+METHOD - supportsAtomicUlongVoidMinMax TYPE c16@0:8
+METHOD - supportsBCTextureCompression TYPE c16@0:8
+METHOD - supportsBaseVertexInstanceDrawing TYPE c16@0:8
+METHOD - supportsBfloat16Buffers TYPE c16@0:8
+METHOD - supportsBfloat16Format TYPE c16@0:8
+METHOD - supportsBinaryArchives TYPE c16@0:8
+METHOD - supportsBinaryLibraries TYPE c16@0:8
+METHOD - supportsBlackOrWhiteSamplerBorderColors TYPE c16@0:8
+METHOD - supportsBufferBoundsChecking TYPE c16@0:8
+METHOD - supportsBufferPrefetchStatistics TYPE c16@0:8
+METHOD - supportsBufferWithIOSurface TYPE c16@0:8
+METHOD - supportsBufferlessClientStorageTexture TYPE c16@0:8
+METHOD - supportsCMPIndirectCommandBuffers TYPE c16@0:8
+METHOD - supportsColorSpaceConversionMatrixSelection TYPE c16@0:8
+METHOD - supportsCombinedMSAAStoreAndResolveAction TYPE c16@0:8
+METHOD - supportsCommandBufferJump TYPE c16@0:8
+METHOD - supportsCompressedTextureViewSPI TYPE c16@0:8
+METHOD - supportsComputeCompressedTextureWrite TYPE c16@0:8
+METHOD - supportsComputeMemoryBarrier TYPE c16@0:8
+METHOD - supportsConcurrentComputeDispatch TYPE c16@0:8
+METHOD - supportsConditionalLoadStore TYPE c16@0:8
+METHOD - supportsCounterSampling: TYPE c24@0:8Q16
+METHOD - supportsCountingOcclusionQuery TYPE c16@0:8
+METHOD - supportsCustomBorderColor TYPE c16@0:8
+METHOD - supportsDeadlineProfile TYPE c16@0:8
+METHOD - supportsDepthClipMode TYPE c16@0:8
+METHOD - supportsDepthClipModeClampExtended TYPE c16@0:8
+METHOD - supportsDeviceCoherency TYPE c16@0:8
+METHOD - supportsDevicePartitioning TYPE c16@0:8
+METHOD - supportsDynamicAttributeStride TYPE c16@0:8
+METHOD - supportsDynamicControlPointCount TYPE c16@0:8
+METHOD - supportsDynamicLibraries TYPE c16@0:8
+METHOD - supportsExplicitVisibilityGroups TYPE c16@0:8
+METHOD - supportsExtendedSamplerLODBiasRange TYPE c16@0:8
+METHOD - supportsExtendedVertexFormats TYPE c16@0:8
+METHOD - supportsExtendedXR10Formats TYPE c16@0:8
+METHOD - supportsExtendedYUVFormats TYPE c16@0:8
+METHOD - supportsFP32TessFactors TYPE c16@0:8
+METHOD - supportsFastMathInfNaNPropagation TYPE c16@0:8
+METHOD - supportsFeatureSet: TYPE c24@0:8Q16
+METHOD - supportsFillTexture TYPE c16@0:8
+METHOD - supportsFixedLinePointFillDepthGradient TYPE c16@0:8
+METHOD - supportsFloat16BCubicFiltering TYPE c16@0:8
+METHOD - supportsFloat16InfNanFiltering TYPE c16@0:8
+METHOD - supportsForceSeamsOnCubemaps TYPE c16@0:8
+METHOD - supportsForkJoin TYPE c16@0:8
+METHOD - supportsFragmentBufferWrites TYPE c16@0:8
+METHOD - supportsFragmentOnlyEncoders TYPE c16@0:8
+METHOD - supportsFunctionPointers TYPE c16@0:8
+METHOD - supportsFunctionPointersFromMesh TYPE c16@0:8
+METHOD - supportsFunctionPointersFromRender TYPE c16@0:8
+METHOD - supportsGFXIndirectCommandBuffers TYPE c16@0:8
+METHOD - supportsGPUStatistics TYPE c16@0:8
+METHOD - supportsGlobalVariableBindingInDylibs TYPE c16@0:8
+METHOD - supportsGlobalVariableBindings TYPE c16@0:8
+METHOD - supportsGlobalVariableRelocation TYPE c16@0:8
+METHOD - supportsGlobalVariableRelocationCompute TYPE c16@0:8
+METHOD - supportsGlobalVariableRelocationRender TYPE c16@0:8
+METHOD - supportsHeapAccelerationStructureAllocation TYPE c16@0:8
+METHOD - supportsHeapWithAddressRanges TYPE c16@0:8
+METHOD - supportsIABHashForTools TYPE c16@0:8
+METHOD - supportsImageBlockSampleCoverageControl TYPE c16@0:8
+METHOD - supportsImageBlocks TYPE c16@0:8
+METHOD - supportsIndirectStageInRegion TYPE c16@0:8
+METHOD - supportsIndirectTessellation TYPE c16@0:8
+METHOD - supportsIndirectTextures TYPE c16@0:8
+METHOD - supportsIndirectWritableTextures TYPE c16@0:8
+METHOD - supportsInt64 TYPE c16@0:8
+METHOD - supportsInterchangeTiled TYPE c16@0:8
+METHOD - supportsLateEvalEvent TYPE c16@0:8
+METHOD - supportsLayeredRendering TYPE c16@0:8
+METHOD - supportsLimitedYUVFormats TYPE c16@0:8
+METHOD - supportsLinearTexture2DArray TYPE c16@0:8
+METHOD - supportsLinearTextureFromSharedBuffer TYPE c16@0:8
+METHOD - supportsLossyCompression TYPE c16@0:8
+METHOD - supportsMSAADepthResolve TYPE c16@0:8
+METHOD - supportsMSAADepthResolveFilter TYPE c16@0:8
+METHOD - supportsMSAAStencilResolve TYPE c16@0:8
+METHOD - supportsMSAAStencilResolveFilter TYPE c16@0:8
+METHOD - supportsMemoryOrderAtomics TYPE c16@0:8
+METHOD - supportsMeshRenderDynamicLibraries TYPE c16@0:8
+METHOD - supportsMeshShaders TYPE c16@0:8
+METHOD - supportsMeshShadersInICB TYPE c16@0:8
+METHOD - supportsMipLevelsSmallerThanBlockSize TYPE c16@0:8
+METHOD - supportsMirrorClampToEdgeSamplerMode TYPE c16@0:8
+METHOD - supportsMutableTier1ArgumentBuffers TYPE c16@0:8
+METHOD - supportsNativeHardwareFP16 TYPE c16@0:8
+METHOD - supportsNonPrivateDepthStencilTextures TYPE c16@0:8
+METHOD - supportsNonPrivateMSAATextures TYPE c16@0:8
+METHOD - supportsNonSquareTileShaders TYPE c16@0:8
+METHOD - supportsNonUniformThreadgroupSize TYPE c16@0:8
+METHOD - supportsNonZeroTextureWriteLOD TYPE c16@0:8
+METHOD - supportsNorm16BCubicFiltering TYPE c16@0:8
+METHOD - supportsOpenCLTextureWriteSwizzles TYPE c16@0:8
+METHOD - supportsPacked32TextureBufferWrites TYPE c16@0:8
+METHOD - supportsPartialRenderMemoryBarrier TYPE c16@0:8
+METHOD - supportsPerPlaneCompression TYPE c16@0:8
+METHOD - supportsPerformanceStateAssertion TYPE c16@0:8
+METHOD - supportsPipelineLibraries TYPE c16@0:8
+METHOD - supportsPlacementHeaps TYPE c16@0:8
+METHOD - supportsPostDepthCoverage TYPE c16@0:8
+METHOD - supportsPrimitiveMotionBlur TYPE c16@0:8
+METHOD - supportsPrimitiveRestartOverride TYPE c16@0:8
+METHOD - supportsPrimitiveType: TYPE c24@0:8Q16
+METHOD - supportsProgrammableBlending TYPE c16@0:8
+METHOD - supportsProgrammableSamplePositions TYPE c16@0:8
+METHOD - supportsPublicXR10Formats TYPE c16@0:8
+METHOD - supportsPullModelInterpolation TYPE c16@0:8
+METHOD - supportsQuadGroup TYPE c16@0:8
+METHOD - supportsQuadReduction TYPE c16@0:8
+METHOD - supportsQuadShufflesAndBroadcast TYPE c16@0:8
+METHOD - supportsQueryTextureLOD TYPE c16@0:8
+METHOD - supportsRGBA10A2Gamma TYPE c16@0:8
+METHOD - supportsRTZRounding TYPE c16@0:8
+METHOD - supportsRasterOrderGroups TYPE c16@0:8
+METHOD - supportsRasterOrderGroupsColorAttachment TYPE c16@0:8
+METHOD - supportsRasterizationRateMapWithLayerCount: TYPE c24@0:8Q16
+METHOD - supportsRayTracingAccelerationStructureCPUDeserialization TYPE c16@0:8
+METHOD - supportsRayTracingBuffersFromTables TYPE c16@0:8
+METHOD - supportsRayTracingCurves TYPE c16@0:8
+METHOD - supportsRayTracingDirectIntersectionResultAccess TYPE c16@0:8
+METHOD - supportsRayTracingExtendedVertexFormats TYPE c16@0:8
+METHOD - supportsRayTracingGPUTableUpdateBuffers TYPE c16@0:8
+METHOD - supportsRayTracingICBs TYPE c16@0:8
+METHOD - supportsRayTracingIndirectInstanceAccelerationStructureBuild TYPE c16@0:8
+METHOD - supportsRayTracingMatrixLayout TYPE c16@0:8
+METHOD - supportsRayTracingMultiLevelInstancing TYPE c16@0:8
+METHOD - supportsRayTracingPerComponentMotionInterpolation TYPE c16@0:8
+METHOD - supportsRayTracingPerPrimitiveData TYPE c16@0:8
+METHOD - supportsRayTracingTraversalMetrics TYPE c16@0:8
+METHOD - supportsRaytracing TYPE c16@0:8
+METHOD - supportsRaytracingFromRender TYPE c16@0:8
+METHOD - supportsReadWriteBufferArguments TYPE c16@0:8
+METHOD - supportsReadWriteTextureArguments TYPE c16@0:8
+METHOD - supportsReadWriteTextureArgumentsTier2 TYPE c16@0:8
+METHOD - supportsReadWriteTextureCubeArguments TYPE c16@0:8
+METHOD - supportsRelaxedTextureViewRequirements TYPE c16@0:8
+METHOD - supportsRenderDynamicLibraries TYPE c16@0:8
+METHOD - supportsRenderMemoryBarrier TYPE c16@0:8
+METHOD - supportsRenderPassWithoutRenderTarget TYPE c16@0:8
+METHOD - supportsRenderTargetTextureRotation TYPE c16@0:8
+METHOD - supportsRenderTextureWrites TYPE c16@0:8
+METHOD - supportsRenderToLinearTextures TYPE c16@0:8
+METHOD - supportsResourceDetachBacking TYPE c16@0:8
+METHOD - supportsResourceHeaps TYPE c16@0:8
+METHOD - supportsSIMDGroup TYPE c16@0:8
+METHOD - supportsSIMDGroupMatrix TYPE c16@0:8
+METHOD - supportsSIMDReduction TYPE c16@0:8
+METHOD - supportsSIMDShuffleAndFill TYPE c16@0:8
+METHOD - supportsSIMDShufflesAndBroadcast TYPE c16@0:8
+METHOD - supportsSRGBwrites TYPE c16@0:8
+METHOD - supportsSamplerAddressModeClampToHalfBorder TYPE c16@0:8
+METHOD - supportsSamplerCompareFunction TYPE c16@0:8
+METHOD - supportsSamplerReductionMode TYPE c16@0:8
+METHOD - supportsSeparateDepthStencil TYPE c16@0:8
+METHOD - supportsSeparateVisibilityAndShadingRate TYPE c16@0:8
+METHOD - supportsSetThreadgroupPackingDisabled TYPE c16@0:8
+METHOD - supportsShaderBarycentricCoordinates TYPE c16@0:8
+METHOD - supportsShaderLODAverage TYPE c16@0:8
+METHOD - supportsShaderMinLODClamp TYPE c16@0:8
+METHOD - supportsSharedFunctionTables TYPE c16@0:8
+METHOD - supportsSharedStorageHeapResources TYPE c16@0:8
+METHOD - supportsSharedStorageTextures TYPE c16@0:8
+METHOD - supportsSharedTextureHandles TYPE c16@0:8
+METHOD - supportsSparseDepthAttachments TYPE c16@0:8
+METHOD - supportsSparseHeaps TYPE c16@0:8
+METHOD - supportsSparseTextures TYPE c16@0:8
+METHOD - supportsStackOverflowErrorCode TYPE c16@0:8
+METHOD - supportsStatefulDynamicLibraries TYPE c16@0:8
+METHOD - supportsStencilFeedback TYPE c16@0:8
+METHOD - supportsTLS TYPE c16@0:8
+METHOD - supportsTessellation TYPE c16@0:8
+METHOD - supportsTexture2DMultisampleArray TYPE c16@0:8
+METHOD - supportsTextureCubeArray TYPE c16@0:8
+METHOD - supportsTextureSampleCount: TYPE c24@0:8Q16
+METHOD - supportsTextureSwizzle TYPE c16@0:8
+METHOD - supportsTextureWriteFPRoundingMode: TYPE c24@0:8q16
+METHOD - supportsTextureWriteRoundingMode: TYPE c24@0:8q16
+METHOD - supportsTileShaders TYPE c16@0:8
+METHOD - supportsUnalignedVertexFetch TYPE c16@0:8
+METHOD - supportsVariableRateRasterization TYPE c16@0:8
+METHOD - supportsVertexAmplification TYPE c16@0:8
+METHOD - supportsVirtualSubstreams TYPE c16@0:8
+METHOD - supportsYCBCRFormats TYPE c16@0:8
+METHOD - supportsYCBCRFormats12 TYPE c16@0:8
+METHOD - supportsYCBCRFormatsPQ TYPE c16@0:8
+METHOD - supportsYCBCRFormatsXR TYPE c16@0:8
+METHOD - supportsYCBCRPackedFormats12 TYPE c16@0:8
+METHOD - supportsYCBCRPackedFormatsPQ TYPE c16@0:8
+METHOD - supportsYCBCRPackedFormatsXR TYPE c16@0:8
+METHOD - targetDeviceArchitecture TYPE @16@0:8
+METHOD - targetDeviceInfo TYPE r^{MTLTargetDeviceArch=QI*}16@0:8
+METHOD - unloadShaderCaches TYPE v16@0:8
+METHOD - validateDynamicLibrary:state:error: TYPE c36@0:8@16c24^@28
+METHOD - validateDynamicLibraryDescriptor:error: TYPE c32@0:8@16^@24
+METHOD - validateDynamicLibraryURL:error: TYPE c32@0:8@16^@24
+METHOD - writeMeshShaderEmulatorDataStructureHeader:meshShaderPSO:scalingFactor: TYPE v40@0:8^{?=IIIIIIIIIIIIIIIIIIIIIIIIIIII[4I]}16@24Q32
+METHOD - _newDescriptorForSharedTexture: TYPE @24@0:8^{__IOSurface=}16
+METHOD - freeVisibleFunctionKey:keySize: TYPE v32@0:8^v16Q24
+METHOD - pipelinePerformanceStatisticsWithTileVariant:compileTimeOutput: TYPE @32@0:8@16@24
+METHOD - concurrentQueue TYPE @16@0:8
+METHOD - defaultLogState TYPE @16@0:8
+METHOD - freeComputeFunctionKey:keySize: TYPE v32@0:8^v16Q24
+METHOD - initWorkarounds TYPE v16@0:8
+METHOD - newDynamicLibraryError:message: TYPE @32@0:8Q16@24
+METHOD - pipelinePerformanceStatisticsWithVertexVariant:fragmentVariant: TYPE @32@0:8@16@24
+METHOD - _decrementCommandQueueCount TYPE v16@0:8
+METHOD - _incrementCommandQueueCount TYPE v16@0:8
+METHOD - _newDynamicLibraryWithDescriptor:computeDescriptor:error: TYPE @40@0:8@16@24^@32
+METHOD - _purgeDevice TYPE v16@0:8
+METHOD - _rateLimitQueueCreation TYPE B16@0:8
+METHOD - addCompileTimeStatisticsForBinaryFunction: TYPE v24@0:8r^{MTLBinaryRequestReply=Q@^{?}@^{?}@^{?}@^{?}@@@^{?}@@}16
+METHOD - akIOResourceListPool TYPE @16@0:8
+METHOD - allocResidencySet TYPE @16@0:8
+METHOD - compiler TYPE @16@0:8
+METHOD - computeFunctionKeyWithComputePipelineDescriptor:options:keySize: TYPE ^v40@0:8@16Q24^Q32
+METHOD - computeResourceBindingIndexRemappingTableWithVariant: TYPE @24@0:8@16
+METHOD - computeVariantWithCompilerOutput:pipelineStatisticsOutput: TYPE @32@0:8@16@24
+METHOD - deserializeInstanceAccelerationStructureFromBytes:toBuffer:primitiveAccelerationStructures:forAccelerationStructure: TYPE v48@0:8r^v16@24@32@40
+METHOD - deserializePrimitiveAccelerationStructureFromBytes:toBuffer:forAccelerationStructure: TYPE v40@0:8r^v16@24@32
+METHOD - dumpPipelineDescriptorsIfRequested TYPE v16@0:8
+METHOD - fragmentFunctionKeyWithRenderPipelineDescriptor:options:previousStateVariant:fragmentKeySize: TYPE ^v48@0:8@16Q24@32^Q40
+METHOD - fragmentResourceBindingIndexRemappingTableWithVariant: TYPE @24@0:8@16
+METHOD - fragmentVariantWithCompilerOutput:pipelineStatisticsOutput: TYPE @32@0:8@16@24
+METHOD - freeComputeLibraryKey:libraryKeySize: TYPE v32@0:8^v16Q24
+METHOD - freeFragmentFunctionKey:fragmentKeySize: TYPE v32@0:8^v16Q24
+METHOD - freeMeshFunctionDriverData:meshFunctionDriverDataSize: TYPE v32@0:8^v16Q24
+METHOD - freeMeshFunctionKey:meshKeySize: TYPE v32@0:8^v16Q24
+METHOD - freeObjectFunctionDriverData:objectFunctionDriverDataSize: TYPE v32@0:8^v16Q24
+METHOD - freeObjectFunctionKey:objectKeySize: TYPE v32@0:8^v16Q24
+METHOD - freeTileFunctionKey:keySize: TYPE v32@0:8^v16Q24
+METHOD - freeTranslatedDriverCompilerOptions:compilerOptionsSize: TYPE v32@0:8^*16Q24
+METHOD - freeVertexFunctionDriverData:vertexFunctionDriverDataSize: TYPE v32@0:8^v16Q24
+METHOD - freeVertexFunctionKey:vertexKeySize: TYPE v32@0:8^v16Q24
+METHOD - getComputeFunctionId:compilerOptions:compilerOptionsSize: TYPE *40@0:8r^v16^*24Q32
+METHOD - getComputeFunctionId:function:compilerOptions:compilerOptionsSize: TYPE *48@0:8r^v16@24^*32Q40
+METHOD - getConstantSamplersBitmasks:uniqueIdentifiers:constantSamplerCount:forComputeVariant: TYPE v48@0:8^^Q16^^Q24^Q32@40
+METHOD - getConstantSamplersBitmasks:uniqueIdentifiers:constantSamplerCount:forObjectVariant:meshVariant:fragmentVariant: TYPE v64@0:8^^Q16^^Q24^Q32@40@48@56
+METHOD - getConstantSamplersBitmasks:uniqueIdentifiers:constantSamplerCount:forTileVariant: TYPE v48@0:8^^Q16^^Q24^Q32@40
+METHOD - getConstantSamplersBitmasks:uniqueIdentifiers:constantSamplerCount:forVertexVariant:fragmentVariant: TYPE v56@0:8^^Q16^^Q24^Q32@40@48
+METHOD - getConstantSamplersBitmasks:uniqueIdentifiers:constantSamplerCount:stride:forComputeVariant: TYPE v56@0:8^^Q16^^Q24^Q32^I40@48
+METHOD - getConstantSamplersBitmasks:uniqueIdentifiers:constantSamplerCount:stride:forObjectVariant:meshVariant:fragmentVariant: TYPE v72@0:8^^Q16^^Q24^Q32^I40@48@56@64
+METHOD - getConstantSamplersBitmasks:uniqueIdentifiers:constantSamplerCount:stride:forTileVariant: TYPE v56@0:8^^Q16^^Q24^Q32^I40@48
+METHOD - getConstantSamplersBitmasks:uniqueIdentifiers:constantSamplerCount:stride:forVertexVariant:fragmentVariant: TYPE v64@0:8^^Q16^^Q24^Q32^I40@48@56
+METHOD - getFragmentFunctionId:compilerOptions:compilerOptionsSize: TYPE *40@0:8r^v16^*24Q32
+METHOD - getIntersectionFunctionId:compilerOptions:compilerOptionsSize: TYPE *40@0:8r^v16^*24Q32
+METHOD - getMeshFunctionDriverData:function:compilerOptions:nextStageVariant:driverDataSize: TYPE ^v56@0:8r^v16@24^*32@40^Q48
+METHOD - getMeshFunctionId:compilerOptions:compilerOptionsSize: TYPE *40@0:8r^v16^*24Q32
+METHOD - getObjectFunctionDriverData:function:compilerOptions:nextStageVariant:driverDataSize: TYPE ^v56@0:8r^v16@24^*32@40^Q48
+METHOD - getObjectFunctionId:compilerOptions:compilerOptionsSize: TYPE *40@0:8r^v16^*24Q32
+METHOD - getVertexFunctionDriverData:function:compilerOptions:nextStageVariant:driverDataSize: TYPE ^v56@0:8r^v16@24^*32@40^Q48
+METHOD - getVertexFunctionId:compilerOptions:compilerOptionsSize: TYPE *40@0:8r^v16^*24Q32
+METHOD - getVertexFunctionId:compilerOptions:compilerOptionsSize:compiledFragmentVariant: TYPE *48@0:8r^v16^*24Q32@40
+METHOD - getVertexFunctionId:function:compilerOptions:compilerOptionsSize:compiledFragmentVariant: TYPE *56@0:8r^v16@24^*32Q40@48
+METHOD - getVisibleFunctionId:compilerOptions:compilerOptionsSize: TYPE *40@0:8r^v16^*24Q32
+METHOD - initDefaultLogState TYPE v16@0:8
+METHOD - initFeatureQueries TYPE v16@0:8
+METHOD - initGPUFamilySupport TYPE v16@0:8
+METHOD - initLimits TYPE v16@0:8
+METHOD - initMeshShaderEmulatorPrefixSumKernels TYPE v16@0:8
+METHOD - initProgressTracking TYPE v16@0:8
+METHOD - initSerializationPaths TYPE v16@0:8
+METHOD - initWithAcceleratorPort: TYPE @20@0:8I16
+METHOD - isCollectingLibraries TYPE c16@0:8
+METHOD - isCollectingPipelines TYPE c16@0:8
+METHOD - libraryKeyWithComputePipelineDescriptor:options:keySize: TYPE ^v40@0:8@16Q24^Q32
+METHOD - llvmVersion TYPE i16@0:8
+METHOD - meshFunctionKeyWithRenderPipelineDescriptor:options:nextStageVariant:meshKeySize: TYPE ^v48@0:8@16Q24@32^Q40
+METHOD - meshResourceBindingIndexRemappingTableWithVariant: TYPE @24@0:8@16
+METHOD - newComputePipelineWithDescriptor:variant: TYPE @32@0:8@16@24
+METHOD - newComputePipelineWithDescriptor:variant:errorMessage: TYPE @40@0:8@16@24^@32
+METHOD - newComputeVariantWithCompilerOutput:pipelineStatisticsOutput: TYPE @32@0:8@16@24
+METHOD - newFragmentVariantWithCompilerOutput:pipelineStatisticsOutput: TYPE @32@0:8@16@24
+METHOD - newLibraryWithDescriptor:destinationBinaryArchive:error: TYPE @40@0:8@16@24^@32
+METHOD - newLibraryWithFunctionArray:error: TYPE @32@0:8@16^@24
+METHOD - newLibraryWithStitchedDescriptor:destinationBinaryArchive:error: TYPE @40@0:8@16@24^@32
+METHOD - newMeshRenderPipelineDescriptorWithSerializedData:deserializationContext: TYPE @32@0:8@16@24
+METHOD - newMeshVariantWithCompilerOutput:pipelineStatisticsOutput: TYPE @32@0:8@16@24
+METHOD - newObjectVariantWithCompilerOutput:pipelineStatisticsOutput: TYPE @32@0:8@16@24
+METHOD - newRasterizationRateMapWithScreenSize:layerCount:layers: TYPE @56@0:8{?=QQQ}16Q40r^@48
+METHOD - newRenderPipelineWithDescriptor:objectVariant:meshVariant:fragmentVariant:errorMessage: TYPE @56@0:8@16@24@32@40^@48
+METHOD - newRenderPipelineWithDescriptor:vertexVariant:fragmentVariant: TYPE @40@0:8@16@24@32
+METHOD - newRenderPipelineWithDescriptor:vertexVariant:fragmentVariant:errorMessage: TYPE @48@0:8@16@24@32^@40
+METHOD - newRenderPipelineWithTileDescriptor:tileVariant:errorMessage: TYPE @40@0:8@16@24^@32
+METHOD - newTileVariantWithCompilerOutput:pipelineStatisticsOutput:functionType: TYPE @40@0:8@16@24Q32
+METHOD - newTranslatedDriverCompilerOptions:compilerOptionsSize: TYPE ^*32@0:8@16^Q24
+METHOD - newVertexVariantWithCompilerOutput:pipelineStatisticsOutput: TYPE @32@0:8@16@24
+METHOD - objectFunctionKeyWithRenderPipelineDescriptor:options:nextStageVariant:objectKeySize: TYPE ^v48@0:8@16Q24@32^Q40
+METHOD - objectResourceBindingIndexRemappingTableWithVariant: TYPE @24@0:8@16
+METHOD - optionsForPipelineLibrarySerialization TYPE Q16@0:8
+METHOD - pipelineFlagsWithComputeVariant: TYPE {?=b1b1b1b1b1b59}24@0:8@16
+METHOD - pipelineFlagsWithObjectVariant:meshVariant:fragmentVariant: TYPE {?=b1b1b1b1b1b1b1b1b1b1b1b53}40@0:8@16@24@32
+METHOD - pipelineFlagsWithTileVariant: TYPE {?=b1b1b1b1b1b1b1b1b1b1b1b53}24@0:8@16
+METHOD - pipelineFlagsWithVertexVariant:fragmentVariant: TYPE {?=b1b1b1b1b1b1b1b1b1b1b1b53}32@0:8@16@24
+METHOD - pipelinePerformanceStatisticsWithComputeVariant: TYPE @24@0:8@16
+METHOD - pipelinePerformanceStatisticsWithComputeVariant:compileTimeOutput: TYPE @32@0:8@16@24
+METHOD - pipelinePerformanceStatisticsWithObjectVariant:meshVariant:fragmentVariant:objectCompileTimeOutput:meshCompileTimeOutput:fragmentCompileTimeOutput: TYPE @64@0:8@16@24@32@40@48@56
+METHOD - pipelinePerformanceStatisticsWithVertexVariant:fragmentVariant:vertexCompileTimeOutput:fragmentCompileTimeOutput: TYPE @48@0:8@16@24@32@40
+METHOD - prepareVisibleFunctionRequest:withDescriptor:sync: TYPE @36@0:8@16@24B32
+METHOD - recordBinaryArchiveUsage: TYPE v24@0:8@16
+METHOD - registerComputePipelineDescriptor: TYPE v24@0:8@16
+METHOD - registerMeshRenderPipelineDescriptor: TYPE v24@0:8@16
+METHOD - registerRenderPipelineDescriptor: TYPE v24@0:8@16
+METHOD - registerTileRenderPipelineDescriptor: TYPE v24@0:8@16
+METHOD - releaseCacheEntry: TYPE v24@0:8^{MTLLibraryContainer=^{MTLPipelineCollection}Ai{?=[32C]}^{MTLLibraryData}@@@@@}16
+METHOD - resolveCounters:withRange: TYPE @40@0:8@16{_NSRange=QQ}24
+METHOD - serializeMeshRenderPipelineDescriptor: TYPE @24@0:8@16
+METHOD - startCollectingPipelineDescriptorsFromLibrary:filePath: TYPE v32@0:8@16@24
+METHOD - tileFunctionKeyWithTilePipelineDescriptor:options:keySize: TYPE ^v40@0:8@16Q24^Q32
+METHOD - tileResourceBindingIndexRemappingTableWithVariant: TYPE @24@0:8@16
+METHOD - vertexFunctionKeyWithRenderPipelineDescriptor:options:nextStageVariant:vertexKeySize: TYPE ^v48@0:8@16Q24@32^Q40
+METHOD - vertexResourceBindingIndexRemappingTableWithVariant: TYPE @24@0:8@16
+METHOD - vertexVariantWithCompilerOutput:pipelineStatisticsOutput: TYPE @32@0:8@16@24
+METHOD - visibleFunctionKey:withFunctionDescriptor:keySize: TYPE ^v40@0:8@16@24^Q32
+METHOD - workaroundNewLibraryWithSourceImplicitInvariantPosition TYPE c16@0:8
+METHOD - workaroundNewLibraryWithSourceReplaceFastMathWithRelaxedMath TYPE c16@0:8
+METHOD + featureProfile:supportsFeatureSet: TYPE c32@0:8Q16Q24
+METHOD + useNewMaxThreadsPerThreadgroupBehavior TYPE c16@0:8
+METHOD + useNewPreciseFunctionBehavior TYPE c16@0:8
+METHOD + useNewPrimitiveRestartBehavior TYPE c16@0:8
+CLASS MTLIOAccelDevice SUPER _MTLDevice SIZE 54368 IMAGE /System/Library/Frameworks/Metal.framework/Versions/A/Metal
+IVAR _deviceRef OFFSET 656 TYPE ^{__IOAccelDevice=}
+IVAR _sharedRef OFFSET 664 TYPE ^{__IOAccelShared=}
+IVAR _acceleratorPort OFFSET 672 TYPE I
+IVAR _acceleratorService OFFSET 680 TYPE @"MTLIOAccelService"
+IVAR _storageCreateParams OFFSET 688 TYPE {?="segmentListShmemPool"@"MTLIOAccelDeviceShmemPool""kernelCommandShmemPool"@"MTLIOAccelDeviceShmemPool""hwResourcePools"^@"hwResourcePoolCount"I"akResourceListPool"@"MTLResourceListPool""akPrivateResourceListPool"@"MTLResourceListPool"}
+IVAR _commandBufferStoragePool OFFSET 736 TYPE ^{MTLIOAccelCommandBufferStoragePool={storageQueue=^{MTLIOAccelCommandBufferStorage}^^{MTLIOAccelCommandBufferStorage}}{os_unfair_lock_s=I}iAi@}
+IVAR _configBits OFFSET 744 TYPE I
+IVAR _deviceBits OFFSET 748 TYPE I
+IVAR _textureRam OFFSET 752 TYPE Q
+IVAR _videoRam OFFSET 760 TYPE Q
+IVAR _sharedMemorySize OFFSET 768 TYPE Q
+IVAR _accelID OFFSET 776 TYPE I
+IVAR _numCommandBuffers OFFSET 780 TYPE Ai
+IVAR _segmentByteThreshold OFFSET 784 TYPE Q
+IVAR _peerGroupID OFFSET 792 TYPE Q
+IVAR _peerIndex OFFSET 800 TYPE I
+IVAR _peerCount OFFSET 804 TYPE I
+IVAR _peerMask OFFSET 808 TYPE I
+IVAR _peerConnectionsLock OFFSET 816 TYPE @"NSLock"
+IVAR _peerConnections OFFSET 824 TYPE [4{?="device"@"MTLIOAccelDevice""refCount"i}]
+IVAR _bufferHeaps OFFSET 888 TYPE [16{MTLIOAccelBufferHeap="buffers"[64@"MTLIOAccelBuffer"]"allocators"[64{MTLRangeAllocator="elements"^{MTLRangeAllocatorElement}"numElements"I"capacity"Q"capacityIncrement"Q"defaultAlignmentMask"Q}]"allocations"[64I]"count"I}]
+IVAR _device_dispatch_queue OFFSET 54264 TYPE @"NSObject<OS_dispatch_queue>"
+IVAR _device_pool_cleanup_queue OFFSET 54272 TYPE @"NSObject<OS_dispatch_queue>"
+IVAR _device_pool_cleanup_source OFFSET 54280 TYPE @"NSObject<OS_dispatch_source>"
+IVAR _device_pool_cleanup_scheduled OFFSET 54288 TYPE B
+IVAR _fenceAllocatedCount OFFSET 54292 TYPE I
+IVAR _fenceMaximumCount OFFSET 54296 TYPE I
+IVAR _fenceBitmapSearchStart OFFSET 54300 TYPE I
+IVAR _fenceBitmapCount OFFSET 54304 TYPE I
+IVAR _fenceAllocationBitmap OFFSET 54312 TYPE ^Q
+IVAR _bufferClass OFFSET 54320 TYPE #
+IVAR _registryID OFFSET 54328 TYPE Q
+IVAR _location OFFSET 54336 TYPE Q
+IVAR _locationNumber OFFSET 54344 TYPE Q
+IVAR _maxTransferRate OFFSET 54352 TYPE Q
+IVAR _deviceWrapper OFFSET 54360 TYPE @"<MTLDeviceSPI>"
+METHOD - dealloc TYPE v16@0:8
+METHOD - .cxx_destruct TYPE v16@0:8
+METHOD - maxBufferLength TYPE Q16@0:8
+METHOD - newIndirectCommandBufferWithDescriptor:maxCommandCount:options: TYPE @40@0:8@16Q24Q32
+METHOD - acceleratorPort TYPE I16@0:8
+METHOD - maxTransferRate TYPE Q16@0:8
+METHOD - _deviceWrapper TYPE @16@0:8
+METHOD - _setDeviceWrapper: TYPE v24@0:8@16
+METHOD - currentAllocatedSize TYPE Q16@0:8
+METHOD - dedicatedMemorySize TYPE Q16@0:8
+METHOD - getSurfaceMode:width:height:forId: TYPE i44@0:8^Q16^I24^I32I40
+METHOD - hasUnifiedMemory TYPE c16@0:8
+METHOD - indirectArgumentBufferDecodingData TYPE @16@0:8
+METHOD - isHeadless TYPE c16@0:8
+METHOD - isLowPower TYPE c16@0:8
+METHOD - isRemovable TYPE c16@0:8
+METHOD - location TYPE Q16@0:8
+METHOD - locationNumber TYPE Q16@0:8
+METHOD - newAccelerationStructureWithBuffer:offset: TYPE @32@0:8@16Q24
+METHOD - newAccelerationStructureWithBuffer:offset:resourceIndex: TYPE @40@0:8@16Q24Q32
+METHOD - newAccelerationStructureWithSize: TYPE @24@0:8Q16
+METHOD - newAccelerationStructureWithSize:resourceIndex: TYPE @32@0:8Q16Q24
+METHOD - newAccelerationStructureWithSize:withDescriptor: TYPE @32@0:8Q16@24
+METHOD - newArgumentEncoderWithLayout: TYPE @24@0:8@16
+METHOD - newCommandQueueWithDescriptor: TYPE @24@0:8@16
+METHOD - newEvent TYPE @16@0:8
+METHOD - newEventWithOptions: TYPE @24@0:8q16
+METHOD - newFence TYPE @16@0:8
+METHOD - newGLDrawable TYPE @16@0:8
+METHOD - newIOCommandQueueWithDescriptor:error: TYPE @32@0:8@16^@24
+METHOD - newIOFileHandleWithURL:compressionMethod:error: TYPE @40@0:8@16q24^@32
+METHOD - newIOFileHandleWithURL:error: TYPE @32@0:8@16^@24
+METHOD - newIOHandleWithURL:compressionMethod:error: TYPE @40@0:8@16q24^@32
+METHOD - newIOHandleWithURL:compressionType:error: TYPE @40@0:8@16q24^@32
+METHOD - newIOHandleWithURL:error: TYPE @32@0:8@16^@24
+METHOD - newIndirectArgumentBufferLayoutWithStructType: TYPE @24@0:8@16
+METHOD - newIndirectArgumentEncoderWithLayout: TYPE @24@0:8@16
+METHOD - newIntersectionFunctionTableWithDescriptor: TYPE @24@0:8@16
+METHOD - newTiledTextureWithBytesNoCopy:length:deallocator:descriptor:offset:bytesPerRow: TYPE @64@0:8^v16Q24@?32@40Q48Q56
+METHOD - newTiledTextureWithBytesNoCopy:length:descriptor:offset:bytesPerRow: TYPE @56@0:8^v16Q24@32Q40Q48
+METHOD - newUncachedIOFileHandleWithURL:compressionMethod:error: TYPE @40@0:8@16q24^@32
+METHOD - newUncachedIOFileHandleWithURL:error: TYPE @32@0:8@16^@24
+METHOD - newUncachedIOHandleWithURL:compressionType:error: TYPE @40@0:8@16q24^@32
+METHOD - newUncachedIOHandleWithURL:error: TYPE @32@0:8@16^@24
+METHOD - peerCount TYPE I16@0:8
+METHOD - peerGroupID TYPE Q16@0:8
+METHOD - peerIndex TYPE I16@0:8
+METHOD - recommendedMaxWorkingSetSize TYPE Q16@0:8
+METHOD - registryID TYPE Q16@0:8
+METHOD - setIndirectArgumentBufferDecodingData: TYPE v24@0:8@16
+METHOD - sharedMemorySize TYPE Q16@0:8
+METHOD - supportPriorityBand TYPE c16@0:8
+METHOD - supportsVertexAmplification TYPE c16@0:8
+METHOD - supportsVertexAmplificationCount: TYPE c24@0:8Q16
+METHOD - memoryInfo TYPE @16@0:8
+METHOD - hwResourcePools TYPE ^@16@0:8
+METHOD - deallocBufferSubData:heapIndex:bufferIndex:bufferOffset:length: TYPE v48@0:8@16s24s28Q32Q40
+METHOD - _addResource: TYPE v24@0:8@16
+METHOD - _purgeDevice TYPE v16@0:8
+METHOD - _removeResource: TYPE v24@0:8@16
+METHOD - _setAcceleratorService: TYPE v24@0:8@16
+METHOD - akPrivateResourceListPool TYPE @16@0:8
+METHOD - akResourceListPool TYPE @16@0:8
+METHOD - allocBufferSubDataWithLength:options:alignment:heapIndex:bufferIndex:bufferOffset: TYPE @64@0:8Q16Q24Q32^s40^s48^Q56
+METHOD - bufferClass TYPE #16@0:8
+METHOD - deviceRef TYPE ^{__IOAccelDevice=}16@0:8
+METHOD - getBuiltInGPUProperties:transferRate: TYPE v32@0:8^Q16^Q24
+METHOD - getExternalGPUProperties:transferRate: TYPE v32@0:8^Q16^Q24
+METHOD - getSlottedGPUProperties:transferRate: TYPE v32@0:8^Q16^Q24
+METHOD - heapIndexWithOptions: TYPE s24@0:8Q16
+METHOD - hwResourcePoolCount TYPE I16@0:8
+METHOD - initWithAcceleratorPort: TYPE @20@0:8I16
+METHOD - initialKernelCommandShmemSize TYPE I16@0:8
+METHOD - initialSegmentListShmemSize TYPE I16@0:8
+METHOD - isBuiltIn TYPE c16@0:8
+METHOD - isSlotted TYPE c16@0:8
+METHOD - kickCleanupQueue TYPE v16@0:8
+METHOD - lazyInitialize TYPE c16@0:8
+METHOD - numCommandBuffers TYPE i16@0:8
+METHOD - releaseFenceIndex: TYPE v20@0:8I16
+METHOD - releasePeerConnection: TYPE v24@0:8@16
+METHOD - retainPeerConnection: TYPE c24@0:8@16
+METHOD - setComputePipelineStateCommandShmemSize: TYPE v20@0:8I16
+METHOD - setHwResourcePool:count: TYPE v28@0:8^@16i24
+METHOD - setSegmentListShmemSize: TYPE v20@0:8I16
+METHOD - sharedRef TYPE ^{__IOAccelShared=}16@0:8
+METHOD - supportLazyInitialization TYPE c16@0:8
+METHOD - updateGPUSelectionProperties TYPE v16@0:8
+METHOD - updateResourcePoolPurgeability TYPE v16@0:8

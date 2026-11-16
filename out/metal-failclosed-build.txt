@@ -1,0 +1,43 @@
+/var/tmp/vgpu-fb/VGPUMetalFailClosedDevice [x86_64]:
+    -inits:
+    -exports:
+        offset      symbol
+        0x000020C0  _OBJC_CLASS_$_VGPUMetalFailClosedDevice
+        0x00002098  _OBJC_METACLASS_$_VGPUMetalFailClosedDevice
+    -imports:
+      0x0000  ___stderrp  (from libSystem)
+      0x0001  _fprintf  (from libSystem)
+      0x0002  _object_dispose  (from libobjc)
+      0x0003  __objc_empty_cache  (from libobjc)
+      0x0004  _OBJC_METACLASS_$__MTLDevice  (from Metal)
+      0x0005  _OBJC_METACLASS_$_NSObject  (from libobjc)
+      0x0006  _OBJC_CLASS_$__MTLDevice  (from Metal)
+    -objc:
+        @interface VGPUMetalFailClosedDevice : _MTLDevice 
+          0x00000800  -[VGPUMetalFailClosedDevice initWithAcceleratorPort:]
+        @end
+(__TEXT,__text) section:
+-[VGPUMetalFailClosedDevice initWithAcceleratorPort:]:
+0x000000800   pushq    %rbp                 
+0x000000801   movq     %rsp, %rbp           
+0x000000804   subq     $0x20, %rsp          
+0x000000808   movq     %rdi, -0x8(%rbp)     
+0x00000080C   movq     %rsi, -0x10(%rbp)    
+0x000000810   movl     %edx, -0x14(%rbp)    
+0x000000813   movq     0x7e6(%rip), %rax    ; ___stderrp
+0x00000081A   movq     (%rax), %rdi         
+0x00000081D   movl     -0x14(%rbp), %edx    
+0x000000820   leaq     0x3d(%rip), %rsi     ; string literal: "VGPU_METAL_DIAGNOSTIC_INIT service=0x%x result=nil GPU_NOT_EXECUTED\n"
+0x000000827   movb     $0x0, %al            
+0x000000829   callq    _fprintf             
+0x00000082E   movq     -0x8(%rbp), %rdi     
+0x000000832   callq    _object_dispose      
+0x000000837   xorl     %eax, %eax           
+0x000000839   addq     $0x20, %rsp          
+0x00000083D   popq     %rbp                 
+0x00000083E   retq                          
+(__TEXT,__stubs) section:
+_fprintf:
+0x000000840   jmpq     *0x7c2(%rip)         ; _fprintf
+_object_dispose:
+0x000000846   jmpq     *0x7c4(%rip)         ; _object_dispose

@@ -1,0 +1,136 @@
+GLD pixel 系统导出包装结果
+日期：2026-11-16
+
+交付范围
+新增 gld_pixel_exports.c/.h、../probes/gld_pixel_exports_probe.c、verify_exports.py、
+exports-test-results.txt 与本记录；修改 gld_pixel_adapter.c/.h。
+原 gld_pixel.c/.h 不变，独立 generation API 保留。
+本次语义修正仅改exports.c/.h、exports probe、verify_exports.py及两份exports结果；
+adapter.c/.h与parser及其回归probe的SHA256同前次，surface/context未触碰。
+未安装、未改内核、未执行git；未调用任何系统私有GLD入口。
+客体构建产物限定 /var/tmp/vgpu-fb/kexts/gld-pixel-exports。
+
+实际公开入口（nm -gU 普通/sanitized正式dylib均只有这三项）
+int32_t gldChoosePixelFormat(void **out_head, const uint32_t *tokens);
+int32_t gldDestroyPixelFormat(void *head);
+int32_t gpx_configure(const gp_format_cap *formats, size_t count);
+前两项是已证系统形态，第三项为自研集成配置入口，不占Apple GLD槽。
+正式构建 -fvisibility=hidden，仅上述声明显式default visibility。
+集成方将三个模块 gld_pixel.c/gld_pixel_adapter.c/gld_pixel_exports.c 一起链接，
+由backend调用gpx_configure提交已证完整组合，再将两个系统符号用于对应GLD槽。
+默认无能力，绝不发布测试fixture。卸载前销毁所有链并gpx_configure(NULL,0)。
+本层导出已实际动态加载运行；完整初始化/设备/renderer/context插件接入不在本次范围，
+没有声称已完成真实CGL发现、GPU渲染或完整可安装GLD驱动。
+
+错误码证据与明确映射
+通过已有mssh读取客体本机SDK，实际解析路径：
+/Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk/System/Library/Frameworks/OpenGL.framework/Versions/A/Headers/CGLTypes.h
+第240行 kCGLNoError=0
+第241行 kCGLBadAttribute=10000 (0x2710)
+第243行 kCGLBadPixelFormat=10002 (0x2712)
+第249行 kCGLBadValue=10008 (0x2718)
+第250行 kCGLBadMatch=10009 (0x2719)
+第257行 kCGLBadAlloc=10016 (0x2720)
+源码直接包含SDK CGLTypes.h，并对六个值做_Static_assert，不手写猜测返回编码。
+成功0还对应既有adapter-results.txt所列GLEngine EAX检查及driver-evidence.txt
+GPUSupport 0x7FF918355F7C xorl eax,eax（NULL也走该成功路径）。
+
+系统 gldChoosePixelFormat 的有证修正：
+GP_OK -> NoError；GP_NO_MATCH -> NoError且head=NULL；GP_BAD_VALUE -> BadValue。
+负值仅指已支持数值token 8/11/12/13的后继值，不把未知token当作负数值。
+其余映射：BAD_ARGUMENT/TRUNCATED_VALUE/UNTERMINATED/UNSUPPORTED_TOKEN/OVERFLOW、
+GPA_READ_FAILED/WORD_LIMIT -> BadAttribute；GP_UNSUPPORTED_FORMAT -> BadPixelFormat；
+GP_NO_MEMORY、GPA_GENERATION_EXHAUSTED、GPA_LOCK_FAILED -> BadAlloc。
+系统 gldDestroyPixelFormat：NULL及当前注册head成功；外来/内部/未注册head -> BadPixelFormat，
+锁失败 -> BadAlloc。保持锁内owner验证；不为模仿硬件free而接受外来指针。
+自研 gpx_configure 继续原映射：GPA_BUSY/GPA_DRIVER_MISMATCH -> BadMatch，
+参数/溢出 -> BadAttribute，分配/锁失败 -> BadAlloc；与系统choose的无候选语义分开。
+SDK BadMatch注释是invalid share context；配置冲突的BadMatch只属于自研接口策略。
+除下列已证分支外，输入边界/注册表拒绝/可恢复分配错误仍属本层策略，不宣称硬件完全等价。
+
+硬件及调用端证据（只读已存文件，未调用Apple私有入口）：
+- driver-evidence.txt 0x7FF918355647先清输出；0x7FF918355A27/A2E在设备数0时跳DA9，
+  DA9清EDI，DAB/DB2将NULL写回，DB5清EAX。筛选后计数及链为空同样走该成功出口。
+- token跳转表将8/11/12/13分别连到7F5/88C/865/8C2；各分支test值并js到
+  0x7FF918355DB9，返回0x2718，SDK确认为kCGLBadValue=10008。
+- 硬件destroy 0x7FF918355F6D/F70检查NULL，NULL直达F7C清EAX；非NULL释放后也返回0。
+- out/glengine-contract-snippets.txt 的 _gliChoosePixelFormat：0x7FFB0637AE06保存EAX；
+  AE0D/AE10发现NULL跳AE38，不接链；AE38取下一插件，AE41/AE44仅在状态0时回ADF8。
+  因此成功+NULL保留已有候选并继续枚举；若错误地返回BadMatch，则AE46/AE49进入错误分支，
+  AE4F..AE5C销毁此前累积候选并清空输出，AE70返回该错误。无下一插件时成功空结果仍返回0。
+- 上述是本版本静态控制流证明；动态测试仅调用自研dylib，未声称完成真实GLEngine插件加载。
+
+锁、owner与driver段
+adapter内部有独立API注册表与系统包装注册表，两者配置、owner、代次计数隔离，
+同一pthread互斥锁保护。系统choose只用系统表；不调用独立gpa_choose。
+系统配置先复制，再验证所有(renderer_id & 0x00ffff00)相等，失败释放副本且保留旧表。
+不依赖输入表在验证后仍不变的双次读取；调用期间输入本身仍须稳定有效。
+高8位和低8位允许不同，段内16位任何差异均拒绝；默认NULL/0，不虚构renderer ID。
+如此同次owner链不会被GLEngine按driver段拆成内部节点送回本驱动destroy。
+每次合法全表替换允许新的统一段；集成方仍负责ID与实际插件路由一致。活跃系统owner
+存在时拒绝系统配置替换/清空。不能把不同驱动的节点插入本owner内部或修改节点ID。
+
+gpa_system_destroy_current在锁内比较当前注册head，找到的owner含当前generation；
+不解锁、不把generation返回包装再查第二次；直接在同锁范围移除、销毁一次并释放owner。
+不读取输入指针，不遍历可被上层改写的next。NULL直接GP_OK；外来非NULL、内部节点、
+当前未注册head失败。两个线程在没有中间重分配的条件下销毁同head只有一次成功。
+独立gpa_destroy继续必须匹配head与非零generation，旧generation仍无法释放新owner。
+
+系统ABI生命周期边界
+标准free式契约：销毁后不得再次使用旧指针。无generation的系统参数不能区分重用地址
+的新owner与旧指针，故不承诺ABA拒绝，不把独立API的generation保证泛化到系统ABI。
+重复销毁测试只验证没有中间重新分配时的当前注册表拒绝；并发循环只执行合法生命周期。
+读链与销毁由调用者同步。不支持信号处理器及多线程fork后未exec的子进程调用。
+
+输入边界
+沿用adapter逐词mach_vm_read_overwrite、256词限额、只在token位置遇0终止；
+失败输出清NULL，不发布owner。out_head须真实可写、独占并且不与输入重叠。
+Mach保证映射复制，不证明malloc对象长度，也不是整个流的原子快照；调用方须稳定保活。
+真实malloc(4)终止词/未知词测试不会请求第2词，但无终止短堆对象的C对象边界仍不可知。
+ASan不会把Mach内核复制源检查成C对象边界；本记录不以ASan通过掩盖该限制。
+
+验证与重现
+宿主运行 python kexts/gld-pixel/verify_exports.py，使用既有客体连接，不输出凭据。
+该脚本上传显式源码到专用目录，编译普通与ASan/UBSan库及harness并运行，记录每个
+命令、退出码、SDK原行和源码SHA256到exports-test-results.txt。
+客体macOS 15.7.3 / 24G419，Apple clang17.0.0，x86_64-apple-darwin24.6.0。
+全部C源码/测试严格标志：
+-std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow
+-Wstrict-prototypes -Wmissing-prototypes -fno-common -pthread -I.
+普通 -O2；sanitized -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer。
+ASAN_OPTIONS=halt_on_error=1:abort_on_error=1
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
+
+结果（所有命令退出0）
+修正后重跑verify_exports.py：REMOTE_EXIT=0，全部命令EXIT 0。
+宿主解释器 C:/Users/Pika/WorkBuddy/2026-09-27-20-30-43/.venv/Scripts/python.exe。
+正式dlopen/dlsym harness：普通342 checks/0 failures；sanitized342/0。
+分配注入dlopen/dlsym harness：普通351/0；sanitized351/0。
+每次exports harness另含4线程各500轮合法choose/destroy，共四次8000轮。
+既有adapter普通323/0、sanitized323/0，各含4x500并发生命周期。
+既有parser普通28154/0、sanitized28154/0。
+gld_pixel.c、gld_pixel_adapter.c、gld_pixel_exports.c clang --analyze全部无诊断。
+
+动态harness只dlsym并调用自研已知原型：gldChoosePixelFormat、gldDestroyPixelFormat、
+gpx_configure；故障库另一个gpx_test_fail_after也为本次自研已知入口。
+不dlsym或调用Apple GLD/GPUSupport函数。正式harness未静态链接adapter/exports实现。
+分配注入通过单独编译的测试对象替换malloc/calloc；仅故障库含控制入口，正式库不含。
+验证owner calloc失败、节点malloc失败后的owner清理、配置副本malloc失败后的旧表保留；
+三个实际路径均返回SDK BadAlloc，不靠只测映射函数或让系统真的内存耗尽。
+
+覆盖
+- 默认/清空、超出已配置能力及四种数值token的INT32_MAX请求均显式断言成功+NULL；
+  输出先置哨兵以验证清空，重复destroy(NULL)均成功，空结果后仍可换表及选择非空候选。
+- expect不再将成功等同head非NULL；expect_empty经dlsym实际调用两个系统导出。
+- 四种已支持数值token分别测试-1与INT32_MIN返回BadValue；NULL输出/输入、未知项、坏能力仍覆盖。
+- 同driver段不同高/低字节成功；bit8和bit16差异分别拒绝且旧表保持。
+- 真实4字节堆流0/未知项、未对齐合法流、0值非终止、256词限额。
+- PROT_NONE之前最后4字节终止成功；不可读页、跨页1/2/3字节残词、缺终止、
+  token缺值、值0后缺终止、页尾未知token均按预期；不可读非NULL destroy失败不解引用。
+- NULL destroy成功、外来/内部节点拒绝、next自环仍释放一次、即时duplicate拒绝。
+- 活跃owner禁止换表、原始flags=0与renderer ID原样保留；两线程竞争销毁及并发合法循环。
+- BadAttribute/BadValue/BadPixelFormat/BadAlloc及成功的系统导出端到端断言；
+  BadMatch仅在自研配置入口的跨driver段/活跃owner冲突测试中期望。
+未使用TSan/LeakSanitizer；静态分析和受测并发通过不等于穷尽全部竞态。
+
+本记录是adapter-results.txt中“尚无系统导出”的后续闭合；该旧文件保留历史证据。

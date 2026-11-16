@@ -1,11 +1,19 @@
 // 使用系统 Metal framework 验证设备枚举、compute 和 render pipeline。
 // 只有设备存在且计算、真实绘制与像素回读均通过才返回成功。
 // 构建与运行必须在 macOS 客体中实际进行；同时支持 ARC 和 MRC。
-// clang -Wall -Wextra -Werror -framework Foundation -framework Metal -o /tmp/metalprobe metal_probe.m
+// clang -Wall -Wextra -Werror -framework Foundation -framework Metal -framework IOKit -o /tmp/metalprobe metal_probe.m
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
+#include <CoreFoundation/CoreFoundation.h>
+#include <IOKit/IOKitLib.h>
+#include <sys/stat.h>
+#include <sys/sysctl.h>
+#include <sys/utsname.h>
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #if __has_feature(objc_arc)
 #define PROBE_RELEASE(object) ((void)(object))
@@ -16,6 +24,166 @@
 static const char *diagnostic_text(NSString *text) {
     const char *utf8 = [text UTF8String];
     return utf8 != NULL ? utf8 : "(unavailable)";
+}
+
+static void print_cf(CFTypeRef value) {
+    if (value == NULL) { printf("absent"); return; }
+    CFStringRef description = CFCopyDescription(value);
+    if (description == NULL) { printf("(description unavailable)"); return; }
+    CFIndex capacity = CFStringGetMaximumSizeForEncoding(CFStringGetLength(description), kCFStringEncodingUTF8) + 1;
+    char *text = malloc((size_t)capacity);
+    if (text != NULL && CFStringGetCString(description, text, capacity, kCFStringEncodingUTF8))
+        printf("%s", text);
+    else printf("(conversion unavailable)");
+    free(text);
+    CFRelease(description);
+}
+
+static void print_property(const char *key, CFTypeRef value) {
+    printf("  %s present=%s", key, value != NULL ? "true" : "false");
+    if (value != NULL) {
+        CFStringRef type = CFCopyTypeIDDescription(CFGetTypeID(value));
+        printf(" type="); print_cf(type);
+        printf(" value="); print_cf(value);
+        if (type != NULL) CFRelease(type);
+    }
+    printf("\n");
+}
+
+// 本诊断只处理短 ASCII 文件名，不模拟 loader 对异常字符串的行为。
+static const char *discovery_name_gate(CFTypeRef value, char name[255]) {
+    if (value == NULL) return "G1_NO_METAL_PLUGIN_NAME";
+    if (CFGetTypeID(value) != CFStringGetTypeID()) return "G1_NAME_NOT_STRING";
+    if (!CFStringGetCString((CFStringRef)value, name, 255, kCFStringEncodingUTF8))
+        return "DIAGNOSTIC_NAME_UNSUPPORTED";
+    size_t length = strlen(name);
+    if (length == 0 || (CFIndex)length != CFStringGetLength((CFStringRef)value) ||
+        strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
+        return "DIAGNOSTIC_NAME_UNSUPPORTED";
+    for (size_t i = 0; i < length; ++i) {
+        unsigned char c = (unsigned char)name[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.'))
+            return "DIAGNOSTIC_NAME_UNSUPPORTED";
+    }
+    return NULL;
+}
+
+static BOOL describe_path(const char *path) {
+    struct stat entry, target;
+    int entryResult = lstat(path, &entry);
+    int entryError = entryResult == 0 ? 0 : errno;
+    int targetResult = stat(path, &target);
+    int targetError = targetResult == 0 ? 0 : errno;
+    printf("  path=%s lstat=%d errno=%d symlink=%s stat=%d errno=%d directory=%s\n",
+           path, entryResult, entryError,
+           entryResult == 0 && S_ISLNK(entry.st_mode) ? "true" : "false",
+           targetResult, targetError,
+           targetResult == 0 && S_ISDIR(target.st_mode) ? "true" : "false");
+    return targetResult == 0;
+}
+
+static void inspect_bundle_files(const char *root, const char *name) {
+    char bundle[1024], plistPath[1200];
+    snprintf(bundle, sizeof(bundle), "%s/%s.bundle", root, name);
+    if (!describe_path(bundle)) return;
+    snprintf(plistPath, sizeof(plistPath), "%s/Contents/Info.plist", bundle);
+    if (!describe_path(plistPath)) return;
+    CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)plistPath,
+                                                          (CFIndex)strlen(plistPath), false);
+    CFReadStreamRef stream = url != NULL ? CFReadStreamCreateWithFile(NULL, url) : NULL;
+    CFPropertyListRef plist = NULL;
+    CFErrorRef error = NULL;
+    if (stream != NULL && CFReadStreamOpen(stream))
+        plist = CFPropertyListCreateWithStream(NULL, stream, 0, kCFPropertyListImmutable, NULL, &error);
+    if (stream != NULL) { CFReadStreamClose(stream); CFRelease(stream); }
+    if (url != NULL) CFRelease(url);
+    if (plist == NULL || CFGetTypeID(plist) != CFDictionaryGetTypeID()) {
+        printf("  plist=UNREADABLE_OR_NOT_DICTIONARY error="); print_cf(error); printf("\n");
+    } else {
+        CFDictionaryRef dict = (CFDictionaryRef)plist;
+        CFTypeRef executable = CFDictionaryGetValue(dict, CFSTR("CFBundleExecutable"));
+        print_property("CFBundleExecutable", executable);
+        print_property("NSPrincipalClass", CFDictionaryGetValue(dict, CFSTR("NSPrincipalClass")));
+        char leaf[255];
+        if (discovery_name_gate(executable, leaf) == NULL) {
+            char executablePath[1500];
+            snprintf(executablePath, sizeof(executablePath), "%s/Contents/MacOS/%s", bundle, leaf);
+            if (describe_path(executablePath)) {
+                CFURLRef executableURL = CFURLCreateFromFileSystemRepresentation(NULL,
+                    (const UInt8 *)executablePath, (CFIndex)strlen(executablePath), false);
+                CFArrayRef architectures = executableURL != NULL ?
+                    CFBundleCopyExecutableArchitecturesForURL(executableURL) : NULL;
+                printf("  executable Mach-O CPU types (16777223=x86_64, 16777228=arm64)=");
+                print_cf(architectures); printf("\n");
+                if (architectures != NULL) CFRelease(architectures);
+                if (executableURL != NULL) CFRelease(executableURL);
+            }
+        } else printf("  executable inspection=DIAGNOSTIC_NAME_UNSUPPORTED\n");
+    }
+    if (error != NULL) CFRelease(error);
+    if (plist != NULL) CFRelease(plist);
+}
+
+static int discovery_contract_only(void) {
+    char build[128] = "unknown";
+    size_t buildSize = sizeof(build);
+    if (sysctlbyname("kern.osversion", build, &buildSize, NULL, 0) != 0)
+        snprintf(build, sizeof(build), "unknown");
+    struct utsname machine;
+    int unameResult = uname(&machine);
+    printf("DISCOVERY_CONTRACT_ONLY OS=%s build=%s arch=%s\n",
+           diagnostic_text([[NSProcessInfo processInfo] operatingSystemVersionString]), build,
+           unameResult == 0 ? machine.machine : "unknown");
+    printf("trust=NOT_EXECUTED/UNKNOWN class_resolution=NOT_EXECUTED/UNKNOWN "
+           "inheritance=NOT_EXECUTED/UNKNOWN init=NOT_EXECUTED/UNKNOWN "
+           "type5=NOT_EXECUTED/UNKNOWN GPU=NOT_EXECUTED/UNKNOWN\n");
+    CFMutableDictionaryRef matching = IOServiceMatching("IOAccelerator");
+    if (matching == NULL) { printf("ERROR: matching dictionary unavailable\n"); return 1; }
+    io_iterator_t iterator = IO_OBJECT_NULL;
+    kern_return_t status = IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator);
+    if (status != KERN_SUCCESS) {
+        printf("ERROR: IOServiceGetMatchingServices=0x%x\n", (unsigned)status);
+        if (iterator != IO_OBJECT_NULL) IOObjectRelease(iterator);
+        return 1;
+    }
+    unsigned count = 0;
+    io_service_t service;
+    while ((service = IOIteratorNext(iterator)) != IO_OBJECT_NULL) {
+        ++count;
+        io_name_t className = "unknown";
+        io_string_t path = "unknown";
+        uint64_t registryID = 0;
+        kern_return_t classStatus = IOObjectGetClass(service, className);
+        kern_return_t idStatus = IORegistryEntryGetRegistryEntryID(service, &registryID);
+        kern_return_t pathStatus = IORegistryEntryGetPath(service, kIOServicePlane, path);
+        printf("candidate=%u class=%s class_status=0x%x registryID=0x%llx id_status=0x%x path=%s path_status=0x%x\n",
+               count, className, (unsigned)classStatus, (unsigned long long)registryID,
+               (unsigned)idStatus, path, (unsigned)pathStatus);
+        printf("  IOServiceCompatibility=%s\n",
+               IOObjectConformsTo(service, "IOServiceCompatibility") ? "true" : "false");
+        const CFStringRef keys[] = {CFSTR("MetalPluginName"), CFSTR("MetalPluginClassName"),
+                                   CFSTR("Removable"), CFSTR("SafeEjectRequested")};
+        const char *labels[] = {"MetalPluginName", "MetalPluginClassName", "Removable", "SafeEjectRequested"};
+        CFTypeRef properties[4] = {NULL, NULL, NULL, NULL};
+        for (size_t i = 0; i < 4; ++i) {
+            properties[i] = IORegistryEntryCreateCFProperty(service, keys[i], NULL, 0);
+            print_property(labels[i], properties[i]);
+        }
+        char name[255];
+        const char *gate = discovery_name_gate(properties[0], name);
+        if (gate != NULL) printf("  stage=%s\n", gate);
+        else {
+            inspect_bundle_files("/Library/GPUBundles", name);
+            inspect_bundle_files("/System/Library/Extensions", name);
+            printf("  stage=FILES_INSPECTED_LOADER_NOT_EXECUTED\n");
+        }
+        for (size_t i = 0; i < 4; ++i) if (properties[i] != NULL) CFRelease(properties[i]);
+        IOObjectRelease(service);
+    }
+    IOObjectRelease(iterator);
+    printf("DISCOVERY_COMPLETE candidates=%u; diagnostic completion is not Metal availability\n", count);
+    return 0;
 }
 
 static BOOL check_compute(id<MTLDevice> dev, id<MTLCommandQueue> q) {
@@ -250,8 +418,14 @@ cleanup:
     return passed;
 }
 
-int main(void) {
+int main(int argc, const char *argv[]) {
     @autoreleasepool {
+        if (argc == 2 && strcmp(argv[1], "--discovery-contract-only") == 0)
+            return discovery_contract_only();
+        if (argc != 1) {
+            fprintf(stderr, "usage: %s [--discovery-contract-only]\n", argv[0]);
+            return 64;
+        }
         int result = 1;
         NSArray<id<MTLDevice>> *all = MTLCopyAllDevices();
         id<MTLDevice> dev = nil;

@@ -1,0 +1,870 @@
+$ test -d /var/tmp && mkdir -p /var/tmp/vgpu-context-independent/gld-context /var/tmp/vgpu-context-independent/gld-surface /var/tmp/vgpu-context-independent/probes
+
+exit=0
+
+$ cd /var/tmp/vgpu-context-independent && clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer gld-context/vgpu_context.c gld-surface/vgpu_surface.c probes/gld_context_probe.c -framework IOKit -framework CoreFoundation -lpthread -o gld_context_probe
+
+exit=0
+
+$ if pgrep -x gld_surface_probe || pgrep -x gld_context_probe; then exit 76; fi
+
+exit=0
+
+完整轮次=1
+
+$ cd /var/tmp/vgpu-context-independent && ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ./gld_context_probe
+独立 context GPU probe：合成 H/B 仅用于契约输入，clear/read 使用真实连接
+RESULT checks=1 status=FAIL exit=1
+FAIL line=48 vgc_share_create(&share) actual=0xe00002c1 expected=0x00000000
+
+exit=1
+
+===== 权限修正后的独立验证；以上历史原始日志保持不变 =====
+RUN UTC 2026-11-16T08:48:08.730981+00:00
+
+$ sudo=False id; sysctl kern.boottime; ioreg -r -c vgpuAccelerator -l; ps -axo pid,ppid,user,lstart,comm
+uid=501(pika) gid=20(staff) groups=20(staff),12(everyone),61(localaccounts),79(_appserverusr),80(admin),81(_appserveradm),399(com.apple.access_ssh),701(com.apple.sharepoint.group.1),33(_appstore),98(_lpadmin),100(_lpoperator),204(_developer),250(_analyticsusers),395(com.apple.access_ftp),398(com.apple.access_screensharing),400(com.apple.access_remote_ae)
+kern.boottime: { sec = 1794815120, usec = 47049 } Mon Nov 16 15:45:20 2026
++-o vgpuAccelerator  <class vgpuAccelerator, id 0x10000045e, registered, matched, active, busy 0 (394 ms), retain 6>
+    {
+      "IOProbeScore" = 0
+      "CFBundleIdentifier" = "com.vgpu.framebuffer"
+      "IOMatchCategory" = "IOAccelerator"
+      "IOClass" = "vgpuAccelerator"
+      "IOPersonalityPublisher" = "com.vgpu.framebuffer"
+      "IOProviderClass" = "vgpuFramebuffer"
+      "CFBundleIdentifierKernel" = "com.vgpu.framebuffer"
+      "IOGLBundleName" = "VGPUDriverDiagnostic"
+    }
+    
+
+  PID  PPID USER             STARTED                      COMM
+    1     0 root             Mon Nov 16 15:45:19 2026     /sbin/launchd
+   97     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/logd
+   98     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/smd
+   99     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/UserEventAgent
+  102     1 root             Mon Nov 16 15:45:26 2026     /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/FSEvents.framework/Versions/A/Support/fseventsd
+  103     1 root             Mon Nov 16 15:45:26 2026     /System/Library/PrivateFrameworks/MediaRemote.framework/Support/mediaremoted
+  106     1 root             Mon Nov 16 15:45:26 2026     /usr/sbin/systemstats
+  109     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/configd
+  110     1 root             Mon Nov 16 15:45:26 2026     endpointsecurityd
+  111     1 root             Mon Nov 16 15:45:26 2026     /System/Library/CoreServices/powerd.bundle/powerd
+  114     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/amfid
+  118     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/keybagd
+  119     1 _softwareupdate  Mon Nov 16 15:45:26 2026     /System/Library/PrivateFrameworks/MobileSoftwareUpdate.framework/Support/softwareupdated
+  120     1 _corespeechd     Mon Nov 16 15:45:26 2026     /System/Library/PrivateFrameworks/CoreSpeech.framework/corespeechd_system
+  125     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/warmd
+  126     1 root             Mon Nov 16 15:45:26 2026     /System/Library/Frameworks/CoreServices.framework/Frameworks/Metadata.framework/Support/mds
+  127     1 _iconservices    Mon Nov 16 15:45:26 2026     /System/Library/CoreServices/iconservicesd
+  128     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/kernelmanagerd
+  129     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/diskarbitrationd
+  132     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/coreduetd
+  133     1 root             Mon Nov 16 15:45:26 2026     /usr/sbin/syslogd
+  136     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/thermalmonitord
+  137     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/opendirectoryd
+  139     1 root             Mon Nov 16 15:45:26 2026     /System/Library/PrivateFrameworks/ApplePushService.framework/apsd
+  140     1 root             Mon Nov 16 15:45:26 2026     /System/Library/CoreServices/launchservicesd
+  141     1 _timed           Mon Nov 16 15:45:26 2026     /usr/libexec/timed
+  142     1 _usbmuxd         Mon Nov 16 15:45:26 2026     /System/Library/PrivateFrameworks/MobileDevice.framework/Versions/A/Resources/usbmuxd
+  143     1 root             Mon Nov 16 15:45:26 2026     /usr/sbin/securityd
+  145     1 _locationd       Mon Nov 16 15:45:26 2026     /usr/libexec/locationd
+  146     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/nesessionmanager
+  147     1 root             Mon Nov 16 15:45:26 2026     autofsd
+  148     1 _displaypolicyd  Mon Nov 16 15:45:26 2026     /usr/libexec/displaypolicyd
+  149     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/dasd
+  150     1 root             Mon Nov 16 15:45:26 2026     /System/Library/PrivateFrameworks/Heimdal.framework/Helpers/kdc
+  152     1 _distnote        Mon Nov 16 15:45:26 2026     /usr/sbin/distnoted
+  153     1 root             Mon Nov 16 15:45:26 2026     /System/Library/PrivateFrameworks/AppleCredentialManager.framework/AppleCredentialManagerDaemon
+  154     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/PerfPowerServices
+  155     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/dirhelper
+  156     1 root             Mon Nov 16 15:45:26 2026     /System/Library/CoreServices/logind
+  157     1 root             Mon Nov 16 15:45:26 2026     /System/Library/PrivateFrameworks/GenerationalStorage.framework/Versions/A/Support/revisiond
+  158     1 root             Mon Nov 16 15:45:26 2026     /usr/sbin/KernelEventAgent
+  159     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/usermanagerd
+  161     1 root             Mon Nov 16 15:45:26 2026     /usr/sbin/bluetoothd
+  162     1 root             Mon Nov 16 15:45:26 2026     /usr/sbin/notifyd
+  163     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/sandboxd
+  164     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/corebrightnessd
+  165     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/AirPlayXPCHelper
+  166     1 root             Mon Nov 16 15:45:26 2026     /System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/com.apple.cmio.registerassistantservice
+  167     1 root             Mon Nov 16 15:45:28 2026     aslmanager
+  168     1 _windowserver    Mon Nov 16 15:45:29 2026     /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
+  169     1 root             Mon Nov 16 15:45:29 2026     /usr/sbin/cfprefsd
+  171     1 root             Mon Nov 16 15:45:29 2026     /System/Library/PrivateFrameworks/TCC.framework/Support/tccd
+  172     1 _analyticsd      Mon Nov 16 15:45:29 2026     /System/Library/PrivateFrameworks/CoreAnalytics.framework/Support/analyticsd
+  175     1 root             Mon Nov 16 15:45:29 2026     /usr/libexec/runningboardd
+  178     1 root             Mon Nov 16 15:45:29 2026     /System/Library/CoreServices/loginwindow.app/Contents/MacOS/loginwindow
+  179     1 _trustd          Mon Nov 16 15:45:30 2026     /usr/libexec/trustd
+  180     1 root             Mon Nov 16 15:45:30 2026     /Library/Apple/System/Library/CoreServices/XProtect.app/Contents/XPCServices/XProtectPluginService.xpc/Contents/MacOS/XProtectPluginService
+  181     1 root             Mon Nov 16 15:45:30 2026     /System/Library/CoreServices/coreservicesd
+  182     1 root             Mon Nov 16 15:45:30 2026     /usr/libexec/containermanagerd_system
+  183     1 root             Mon Nov 16 15:45:30 2026     /usr/libexec/trustdFileHelper
+  184     1 root             Mon Nov 16 15:45:30 2026     /usr/libexec/lsd
+  185     1 root             Mon Nov 16 15:45:31 2026     /System/Library/PrivateFrameworks/BackgroundTaskManagement.framework/Resources/backgroundtaskmanagementd
+  186     1 root             Mon Nov 16 15:45:31 2026     /usr/libexec/powerexperienced
+  187     1 root             Mon Nov 16 15:45:31 2026     /usr/libexec/mobileassetd
+  188     1 root             Mon Nov 16 15:45:31 2026     /System/Library/PrivateFrameworks/CoreDuetContext.framework/Resources/contextstored
+  189     1 root             Mon Nov 16 15:45:31 2026     /usr/libexec/PowerUIAgent
+  190     1 root             Mon Nov 16 15:45:32 2026     /usr/libexec/findmydeviced
+  193     1 root             Mon Nov 16 15:45:32 2026     /usr/libexec/nehelper
+  194     1 _networkd        Mon Nov 16 15:45:32 2026     /usr/libexec/symptomsd
+  195     1 root             Mon Nov 16 15:45:32 2026     /usr/libexec/airportd
+  196     1 _cmiodalassistants Mon Nov 16 15:45:32 2026     /usr/sbin/distnoted
+  197     1 root             Mon Nov 16 15:45:32 2026     /System/Library/Frameworks/SystemExtensions.framework/Versions/A/Helpers/sysextd
+  199     1 root             Mon Nov 16 15:45:33 2026     /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/CarbonCore.framework/Versions/A/XPCServices/csnameddatad.xpc/Contents/MacOS/csnameddatad
+  200     1 _mdnsresponder   Mon Nov 16 15:45:33 2026     /usr/sbin/mDNSResponder
+  203     1 root             Mon Nov 16 15:45:33 2026     /usr/sbin/mDNSResponderHelper
+  204     1 root             Mon Nov 16 15:45:33 2026     /System/Library/Frameworks/Security.framework/Versions/A/XPCServices/authd.xpc/Contents/MacOS/authd
+  207     1 root             Mon Nov 16 15:45:33 2026     /usr/libexec/syspolicyd
+  212     1 root             Mon Nov 16 15:45:33 2026     /System/Library/Frameworks/InputMethodKit.framework/Resources/imklaunchagent
+  213     1 root             Mon Nov 16 15:45:33 2026     /usr/libexec/UserEventAgent
+  214     1 root             Mon Nov 16 15:45:33 2026     /usr/sbin/universalaccessd
+  215     1 root             Mon Nov 16 15:45:33 2026     /usr/sbin/distnoted
+  216     1 _coreaudiod      Mon Nov 16 15:45:34 2026     /usr/sbin/coreaudiod
+  217     1 root             Mon Nov 16 15:45:34 2026     /usr/libexec/pkd
+  221     1 root             Mon Nov 16 15:45:34 2026     /usr/libexec/securityd_system
+  222     1 root             Mon Nov 16 15:45:34 2026     /usr/libexec/storagekitd
+  224     1 _coreaudiod      Mon Nov 16 15:45:34 2026     /usr/sbin/distnoted
+  226     1 root             Mon Nov 16 15:45:34 2026     /usr/libexec/cryptexd
+  227     1 _nsurlsessiond   Mon Nov 16 15:45:34 2026     /usr/libexec/nsurlsessiond
+  228     1 root             Mon Nov 16 15:45:34 2026     /usr/libexec/ApplicationFirewall/socketfilterfw
+  229     1 _netbios         Mon Nov 16 15:45:34 2026     /usr/sbin/netbiosd
+  231     1 root             Mon Nov 16 15:45:35 2026     /System/Library/CryptoTokenKit/com.apple.ifdreader.slotd/Contents/MacOS/com.apple.ifdreader
+  232     1 root             Mon Nov 16 15:45:35 2026     /usr/libexec/apfsd
+  234     1 _coreaudiod      Mon Nov 16 15:45:35 2026     /System/Library/Frameworks/CoreAudio.framework/Versions/A/XPCServices/com.apple.audio.DriverHelper.xpc/Contents/MacOS/com.apple.audio.DriverHelper
+  236     1 root             Mon Nov 16 15:45:35 2026     /System/Library/Frameworks/Security.framework/Versions/A/XPCServices/com.apple.CodeSigningHelper.xpc/Contents/MacOS/com.apple.CodeSigningHelper
+  237     1 root             Mon Nov 16 15:45:35 2026     /System/Library/CoreServices/TimeMachine/backupd
+  238     1 root             Mon Nov 16 15:45:35 2026     /usr/libexec/usbd
+  240     1 root             Mon Nov 16 15:45:35 2026     /usr/libexec/secinitd
+  241     1 root             Mon Nov 16 15:45:35 2026     /usr/libexec/fskit_helper
+  242     1 _biome           Mon Nov 16 15:45:35 2026     /System/Library/PrivateFrameworks/BiomeStreams.framework/Support/biomed
+  244     1 root             Mon Nov 16 15:45:36 2026     /System/Library/Frameworks/AudioToolbox.framework/AudioComponentRegistrar
+  247     1 nobody           Mon Nov 16 15:45:36 2026     /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/MacOS/ARDAgent
+  254     1 _coreaudiod      Mon Nov 16 15:45:36 2026     /System/Library/Frameworks/AudioToolbox.framework/XPCServices/com.apple.audio.SandboxHelper.xpc/Contents/MacOS/com.apple.audio.SandboxHelper
+  258     1 root             Mon Nov 16 15:45:36 2026     /System/Library/Frameworks/NetFS.framework/Versions/A/XPCServices/PlugInLibraryService.xpc/Contents/MacOS/PlugInLibraryService
+  267     1 root             Mon Nov 16 15:45:37 2026     /System/Library/PrivateFrameworks/SystemStatusServer.framework/Support/systemstatusd
+  276     1 _cmiodalassistants Mon Nov 16 15:45:38 2026     /usr/libexec/cameracaptured
+  277     1 root             Mon Nov 16 15:45:39 2026     /usr/libexec/countryd
+  278     1 _locationd       Mon Nov 16 15:45:39 2026     /System/Library/PrivateFrameworks/GeoServices.framework/Versions/A/XPCServices/com.apple.geod.xpc/Contents/MacOS/com.apple.geod
+  279     1 _locationd       Mon Nov 16 15:45:39 2026     /usr/sbin/distnoted
+  280     1 root             Mon Nov 16 15:45:39 2026     /System/Library/PrivateFrameworks/PowerLog.framework/Versions/A/XPCServices/PerfPowerTelemetryClientRegistrationService.xpc/Contents/MacOS/PerfPowerTelemetryClientRegistrationService
+  281     1 _locationd       Mon Nov 16 15:45:39 2026     /usr/libexec/secinitd
+  282     1 _locationd       Mon Nov 16 15:45:39 2026     /usr/sbin/cfprefsd
+  283     1 _locationd       Mon Nov 16 15:45:39 2026     /usr/libexec/trustd
+  284     1 root             Mon Nov 16 15:45:39 2026     /System/Library/PrivateFrameworks/FindMyMac.framework/Resources/FindMyMacd
+  285     1 root             Mon Nov 16 15:45:40 2026     /System/Library/Frameworks/CoreServices.framework/Frameworks/Metadata.framework/Versions/A/Support/mds_stores
+  286     1 root             Mon Nov 16 15:45:40 2026     /System/Library/PrivateFrameworks/ModelCatalogRuntime.framework/Versions/A/modelcatalogd
+  287     1 _locationd       Mon Nov 16 15:45:40 2026     /usr/libexec/containermanagerd
+  288     1 _cmiodalassistants Mon Nov 16 15:45:40 2026     /System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/UVCAssistant.systemextension/Contents/MacOS/UVCAssistant
+  289     1 _spotlight       Mon Nov 16 15:45:41 2026     /usr/sbin/distnoted
+  290     1 root             Mon Nov 16 15:45:41 2026     /usr/libexec/logd_helper
+  291     1 _softwareupdate  Mon Nov 16 15:45:42 2026     /System/Library/CoreServices/Software Update.app/Contents/Resources/softwareupdated
+  292     1 _driverkit       Mon Nov 16 15:45:42 2026     /System/Library/DriverExtensions/com.apple.DriverKit-IOUserDockChannelSerial.dext/com.apple.DriverKit-IOUserDockChannelSerial
+  293     1 root             Mon Nov 16 15:45:42 2026     /usr/libexec/kernelmanager_helper
+  294     1 _driverkit       Mon Nov 16 15:45:42 2026     /System/Library/DriverExtensions/com.apple.AppleUserHIDDrivers.dext/com.apple.AppleUserHIDDrivers
+  295     1 _softwareupdate  Mon Nov 16 15:45:42 2026     /usr/sbin/distnoted
+  296     1 root             Mon Nov 16 15:45:42 2026     /System/Library/PrivateFrameworks/MobileSoftwareUpdate.framework/Versions/A/XPCServices/com.apple.MobileSoftwareUpdate.CleanupPreparePathService.xpc/Contents/MacOS/com.apple.MobileSoftwareUpdate.CleanupPreparePathService
+  301     1 root             Mon Nov 16 15:45:42 2026     /System/Library/CoreServices/Software Update.app/Contents/Resources/suhelperd
+  305     1 _accessoryupdater Mon Nov 16 15:45:43 2026     /usr/sbin/distnoted
+  309     1 root             Mon Nov 16 15:45:44 2026     /usr/libexec/searchpartyd
+  311     1 root             Mon Nov 16 15:45:44 2026     /System/Library/CoreServices/TimeMachine/backupd-helper
+  315     1 _nsurlsessiond   Mon Nov 16 15:45:45 2026     /usr/sbin/distnoted
+  317     1 pika             Mon Nov 16 15:45:46 2026     /usr/sbin/distnoted
+  323     1 root             Mon Nov 16 15:45:46 2026     /usr/libexec/taskgated
+  324     1 pika             Mon Nov 16 15:45:46 2026     /usr/sbin/cfprefsd
+  325     1 root             Mon Nov 16 15:45:46 2026     /System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries/CVMServer
+  327     1 root             Mon Nov 16 15:45:47 2026     /System/Library/Frameworks/GSS.framework/Helpers/GSSCred
+  329     1 root             Mon Nov 16 15:45:47 2026     /System/Library/PrivateFrameworks/CloudTelemetry.framework/Versions/A/XPCServices/CloudTelemetryService.xpc/Contents/MacOS/CloudTelemetryService
+  330     1 root             Mon Nov 16 15:45:47 2026     /System/Library/PrivateFrameworks/XprotectFramework.framework/Versions/A/XPCServices/XProtectBridgeService.xpc/Contents/MacOS/XProtectBridgeService
+  335     1 root             Mon Nov 16 15:45:48 2026     /System/Library/CoreServices/osanalyticshelper
+  337     1 root             Mon Nov 16 15:45:54 2026     /usr/libexec/audioclocksyncd
+  338     1 root             Mon Nov 16 15:45:55 2026     /usr/sbin/WirelessRadioManagerd
+  339     1 root             Mon Nov 16 15:45:55 2026     /usr/libexec/eligibilityd
+  340     1 _hidd            Mon Nov 16 15:45:55 2026     /usr/libexec/hidd
+  341     1 _windowserver    Mon Nov 16 15:45:55 2026     /usr/sbin/distnoted
+  343     1 root             Mon Nov 16 15:45:55 2026     /usr/libexec/findmybeaconingd
+  345     1 root             Mon Nov 16 15:45:56 2026     /usr/libexec/colorsync.displayservices
+  346     1 root             Mon Nov 16 15:45:56 2026     /System/Library/Frameworks/ColorSync.framework/Versions/A/XPCServices/com.apple.ColorSyncXPCAgent.xpc/Contents/MacOS/com.apple.ColorSyncXPCAgent
+  347     1 root             Mon Nov 16 15:45:56 2026     /usr/libexec/colorsyncd
+  348     1 root             Mon Nov 16 15:45:56 2026     /usr/libexec/sysmond
+  349     1 root             Mon Nov 16 15:45:56 2026     /usr/libexec/symptomsd-diag
+  350   106 root             Mon Nov 16 15:45:56 2026     /usr/sbin/systemstats
+  351     1 _appleevents     Mon Nov 16 15:45:57 2026     /System/Library/CoreServices/appleeventsd
+  352     1 root             Mon Nov 16 15:45:57 2026     /System/Library/CoreServices/sharedfilelistd
+  353     1 root             Mon Nov 16 15:45:57 2026     /System/Library/PrivateFrameworks/ViewBridge.framework/Versions/A/XPCServices/ViewBridgeAuxiliary.xpc/Contents/MacOS/ViewBridgeAuxiliary
+  354     1 root             Mon Nov 16 15:45:57 2026     /usr/libexec/bootinstalld
+  355     1 root             Mon Nov 16 15:45:57 2026     /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/HIServices.framework/Versions/A/XPCServices/com.apple.hiservices-xpcservice.xpc/Contents/MacOS/com.apple.hiservices-xpcservice
+  356     1 _securityagent   Mon Nov 16 15:45:58 2026     /System/Library/Frameworks/Security.framework/Versions/A/MachServices/SecurityAgent.bundle/Contents/MacOS/SecurityAgent
+  357     1 root             Mon Nov 16 15:46:00 2026     /System/Library/Frameworks/LocalAuthentication.framework/Support/coreauthd
+  358     1 _securityagent   Mon Nov 16 15:46:00 2026     /usr/sbin/distnoted
+  359     1 root             Mon Nov 16 15:46:00 2026     /System/Library/Frameworks/CryptoTokenKit.framework/ctkahp.bundle/Contents/MacOS/ctkahp
+  360     1 root             Mon Nov 16 15:46:00 2026     /System/Library/Frameworks/CryptoTokenKit.framework/ctkahp.bundle/Contents/MacOS/ctkahp
+  362     1 root             Mon Nov 16 15:46:01 2026     /System/Library/Frameworks/CryptoTokenKit.framework/ctkd
+  363     1 _ctkd            Mon Nov 16 15:46:01 2026     /System/Library/Frameworks/CryptoTokenKit.framework/ctkd
+  365     1 root             Mon Nov 16 15:46:03 2026     /usr/sbin/systemsoundserverd
+  366     1 root             Mon Nov 16 15:46:06 2026     /System/Library/PrivateFrameworks/AmbientDisplay.framework/Versions/A/XPCServices/com.apple.AmbientDisplayAgent.xpc/Contents/MacOS/com.apple.AmbientDisplayAgent
+  367     1 root             Mon Nov 16 15:46:06 2026     /System/Library/Frameworks/ColorSync.framework/Versions/A/XPCServices/com.apple.ColorSyncXPCAgent.xpc/Contents/MacOS/com.apple.ColorSyncXPCAgent
+  368     1 root             Mon Nov 16 15:46:06 2026     /System/Library/PrivateFrameworks/ViewBridge.framework/Versions/A/XPCServices/ViewBridgeAuxiliary.xpc/Contents/MacOS/ViewBridgeAuxiliary
+  369     1 root             Mon Nov 16 15:46:07 2026     /System/Library/CoreServices/iconservicesagent
+  386     1 _spotlight       Mon Nov 16 15:46:39 2026     /System/Library/Frameworks/CoreServices.framework/Frameworks/Metadata.framework/Versions/A/Support/mdworker
+  392     1 _rmd             Mon Nov 16 15:47:46 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/remotemanagementd
+  393     1 _rmd             Mon Nov 16 15:47:46 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/XPCServices/SecuritySubscriber.xpc/Contents/MacOS/SecuritySubscriber
+  394     1 _rmd             Mon Nov 16 15:47:46 2026     /usr/sbin/distnoted
+  395     1 _rmd             Mon Nov 16 15:47:46 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/XPCServices/InteractiveLegacyProfilesSubscriber.xpc/Contents/MacOS/InteractiveLegacyProfilesSubscriber
+  396     1 _rmd             Mon Nov 16 15:47:46 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/XPCServices/ScreenSharingSubscriber.xpc/Contents/MacOS/ScreenSharingSubscriber
+  399     1 _rmd             Mon Nov 16 15:47:47 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/XPCServices/LegacyProfilesSubscriber.xpc/Contents/MacOS/LegacyProfilesSubscriber
+  400     1 _rmd             Mon Nov 16 15:47:47 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/XPCServices/PasscodeSettingsSubscriber.xpc/Contents/MacOS/PasscodeSettingsSubscriber
+  401     1 _rmd             Mon Nov 16 15:47:47 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/XPCServices/DiskManagementSubscriber.xpc/Contents/MacOS/DiskManagementSubscriber
+  402     1 _rmd             Mon Nov 16 15:47:47 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/XPCServices/SoftwareUpdateSubscriber.xpc/Contents/MacOS/SoftwareUpdateSubscriber
+  403     1 _rmd             Mon Nov 16 15:47:47 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/XPCServices/ManagementTestSubscriber.xpc/Contents/MacOS/ManagementTestSubscriber
+  404     1 _rmd             Mon Nov 16 15:47:47 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/XPCServices/ManagedConfigurationFilesSubscriber.xpc/Contents/MacOS/ManagedConfigurationFilesSubscriber
+  433     1 root             Mon Nov 16 15:50:40 2026     /usr/libexec/ASPCarryLog
+  434     1 root             Mon Nov 16 15:50:40 2026     /usr/libexec/ospredictiond
+  448     1 root             Mon Nov 16 15:51:12 2026     /usr/libexec/mmaintenanced
+  464     1 root             Mon Nov 16 15:51:38 2026     /usr/libexec/rtcreportingd
+  471     1 _cmiodalassistants Mon Nov 16 15:51:44 2026     /usr/sbin/cfprefsd
+  472     1 _softwareupdate  Mon Nov 16 15:51:44 2026     /usr/sbin/cfprefsd
+  473     1 _accessoryupdater Mon Nov 16 15:51:44 2026     /usr/sbin/cfprefsd
+  474     1 _nsurlsessiond   Mon Nov 16 15:51:44 2026     /usr/sbin/cfprefsd
+  477     1 root             Mon Nov 16 15:52:00 2026     /System/Library/CoreServices/liquiddetectiond.app/liquiddetectiond
+  478     1 _securityagent   Mon Nov 16 15:52:00 2026     /usr/sbin/cfprefsd
+  479     1 _rmd             Mon Nov 16 15:52:00 2026     /usr/sbin/cfprefsd
+  480     1 _modelmanagerd   Mon Nov 16 15:52:00 2026     /usr/libexec/modelmanagerd
+  542     1 _applepay        Mon Nov 16 15:56:22 2026     /usr/libexec/nfcd
+  636     1 root             Mon Nov 16 16:00:40 2026     /usr/libexec/online-auth-agent
+  827     1 root             Mon Nov 16 16:07:58 2026     /System/Library/PrivateFrameworks/CoreSymbolication.framework/coresymbolicationd
+  828     1 root             Mon Nov 16 16:07:59 2026     /System/Library/CoreServices/ReportCrash
+  829     1 _diagnosticservicesd Mon Nov 16 16:08:01 2026     /System/Library/CoreServices/diagnosticservicesd
+ 1853     1 root             Mon Nov 16 16:48:11 2026     sshd-session: pika [priv]
+ 1855  1853 pika             Mon Nov 16 16:48:11 2026     sshd-session: pika@notty
+ 1856  1855 root             Mon Nov 16 16:48:11 2026     ps
+  116     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/remoted
+
+exit=0
+
+$ sudo=False test -d /var/tmp && mkdir -p /var/tmp/vgpu-context-independent/gld-context /var/tmp/vgpu-context-independent/gld-surface /var/tmp/vgpu-context-independent/probes
+
+exit=0
+
+SHA256 973a0720835d6352dd27bf9aead92464e281acee90024b4a0c8db68973ecf498 gld-context/vgpu_context.h
+
+SHA256 cf71e853fb67aa3d87f659e604f395ab2ef29a19217a31a9d95a3f952bae90ef gld-context/vgpu_context.c
+
+SHA256 71785e22ade2c92c61f9126136507b99f40b550367a72a5fb03a125712a5663e gld-surface/vgpu_surface.h
+
+SHA256 1614f82fecfc2b503b4932a80926e93e150cdb70a70554023877843568d87b62 gld-surface/vgpu_surface.c
+
+SHA256 05f7c706dcb2eb99e8e05bbc11cafb105a4367656020ab9a5abe40e106032cec probes/gld_context_probe.c
+
+SHA256 ccfe8b42c2bae4caffa960c69f85d7b0a330955670c2f98799ff8482047194c8 verify.py
+
+$ sudo=False clang --version; sw_vers
+Apple clang version 17.0.0 (clang-1700.0.13.5)
+Target: x86_64-apple-darwin24.6.0
+Thread model: posix
+InstalledDir: /Library/Developer/CommandLineTools/usr/bin
+ProductName:		macOS
+ProductVersion:		15.7.3
+BuildVersion:		24G419
+
+exit=0
+
+$ sudo=False cd /var/tmp/vgpu-context-independent && clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -g -O1 gld-context/vgpu_context.c gld-surface/vgpu_surface.c probes/gld_context_probe.c -framework IOKit -framework CoreFoundation -lpthread -o gld_context_probe
+
+exit=0
+
+$ sudo=False cd /var/tmp/vgpu-context-independent && clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer gld-context/vgpu_context.c gld-surface/vgpu_surface.c probes/gld_context_probe.c -framework IOKit -framework CoreFoundation -lpthread -o gld_context_probe_sanitized
+
+exit=0
+
+$ sudo=False cd /var/tmp/vgpu-context-independent && clang --analyze -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -g -O1 -Xanalyzer -analyzer-output=text gld-context/vgpu_context.c
+
+exit=0
+
+$ sudo=False cd /var/tmp/vgpu-context-independent && clang --analyze -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -g -O1 -Xanalyzer -analyzer-output=text gld-surface/vgpu_surface.c
+gld-surface/vgpu_surface.c:182:28: warning: Use of memory allocated with size zero [unix.Malloc]
+  169 |     unsigned char *temporary = malloc(temporary_size);
+      |                                ~~~~~~~~~~~~~~~~~~~~~~
+  170 |     if (!temporary) return kIOReturnNoMemory;
+  171 |     unsigned char row[1024];
+  172 |     IOReturn result = kIOReturnNotOpen;
+  173 |     /* 仅串行化本连接的 IO；其他连接提交仍由 generation 校验检测。 */
+  174 |     pthread_mutex_lock(&s->lock);
+  175 |     if (s->connection) {
+  176 |         for (uint32_t j = 0; j < rect.height; ++j) {
+  177 |             result = read_row(s->connection, generation, rect.y + j, row);
+  178 |             if (result != kIOReturnSuccess) break;
+  179 |             unsigned char *out = temporary + (size_t)j * row_bytes;
+  180 |             for (uint32_t i = 0; i < rect.width; ++i) {
+  181 |                 size_t source = (size_t)(rect.x + i) * 4;
+  182 |                 out[i * 4] = row[source + 2];
+      |                            ^
+gld-surface/vgpu_surface.c:149:9: note: Assuming 's' is non-null
+  149 |     if (!s || !generation || !destination) return kIOReturnBadArgument;
+      |         ^~
+gld-surface/vgpu_surface.c:149:9: note: Left side of '||' is false
+gld-surface/vgpu_surface.c:149:15: note: Assuming 'generation' is not equal to 0
+  149 |     if (!s || !generation || !destination) return kIOReturnBadArgument;
+      |               ^~~~~~~~~~~
+gld-surface/vgpu_surface.c:149:9: note: Left side of '||' is false
+  149 |     if (!s || !generation || !destination) return kIOReturnBadArgument;
+      |         ^
+gld-surface/vgpu_surface.c:149:30: note: Assuming 'destination' is non-null
+  149 |     if (!s || !generation || !destination) return kIOReturnBadArgument;
+      |                              ^~~~~~~~~~~~
+gld-surface/vgpu_surface.c:149:5: note: Taking false branch
+  149 |     if (!s || !generation || !destination) return kIOReturnBadArgument;
+      |     ^
+gld-surface/vgpu_surface.c:150:9: note: Assuming 'format' is equal to VGPU_SURFACE_RGBA8_OUTPUT
+  150 |     if (format != VGPU_SURFACE_RGBA8_OUTPUT) return kIOReturnUnsupported;
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gld-surface/vgpu_surface.c:150:5: note: Taking false branch
+  150 |     if (format != VGPU_SURFACE_RGBA8_OUTPUT) return kIOReturnUnsupported;
+      |     ^
+gld-surface/vgpu_surface.c:151:9: note: Assuming field 'width' is not equal to 0
+  151 |     if (!rect.width || !rect.height || rect.x >= 256 || rect.y >= 256 ||
+      |         ^~~~~~~~~~~
+gld-surface/vgpu_surface.c:151:9: note: Left side of '||' is false
+gld-surface/vgpu_surface.c:151:24: note: Assuming field 'height' is not equal to 0
+  151 |     if (!rect.width || !rect.height || rect.x >= 256 || rect.y >= 256 ||
+      |                        ^~~~~~~~~~~~
+gld-surface/vgpu_surface.c:151:9: note: Left side of '||' is false
+  151 |     if (!rect.width || !rect.height || rect.x >= 256 || rect.y >= 256 ||
+      |         ^
+gld-surface/vgpu_surface.c:151:40: note: Assuming field 'x' is < 256
+  151 |     if (!rect.width || !rect.height || rect.x >= 256 || rect.y >= 256 ||
+      |                                        ^~~~~~~~~~~~~
+gld-surface/vgpu_surface.c:151:9: note: Left side of '||' is false
+  151 |     if (!rect.width || !rect.height || rect.x >= 256 || rect.y >= 256 ||
+      |         ^
+gld-surface/vgpu_surface.c:151:57: note: Assuming field 'y' is < 256
+  151 |     if (!rect.width || !rect.height || rect.x >= 256 || rect.y >= 256 ||
+      |                                                         ^~~~~~~~~~~~~
+gld-surface/vgpu_surface.c:151:9: note: Left side of '||' is false
+  151 |     if (!rect.width || !rect.height || rect.x >= 256 || rect.y >= 256 ||
+      |         ^
+gld-surface/vgpu_surface.c:152:9: note: Assuming the condition is false
+  152 |         rect.width > 256 - rect.x || rect.height > 256 - rect.y)
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~
+gld-surface/vgpu_surface.c:151:9: note: Left side of '||' is false
+  151 |     if (!rect.width || !rect.height || rect.x >= 256 || rect.y >= 256 ||
+      |         ^
+gld-surface/vgpu_surface.c:152:38: note: Assuming the condition is false
+  152 |         rect.width > 256 - rect.x || rect.height > 256 - rect.y)
+      |                                      ^~~~~~~~~~~~~~~~~~~~~~~~~~
+gld-surface/vgpu_surface.c:151:5: note: Taking false branch
+  151 |     if (!rect.width || !rect.height || rect.x >= 256 || rect.y >= 256 ||
+      |     ^
+gld-surface/vgpu_surface.c:154:9: note: Assuming field 'alignment' is equal to 1
+  154 |     if (pack.alignment != 1 && pack.alignment != 2 &&
+      |         ^~~~~~~~~~~~~~~~~~~
+gld-surface/vgpu_surface.c:154:29: note: Left side of '&&' is false
+  154 |     if (pack.alignment != 1 && pack.alignment != 2 &&
+      |                             ^
+gld-surface/vgpu_surface.c:158:9: note: Assuming 'stride' is not equal to 0
+  158 |     if (!stride) {
+      |         ^~~~~~~
+gld-surface/vgpu_surface.c:158:5: note: Taking false branch
+  158 |     if (!stride) {
+      |     ^
+gld-surface/vgpu_surface.c:163:9: note: Left side of '||' is false
+  163 |     if (!mul_size(pack.skip_rows, stride, &offset) ||
+      |         ^
+gld-surface/vgpu_surface.c:163:9: note: Left side of '||' is false
+gld-surface/vgpu_surface.c:163:9: note: Left side of '||' is false
+gld-surface/vgpu_surface.c:163:9: note: Left side of '||' is false
+gld-surface/vgpu_surface.c:163:9: note: Left side of '||' is false
+gld-surface/vgpu_surface.c:163:9: note: Left side of '||' is false
+gld-surface/vgpu_surface.c:163:9: note: Left side of '||' is false
+gld-surface/vgpu_surface.c:167:63: note: Assuming 'end' is <= 'capacity'
+  167 |         !mul_size(row_bytes, rect.height, &temporary_size) || end > capacity ||
+      |                                                               ^~~~~~~~~~~~~~
+gld-surface/vgpu_surface.c:163:9: note: Left side of '||' is false
+  163 |     if (!mul_size(pack.skip_rows, stride, &offset) ||
+      |         ^
+gld-surface/vgpu_surface.c:168:9: note: Assuming the condition is false
+  168 |         end > UINTPTR_MAX - (uintptr_t)destination) return kIOReturnBadArgument;
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gld-surface/vgpu_surface.c:163:5: note: Taking false branch
+  163 |     if (!mul_size(pack.skip_rows, stride, &offset) ||
+      |     ^
+gld-surface/vgpu_surface.c:169:32: note: Memory is allocated
+  169 |     unsigned char *temporary = malloc(temporary_size);
+      |                                ^~~~~~~~~~~~~~~~~~~~~~
+gld-surface/vgpu_surface.c:170:9: note: Assuming 'temporary' is non-null
+  170 |     if (!temporary) return kIOReturnNoMemory;
+      |         ^~~~~~~~~~
+gld-surface/vgpu_surface.c:170:5: note: Taking false branch
+  170 |     if (!temporary) return kIOReturnNoMemory;
+      |     ^
+gld-surface/vgpu_surface.c:175:9: note: Assuming field 'connection' is not equal to 0
+  175 |     if (s->connection) {
+      |         ^~~~~~~~~~~~~
+gld-surface/vgpu_surface.c:175:5: note: Taking true branch
+  175 |     if (s->connection) {
+      |     ^
+gld-surface/vgpu_surface.c:176:9: note: Loop condition is true.  Entering loop body
+  176 |         for (uint32_t j = 0; j < rect.height; ++j) {
+      |         ^
+gld-surface/vgpu_surface.c:178:17: note: 'result' is equal to kIOReturnSuccess
+  178 |             if (result != kIOReturnSuccess) break;
+      |                 ^~~~~~
+gld-surface/vgpu_surface.c:178:13: note: Taking false branch
+  178 |             if (result != kIOReturnSuccess) break;
+      |             ^
+gld-surface/vgpu_surface.c:180:34: note: 'i' is < field 'width'
+  180 |             for (uint32_t i = 0; i < rect.width; ++i) {
+      |                                  ^
+gld-surface/vgpu_surface.c:180:13: note: Loop condition is true.  Entering loop body
+  180 |             for (uint32_t i = 0; i < rect.width; ++i) {
+      |             ^
+gld-surface/vgpu_surface.c:182:28: note: Use of memory allocated with size zero
+  169 |     unsigned char *temporary = malloc(temporary_size);
+      |                                ~~~~~~~~~~~~~~~~~~~~~~
+  170 |     if (!temporary) return kIOReturnNoMemory;
+  171 |     unsigned char row[1024];
+  172 |     IOReturn result = kIOReturnNotOpen;
+  173 |     /* 仅串行化本连接的 IO；其他连接提交仍由 generation 校验检测。 */
+  174 |     pthread_mutex_lock(&s->lock);
+  175 |     if (s->connection) {
+  176 |         for (uint32_t j = 0; j < rect.height; ++j) {
+  177 |             result = read_row(s->connection, generation, rect.y + j, row);
+  178 |             if (result != kIOReturnSuccess) break;
+  179 |             unsigned char *out = temporary + (size_t)j * row_bytes;
+  180 |             for (uint32_t i = 0; i < rect.width; ++i) {
+  181 |                 size_t source = (size_t)(rect.x + i) * 4;
+  182 |                 out[i * 4] = row[source + 2];
+      |                            ^
+1 warning generated.
+
+exit=0
+
+$ sudo=False cd /var/tmp/vgpu-context-independent && clang --analyze -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -g -O1 -Xanalyzer -analyzer-output=text probes/gld_context_probe.c
+
+exit=0
+
+$ sudo=False cd /var/tmp/vgpu-context-independent && shasum -a 256 gld-context/vgpu_context.c gld-surface/vgpu_surface.c probes/gld_context_probe.c gld_context_probe gld_context_probe_sanitized
+cf71e853fb67aa3d87f659e604f395ab2ef29a19217a31a9d95a3f952bae90ef  gld-context/vgpu_context.c
+1614f82fecfc2b503b4932a80926e93e150cdb70a70554023877843568d87b62  gld-surface/vgpu_surface.c
+05f7c706dcb2eb99e8e05bbc11cafb105a4367656020ab9a5abe40e106032cec  probes/gld_context_probe.c
+837951731bcae647718f7351eb53abc88c0833faaf219a867e59aa77a178efb8  gld_context_probe
+8e30b986d8f8e06b0eec38c809d98892424fc7806d2cf17ec5b49924e4ffdec0  gld_context_probe_sanitized
+
+exit=0
+
+$ sudo=False /var/tmp/vgpu-context-independent/gld_context_probe --expect-denied
+权限 uid=501 euid=501
+权限拒绝已验证 kIOReturnNotPrivileged=0xe00002c1
+RESULT checks=3 status=PASS exit=0
+
+exit=0
+
+$ sudo=False if pgrep -x gld_surface_probe || pgrep -x gld_context_probe || pgrep -x gld_context_probe_sanitized || pgrep -x surface-probe || pgrep -x surface-probe-sanitized; then exit 76; fi
+
+exit=0
+
+$ sudo=True id && ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 /var/tmp/vgpu-context-independent/gld_context_probe
+uid=0(root) gid=0(wheel) groups=0(wheel),1(daemon),2(kmem),3(sys),4(tty),5(operator),8(procview),9(procmod),12(everyone),20(staff),29(certusers),61(localaccounts),80(admin),701(com.apple.sharepoint.group.1),33(_appstore),98(_lpadmin),100(_lpoperator),204(_developer),250(_analyticsusers),395(com.apple.access_ftp),398(com.apple.access_screensharing),399(com.apple.access_ssh),400(com.apple.access_remote_ae)
+权限 uid=0 euid=0
+独立 context GPU probe：合成 H/B 仅用于契约输入，clear/read 使用真实连接
+GENERATION first=128 completed=128
+PIXELS width=256 height=256 pixels=65536 canary_bytes=2080 offset=16 stride=1032 fnv1a64=360c01dcac420e85 status=PASS
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=0 stride=12 fnv1a64=4b466014eb50dffd status=PASS
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=40 stride=32 fnv1a64=017c284b9dea8835 status=PASS
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=56 stride=48 fnv1a64=19929aad2db5de35 status=PASS
+GENERATION prior=128 next=129
+GENERATION external=130 stale=129
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=0 stride=12 fnv1a64=4b466014eb50dffd status=PASS
+GPU clear/read 已完成 generation=131，实时 pack/外部 stale 通过
+引用生命周期、lease 释放、解绑和无效句柄通过
+RESULT checks=103 status=PASS exit=0
+
+exit=0
+
+$ sudo=False if pgrep -x gld_surface_probe || pgrep -x gld_context_probe || pgrep -x gld_context_probe_sanitized || pgrep -x surface-probe || pgrep -x surface-probe-sanitized; then exit 76; fi
+
+exit=0
+
+$ sudo=True id && ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 /var/tmp/vgpu-context-independent/gld_context_probe_sanitized
+uid=0(root) gid=0(wheel) groups=0(wheel),1(daemon),2(kmem),3(sys),4(tty),5(operator),8(procview),9(procmod),12(everyone),20(staff),29(certusers),61(localaccounts),80(admin),701(com.apple.sharepoint.group.1),33(_appstore),98(_lpadmin),100(_lpoperator),204(_developer),250(_analyticsusers),395(com.apple.access_ftp),398(com.apple.access_screensharing),399(com.apple.access_ssh),400(com.apple.access_remote_ae)
+权限 uid=0 euid=0
+独立 context GPU probe：合成 H/B 仅用于契约输入，clear/read 使用真实连接
+GENERATION first=132 completed=132
+PIXELS width=256 height=256 pixels=65536 canary_bytes=2080 offset=16 stride=1032 fnv1a64=360c01dcac420e85 status=PASS
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=0 stride=12 fnv1a64=4b466014eb50dffd status=PASS
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=40 stride=32 fnv1a64=017c284b9dea8835 status=PASS
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=56 stride=48 fnv1a64=19929aad2db5de35 status=PASS
+GENERATION prior=132 next=133
+GENERATION external=134 stale=133
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=0 stride=12 fnv1a64=4b466014eb50dffd status=PASS
+GPU clear/read 已完成 generation=135，实时 pack/外部 stale 通过
+引用生命周期、lease 释放、解绑和无效句柄通过
+RESULT checks=103 status=PASS exit=0
+
+exit=0
+
+$ sudo=False sysctl kern.boottime; ioreg -r -c vgpuAccelerator -l
+kern.boottime: { sec = 1794815120, usec = 47049 } Mon Nov 16 15:45:20 2026
++-o vgpuAccelerator  <class vgpuAccelerator, id 0x10000045e, registered, matched, active, busy 0 (394 ms), retain 6>
+    {
+      "IOProbeScore" = 0
+      "CFBundleIdentifier" = "com.vgpu.framebuffer"
+      "IOMatchCategory" = "IOAccelerator"
+      "IOClass" = "vgpuAccelerator"
+      "IOPersonalityPublisher" = "com.vgpu.framebuffer"
+      "IOProviderClass" = "vgpuFramebuffer"
+      "CFBundleIdentifierKernel" = "com.vgpu.framebuffer"
+      "IOGLBundleName" = "VGPUDriverDiagnostic"
+    }
+    
+
+
+exit=0
+
+===== 权限修正后的独立验证；以上历史原始日志保持不变 =====
+RUN UTC 2026-11-16T08:49:55.668683+00:00
+
+$ sudo=False id; sysctl kern.boottime; ioreg -r -c vgpuAccelerator -l; ps -axo pid,ppid,user,lstart,comm
+uid=501(pika) gid=20(staff) groups=20(staff),12(everyone),61(localaccounts),79(_appserverusr),80(admin),81(_appserveradm),399(com.apple.access_ssh),701(com.apple.sharepoint.group.1),33(_appstore),98(_lpadmin),100(_lpoperator),204(_developer),250(_analyticsusers),395(com.apple.access_ftp),398(com.apple.access_screensharing),400(com.apple.access_remote_ae)
+kern.boottime: { sec = 1794815120, usec = 47049 } Mon Nov 16 15:45:20 2026
++-o vgpuAccelerator  <class vgpuAccelerator, id 0x10000045e, registered, matched, active, busy 0 (394 ms), retain 6>
+    {
+      "IOProbeScore" = 0
+      "CFBundleIdentifier" = "com.vgpu.framebuffer"
+      "IOMatchCategory" = "IOAccelerator"
+      "IOClass" = "vgpuAccelerator"
+      "IOPersonalityPublisher" = "com.vgpu.framebuffer"
+      "IOProviderClass" = "vgpuFramebuffer"
+      "CFBundleIdentifierKernel" = "com.vgpu.framebuffer"
+      "IOGLBundleName" = "VGPUDriverDiagnostic"
+    }
+    
+
+  PID  PPID USER             STARTED                      COMM
+    1     0 root             Mon Nov 16 15:45:19 2026     /sbin/launchd
+   97     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/logd
+   98     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/smd
+   99     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/UserEventAgent
+  102     1 root             Mon Nov 16 15:45:26 2026     /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/FSEvents.framework/Versions/A/Support/fseventsd
+  103     1 root             Mon Nov 16 15:45:26 2026     /System/Library/PrivateFrameworks/MediaRemote.framework/Support/mediaremoted
+  106     1 root             Mon Nov 16 15:45:26 2026     /usr/sbin/systemstats
+  109     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/configd
+  110     1 root             Mon Nov 16 15:45:26 2026     endpointsecurityd
+  111     1 root             Mon Nov 16 15:45:26 2026     /System/Library/CoreServices/powerd.bundle/powerd
+  114     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/amfid
+  118     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/keybagd
+  119     1 _softwareupdate  Mon Nov 16 15:45:26 2026     /System/Library/PrivateFrameworks/MobileSoftwareUpdate.framework/Support/softwareupdated
+  120     1 _corespeechd     Mon Nov 16 15:45:26 2026     /System/Library/PrivateFrameworks/CoreSpeech.framework/corespeechd_system
+  125     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/warmd
+  126     1 root             Mon Nov 16 15:45:26 2026     /System/Library/Frameworks/CoreServices.framework/Frameworks/Metadata.framework/Support/mds
+  127     1 _iconservices    Mon Nov 16 15:45:26 2026     /System/Library/CoreServices/iconservicesd
+  128     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/kernelmanagerd
+  129     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/diskarbitrationd
+  132     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/coreduetd
+  133     1 root             Mon Nov 16 15:45:26 2026     /usr/sbin/syslogd
+  136     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/thermalmonitord
+  137     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/opendirectoryd
+  139     1 root             Mon Nov 16 15:45:26 2026     /System/Library/PrivateFrameworks/ApplePushService.framework/apsd
+  140     1 root             Mon Nov 16 15:45:26 2026     /System/Library/CoreServices/launchservicesd
+  141     1 _timed           Mon Nov 16 15:45:26 2026     /usr/libexec/timed
+  142     1 _usbmuxd         Mon Nov 16 15:45:26 2026     /System/Library/PrivateFrameworks/MobileDevice.framework/Versions/A/Resources/usbmuxd
+  143     1 root             Mon Nov 16 15:45:26 2026     /usr/sbin/securityd
+  145     1 _locationd       Mon Nov 16 15:45:26 2026     /usr/libexec/locationd
+  146     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/nesessionmanager
+  147     1 root             Mon Nov 16 15:45:26 2026     autofsd
+  148     1 _displaypolicyd  Mon Nov 16 15:45:26 2026     /usr/libexec/displaypolicyd
+  149     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/dasd
+  150     1 root             Mon Nov 16 15:45:26 2026     /System/Library/PrivateFrameworks/Heimdal.framework/Helpers/kdc
+  152     1 _distnote        Mon Nov 16 15:45:26 2026     /usr/sbin/distnoted
+  153     1 root             Mon Nov 16 15:45:26 2026     /System/Library/PrivateFrameworks/AppleCredentialManager.framework/AppleCredentialManagerDaemon
+  154     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/PerfPowerServices
+  155     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/dirhelper
+  156     1 root             Mon Nov 16 15:45:26 2026     /System/Library/CoreServices/logind
+  157     1 root             Mon Nov 16 15:45:26 2026     /System/Library/PrivateFrameworks/GenerationalStorage.framework/Versions/A/Support/revisiond
+  158     1 root             Mon Nov 16 15:45:26 2026     /usr/sbin/KernelEventAgent
+  159     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/usermanagerd
+  161     1 root             Mon Nov 16 15:45:26 2026     /usr/sbin/bluetoothd
+  162     1 root             Mon Nov 16 15:45:26 2026     /usr/sbin/notifyd
+  163     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/sandboxd
+  164     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/corebrightnessd
+  165     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/AirPlayXPCHelper
+  166     1 root             Mon Nov 16 15:45:26 2026     /System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/com.apple.cmio.registerassistantservice
+  167     1 root             Mon Nov 16 15:45:28 2026     aslmanager
+  168     1 _windowserver    Mon Nov 16 15:45:29 2026     /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
+  169     1 root             Mon Nov 16 15:45:29 2026     /usr/sbin/cfprefsd
+  171     1 root             Mon Nov 16 15:45:29 2026     /System/Library/PrivateFrameworks/TCC.framework/Support/tccd
+  172     1 _analyticsd      Mon Nov 16 15:45:29 2026     /System/Library/PrivateFrameworks/CoreAnalytics.framework/Support/analyticsd
+  175     1 root             Mon Nov 16 15:45:29 2026     /usr/libexec/runningboardd
+  178     1 root             Mon Nov 16 15:45:29 2026     /System/Library/CoreServices/loginwindow.app/Contents/MacOS/loginwindow
+  179     1 _trustd          Mon Nov 16 15:45:30 2026     /usr/libexec/trustd
+  180     1 root             Mon Nov 16 15:45:30 2026     /Library/Apple/System/Library/CoreServices/XProtect.app/Contents/XPCServices/XProtectPluginService.xpc/Contents/MacOS/XProtectPluginService
+  181     1 root             Mon Nov 16 15:45:30 2026     /System/Library/CoreServices/coreservicesd
+  182     1 root             Mon Nov 16 15:45:30 2026     /usr/libexec/containermanagerd_system
+  183     1 root             Mon Nov 16 15:45:30 2026     /usr/libexec/trustdFileHelper
+  184     1 root             Mon Nov 16 15:45:30 2026     /usr/libexec/lsd
+  185     1 root             Mon Nov 16 15:45:31 2026     /System/Library/PrivateFrameworks/BackgroundTaskManagement.framework/Resources/backgroundtaskmanagementd
+  186     1 root             Mon Nov 16 15:45:31 2026     /usr/libexec/powerexperienced
+  187     1 root             Mon Nov 16 15:45:31 2026     /usr/libexec/mobileassetd
+  188     1 root             Mon Nov 16 15:45:31 2026     /System/Library/PrivateFrameworks/CoreDuetContext.framework/Resources/contextstored
+  189     1 root             Mon Nov 16 15:45:31 2026     /usr/libexec/PowerUIAgent
+  190     1 root             Mon Nov 16 15:45:32 2026     /usr/libexec/findmydeviced
+  193     1 root             Mon Nov 16 15:45:32 2026     /usr/libexec/nehelper
+  194     1 _networkd        Mon Nov 16 15:45:32 2026     /usr/libexec/symptomsd
+  195     1 root             Mon Nov 16 15:45:32 2026     /usr/libexec/airportd
+  196     1 _cmiodalassistants Mon Nov 16 15:45:32 2026     /usr/sbin/distnoted
+  197     1 root             Mon Nov 16 15:45:32 2026     /System/Library/Frameworks/SystemExtensions.framework/Versions/A/Helpers/sysextd
+  199     1 root             Mon Nov 16 15:45:33 2026     /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/CarbonCore.framework/Versions/A/XPCServices/csnameddatad.xpc/Contents/MacOS/csnameddatad
+  200     1 _mdnsresponder   Mon Nov 16 15:45:33 2026     /usr/sbin/mDNSResponder
+  203     1 root             Mon Nov 16 15:45:33 2026     /usr/sbin/mDNSResponderHelper
+  204     1 root             Mon Nov 16 15:45:33 2026     /System/Library/Frameworks/Security.framework/Versions/A/XPCServices/authd.xpc/Contents/MacOS/authd
+  207     1 root             Mon Nov 16 15:45:33 2026     /usr/libexec/syspolicyd
+  212     1 root             Mon Nov 16 15:45:33 2026     /System/Library/Frameworks/InputMethodKit.framework/Resources/imklaunchagent
+  213     1 root             Mon Nov 16 15:45:33 2026     /usr/libexec/UserEventAgent
+  214     1 root             Mon Nov 16 15:45:33 2026     /usr/sbin/universalaccessd
+  215     1 root             Mon Nov 16 15:45:33 2026     /usr/sbin/distnoted
+  216     1 _coreaudiod      Mon Nov 16 15:45:34 2026     /usr/sbin/coreaudiod
+  217     1 root             Mon Nov 16 15:45:34 2026     /usr/libexec/pkd
+  221     1 root             Mon Nov 16 15:45:34 2026     /usr/libexec/securityd_system
+  222     1 root             Mon Nov 16 15:45:34 2026     /usr/libexec/storagekitd
+  224     1 _coreaudiod      Mon Nov 16 15:45:34 2026     /usr/sbin/distnoted
+  226     1 root             Mon Nov 16 15:45:34 2026     /usr/libexec/cryptexd
+  227     1 _nsurlsessiond   Mon Nov 16 15:45:34 2026     /usr/libexec/nsurlsessiond
+  228     1 root             Mon Nov 16 15:45:34 2026     /usr/libexec/ApplicationFirewall/socketfilterfw
+  229     1 _netbios         Mon Nov 16 15:45:34 2026     /usr/sbin/netbiosd
+  231     1 root             Mon Nov 16 15:45:35 2026     /System/Library/CryptoTokenKit/com.apple.ifdreader.slotd/Contents/MacOS/com.apple.ifdreader
+  232     1 root             Mon Nov 16 15:45:35 2026     /usr/libexec/apfsd
+  234     1 _coreaudiod      Mon Nov 16 15:45:35 2026     /System/Library/Frameworks/CoreAudio.framework/Versions/A/XPCServices/com.apple.audio.DriverHelper.xpc/Contents/MacOS/com.apple.audio.DriverHelper
+  236     1 root             Mon Nov 16 15:45:35 2026     /System/Library/Frameworks/Security.framework/Versions/A/XPCServices/com.apple.CodeSigningHelper.xpc/Contents/MacOS/com.apple.CodeSigningHelper
+  237     1 root             Mon Nov 16 15:45:35 2026     /System/Library/CoreServices/TimeMachine/backupd
+  238     1 root             Mon Nov 16 15:45:35 2026     /usr/libexec/usbd
+  240     1 root             Mon Nov 16 15:45:35 2026     /usr/libexec/secinitd
+  241     1 root             Mon Nov 16 15:45:35 2026     /usr/libexec/fskit_helper
+  242     1 _biome           Mon Nov 16 15:45:35 2026     /System/Library/PrivateFrameworks/BiomeStreams.framework/Support/biomed
+  244     1 root             Mon Nov 16 15:45:36 2026     /System/Library/Frameworks/AudioToolbox.framework/AudioComponentRegistrar
+  247     1 nobody           Mon Nov 16 15:45:36 2026     /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/MacOS/ARDAgent
+  254     1 _coreaudiod      Mon Nov 16 15:45:36 2026     /System/Library/Frameworks/AudioToolbox.framework/XPCServices/com.apple.audio.SandboxHelper.xpc/Contents/MacOS/com.apple.audio.SandboxHelper
+  258     1 root             Mon Nov 16 15:45:36 2026     /System/Library/Frameworks/NetFS.framework/Versions/A/XPCServices/PlugInLibraryService.xpc/Contents/MacOS/PlugInLibraryService
+  267     1 root             Mon Nov 16 15:45:37 2026     /System/Library/PrivateFrameworks/SystemStatusServer.framework/Support/systemstatusd
+  276     1 _cmiodalassistants Mon Nov 16 15:45:38 2026     /usr/libexec/cameracaptured
+  277     1 root             Mon Nov 16 15:45:39 2026     /usr/libexec/countryd
+  278     1 _locationd       Mon Nov 16 15:45:39 2026     /System/Library/PrivateFrameworks/GeoServices.framework/Versions/A/XPCServices/com.apple.geod.xpc/Contents/MacOS/com.apple.geod
+  279     1 _locationd       Mon Nov 16 15:45:39 2026     /usr/sbin/distnoted
+  280     1 root             Mon Nov 16 15:45:39 2026     /System/Library/PrivateFrameworks/PowerLog.framework/Versions/A/XPCServices/PerfPowerTelemetryClientRegistrationService.xpc/Contents/MacOS/PerfPowerTelemetryClientRegistrationService
+  281     1 _locationd       Mon Nov 16 15:45:39 2026     /usr/libexec/secinitd
+  282     1 _locationd       Mon Nov 16 15:45:39 2026     /usr/sbin/cfprefsd
+  283     1 _locationd       Mon Nov 16 15:45:39 2026     /usr/libexec/trustd
+  284     1 root             Mon Nov 16 15:45:39 2026     /System/Library/PrivateFrameworks/FindMyMac.framework/Resources/FindMyMacd
+  285     1 root             Mon Nov 16 15:45:40 2026     /System/Library/Frameworks/CoreServices.framework/Frameworks/Metadata.framework/Versions/A/Support/mds_stores
+  286     1 root             Mon Nov 16 15:45:40 2026     /System/Library/PrivateFrameworks/ModelCatalogRuntime.framework/Versions/A/modelcatalogd
+  287     1 _locationd       Mon Nov 16 15:45:40 2026     /usr/libexec/containermanagerd
+  288     1 _cmiodalassistants Mon Nov 16 15:45:40 2026     /System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/UVCAssistant.systemextension/Contents/MacOS/UVCAssistant
+  289     1 _spotlight       Mon Nov 16 15:45:41 2026     /usr/sbin/distnoted
+  290     1 root             Mon Nov 16 15:45:41 2026     /usr/libexec/logd_helper
+  291     1 _softwareupdate  Mon Nov 16 15:45:42 2026     /System/Library/CoreServices/Software Update.app/Contents/Resources/softwareupdated
+  292     1 _driverkit       Mon Nov 16 15:45:42 2026     /System/Library/DriverExtensions/com.apple.DriverKit-IOUserDockChannelSerial.dext/com.apple.DriverKit-IOUserDockChannelSerial
+  293     1 root             Mon Nov 16 15:45:42 2026     /usr/libexec/kernelmanager_helper
+  294     1 _driverkit       Mon Nov 16 15:45:42 2026     /System/Library/DriverExtensions/com.apple.AppleUserHIDDrivers.dext/com.apple.AppleUserHIDDrivers
+  295     1 _softwareupdate  Mon Nov 16 15:45:42 2026     /usr/sbin/distnoted
+  296     1 root             Mon Nov 16 15:45:42 2026     /System/Library/PrivateFrameworks/MobileSoftwareUpdate.framework/Versions/A/XPCServices/com.apple.MobileSoftwareUpdate.CleanupPreparePathService.xpc/Contents/MacOS/com.apple.MobileSoftwareUpdate.CleanupPreparePathService
+  301     1 root             Mon Nov 16 15:45:42 2026     /System/Library/CoreServices/Software Update.app/Contents/Resources/suhelperd
+  305     1 _accessoryupdater Mon Nov 16 15:45:43 2026     /usr/sbin/distnoted
+  309     1 root             Mon Nov 16 15:45:44 2026     /usr/libexec/searchpartyd
+  311     1 root             Mon Nov 16 15:45:44 2026     /System/Library/CoreServices/TimeMachine/backupd-helper
+  315     1 _nsurlsessiond   Mon Nov 16 15:45:45 2026     /usr/sbin/distnoted
+  317     1 pika             Mon Nov 16 15:45:46 2026     /usr/sbin/distnoted
+  323     1 root             Mon Nov 16 15:45:46 2026     /usr/libexec/taskgated
+  324     1 pika             Mon Nov 16 15:45:46 2026     /usr/sbin/cfprefsd
+  325     1 root             Mon Nov 16 15:45:46 2026     /System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries/CVMServer
+  327     1 root             Mon Nov 16 15:45:47 2026     /System/Library/Frameworks/GSS.framework/Helpers/GSSCred
+  329     1 root             Mon Nov 16 15:45:47 2026     /System/Library/PrivateFrameworks/CloudTelemetry.framework/Versions/A/XPCServices/CloudTelemetryService.xpc/Contents/MacOS/CloudTelemetryService
+  330     1 root             Mon Nov 16 15:45:47 2026     /System/Library/PrivateFrameworks/XprotectFramework.framework/Versions/A/XPCServices/XProtectBridgeService.xpc/Contents/MacOS/XProtectBridgeService
+  335     1 root             Mon Nov 16 15:45:48 2026     /System/Library/CoreServices/osanalyticshelper
+  337     1 root             Mon Nov 16 15:45:54 2026     /usr/libexec/audioclocksyncd
+  338     1 root             Mon Nov 16 15:45:55 2026     /usr/sbin/WirelessRadioManagerd
+  339     1 root             Mon Nov 16 15:45:55 2026     /usr/libexec/eligibilityd
+  340     1 _hidd            Mon Nov 16 15:45:55 2026     /usr/libexec/hidd
+  341     1 _windowserver    Mon Nov 16 15:45:55 2026     /usr/sbin/distnoted
+  343     1 root             Mon Nov 16 15:45:55 2026     /usr/libexec/findmybeaconingd
+  345     1 root             Mon Nov 16 15:45:56 2026     /usr/libexec/colorsync.displayservices
+  346     1 root             Mon Nov 16 15:45:56 2026     /System/Library/Frameworks/ColorSync.framework/Versions/A/XPCServices/com.apple.ColorSyncXPCAgent.xpc/Contents/MacOS/com.apple.ColorSyncXPCAgent
+  347     1 root             Mon Nov 16 15:45:56 2026     /usr/libexec/colorsyncd
+  348     1 root             Mon Nov 16 15:45:56 2026     /usr/libexec/sysmond
+  349     1 root             Mon Nov 16 15:45:56 2026     /usr/libexec/symptomsd-diag
+  350   106 root             Mon Nov 16 15:45:56 2026     /usr/sbin/systemstats
+  351     1 _appleevents     Mon Nov 16 15:45:57 2026     /System/Library/CoreServices/appleeventsd
+  352     1 root             Mon Nov 16 15:45:57 2026     /System/Library/CoreServices/sharedfilelistd
+  353     1 root             Mon Nov 16 15:45:57 2026     /System/Library/PrivateFrameworks/ViewBridge.framework/Versions/A/XPCServices/ViewBridgeAuxiliary.xpc/Contents/MacOS/ViewBridgeAuxiliary
+  354     1 root             Mon Nov 16 15:45:57 2026     /usr/libexec/bootinstalld
+  355     1 root             Mon Nov 16 15:45:57 2026     /System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks/HIServices.framework/Versions/A/XPCServices/com.apple.hiservices-xpcservice.xpc/Contents/MacOS/com.apple.hiservices-xpcservice
+  356     1 _securityagent   Mon Nov 16 15:45:58 2026     /System/Library/Frameworks/Security.framework/Versions/A/MachServices/SecurityAgent.bundle/Contents/MacOS/SecurityAgent
+  357     1 root             Mon Nov 16 15:46:00 2026     /System/Library/Frameworks/LocalAuthentication.framework/Support/coreauthd
+  358     1 _securityagent   Mon Nov 16 15:46:00 2026     /usr/sbin/distnoted
+  359     1 root             Mon Nov 16 15:46:00 2026     /System/Library/Frameworks/CryptoTokenKit.framework/ctkahp.bundle/Contents/MacOS/ctkahp
+  360     1 root             Mon Nov 16 15:46:00 2026     /System/Library/Frameworks/CryptoTokenKit.framework/ctkahp.bundle/Contents/MacOS/ctkahp
+  362     1 root             Mon Nov 16 15:46:01 2026     /System/Library/Frameworks/CryptoTokenKit.framework/ctkd
+  363     1 _ctkd            Mon Nov 16 15:46:01 2026     /System/Library/Frameworks/CryptoTokenKit.framework/ctkd
+  365     1 root             Mon Nov 16 15:46:03 2026     /usr/sbin/systemsoundserverd
+  366     1 root             Mon Nov 16 15:46:06 2026     /System/Library/PrivateFrameworks/AmbientDisplay.framework/Versions/A/XPCServices/com.apple.AmbientDisplayAgent.xpc/Contents/MacOS/com.apple.AmbientDisplayAgent
+  367     1 root             Mon Nov 16 15:46:06 2026     /System/Library/Frameworks/ColorSync.framework/Versions/A/XPCServices/com.apple.ColorSyncXPCAgent.xpc/Contents/MacOS/com.apple.ColorSyncXPCAgent
+  368     1 root             Mon Nov 16 15:46:06 2026     /System/Library/PrivateFrameworks/ViewBridge.framework/Versions/A/XPCServices/ViewBridgeAuxiliary.xpc/Contents/MacOS/ViewBridgeAuxiliary
+  369     1 root             Mon Nov 16 15:46:07 2026     /System/Library/CoreServices/iconservicesagent
+  386     1 _spotlight       Mon Nov 16 15:46:39 2026     /System/Library/Frameworks/CoreServices.framework/Frameworks/Metadata.framework/Versions/A/Support/mdworker
+  392     1 _rmd             Mon Nov 16 15:47:46 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/remotemanagementd
+  393     1 _rmd             Mon Nov 16 15:47:46 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/XPCServices/SecuritySubscriber.xpc/Contents/MacOS/SecuritySubscriber
+  394     1 _rmd             Mon Nov 16 15:47:46 2026     /usr/sbin/distnoted
+  395     1 _rmd             Mon Nov 16 15:47:46 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/XPCServices/InteractiveLegacyProfilesSubscriber.xpc/Contents/MacOS/InteractiveLegacyProfilesSubscriber
+  396     1 _rmd             Mon Nov 16 15:47:46 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/XPCServices/ScreenSharingSubscriber.xpc/Contents/MacOS/ScreenSharingSubscriber
+  399     1 _rmd             Mon Nov 16 15:47:47 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/XPCServices/LegacyProfilesSubscriber.xpc/Contents/MacOS/LegacyProfilesSubscriber
+  400     1 _rmd             Mon Nov 16 15:47:47 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/XPCServices/PasscodeSettingsSubscriber.xpc/Contents/MacOS/PasscodeSettingsSubscriber
+  401     1 _rmd             Mon Nov 16 15:47:47 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/XPCServices/DiskManagementSubscriber.xpc/Contents/MacOS/DiskManagementSubscriber
+  402     1 _rmd             Mon Nov 16 15:47:47 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/XPCServices/SoftwareUpdateSubscriber.xpc/Contents/MacOS/SoftwareUpdateSubscriber
+  403     1 _rmd             Mon Nov 16 15:47:47 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/XPCServices/ManagementTestSubscriber.xpc/Contents/MacOS/ManagementTestSubscriber
+  404     1 _rmd             Mon Nov 16 15:47:47 2026     /System/Library/PrivateFrameworks/RemoteManagement.framework/XPCServices/ManagedConfigurationFilesSubscriber.xpc/Contents/MacOS/ManagedConfigurationFilesSubscriber
+  433     1 root             Mon Nov 16 15:50:40 2026     /usr/libexec/ASPCarryLog
+  434     1 root             Mon Nov 16 15:50:40 2026     /usr/libexec/ospredictiond
+  448     1 root             Mon Nov 16 15:51:12 2026     /usr/libexec/mmaintenanced
+  464     1 root             Mon Nov 16 15:51:38 2026     /usr/libexec/rtcreportingd
+  471     1 _cmiodalassistants Mon Nov 16 15:51:44 2026     /usr/sbin/cfprefsd
+  472     1 _softwareupdate  Mon Nov 16 15:51:44 2026     /usr/sbin/cfprefsd
+  473     1 _accessoryupdater Mon Nov 16 15:51:44 2026     /usr/sbin/cfprefsd
+  474     1 _nsurlsessiond   Mon Nov 16 15:51:44 2026     /usr/sbin/cfprefsd
+  477     1 root             Mon Nov 16 15:52:00 2026     /System/Library/CoreServices/liquiddetectiond.app/liquiddetectiond
+  478     1 _securityagent   Mon Nov 16 15:52:00 2026     /usr/sbin/cfprefsd
+  479     1 _rmd             Mon Nov 16 15:52:00 2026     /usr/sbin/cfprefsd
+  480     1 _modelmanagerd   Mon Nov 16 15:52:00 2026     /usr/libexec/modelmanagerd
+  542     1 _applepay        Mon Nov 16 15:56:22 2026     /usr/libexec/nfcd
+  636     1 root             Mon Nov 16 16:00:40 2026     /usr/libexec/online-auth-agent
+  827     1 root             Mon Nov 16 16:07:58 2026     /System/Library/PrivateFrameworks/CoreSymbolication.framework/coresymbolicationd
+  828     1 root             Mon Nov 16 16:07:59 2026     /System/Library/CoreServices/ReportCrash
+  829     1 _diagnosticservicesd Mon Nov 16 16:08:01 2026     /System/Library/CoreServices/diagnosticservicesd
+ 1937     1 root             Mon Nov 16 16:49:58 2026     sshd-session: pika [priv]
+ 1939  1937 pika             Mon Nov 16 16:49:58 2026     sshd-session: pika@notty
+ 1940  1939 root             Mon Nov 16 16:49:58 2026     ps
+  116     1 root             Mon Nov 16 15:45:26 2026     /usr/libexec/remoted
+
+exit=0
+
+$ sudo=False test -d /var/tmp && mkdir -p /var/tmp/vgpu-context-independent/gld-context /var/tmp/vgpu-context-independent/gld-surface /var/tmp/vgpu-context-independent/probes
+
+exit=0
+
+SHA256 973a0720835d6352dd27bf9aead92464e281acee90024b4a0c8db68973ecf498 gld-context/vgpu_context.h
+
+SHA256 cf71e853fb67aa3d87f659e604f395ab2ef29a19217a31a9d95a3f952bae90ef gld-context/vgpu_context.c
+
+SHA256 71785e22ade2c92c61f9126136507b99f40b550367a72a5fb03a125712a5663e gld-surface/vgpu_surface.h
+
+SHA256 9728d4ec52b2c2d6e68202bc47e4bd8315ae494c2a02906d599f8a5a8e75cb27 gld-surface/vgpu_surface.c
+
+SHA256 05f7c706dcb2eb99e8e05bbc11cafb105a4367656020ab9a5abe40e106032cec probes/gld_context_probe.c
+
+SHA256 a8ce7a0641207e300223ee91c20e08501191eaa8cd07b0c504a94e8fd5bf3093 verify.py
+
+$ sudo=False clang --version; sw_vers
+Apple clang version 17.0.0 (clang-1700.0.13.5)
+Target: x86_64-apple-darwin24.6.0
+Thread model: posix
+InstalledDir: /Library/Developer/CommandLineTools/usr/bin
+ProductName:		macOS
+ProductVersion:		15.7.3
+BuildVersion:		24G419
+
+exit=0
+
+$ sudo=False cd /var/tmp/vgpu-context-independent && clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -g -O1 gld-context/vgpu_context.c gld-surface/vgpu_surface.c probes/gld_context_probe.c -framework IOKit -framework CoreFoundation -lpthread -o gld_context_probe
+
+exit=0
+
+$ sudo=False cd /var/tmp/vgpu-context-independent && clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer gld-context/vgpu_context.c gld-surface/vgpu_surface.c probes/gld_context_probe.c -framework IOKit -framework CoreFoundation -lpthread -o gld_context_probe_sanitized
+
+exit=0
+
+$ sudo=False cd /var/tmp/vgpu-context-independent && clang --analyze -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -g -O1 -Xanalyzer -analyzer-output=text gld-context/vgpu_context.c
+
+exit=0
+
+$ sudo=False cd /var/tmp/vgpu-context-independent && clang --analyze -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -g -O1 -Xanalyzer -analyzer-output=text gld-surface/vgpu_surface.c
+
+exit=0
+
+$ sudo=False cd /var/tmp/vgpu-context-independent && clang --analyze -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -g -O1 -Xanalyzer -analyzer-output=text probes/gld_context_probe.c
+
+exit=0
+
+$ sudo=False cd /var/tmp/vgpu-context-independent && shasum -a 256 gld-context/vgpu_context.c gld-surface/vgpu_surface.c probes/gld_context_probe.c gld_context_probe gld_context_probe_sanitized
+cf71e853fb67aa3d87f659e604f395ab2ef29a19217a31a9d95a3f952bae90ef  gld-context/vgpu_context.c
+9728d4ec52b2c2d6e68202bc47e4bd8315ae494c2a02906d599f8a5a8e75cb27  gld-surface/vgpu_surface.c
+05f7c706dcb2eb99e8e05bbc11cafb105a4367656020ab9a5abe40e106032cec  probes/gld_context_probe.c
+8dae282e5eabbf702d06f5a111a846307a091e7e8db38d0e36bf92833ba53e38  gld_context_probe
+ebd7b0d5e145c3412729b0f9a221b3589c46fb1190b40bb1da8c2495a48b6025  gld_context_probe_sanitized
+
+exit=0
+
+$ sudo=False /var/tmp/vgpu-context-independent/gld_context_probe --expect-denied
+权限 uid=501 euid=501
+权限拒绝已验证 kIOReturnNotPrivileged=0xe00002c1
+RESULT checks=3 status=PASS exit=0
+
+exit=0
+
+$ sudo=False if pgrep -x gld_surface_probe || pgrep -x gld_context_probe || pgrep -x gld_context_probe_sanitized || pgrep -x surface-probe || pgrep -x surface-probe-sanitized; then exit 76; fi
+
+exit=0
+
+$ sudo=True id && ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 /var/tmp/vgpu-context-independent/gld_context_probe
+uid=0(root) gid=0(wheel) groups=0(wheel),1(daemon),2(kmem),3(sys),4(tty),5(operator),8(procview),9(procmod),12(everyone),20(staff),29(certusers),61(localaccounts),80(admin),701(com.apple.sharepoint.group.1),33(_appstore),98(_lpadmin),100(_lpoperator),204(_developer),250(_analyticsusers),395(com.apple.access_ftp),398(com.apple.access_screensharing),399(com.apple.access_ssh),400(com.apple.access_remote_ae)
+权限 uid=0 euid=0
+独立 context GPU probe：合成 H/B 仅用于契约输入，clear/read 使用真实连接
+GENERATION first=136 completed=136
+PIXELS width=256 height=256 pixels=65536 canary_bytes=2080 offset=16 stride=1032 fnv1a64=360c01dcac420e85 status=PASS
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=0 stride=12 fnv1a64=4b466014eb50dffd status=PASS
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=40 stride=32 fnv1a64=017c284b9dea8835 status=PASS
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=56 stride=48 fnv1a64=19929aad2db5de35 status=PASS
+GENERATION prior=136 next=137
+GENERATION external=138 stale=137
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=0 stride=12 fnv1a64=4b466014eb50dffd status=PASS
+GPU clear/read 已完成 generation=139，实时 pack/外部 stale 通过
+引用生命周期、lease 释放、解绑和无效句柄通过
+RESULT checks=103 status=PASS exit=0
+
+exit=0
+
+$ sudo=False if pgrep -x gld_surface_probe || pgrep -x gld_context_probe || pgrep -x gld_context_probe_sanitized || pgrep -x surface-probe || pgrep -x surface-probe-sanitized; then exit 76; fi
+
+exit=0
+
+$ sudo=True id && ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 /var/tmp/vgpu-context-independent/gld_context_probe_sanitized
+uid=0(root) gid=0(wheel) groups=0(wheel),1(daemon),2(kmem),3(sys),4(tty),5(operator),8(procview),9(procmod),12(everyone),20(staff),29(certusers),61(localaccounts),80(admin),701(com.apple.sharepoint.group.1),33(_appstore),98(_lpadmin),100(_lpoperator),204(_developer),250(_analyticsusers),395(com.apple.access_ftp),398(com.apple.access_screensharing),399(com.apple.access_ssh),400(com.apple.access_remote_ae)
+权限 uid=0 euid=0
+独立 context GPU probe：合成 H/B 仅用于契约输入，clear/read 使用真实连接
+GENERATION first=140 completed=140
+PIXELS width=256 height=256 pixels=65536 canary_bytes=2080 offset=16 stride=1032 fnv1a64=360c01dcac420e85 status=PASS
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=0 stride=12 fnv1a64=4b466014eb50dffd status=PASS
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=40 stride=32 fnv1a64=017c284b9dea8835 status=PASS
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=56 stride=48 fnv1a64=19929aad2db5de35 status=PASS
+GENERATION prior=140 next=141
+GENERATION external=142 stale=141
+PIXELS width=3 height=2 pixels=6 canary_bytes=488 offset=0 stride=12 fnv1a64=4b466014eb50dffd status=PASS
+GPU clear/read 已完成 generation=143，实时 pack/外部 stale 通过
+引用生命周期、lease 释放、解绑和无效句柄通过
+RESULT checks=103 status=PASS exit=0
+
+exit=0
+
+$ sudo=False sysctl kern.boottime; ioreg -r -c vgpuAccelerator -l
+kern.boottime: { sec = 1794815120, usec = 47049 } Mon Nov 16 15:45:20 2026
++-o vgpuAccelerator  <class vgpuAccelerator, id 0x10000045e, registered, matched, active, busy 0 (394 ms), retain 6>
+    {
+      "IOProbeScore" = 0
+      "CFBundleIdentifier" = "com.vgpu.framebuffer"
+      "IOMatchCategory" = "IOAccelerator"
+      "IOClass" = "vgpuAccelerator"
+      "IOPersonalityPublisher" = "com.vgpu.framebuffer"
+      "IOProviderClass" = "vgpuFramebuffer"
+      "CFBundleIdentifierKernel" = "com.vgpu.framebuffer"
+      "IOGLBundleName" = "VGPUDriverDiagnostic"
+    }
+    
+
+
+exit=0

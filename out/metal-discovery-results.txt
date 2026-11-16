@@ -1,0 +1,53 @@
+Metal 只读发现诊断验收 — 2026-11-16
+
+结论：只读诊断实现并在客体 MRC/ARC 两种构建下通过；唯一 IOAccelerator 是 vgpuAccelerator，MetalPluginName 缺失，停在 G1_NO_METAL_PLUGIN_NAME。这不是 Metal 可用证明。
+
+源码：kexts/probes/metal_probe.m
+SHA256：2163947eb1b8c4e13a8e092729c399d958db12c2937fd30a1bc87897a52e6eb6
+本地主文件 Get-FileHash 与上传后 shasum 一致。
+测试：out/metal-discovery-tests.m
+SHA256：a046dd438a467eb486946d4804e30bf887207ecf8a82e5fc559e9ec469065432
+
+执行环境：macOS 15.7.3 (24G419), x86_64。
+SSH：既有 tools/mssh.py，解释器 C:/Users/Pika/WorkBuddy/2026-09-27-20-30-43/.venv/Scripts/python.exe；使用既有配置，没有输出凭据。
+上传位置：
+  kexts/probes/metal_probe.m -> /var/tmp/vgpu-fb/metal-discovery-probe.m
+  out/metal-discovery-tests.m -> /var/tmp/vgpu-fb/metal-discovery-tests.m
+
+客体实际命令（均退出0）：
+shasum -a 256 /var/tmp/vgpu-fb/metal-discovery-probe.m
+clang -Wall -Wextra -Werror -fno-objc-arc -framework Foundation -framework Metal -framework IOKit /var/tmp/vgpu-fb/metal-discovery-probe.m -o /var/tmp/vgpu-fb/metal-discovery-mrc
+clang -Wall -Wextra -Werror -fobjc-arc -framework Foundation -framework Metal -framework IOKit /var/tmp/vgpu-fb/metal-discovery-probe.m -o /var/tmp/vgpu-fb/metal-discovery-arc
+/var/tmp/vgpu-fb/metal-discovery-mrc --discovery-contract-only
+/var/tmp/vgpu-fb/metal-discovery-arc --discovery-contract-only
+clang -Wall -Wextra -Werror -fno-objc-arc -framework Foundation -framework Metal -framework IOKit /var/tmp/vgpu-fb/metal-discovery-tests.m -o /var/tmp/vgpu-fb/metal-discovery-tests-mrc
+clang -Wall -Wextra -Werror -fobjc-arc -framework Foundation -framework Metal -framework IOKit /var/tmp/vgpu-fb/metal-discovery-tests.m -o /var/tmp/vgpu-fb/metal-discovery-tests-arc
+/var/tmp/vgpu-fb/metal-discovery-tests-mrc
+/var/tmp/vgpu-fb/metal-discovery-tests-arc
+shasum -a 256 /var/tmp/vgpu-fb/metal-discovery-tests.m
+
+MRC 与 ARC 的实际诊断输出相同：
+DISCOVERY_CONTRACT_ONLY OS=Version 15.7.3 (Build 24G419) build=24G419 arch=x86_64
+trust=NOT_EXECUTED/UNKNOWN class_resolution=NOT_EXECUTED/UNKNOWN inheritance=NOT_EXECUTED/UNKNOWN init=NOT_EXECUTED/UNKNOWN type5=NOT_EXECUTED/UNKNOWN GPU=NOT_EXECUTED/UNKNOWN
+candidate=1 class=vgpuAccelerator class_status=0x0 registryID=0x10000045e id_status=0x0 path=IOService:/AppleACPIPlatformExpert/PCI0@0/AppleACPIPCI/display@F/vgpuFramebuffer/vgpuAccelerator path_status=0x0
+  IOServiceCompatibility=false
+  MetalPluginName present=false
+  MetalPluginClassName present=false
+  Removable present=false
+  SafeEjectRequested present=false
+  stage=G1_NO_METAL_PLUGIN_NAME
+DISCOVERY_COMPLETE candidates=1; diagnostic completion is not Metal availability
+
+纯检查测试输出（两种构建各一次）：
+PASS: pure CF name/type checks and rejected arguments; no Metal device API called
+每种构建另向 stderr 打印两次 usage: probe [--discovery-contract-only]。
+断言覆盖：缺失属性、CFBoolean、CFNumber、合法文件名、空名、..、路径分隔符、反斜线、空格、非ASCII、嵌入NUL、过长名称；未知参数和多余参数返回64。测试不会以 argc=1 调用默认分支。
+
+实现边界：
+- 只读 IOServiceMatching/IORegistryEntryCreateCFProperty/IOObjectConformsTo，逐个释放 CF/IOKit 对象。
+- 正常短 ASCII 名称才按两个已核验目录 lstat/stat、CFReadStream/CFPropertyList 读取 Info.plist，报告 executable/principal class，CFBundleCopyExecutableArchitecturesForURL 仅读取 Mach-O 架构。
+- 当前客体在 G1 停止，没有执行文件候选分支；该分支编译通过，但没有伪造注册表属性以动态覆盖它。
+- trust/class/init/type5/GPU 始终明确标注 NOT_EXECUTED/UNKNOWN；路径存在不表示 trusted。
+- 默认无参数仍走原有真实设备枚举、compute、render、像素回读验收，未运行它。
+- 新参数分支在任何 MTLCopyAllDevices / MTLCreateSystemDefaultDevice 之前返回。未打开任何 user client，未加载驱动 bundle，未安装，未修改主kext，未执行git。
+- 退出0表示诊断完成；G1 是所观察到的系统发现失败阶段，不把诊断退出0转述为 Metal 功能成功。
