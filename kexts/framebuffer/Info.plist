@@ -20,6 +20,17 @@
 	<string>1.0.0</string>
 	<key>IOKitPersonalities</key>
 	<dict>
+		<key>vgpuAccelerator</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>com.vgpu.framebuffer</string>
+			<key>IOClass</key>
+			<string>vgpuAccelerator</string>
+			<key>IOProviderClass</key>
+			<string>vgpuFramebuffer</string>
+			<key>IOMatchCategory</key>
+			<string>IOAccelerator</string>
+		</dict>
 		<key>vgpuFramebuffer</key>
 		<dict>
 			<key>CFBundleIdentifier</key>

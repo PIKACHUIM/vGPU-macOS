@@ -1,10 +1,11 @@
 /*
  * 编译：clang -Wall -Wextra -Werror -framework IOKit -framework CoreFoundation \
  *           vgpu-user-draw.c -o vgpu-user-draw
- * 运行：sudo ./vgpu-user-draw [1..1000]（默认覆盖 §69 和 §70）
+ * 运行：sudo ./vgpu-user-draw [--accelerator] [1..1000]（覆盖 §69–§73）
  * 非管理员权限检查：./vgpu-user-draw --expect-denied
  */
 #include <IOKit/IOKitLib.h>
+#include <IOKit/graphics/IOGraphicsInterface.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -414,8 +415,11 @@ static bool close_connection(io_connect_t *connection)
 
 int main(int argc, char **argv)
 {
+    const char *program = argv[0];
     unsigned long rounds = 3;
     bool denied = false;
+    bool accelerator = argc > 1 && strcmp(argv[1], "--accelerator") == 0;
+    if (accelerator) { --argc; ++argv; }
     if (argc == 2 && strcmp(argv[1], "--expect-denied") == 0) {
         denied = true;
     } else if (argc == 2) {
@@ -424,11 +428,11 @@ int main(int argc, char **argv)
         rounds = strtoul(argv[1], &end, 10);
         if (argv[1][0] < '0' || argv[1][0] > '9' || errno != 0 ||
             end == argv[1] || *end != '\0' || rounds < 1 || rounds > 1000) {
-            fprintf(stderr, "Usage: %s [1..1000 | --expect-denied]\n", argv[0]);
+            fprintf(stderr, "Usage: %s [--accelerator] [1..1000 | --expect-denied]\n", program);
             return EXIT_FAILURE;
         }
     } else if (argc != 1) {
-        fprintf(stderr, "Usage: %s [1..1000 | --expect-denied]\n", argv[0]);
+        fprintf(stderr, "Usage: %s [--accelerator] [1..1000 | --expect-denied]\n", program);
         return EXIT_FAILURE;
     }
     if (denied && geteuid() == 0) {
@@ -449,6 +453,31 @@ int main(int argc, char **argv)
     if (service == IO_OBJECT_NULL) {
         fprintf(stderr, "FAIL vgpuFramebuffer service not found\n");
         return EXIT_FAILURE;
+    }
+    if (accelerator) {
+        io_service_t linked = IO_OBJECT_NULL;
+        UInt32 index = UINT32_MAX;
+        kern_return_t link_result = IOAccelFindAccelerator(service, &linked, &index);
+        if (!expect_code("IOAccelFindAccelerator", link_result, KERN_SUCCESS) ||
+            linked == IO_OBJECT_NULL || !IOObjectConformsTo(linked, "IOAccelerator") || index != 0) {
+            if (linked) IOObjectRelease(linked);
+            IOObjectRelease(service);
+            return EXIT_FAILURE;
+        }
+        IOObjectRelease(service);
+        service = linked;
+        puts("PASS framebuffer association -> IOAccelerator, index=0");
+        const uint32_t unsupported_types[] = { 5, UINT32_MAX };
+        for (size_t i = 0; i < sizeof(unsupported_types) / sizeof(unsupported_types[0]); ++i) {
+            io_connect_t unsupported = IO_OBJECT_NULL;
+            kern_return_t open_result = IOServiceOpen(service, mach_task_self(),
+                                                      unsupported_types[i], &unsupported);
+            if (unsupported) IOServiceClose(unsupported);
+            if (!expect_code("unsupported accelerator connection", open_result, kIOReturnUnsupported)) {
+                IOObjectRelease(service);
+                return EXIT_FAILURE;
+            }
+        }
     }
     kern_return_t result = IOServiceOpen(service, mach_task_self(), OPEN_TYPE,
                                          &first);

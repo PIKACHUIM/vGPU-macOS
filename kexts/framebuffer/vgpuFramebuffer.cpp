@@ -29,6 +29,9 @@
 //
 
 #include <IOKit/graphics/IOFramebuffer.h>
+#include <IOKit/graphics/IOAccelerator.h>
+#include <libkern/c++/OSNumber.h>
+#include <libkern/c++/OSString.h>
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <IOKit/IODeviceMemory.h>
 #include <IOKit/IOUserClient.h>
@@ -811,7 +814,7 @@ static const UInt32 kDxTestDelayS = 90;
 //
 // The value is embedded in the banner string, so it is also covered by build.sh's
 // reachability check ("start, provider=%s [build %s]") -- a stale binary cannot pretend.
-#define VGPU_BUILD_TAG "§70-vertex-buffer"
+#define VGPU_BUILD_TAG "§73-accelerator-link"
 
 // How long one CB may take before we call it unanswered, and how long after that we keep
 // looking. Both are §56: the old budget was a 200M-iteration spin (~130 ms) that reported
@@ -1484,6 +1487,9 @@ private:
     void stopCallbacks();
     bool _userDrawReady = false;
     bool _userDrawStopping = false;
+    UInt32 _openingDrawClients = 0; // 由 _userDrawLock 保护，stop 等待创建结束
+    IOReturn createDrawUserClient(task_t task, void *securityID, UInt32 type,
+                                 OSDictionary *properties, IOUserClient **handler);
     UInt64 _userDrawGeneration = 0;
     IOBufferMemoryDescriptor *_cotableMem = nullptr;   // DX COTABLE storage (4 KiB)
     IOBufferMemoryDescriptor *_cotablePtMem = nullptr; // unused (PT64_0 needs no PT page)
@@ -1558,10 +1564,164 @@ OSDefineMetaClassAndStructors(vgpuFramebuffer, IOFramebuffer)
 // §69: intentionally narrow bring-up ABI. No raw CB, MOB, or physical address
 // crosses this interface. Other connection types still belong to IOFramebuffer.
 static const UInt32 kVgpuDrawConnection = 0x56475055;
+
+// §73：这里只发布真实服务关联，用户态绘制仍由 framebuffer 的已验证接口处理。
+class vgpuAccelerator : public IOAccelerator {
+    OSDeclareDefaultStructors(vgpuAccelerator)
+    typedef IOAccelerator super;
+private:
+    IOLock *_lock = nullptr;
+    vgpuFramebuffer *_framebuffer = nullptr;
+    OSString *_linkPath = nullptr;
+    OSNumber *_linkIndex = nullptr;
+    bool _running = false;
+    UInt32 _openingClients = 0;
+    void removeFramebufferLink();
+    static IOReturn updateFramebufferLink(OSObject *target, void *publish, void *, void *, void *);
+public:
+    bool init(OSDictionary *properties = nullptr) APPLE_KEXT_OVERRIDE;
+    bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
+    void stop(IOService *provider) APPLE_KEXT_OVERRIDE;
+    void free() APPLE_KEXT_OVERRIDE;
+    IOReturn newUserClient(task_t task, void *securityID, UInt32 type,
+                          OSDictionary *properties, IOUserClient **handler) APPLE_KEXT_OVERRIDE;
+    IOReturn newUserClient(task_t task, void *securityID, UInt32 type,
+                          IOUserClient **handler) APPLE_KEXT_OVERRIDE;
+};
+OSDefineMetaClassAndStructors(vgpuAccelerator, IOAccelerator)
+
+bool vgpuAccelerator::init(OSDictionary *properties) {
+    if (!super::init(properties)) return false;
+    _lock = IOLockAlloc();
+    return _lock != nullptr;
+}
+
+void vgpuAccelerator::removeFramebufferLink() {
+    if (_framebuffer) _framebuffer->runPropertyAction(&vgpuAccelerator::updateFramebufferLink, this);
+}
+
+IOReturn vgpuAccelerator::updateFramebufferLink(OSObject *target, void *publish, void *, void *, void *) {
+    vgpuAccelerator *self = OSDynamicCast(vgpuAccelerator, target);
+    vgpuFramebuffer *fb = self->_framebuffer;
+    // runPropertyAction 持有 fb 属性锁，检查与写入/撤销不会被另一发布者插入。
+    OSObject *path = fb->getProperty("IOAccelTypes");
+    OSObject *index = fb->getProperty("IOAccelIndex");
+    if (publish) {
+        if (path || index) return kIOReturnExclusiveAccess;
+        if (!fb->setProperty("IOAccelIndex", self->_linkIndex)) return kIOReturnNoMemory;
+        if (fb->setProperty("IOAccelTypes", self->_linkPath)) return kIOReturnSuccess;
+        fb->removeProperty("IOAccelIndex");
+        return kIOReturnNoMemory;
+    }
+    // 比较对象身份而非字符串/数值：后来发布的同值属性也不属于本实例。
+    // 路径被别人接管时连 index 一起保留。
+    if (path == self->_linkPath || !path) {
+        if (path && path == self->_linkPath) fb->removeProperty("IOAccelTypes");
+        if (index && index == self->_linkIndex) fb->removeProperty("IOAccelIndex");
+    }
+    return kIOReturnSuccess;
+}
+
+bool vgpuAccelerator::start(IOService *provider) {
+    vgpuFramebuffer *framebuffer = OSDynamicCast(vgpuFramebuffer, provider);
+    if (!framebuffer || !super::start(provider)) return false;
+    _framebuffer = framebuffer;
+    _framebuffer->retain();
+    setName("vgpuAccelerator");
+    char path[1024];
+    int length = sizeof(path);
+    bool linked = false;
+    if (!isInactive() && !framebuffer->isInactive() && getPath(path, &length, gIOServicePlane)) {
+        _linkPath = OSString::withCString(path);
+        _linkIndex = OSNumber::withNumber((unsigned long long)0, 32);
+        // 属性查询与更新在 framebuffer 的 registry 属性锁下原子执行。
+        if (_linkPath && _linkIndex)
+            linked = framebuffer->runPropertyAction(&vgpuAccelerator::updateFramebufferLink, this,
+                                                    (void *)1) == kIOReturnSuccess;
+    }
+    if (!linked) {
+        removeFramebufferLink();
+        if (_linkPath) { _linkPath->release(); _linkPath = nullptr; }
+        if (_linkIndex) { _linkIndex->release(); _linkIndex = nullptr; }
+        super::stop(provider);
+        _framebuffer->release();
+        _framebuffer = nullptr;
+        return false;
+    }
+    IOLockLock(_lock);
+    _running = true;
+    IOLockUnlock(_lock);
+    IOLog(VGPU_FB_TAG ": accelerator: linked IOAccelTypes=%s IOAccelIndex=0 [build %s]\n",
+          path, VGPU_BUILD_TAG);
+    registerService();
+    return true;
+}
+
+void vgpuAccelerator::stop(IOService *provider) {
+    IOLockLock(_lock);
+    _running = false;
+    while (_openingClients) IOLockSleep(_lock, &_openingClients, THREAD_UNINT);
+    removeFramebufferLink();
+    vgpuFramebuffer *framebuffer = _framebuffer;
+    _framebuffer = nullptr;
+    IOLockUnlock(_lock);
+    IOLog(VGPU_FB_TAG ": accelerator: stopped, owned framebuffer link withdrawn\n");
+    super::stop(provider);
+    if (framebuffer) framebuffer->release();
+}
+
+void vgpuAccelerator::free() {
+    // 包括 start 失败；锁只在最后一个调用者释放本实例后销毁。
+    removeFramebufferLink();
+    if (_framebuffer) { _framebuffer->release(); _framebuffer = nullptr; }
+    if (_linkPath) { _linkPath->release(); _linkPath = nullptr; }
+    if (_linkIndex) { _linkIndex->release(); _linkIndex = nullptr; }
+    if (_lock) { IOLockFree(_lock); _lock = nullptr; }
+    super::free();
+}
+
+IOReturn vgpuAccelerator::newUserClient(task_t task, void *securityID, UInt32 type,
+                                       IOUserClient **handler) {
+    return newUserClient(task, securityID, type, nullptr, handler);
+}
+
+IOReturn vgpuAccelerator::newUserClient(task_t task, void *securityID, UInt32 type,
+                                       OSDictionary *properties, IOUserClient **handler) {
+    if (!handler) return kIOReturnBadArgument;
+    *handler = nullptr;
+    if (type != kVgpuDrawConnection) return kIOReturnUnsupported;
+    if (!_lock) return kIOReturnNotReady;
+    IOLockLock(_lock);
+    vgpuFramebuffer *framebuffer = _framebuffer;
+    if (!_running || isInactive() || !framebuffer || framebuffer->isInactive()) {
+        IOLockUnlock(_lock);
+        return kIOReturnNotReady;
+    }
+    ++_openingClients;
+    framebuffer->retain();
+    IOLockUnlock(_lock);
+    // 不持 accelerator 锁跨越 attach/start；stop 会等全部已进入的创建调用结束。
+    IOReturn result = framebuffer->newUserClient(task, securityID, type, properties, handler);
+    framebuffer->release();
+    IOLockLock(_lock);
+    --_openingClients;
+    IOLockWakeup(_lock, &_openingClients, false);
+    IOLockUnlock(_lock);
+    return result;
+}
+
 class vgpuDrawUserClient : public IOUserClient {
     OSDeclareDefaultStructors(vgpuDrawUserClient)
     typedef IOUserClient super;
+private:
+    IOLock *_ownerLock = nullptr;
+    vgpuFramebuffer *_owner = nullptr;
+    bool _closing = false;
+    vgpuFramebuffer *copyOwner();
 public:
+    bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
+    void stop(IOService *provider) APPLE_KEXT_OVERRIDE;
+    void free() APPLE_KEXT_OVERRIDE;
     IOReturn clientClose() APPLE_KEXT_OVERRIDE;
     IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments *arguments,
                            IOExternalMethodDispatch *dispatch = nullptr,
@@ -1580,6 +1740,24 @@ IOReturn vgpuFramebuffer::newUserClient(task_t task, void *securityID, UInt32 ty
     *handler = nullptr;
     if (IOUserClient::clientHasPrivilege(task, kIOClientPrivilegeAdministrator) != kIOReturnSuccess)
         return kIOReturnNotPrivileged;
+    if (!_userDrawLock) return kIOReturnNotReady;
+    IOLockLock(_userDrawLock);
+    if (_userDrawStopping || isInactive()) {
+        IOLockUnlock(_userDrawLock);
+        return kIOReturnNotReady;
+    }
+    ++_openingDrawClients;
+    IOLockUnlock(_userDrawLock);
+    IOReturn result = createDrawUserClient(task, securityID, type, properties, handler);
+    IOLockLock(_userDrawLock);
+    --_openingDrawClients;
+    IOLockWakeup(_userDrawLock, &_openingDrawClients, false);
+    IOLockUnlock(_userDrawLock);
+    return result;
+}
+
+IOReturn vgpuFramebuffer::createDrawUserClient(task_t task, void *securityID, UInt32 type,
+                                              OSDictionary *properties, IOUserClient **handler) {
     vgpuDrawUserClient *client = new vgpuDrawUserClient;
     if (!client) return kIOReturnNoMemory;
     if (!client->initWithTask(task, securityID, type, properties)) {
@@ -1587,7 +1765,10 @@ IOReturn vgpuFramebuffer::newUserClient(task_t task, void *securityID, UInt32 ty
         return kIOReturnError;
     }
     // Let IOKit serialize close/externalMethod calls for each connection.
-    client->setProperty("IOUserClientDefaultLocking", true);
+    if (!client->setProperty("IOUserClientDefaultLocking", true)) {
+        client->release();
+        return kIOReturnNoMemory;
+    }
     if (!client->attach(this)) {
         client->release();
         return kIOReturnError;
@@ -1602,7 +1783,47 @@ IOReturn vgpuFramebuffer::newUserClient(task_t task, void *securityID, UInt32 ty
     return kIOReturnSuccess;
 }
 
+bool vgpuDrawUserClient::start(IOService *provider) {
+    vgpuFramebuffer *owner = OSDynamicCast(vgpuFramebuffer, provider);
+    if (!owner) return false;
+    _ownerLock = IOLockAlloc();
+    if (!_ownerLock || !super::start(provider)) return false;
+    owner->retain();
+    _owner = owner;
+    return true;
+}
+
+vgpuFramebuffer *vgpuDrawUserClient::copyOwner() {
+    if (!_ownerLock) return nullptr;
+    IOLockLock(_ownerLock);
+    vgpuFramebuffer *owner = (!_closing && !isInactive()) ? _owner : nullptr;
+    if (owner) owner->retain();
+    IOLockUnlock(_ownerLock);
+    return owner;
+}
+
+void vgpuDrawUserClient::stop(IOService *provider) {
+    IOLockLock(_ownerLock);
+    _closing = true;
+    vgpuFramebuffer *owner = _owner;
+    _owner = nullptr;
+    IOLockUnlock(_ownerLock);
+    super::stop(provider);
+    if (owner) owner->release();
+}
+
+void vgpuDrawUserClient::free() {
+    if (_owner) { _owner->release(); _owner = nullptr; }
+    if (_ownerLock) { IOLockFree(_ownerLock); _ownerLock = nullptr; }
+    super::free();
+}
+
 IOReturn vgpuDrawUserClient::clientClose() {
+    if (_ownerLock) {
+        IOLockLock(_ownerLock);
+        _closing = true;
+        IOLockUnlock(_ownerLock);
+    }
     terminate();
     return kIOReturnSuccess;
 }
@@ -1623,10 +1844,11 @@ IOReturn vgpuDrawUserClient::externalMethod(uint32_t selector, IOExternalMethodA
 
 IOReturn vgpuDrawUserClient::draw(OSObject *target, void *, IOExternalMethodArguments *args) {
     vgpuDrawUserClient *client = OSDynamicCast(vgpuDrawUserClient, target);
-    vgpuFramebuffer *owner = client ? OSDynamicCast(vgpuFramebuffer, client->getProvider()) : nullptr;
-    if (!owner || owner->isInactive()) return kIOReturnNotAttached;
+    vgpuFramebuffer *owner = client ? client->copyOwner() : nullptr;
+    if (!owner) return kIOReturnNotAttached;
     UInt64 generation = 0;
-    IOReturn result = owner->userDraw(&generation);
+    IOReturn result = owner->isInactive() ? kIOReturnNotAttached : owner->userDraw(&generation);
+    owner->release();
     if (result == kIOReturnSuccess) {
         args->scalarOutput[0] = generation;
         args->scalarOutput[1] = 256;
@@ -1637,18 +1859,19 @@ IOReturn vgpuDrawUserClient::draw(OSObject *target, void *, IOExternalMethodArgu
 
 IOReturn vgpuDrawUserClient::readRow(OSObject *target, void *, IOExternalMethodArguments *args) {
     vgpuDrawUserClient *client = OSDynamicCast(vgpuDrawUserClient, target);
-    vgpuFramebuffer *owner = client ? OSDynamicCast(vgpuFramebuffer, client->getProvider()) : nullptr;
-    if (!owner || owner->isInactive()) return kIOReturnNotAttached;
     if (!args->structureOutput) return kIOReturnBadArgument;
-    return owner->userReadRow(args->scalarInput[0], args->scalarInput[1], args->structureOutput);
+    vgpuFramebuffer *owner = client ? client->copyOwner() : nullptr;
+    if (!owner) return kIOReturnNotAttached;
+    IOReturn result = owner->isInactive() ? kIOReturnNotAttached :
+        owner->userReadRow(args->scalarInput[0], args->scalarInput[1], args->structureOutput);
+    owner->release();
+    return result;
 }
 
 // Version 1: two u32 header fields followed by three IEEE754 float4 positions.
 // Validate through integer bits: kext code must not use the kernel FPU.
 IOReturn vgpuDrawUserClient::drawVertices(OSObject *target, void *, IOExternalMethodArguments *args) {
     vgpuDrawUserClient *client = OSDynamicCast(vgpuDrawUserClient, target);
-    vgpuFramebuffer *owner = client ? OSDynamicCast(vgpuFramebuffer, client->getProvider()) : nullptr;
-    if (!owner || owner->isInactive()) return kIOReturnNotAttached;
     if (!args->structureInput) return kIOReturnBadArgument;
     UInt32 input[14];
     memcpy(input, args->structureInput, sizeof(input));
@@ -1661,8 +1884,11 @@ IOReturn vgpuDrawUserClient::drawVertices(OSObject *target, void *, IOExternalMe
             ((p[2] & 0x80000000) && (p[2] & 0x7FFFFFFF)) ||
             p[3] != 0x3F800000) return kIOReturnBadArgument;
     }
+    vgpuFramebuffer *owner = client ? client->copyOwner() : nullptr;
+    if (!owner) return kIOReturnNotAttached;
     UInt64 generation = 0;
-    IOReturn result = owner->userDraw(&generation, input + 2);
+    IOReturn result = owner->isInactive() ? kIOReturnNotAttached : owner->userDraw(&generation, input + 2);
+    owner->release();
     if (result == kIOReturnSuccess) {
         args->scalarOutput[0] = generation;
         args->scalarOutput[1] = 256;
@@ -7669,6 +7895,8 @@ void vgpuFramebuffer::stop(IOService *provider) {
         IOLockLock(_userDrawLock);
         _userDrawStopping = true;
         _userDrawReady = false;
+        while (_openingDrawClients)
+            IOLockSleep(_userDrawLock, &_openingDrawClients, THREAD_UNINT);
         IOLockUnlock(_userDrawLock);
     }
     stopCallbacks();

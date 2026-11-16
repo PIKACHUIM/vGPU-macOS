@@ -5987,3 +5987,59 @@ ENTRY slot   = plugin + 0x420 + 8*i, i=0..128
 本轮停止低速下载的Metal/IOKit完整反汇编；`out/metal-code.txt`与`out/iokit-code.txt`为不完整副本，完整源仍在客体`/var/tmp/vgpu-fb/`，后续按函数提取。已核对内核SDK存在公开`IOAccelerator : IOService`头文件，具create/retain/releaseAccelID静态接口，但尚未创建加速器服务。
 
 下一步：从GLEngine调用端补齐GLD renderer/pixel-format/context/dispatch ABI，结合真实IOAccelerator服务类实现关联与插件；完成资源、shader、context隔离和用户态访问，再运行硬件OpenGL与Metal compute/render验收。§70专用VB后端仍是已验证基础，不代表系统API已完成。
+
+### 72.7 GLEngine调用端补证
+
+目标GLEngine UUID `fb994f7834c639f3857d99f9b3013e8f`，完整反汇编保留客体`/var/tmp/vgpu-fb/glengine-code.txt`（16,639,703字节），只取回约38KB关键片段。四个入口现已定位：
+
+| 入口 | 调用点（unslid） | 显式入参 |
+|---|---|---|
+| gldChoosePixelFormat | 0x7ffb0637adfe | RDI=链表头输出槽；RSI=内部请求指针，不能当作公开CGL属性数组 |
+| gldPopulateRendererInfo | 0x7ffb0638ea7a | RDI=驱动device句柄；RSI=调用者分配的0x88字节记录 |
+| gldCreateContext | 0x7ffb0637b27a | RDI=share-group句柄；RSI=context输出槽；RDX=pixel-format节点；RCX/R8/R9为GLEngine内部区域 |
+| gldPopulateContextDispatch | 0x7ffb06447500 | RDI=context句柄；RSI=GLEngine渲染dispatch存储 |
+
+前三项EAX=0成功，第四项返回不检查。特别是CreateContext首参不是device句柄。GLEngine每插件区域S大小0xe20，RCX=S+0x10，R9=S+0x270；R8=GLIContext+0x8e0。不能仅凭这些地址间距定义完整结构。
+
+渲染dispatch实际复制0xc8字节，即25个8字节单元；已有调用点未直接检查某些槽为NULL，不能填空表。GLEngine在部分profile分支处理上层0x1e78字节/975槽GL API表，安装自身执行/打包实现；这与129个GLD导出及25个渲染单元是不同层。可以复用上层分派，但驱动仍须实现真实资源、shader、提交、同步与底层回调。pixel-format请求、能力字段、25槽签名尚未完整恢复。详细中间证据在`out/glengine-contract.txt`及`out/glengine-contract-snippets.txt`。
+
+## §73：真实IOAccelerator服务关联与GPU后端访问（2026-11-16）
+
+### 实现与生命周期边界
+
+新增`vgpuAccelerator : IOAccelerator`，provider=`vgpuFramebuffer`，独立personality及`IOMatchCategory=IOAccelerator`。使用目标内核SDK公开IOAccelerator类，构造/析构/元类由IOGraphicsFamily提供。start获取自身registry path，向framebuffer原子发布`IOAccelTypes`（OSString）与`IOAccelIndex=0`（32位OSNumber）；已有属性不覆盖，失败回滚，stop按属性对象身份撤销自身关联。
+
+只转发原私有`kVgpuDrawConnection=0x56475055`至已验证framebuffer后端，保留管理员权限要求；type5和其它未知类型返回Unsupported。不添加IOGLBundleName/MetalPluginName，不声称实现标准系统用户客户端。新增provider引用管理、用户客户端owner锁和retain、open创建计数及stop排空；GPU命令和VB渲染内容未改。并发stop、失败注入及热卸载仍未实测，DMA backing继续保留至重启。
+
+`tools/vgpu-user-draw.c`增加`--accelerator`：通过真实`IOAccelFindAccelerator`查服务，检查IOAccelerator类与index0，验证type5/UINT32_MAX均Unsupported，再执行原§69/§70全套像素、generation及输入校验。默认仍走framebuffer，保持回归对照。
+
+### 构建、安装和本次启动证据
+
+客体严格构建通过，可达性marker和真实build-tag均在二进制，未签名构建171856字节、SHA256=`503f9427679fae736d8cc315291a6730a2c4cf95ca3c607c833a4a96699c3860`。宿主/客体三个构建输入SHA一致；安装弱引用0，Code=28按预期要求重启。旧驱动备份在客体`/var/tmp/vgpu-fb/vgpuFramebuffer.pre73.kext`。
+
+本次`kern.boottime=2026-11-16 12:30:35`；日志`12:31:08.757 start [build §73-accelerator-link]`，`12:31:08.960 accelerator: linked`。系统枚举结果：
+
+```text
+vgpuAccelerator <class vgpuAccelerator, registered, matched, active>
+IOAccelFindAccelerator=0x00000000 index=0 found=1
+IOService:/AppleACPIPlatformExpert/PCI0@0/AppleACPIPCI/display@F/vgpuFramebuffer/vgpuAccelerator
+```
+
+启动早期SSH连接超时一次，42秒时已恢复，后续登录界面正常。日志用本次boottime过滤；zsh的`log`命令冲突导致一次`too many arguments`，改用`/usr/bin/log`。两次绘制发生在延迟测试前，返回NotReady；日志确认延迟测试于`12:32:38.779`启动、`12:32:38.808`发布READY。延迟为驱动start后90秒，不是kern.boottime后90秒。
+
+### 实测验收结果
+
+READY后依次运行`vgpu-user-draw --accelerator 2`及`vgpu-user-draw 1`，两者exit0：
+
+| 入口 | 新帧generation | 新帧数 | 每帧像素 | 结果 |
+|---|---|---:|---:|---|
+| IOAccelerator关联入口 | 1–17 | 17 | 65536 | 全部other0/mismatch0 |
+| 原framebuffer入口 | 18–29 | 12 | 65536 | 全部other0/mismatch0 |
+
+合计29个新帧、1,900,544像素（不把非法输入后的旧帧重复读回另计新帧）。固定几何红18432、A红6400、B红12800；连续A/B/A、固定/可变交替、跨连接读回、关闭重开通过。每套80种非法顶点输入均拒绝且旧帧保持；非root经accelerator打开拒绝，type5及UINT32_MAX连接明确Unsupported。
+
+### 尚未实现的系统API层
+
+本次重启后console=root、没有用户Aqua会话；软件GL仍像素正确，强制加速CGL报invalid CoreGraphics connection，不能把该会话错误作为新的驱动兼容结论。Metal枚举仍0。前一启动用户已登录时的有效基线仍见§72.1。本轮无需为底层验收重复请求用户登录；真正安装GLD插件并运行有效Aqua验收时再核对会话状态。
+
+当前新增成果是**系统能关联真实IOAccelerator服务，并经它访问真实GPU绘制后端**；仍没有硬件GLD renderer或Metal设备。后续需实现GLD结构/回调和通用资源/shader/同步，再完成标准Metal设备客户端与插件。不会以服务枚举成功代替OpenGL/Metal调用完成。

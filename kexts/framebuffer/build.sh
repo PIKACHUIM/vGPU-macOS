@@ -332,6 +332,10 @@ fi
 else
     echo "kDxTest = 0 -> DX template retired, markers not required"
 fi
+# §73：服务关联独立于 GPU 实验开关，始终检查发布与撤销代码。
+MARKERS="$MARKERS
+accelerator: linked IOAccelTypes=%s IOAccelIndex=0
+accelerator: stopped, owned framebuffer link withdrawn"
 MISSING=0
 OLDIFS=$IFS
 IFS='
@@ -357,8 +361,8 @@ if grep -aqF -- "start, provider=%s [build %s]" "$BUNDLE/Contents/MacOS/$NAME"; 
     TAG=$(grep -aoE '#define VGPU_BUILD_TAG "[^"]+"' "$SWITCHES" \
           | sed -e 's/.*"\(.*\)"/\1/')
     echo "present: build tag banner (VGPU_BUILD_TAG = ${TAG:-<missing>})"
-    if [ -z "$TAG" ]; then
-        echo "MISSING: VGPU_BUILD_TAG in $SWITCHES" >&2
+    if [ -z "$TAG" ] || ! grep -aqF -- "$TAG" "$BUNDLE/Contents/MacOS/$NAME"; then
+        echo "MISSING: VGPU_BUILD_TAG in source or binary" >&2
         MISSING=$((MISSING + 1))
     fi
 else

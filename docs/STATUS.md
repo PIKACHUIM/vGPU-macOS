@@ -155,7 +155,7 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 
 ## 当前开放问题
 
-> 最后更新：2026-11-16（§70：用户顶点真实VB绘制39帧全像素通过；§72：用户已登录Aqua，系统仍仅软件GL、硬件CGL无pixel format、Metal零设备；已实测framebuffer缺IOAccelTypes/IOAccelIndex，系统关联查询失败；恢复GLD六参数初始化、129项入口和可信目录规则，硬件OpenGL/Metal仍未实现）
+> 最后更新：2026-11-16（§73：真实IOAccelerator服务已加载，framebuffer关联成功，经新旧入口29帧/1,900,544新帧像素零差异，权限及未知连接拒绝通过；§72恢复GLD加载与GLEngine调用契约，补齐Metal render验收代码。当前没有GLD插件/Metal设备；重启后在登录界面，硬件OpenGL/Metal仍未实现）
 
 ### 两级目标的最终状态（11-15 夜间修订）
 
@@ -164,7 +164,7 @@ cid 1 在队列 1 上 `DEFINE/BIND/SET_COTABLE` 全部 ACCEPTED、sync COMPLETED
 | L1 | SVGA3D 的 **DX 命令流真正执行出像素** | 清屏与VS/PS三角形读回通过 | §68c有效blend/depth对象消除DRAW拒绝；红18432、绿47104、other0、mismatches0，全65536像素吻合；读回后队列健康。§70定长用户顶点→真实VB/透传VS通过，A/B/固定交替与连续更新零差异；通用资源提交、回收及图形API接入仍待实现 |
 | L1' | 退一步：**像素通路可用**（2D），且由驱动自证 | ✅ 已交付 | §52 色带/白框/棋盘截图 + 登录界面截图 |
 | L2a | **2D 加速的显示驱动**（copy/blit 加速） | ✅ 可达，且下层已实测 | §54.2：`RECT_COPY` 逐位正确；blit 可用；fill 不可用 |
-| L2b | **Metal / IOAccelerator** | 尚未实现；继续研究 | §55.2实测无Metal设备；§65已打通底层DX清屏，不能再据旧派发失败断言不可实现；仍缺完整渲染及macOS加速驱动接口 |
+| L2b | **Metal / IOAccelerator** | 服务关联及私有绘制通过；标准Metal未实现 | §73真实IOAccelerator派生服务可发现，转发已有GPU绘制并全像素验证；type5明确Unsupported，Metal仍零设备。§72 compute/render探针已严格编译，待真实设备执行 |
 | L2c | **OpenGL（软件渲染 GL 2.1）** | ✅ 可用 | §55.3 `Apple Software Renderer`，FBO 三角形读回 255,0,0,255 |
 
 > §65纠正：下层已有DX渲染目标清屏和像素读回证据；三角形光栅化、shader、资源上传及macOS应用级接口仍待实现。
