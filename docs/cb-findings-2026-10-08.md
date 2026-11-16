@@ -5913,4 +5913,77 @@ Apple历史官方文档明确存在第三方GLD plug-in接口：https://develope
 
 ### 2026-11-16 后续：Aqua 基线等待桌面解锁
 
-继续检查时客体启动时间为 01:44:31，运行约 9.5 小时；SSH 会话仍显示 0 users，`/dev/console` 属主 `root`，`launchctl print gui/501` 返回 domain 不存在，`ioreg -r -c IOAccelerator -l` 无结果。VNC 截图显示 `Pika` 锁屏（11:24）。因此现在可以确认是锁屏而非活跃 GUI 登录会话。已向用户请求在 VNC 登录框自行解锁并保持登录；不需要也不应通过聊天提供密码。用户确认完成后，先在该 Aqua 会话复跑 `glprobe` 并记录 CGL renderer 枚举、加速属性和 context 结果，再判断驱动兼容性。用户解锁前不把 `invalid CoreGraphics connection` 作为硬件不支持证据，不改系统权限、不注入 shim。
+继续检查时客体启动时间为 01:44:31，运行约 9.5 小时；SSH 会话仍显示 0 users，`/dev/console` 属主 `root`，`launchctl print gui/501` 返回 domain 不存在，`ioreg -r -c IOAccelerator -l` 无结果。VNC 截图显示 `Pika` 锁屏（11:24）。结合 console 属主与 gui/501 不存在，可确认当时没有用户 Aqua 会话；密码界面截图本身不能区分首次登录与已有会话锁定。已向用户请求在 VNC 登录框自行解锁并保持登录；不需要也不应通过聊天提供密码。用户确认完成后，先在该 Aqua 会话复跑 `glprobe` 并记录 CGL renderer 枚举、加速属性和 context 结果，再判断驱动兼容性。用户解锁前不把 `invalid CoreGraphics connection` 作为硬件不支持证据，不改系统权限、不注入 shim。
+
+## §72：有效 Aqua 基线、原生 GLD 发现与加载契约（2026-11-16）
+
+### 72.1 登录已完成；当前缺口已定位到加速器服务关联
+
+用户确认已登录后，`/dev/console` 属主为 `pika 501`，`launchctl print gui/501` 显示 `type=login/session=Aqua`。不再等待用户解锁。普通用户与 sudo 下的 CGL 基线一致：默认和强制软件上下文均使用 Apple Software Renderer；强制 accelerated + NoRecovery 返回 `invalid pixel format, npix=0`。扩展探针实测：
+
+```text
+accelerator links: framebuffer=vgpuFramebuffer IOAccelTypes=absent IOAccelIndex=absent
+accelerator links: IOAccelFindAccelerator=0xe00002bc index=0 found=0
+accelerator links: framebuffers=1
+renderers: count=1
+RendererID=0x01020400 Accelerated=0 Online=1 DisplayMask=0xffffffff
+MTLCopyAllDevices count=0
+```
+
+`gl_probe.c` 新增公开 IOKit 关联查询、renderer 属性枚举和本进程图形镜像列表；查询前检查属性 CF 类型，释放所有服务句柄与 CF 对象。构建新增 `-framework IOKit -framework CoreFoundation`。以 `-Wall -Wextra -Werror` 编译通过，运行退出1来自真实硬件验收失败。系统库 OpenGL/Metal/IOAccelerator 已映射不等于硬件设备可用；GLEngine/GLRendererFloat 的加载也不能算加速成功。
+
+### 72.2 IOAccelFindAccelerator：路径和索引契约
+
+目标 macOS 15.7.3 / 24G419 / x86_64，函数 unslid `0x7ff8058d3cbc`。完整函数及实际 CFString 常量证明：
+
+- 只读取 framebuffer 自身属性，没有父级递归或同级 accelerator 搜索。
+- `IOAccelTypes` 是 CFString 路径，按 MacRoman 转字符后直接传 `IORegistryEntryFromPath`；目标必须 `IOObjectConformsTo(..., "IOAccelerator")`。不是注册一个同名节点就能通过。
+- 可选 `IOAccelIndex` 按 SInt32 取值，缺省0；索引不是枚举序号或 renderer ID。调用方 libGFXShared 将其低8位保存到 GLD 初始化的第二参数字节数组。
+- 缺路径、解析失败或类不符时返回 `kIOReturnError=0xe00002bc`；属性读取失败则透传其错误。成功 accelerator 引用归调用方释放。
+- 函数本身不检查 CF 类型，不检查索引数值转换是否成功；不能对恶意或错误类型属性推断正常失败行为。
+
+Apple 开源交叉证据：IOKitUser `323ead896d04424f87184d8f6ff0cce811aab106/graphics.subproj/IOAccelSurfaceControl.c` 第35–100行；IOGraphics `76285384ff0ce63965a21b8023bf6d7e447fcc19/IOGraphicsFamily/IOKit/graphics/IOGraphicsInterfaceTypes.h` 第293–295行。目标反汇编另存客体 `/var/tmp/vgpu-fb/iokit-code.txt`，全函数片段已独立取回核对。
+
+### 72.3 插件路径：两个固定目录与独立可信检查
+
+`gfxInitializeLibrary` 从关联 accelerator 读取 `IOGLBundleName`，调用 `gpu_bundle_find_trusted`，构造 `%s/Contents/MacOS/%s`，再调用 `gpu_bundle_is_path_trusted`，返回0才 `dlopen(path,5)`。
+
+目标 libsystem_sandbox 中 `gpu_bundle_find_trusted` (`0x7ff80e5a7205`) 依次搜索：
+
+1. `/Library/GPUBundles/<IOGLBundleName>.bundle`
+2. `/System/Library/Extensions/<IOGLBundleName>.bundle`
+
+目录表 unslid `0x7ff8412bbfe0`，两项指针；只读进程内探针直接取值确认，非字符串猜测。候选必须 stat 成功、为目录并通过可信检查。`gpu_bundle_is_path_trusted` (`0x7ff80e5a73d0`) 先调用 `rootless_check_trusted_class(path,"KernelExtensionManagement")`；返回1时再以 `_dyld_shared_cache_contains_path(path)` 决定是否接受。其它返回值透传。目录可信与可执行文件可信分别检查，搜索路径存在不等于第三方插件已获准加载。本轮未修改任何系统安全设置，也未验证第三方 bundle 的实际加载。
+
+### 72.4 目标 GLD ABI：已恢复边界
+
+通过目标 `dyld_info` 直接分析共享缓存，不依赖 LLDB 调试授权。`gld_loader_probe.c` 只检查本进程正常链接镜像的只读常量；所有访问校验内存范围，版本特定表解码校验 UUID。输出129项和2条目录全部齐全才退出0，否则退出2。
+
+```text
+OpenGL UUID      eebf433076cb3e0ead13bd031235e27f
+libGFXShared UUID ceb3ff13179a3afdab0731be4c2073b9
+libsystem_sandbox UUID 23238a7635543ef993a5d2de566c6cac
+GLD table unslid 0x7ffb0617ae40
+ENTRY target = table_base + signed_int32_offset
+ENTRY slot   = plugin + 0x420 + 8*i, i=0..128
+```
+
+`gldInitializeLibrary` 六个显式准备参数：RDI=accelerator服务数组，RSI=IOAccelIndex低字节数组，EDX=关联槽位掩码（不是数量），RCX=gfxIODataFlush回调，R8=gfxIODataBindSurface回调，R9D=flags。调用者忽略返回值，不因此推断返回类型为void。回调签名和flags完整语义仍未知。
+
+`gldGetVersion` 接收四个32位输出地址，要求返回非0、v0=4/v1=1/v2=0x11、`(v3 & 0xffff00ff)==0`。这些是驱动ABI门槛，不是公开OpenGL版本。任意129项必需入口缺失都拒绝插件；`gldInitializeLibrary` 独立解析，不包含在129项中。GLI的七参数初始化和16项表不能与GLD混淆。
+
+`gldCreateDevice` 调用点 `0x7ffb06174820`：RDI=D+0x18（句柄输出）、ESI=*(D+0x14)（掩码）、RDX=D+0x20（未知内嵌区），EAX=0才保留。包装D大小0x1b0，但不能据此推断第三参数结构大小。销毁从D+0x18取句柄。
+
+`gldCreateShareGroup` 调用点 `0x7ffb06174a22`：RDI=GLD device句柄，RSI=S+0x1a0+i*0x20（输出槽），EDX=4（语义未知），EAX=0成功。RCX用于定位plugin函数表，不能直接当第四语义参数。renderer info/pixel format/context/dispatch的完整GLD结构仍待恢复；CGL/GLI包装偏移不能直接套给GLD。
+
+### 72.5 Metal 标准设备初始化：静态证据，不是设备实现
+
+目标 AppleParavirtDevice 继承 MTLIOAccelDevice；后者调用 `IOAccelDeviceCreateWithAPIProperty(acceleratorPort,"Metal")`。目标 IOAccelerator.framework 代码先 IOServiceOpen(type=5)，再 selector9 传16字节API名称、selector2请求0x258字节输出、selector0请求0x40字节输出、selector7请求0x18字节输出（有可选分支）。selector2输出随后有指针解引用，不能靠全零结构或假地址冒充握手。本轮未实现此客户端，也未注册Metal设备。
+
+### 72.6 Metal验收补齐render路径；仍未执行到GPU
+
+`metal_probe.m` 在原compute校验（16个float均为42）之外新增64×64 RGBA8Unorm私有纹理、真实vertex/fragment三角形、黑色clear和GPU blit到共享buffer。command buffer必须Completed且无error，再检查5个内部红像素与4个外部黑像素（含alpha）。默认MRC与`-fobjc-arc`两种模式均在目标客体以`-Wall -Wextra -Werror`编译通过，运行均因设备数0退出1。Metal源代码是在运行时编译，因此本次并未验证shader编译、compute执行或render像素路径；新增验收代码不能算GPU执行通过。
+
+本轮停止低速下载的Metal/IOKit完整反汇编；`out/metal-code.txt`与`out/iokit-code.txt`为不完整副本，完整源仍在客体`/var/tmp/vgpu-fb/`，后续按函数提取。已核对内核SDK存在公开`IOAccelerator : IOService`头文件，具create/retain/releaseAccelID静态接口，但尚未创建加速器服务。
+
+下一步：从GLEngine调用端补齐GLD renderer/pixel-format/context/dispatch ABI，结合真实IOAccelerator服务类实现关联与插件；完成资源、shader、context隔离和用户态访问，再运行硬件OpenGL与Metal compute/render验收。§70专用VB后端仍是已验证基础，不代表系统API已完成。

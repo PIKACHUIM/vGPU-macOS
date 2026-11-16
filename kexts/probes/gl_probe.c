@@ -1,13 +1,133 @@
 // 使用系统 OpenGL framework 验证上下文和实际栅格化。
 // 默认和软件上下文仅作诊断；成功必须同时满足加速属性与像素回读校验。
 // 构建与运行必须在 macOS 客体中实际进行。
-// clang -framework OpenGL -framework Foundation -o /tmp/glprobe gl_probe.c
+// clang -Wall -Wextra -Werror -framework OpenGL -framework IOKit \
+//   -framework CoreFoundation -o /tmp/glprobe gl_probe.c
+#define GL_SILENCE_DEPRECATION
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+#include <mach-o/dyld.h>
 #include <OpenGL/OpenGL.h>
 #include <OpenGL/CGLRenderers.h>
 #include <OpenGL/gl.h>
 #include <OpenGL/glext.h>
+#include <CoreFoundation/CoreFoundation.h>
+#include <IOKit/IOKitLib.h>
+#include <IOKit/graphics/IOGraphicsInterface.h>
+
+/* Exercise the same public framebuffer association used by libGFXShared. */
+static void report_accelerator_links(void) {
+    io_iterator_t iterator = IO_OBJECT_NULL;
+    kern_return_t kr = IOServiceGetMatchingServices(kIOMainPortDefault,
+        IOServiceMatching("IOFramebuffer"), &iterator);
+    if (kr != KERN_SUCCESS) {
+        printf("accelerator links: matching failed=0x%08x\n", (unsigned)kr);
+        return;
+    }
+    io_service_t fb;
+    unsigned count = 0;
+    while ((fb = IOIteratorNext(iterator)) != IO_OBJECT_NULL) {
+        io_name_t name = {0};
+        io_service_t accelerator = IO_OBJECT_NULL;
+        UInt32 index = 0;
+        IORegistryEntryGetName(fb, name);
+        ++count;
+        CFTypeRef path = IORegistryEntryCreateCFProperty(fb, CFSTR("IOAccelTypes"),
+            kCFAllocatorDefault, 0);
+        CFTypeRef number = IORegistryEntryCreateCFProperty(fb, CFSTR("IOAccelIndex"),
+            kCFAllocatorDefault, 0);
+        int valid = (!path || CFGetTypeID(path) == CFStringGetTypeID()) &&
+                    (!number || CFGetTypeID(number) == CFNumberGetTypeID());
+        printf("accelerator links: framebuffer=%s IOAccelTypes=%s IOAccelIndex=%s\n",
+            name, path ? "present" : "absent", number ? "present" : "absent");
+        /* The OS implementation does not validate these CF types itself. */
+        if (valid) {
+            kr = IOAccelFindAccelerator(fb, &accelerator, &index);
+            printf("accelerator links: IOAccelFindAccelerator=0x%08x index=%u found=%d\n",
+                (unsigned)kr, (unsigned)index, accelerator != IO_OBJECT_NULL);
+            if (kr == KERN_SUCCESS && accelerator != IO_OBJECT_NULL) {
+                io_string_t accelerator_path = {0};
+                if (IORegistryEntryGetPath(accelerator, kIOServicePlane,
+                                          accelerator_path) == KERN_SUCCESS)
+                    printf("accelerator links: path=%s\n", accelerator_path);
+            }
+        } else {
+            puts("accelerator links: skipped malformed registry property types");
+        }
+        if (accelerator != IO_OBJECT_NULL) IOObjectRelease(accelerator);
+        if (path) CFRelease(path);
+        if (number) CFRelease(number);
+        IOObjectRelease(fb);
+    }
+    IOObjectRelease(iterator);
+    printf("accelerator links: framebuffers=%u\n", count);
+}
+
+static void report_renderers(void) {
+    CGLRendererInfoObj info = NULL;
+    GLint count = 0;
+    CGLError e = CGLQueryRendererInfo(0xffffffffu, &info, &count);
+    if (e != kCGLNoError) {
+        printf("renderers: CGLQueryRendererInfo(displaymask=0xffffffff) failed: error=%d (%s)\n",
+               (int)e, CGLErrorString(e));
+        goto cleanup;
+    }
+    if (info == NULL || count < 0) {
+        printf("renderers: CGLQueryRendererInfo returned invalid result: info=%s count=%d\n",
+               info == NULL ? "NULL" : "non-NULL", count);
+        goto cleanup;
+    }
+    printf("renderers: displaymask=0xffffffff count=%d\n", count);
+    const struct {
+        CGLRendererProperty property;
+        const char *name;
+        int hex;
+    } properties[] = {
+        {kCGLRPRendererID, "kCGLRPRendererID", 1},
+        {kCGLRPAccelerated, "kCGLRPAccelerated", 0},
+        {kCGLRPOnline, "kCGLRPOnline", 0},
+        {kCGLRPDisplayMask, "kCGLRPDisplayMask", 1}
+    };
+    for (GLint renderer = 0; renderer < count; ++renderer) {
+        for (size_t p = 0; p < sizeof(properties) / sizeof(properties[0]); ++p) {
+            GLint value = 0;
+            e = CGLDescribeRenderer(info, renderer, properties[p].property, &value);
+            if (e != kCGLNoError) {
+                printf("renderers[%d]: CGLDescribeRenderer(%s) failed: error=%d (%s)\n",
+                       renderer, properties[p].name, (int)e, CGLErrorString(e));
+            } else if (properties[p].hex) {
+                printf("renderers[%d]: %s=0x%08x\n",
+                       renderer, properties[p].name, (unsigned)value);
+            } else {
+                printf("renderers[%d]: %s=%d\n", renderer, properties[p].name, value);
+            }
+        }
+    }
+cleanup:
+    if (info != NULL) {
+        e = CGLDestroyRendererInfo(info);
+        if (e != kCGLNoError) {
+            printf("renderers: CGLDestroyRendererInfo failed: error=%d (%s)\n",
+                   (int)e, CGLErrorString(e));
+        }
+    }
+}
+
+static void report_graphics_images(void) {
+    uint32_t count = _dyld_image_count();
+    printf("graphics images: loaded OpenGL/GLDriver/Metal/IOAccelerator/GPUSupport images\n");
+    for (uint32_t i = 0; i < count; ++i) {
+        const char *name = _dyld_get_image_name(i);
+        if (name != NULL &&
+            (strstr(name, "OpenGL") || strstr(name, "GLDriver") ||
+             strstr(name, "Metal") || strstr(name, "IOAccelerator") ||
+             strstr(name, "GPUSupport"))) {
+            printf("graphics images: %s\n", name);
+        }
+    }
+}
 
 static int check_gl(const char *label, const char *stage) {
     int ok = 1;
@@ -147,6 +267,7 @@ cleanup:
 }
 
 int main(void) {
+    report_accelerator_links();
     // 默认和软件结果不参与硬件验收判定。
     CGLPixelFormatAttribute any[] = {
         kCGLPFAColorSize, (CGLPixelFormatAttribute)24,
@@ -168,6 +289,8 @@ int main(void) {
         (CGLPixelFormatAttribute)0
     };
     int ok = report("accelerated", accel, 1);
+    report_renderers();
+    report_graphics_images();
     if (!ok) {
         // 会话条件与硬件枚举需独立取证，不能从 CGL 错误推断驱动不支持。
         printf("FAIL: accelerated OpenGL acceptance did not pass in this session.\n");
