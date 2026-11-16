@@ -6262,3 +6262,33 @@ terminate resources=0
 out/gld-device-contract-verified.txt及原始证据记录Intel KBL、AMD X5000与GPUSupport。CreateDevice第三参数确为caller内嵌0x190配置区C，GPUSupport写C+0x188的8字节pagesize，与包装W末尾吻合；C+0x180是实际registry ID。D是独立不透明句柄，不能复制Float/GPUSupport布局作为自研必需结构。PopulateRendererInfo(D,R)中的R另为caller-owned 0x88记录。
 
 create失败不会调用DestroyDevice；正常释放先destroy D，再terminate插件，最后free W，因此借用C至少活到terminate。GPUSupport的空destroy仅因其在库初始化/终止中统一管理设备，不是自研可省略释放的证据。renderer ID必须与W和pixel节点ID一致；真实设备模块需实际打开vGPU连接后才返回成功，未知OpenCL/GL能力不发布。
+
+## §79：真实device生命周期与有界pixel模块（2026-11-16）
+
+### 79.1 独立device实现与客体复核
+
+新增 `kexts/gld-device/gld_device.c/.h`、构建脚本和 `kexts/probes/gld_device_probe.c`。六参数初始化retain活动服务，合并同一实际accelerator的显示槽；create只在实际打开type `0x56475055`连接、检查连接响应、取得registry ID和页大小后发布D。C只填写已核验字段；R能力flags保持零。失败清理本次连接及引用，destroy/terminate不释放caller的C/R。
+
+连接检查采用selector1的generation=0拒绝读取路径，预期NotReady；这只证明连接可响应，不表示GPU资源READY。此前IOConnectGetService返回Unsupported，已去除该不适用依赖。
+
+主代理重新核对本机/客体三份源码SHA并执行正反测试：root 64轮创建销毁、1024次查询，retains/releases=73/73、opens/closes=66/66；非root和错误type各64轮拒绝，retains/releases=68/68、opens/closes=0/0。所有最终refs/devices/connections为0，Mach send urefs从1回到1。前后canary、配置/renderer全字节比对、初始化部分回滚、caller提前释放服务和重复销毁通过。此前同源码ASan/UBSan亦通过，详见模块内证据。
+
+模块未安装，不提供完整129入口；renderer flags为0也不能由此宣称GL2能力。热拔插、多物理设备及close失败故障注入尚未覆盖。
+
+### 79.2 有界像素格式解析与节点所有权
+
+新增 `kexts/gld-pixel/gld_pixel.c/.h`、复现脚本、硬件指令证据及 `kexts/probes/gld_pixel_probe.c`。接受调用方提供的真实字节长度，支持normalized token 4、5、8/value、11/value、12/value、13/value及0终止；未知项直接拒绝。Intel/GPUSupport原始跳转表确认token4仅消耗一个词、无后继值或状态副作用。
+
+能力由调用方显式传入，不默认添加accelerated/compliant/core；每个组合生成带0x38消费者前缀的节点，整链一次分配，独立owner负责释放，不依赖可能改写的next。输入失败不改输出，支持未对齐流并检查计数/地址运算溢出。
+
+主代理从当前源码重新严格编译：普通及ASan/UBSan各28154 checks、0 failures，clang静态分析无诊断。包括保护页、截断、缺终止、未知token、分配失败、4096节点和20000生成流。测试能力表为夹具，不是GPU能力声明。系统无length入口、GLD错误映射与head销毁适配仍待实现；不能直接把固定扫描上限当成真实可读长度。
+
+### 79.3 context硬件契约与路线修正
+
+`out/gld-context-minimal-verified.txt`及十份原始证据已保存，SHA全部核对。Share/Context六参数、A/H/B借用视图、FBO Q/D和十参数ReadFramebuffer的关键调用已取得Intel/AMD/GPUSupport交叉证据。
+
+所查Intel KBL/ICL和AMD X4000/X5000初始render[0]均为空；KBL/X4000/X5000实证A+0x6e=1，走显式三参数ClearFramebufferData。不能再把render[0]当作这些硬件已验证的最小clear实现。clear内部mask低8位表示颜色附件，bit8/9为depth/stencil；值块会被硬件驱动回写。UpdateDraw/Read第二参数是dirty mask，从B+0x4a0/+0x4a8取得当前FBO，不是直接传FBO句柄。
+
+RGBA8普通CPU read需每次读取当前pack，先用current_stride，否则按row_length和alignment算行步长，再计入skip_rows/skip_pixels；pixels已含上层裁剪偏移，不能重复加入。glFinish普通路径调用FlushContext及WaitForContext。完整A能力消费者、texture/FBO backing、clear状态和dispatch仍未闭合。
+
+下一实现目标为真实GPU固定表面clear/read桥接及无length像素格式适配，然后实现命名颜色FBO的最小系统路径。当前系统仍运行§78拒绝设备的诊断bundle；标准硬件OpenGL和Metal均未完成。

@@ -1,0 +1,103 @@
+0x7FFB0639799F   testb    $0x2, 0x458f(%rbx)   
+0x7FFB063979A6   jne      0x7ffb063979b8       
+0x7FFB063979A8   andl     $0xfffffbff, %r14d   
+0x7FFB063979AF   testl    %r14d, %r14d         
+0x7FFB063979B2   je       0x7ffb0639791f       
+0x7FFB063979B8   movq     0xb4c8(%rbx), %rdi   
+0x7FFB063979BF   movq     0xb4e0(%rbx), %rax   
+0x7FFB063979C6   movl     %r14d, %esi          
+0x7FFB063979C9   callq    *(%rax)              
+0x7FFB063979CB   jmp      0x7ffb06397a48       
+0x7FFB063979CD   testb    %sil, %sil           
+0x7FFB063979D0   je       0x7ffb063979dd       
+0x7FFB063979D2   movups   0x44d0(%rbx), %xmm0  
+0x7FFB063979D9   movaps   %xmm0, -0x30(%rbp)   
+0x7FFB063979DD   btl      $0x8, %r14d          
+0x7FFB063979E2   jb       0x7ffb063979ec       
+0x7FFB063979E4   andl     $0xfeff, %esi        
+0x7FFB063979EA   jmp      0x7ffb06397a02       
+0x7FFB063979EC   btl      $0x8, %esi           
+0x7FFB063979F0   jae      0x7ffb06397a02       
+0x7FFB063979F2   xorps    %xmm0, %xmm0         
+0x7FFB063979F5   cvtsd2ss 0x44b8(%rbx), %xmm0  
+0x7FFB063979FD   movss    %xmm0, -0x20(%rbp)   
+0x7FFB06397A02   btl      $0xa, %r14d          
+0x7FFB06397A07   jb       0x7ffb06397a11       
+0x7FFB06397A09   andl     $0xfdff, %esi        
+0x7FFB06397A0F   jmp      0x7ffb06397a17       
+0x7FFB06397A11   btl      $0x9, %esi           
+0x7FFB06397A15   jb       0x7ffb06397a20       
+0x7FFB06397A17   testl    %esi, %esi           
+0x7FFB06397A19   jne      0x7ffb06397a29       
+0x7FFB06397A1B   jmp      0x7ffb0639791f       
+0x7FFB06397A20   movl     0x44e4(%rbx), %eax   
+0x7FFB06397A26   movl     %eax, -0x1c(%rbp)    
+0x7FFB06397A29   leaq     -0x30(%rbp), %rdx    
+0x7FFB06397A2D   movl     $0x0, 0x18(%rdx)     
+0x7FFB06397A34   movq     0xb4c8(%rbx), %rdi   
+0x7FFB06397A3B   movq     0xb4e8(%rbx), %rax   
+0x7FFB06397A42   callq    *0xd0(%rax)          
+0x7FFB06397A48   movq     0x5b00(%rbx), %rax   
+0x7FFB06397A4F   movl     0x17c(%rax), %eax    
+0x7FFB06397A55   cmpl     %eax, 0xb628(%rbx)   
+0x7FFB06397A5B   je       0x7ffb0639791f       
+0x7FFB06397A61   cmpq     $0x0, 0xb2b8(%rbx)   
+0x7FFB06397A69   je       0x7ffb06397a80       
+0x7FFB06397A6B   movq     %rbx, %rdi           
+0x7FFB06397A6E   callq    _gleInvalidateCurrentDrawFramebufferTextures 
+0x7FFB06397A73   movq     0x5b00(%rbx), %rax   
+0x7FFB06397A7A   movl     0x17c(%rax), %eax    
+0x7FFB06397A80   movl     %eax, 0xb628(%rbx)   
+0x7FFB06397A86   jmp      0x7ffb0639791f       
+
+0x7FFB063C033A   cmovbl   %r14d, %eax          
+0x7FFB063C033E   movl     %eax, %r14d          
+0x7FFB063C0341   andl     $0xfffffbff, %r14d   
+0x7FFB063C0348   btl      $0x9, %r13d          
+0x7FFB063C034D   cmovbl   %eax, %r14d          
+0x7FFB063C0351   movq     0xb4c8(%rbx), %rdi   
+0x7FFB063C0358   movq     0xb4e0(%rbx), %rax   
+0x7FFB063C035F   movl     %r14d, %esi          
+0x7FFB063C0362   callq    *(%rax)              
+0x7FFB063C0364   movq     0x5b00(%rbx), %rax   
+0x7FFB063C036B   movl     0x17c(%rax), %eax    
+0x7FFB063C0371   cmpl     %eax, 0xb628(%rbx)   
+0x7FFB063C0377   je       0x7ffb063c039e       
+0x7FFB063C0379   cmpq     $0x0, 0xb2b8(%rbx)   
+0x7FFB063C0381   je       0x7ffb063c0398       
+0x7FFB063C0383   movq     %rbx, %rdi           
+0x7FFB063C0386   callq    _gleInvalidateCurrentDrawFramebufferTextures 
+0x7FFB063C038B   movq     0x5b00(%rbx), %rax   
+0x7FFB063C0392   movl     0x17c(%rax), %eax    
+0x7FFB063C0398   movl     %eax, 0xb628(%rbx)   
+0x7FFB063C039E   btl      $0xe, %r14d          
+0x7FFB063C03A3   jae      0x7ffb063c0432       
+0x7FFB063C03A9   movl     -0x2c(%rbp), %edi    
+0x7FFB063C03AC   movb     %dil, 0x4588(%rbx)   
+0x7FFB063C03B3   movl     -0x38(%rbp), %ecx    
+0x7FFB063C03B6   movb     %cl, 0x4589(%rbx)    
+0x7FFB063C03BC   movl     -0x34(%rbp), %edx    
+0x7FFB063C03BF   movb     %dl, 0x458a(%rbx)    
+0x7FFB063C03C5   movl     -0x30(%rbp), %esi    
+0x7FFB063C03C8   movb     %sil, 0x458b(%rbx)   
+0x7FFB063C03CF   movl     $0xffffff00, %eax    
+0x7FFB063C03D4   andl     0xb61c(%rbx), %eax   
+0x7FFB063C03DA   orb      %cl, %dl             
+0x7FFB063C03DC   orb      %dil, %sil           
+0x7FFB063C03DF   orb      %dl, %sil            
+0x7FFB063C03E2   movzbl   %sil, %ecx           
+0x7FFB063C03E6   orl      %eax, %ecx           
+0x7FFB063C03E8   movl     %ecx, 0xb61c(%rbx)   
+0x7FFB063C03EE   movq     0xb2b8(%rbx), %rax   
+0x7FFB063C03F5   leaq     0x220(%rax), %rdx    
+0x7FFB063C03FC   leaq     0xb620(%rbx), %rsi   
+0x7FFB063C0403   testq    %rax, %rax           
+0x7FFB063C0406   cmoveq   %rsi, %rdx           
+0x7FFB063C040A   andl     (%rdx), %ecx         
+0x7FFB063C040C   movw     %cx, 0x458e(%rbx)    
+0x7FFB063C0413   movaps   -0x50(%rbp), %xmm0   
+0x7FFB063C0417   movups   %xmm0, 0x44d0(%rbx)  
+0x7FFB063C041E   movl     $0x0, 0xaebc(%rbx)   
+0x7FFB063C0428   orl      $0x40008, 0xb618(%rbx) 
+0x7FFB063C0432   btl      $0x8, %r14d          
+0x7FFB063C0437   jae      0x7ffb063c0457       

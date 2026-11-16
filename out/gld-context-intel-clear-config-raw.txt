@@ -1,0 +1,648 @@
+0x7FFB01EBD5AE   movq     %rsp, %rbp           
+0x7FFB01EBD5B1   pushq    %r15                 
+0x7FFB01EBD5B3   pushq    %r14                 
+0x7FFB01EBD5B5   pushq    %r13                 
+0x7FFB01EBD5B7   pushq    %r12                 
+0x7FFB01EBD5B9   pushq    %rbx                 
+0x7FFB01EBD5BA   subq     $0x198, %rsp         
+0x7FFB01EBD5C1   movq     %rdi, -0x78(%rbp)    
+0x7FFB01EBD5C5   movq     0x3ee48114(%rip), %rax  ; ___stack_chk_guard
+0x7FFB01EBD5CC   movq     (%rax), %rax         
+0x7FFB01EBD5CF   movq     %rax, -0x30(%rbp)    
+0x7FFB01EBD5D3   btl      $0x8, %esi           
+0x7FFB01EBD5D7   jb       0x7ffb01ebd5de       
+0x7FFB01EBD5D9   xorl     %r10d, %r10d         
+0x7FFB01EBD5DC   jmp      0x7ffb01ebd5ed       
+0x7FFB01EBD5DE   movq     -0x78(%rbp), %rax    
+0x7FFB01EBD5E2   cmpl     $0x0, 0x8d7c(%rax)   
+0x7FFB01EBD5E9   setne    %r10b                
+0x7FFB01EBD5ED   movq     -0x78(%rbp), %rax    
+0x7FFB01EBD5F1   movq     0x18(%rax), %r14     
+0x7FFB01EBD5F5   movzbl   %sil, %ebx           
+0x7FFB01EBD5F9   movl     %esi, %eax           
+0x7FFB01EBD5FB   testl    $0x600, %esi         
+0x7FFB01EBD601   je       0x7ffb01ebd633       
+0x7FFB01EBD603   andl     $0xfffffeff, %eax    
+0x7FFB01EBD608   testb    %r10b, %r10b         
+0x7FFB01EBD60B   cmovnel  %esi, %eax           
+0x7FFB01EBD60E   movl     %eax, %esi           
+0x7FFB01EBD610   andl     $0xfffff9ff, %esi    
+0x7FFB01EBD616   movq     -0x78(%rbp), %rcx    
+0x7FFB01EBD61A   cmpq     $0x0, 0x9148(%rcx)   
+0x7FFB01EBD622   setne    %cl                  
+0x7FFB01EBD625   cmovnel  %eax, %esi           
+0x7FFB01EBD628   movl     %esi, -0x130(%rbp)   
+0x7FFB01EBD62E   movl     %ecx, %r15d          
+0x7FFB01EBD631   jmp      0x7ffb01ebd649       
+0x7FFB01EBD633   andl     $0xfffff8ff, %eax    
+0x7FFB01EBD638   testb    %r10b, %r10b         
+0x7FFB01EBD63B   cmovnel  %esi, %eax           
+0x7FFB01EBD63E   movl     %eax, -0x130(%rbp)   
+0x7FFB01EBD644   xorl     %ecx, %ecx           
+0x7FFB01EBD646   xorl     %r15d, %r15d         
+0x7FFB01EBD649   movl     %ecx, -0x98(%rbp)    
+0x7FFB01EBD64F   movq     %rdx, -0xa0(%rbp)    
+0x7FFB01EBD656   movq     -0x78(%rbp), %rax    
+0x7FFB01EBD65A   movl     %ebx, 0xc8c4(%rax)   
+0x7FFB01EBD660   movq     0x68(%rax), %rcx     
+0x7FFB01EBD664   movq     %rcx, -0xc0(%rbp)    
+0x7FFB01EBD66B   movq     $0x0, -0x90(%rbp)    
+0x7FFB01EBD676   movq     %rcx, %rax           
+0x7FFB01EBD679   shrq     $0x20, %rax          
+0x7FFB01EBD67D   cmpb     $0x0, 0x3d84(%r14)   
+0x7FFB01EBD685   je       0x7ffb01ebd71b       
+0x7FFB01EBD68B   vcvtsi2ss %ecx, %xmm0, %xmm0   
+0x7FFB01EBD68F   vcvtsi2ss %eax, %xmm1, %xmm1   
+0x7FFB01EBD693   vcvttss2si %xmm0, %edi          
+0x7FFB01EBD697   vcvttss2si %xmm1, %esi          
+0x7FFB01EBD69B   movq     -0x78(%rbp), %rdx    
+0x7FFB01EBD69F   movq     0x7c1c(%rdx), %rdx   
+0x7FFB01EBD6A6   movl     $0xffff, %r8d        
+0x7FFB01EBD6AC   movl     %edx, %r9d           
+0x7FFB01EBD6AF   andl     %r8d, %r9d           
+0x7FFB01EBD6B2   vcvtsi2ss %r9d, %xmm2, %xmm1   
+0x7FFB01EBD6B7   movl     %edx, %r9d           
+0x7FFB01EBD6BA   shrl     $0x10, %r9d          
+0x7FFB01EBD6BE   vcvtsi2ss %r9d, %xmm2, %xmm0   
+0x7FFB01EBD6C3   vmovss   %xmm1, -0x90(%rbp)   
+0x7FFB01EBD6CB   movq     %rdx, %r9            
+0x7FFB01EBD6CE   shrq     $0x20, %r9           
+0x7FFB01EBD6D2   andl     %r8d, %r9d           
+0x7FFB01EBD6D5   incl     %r9d                 
+0x7FFB01EBD6D8   cmpl     %edi, %r9d           
+0x7FFB01EBD6DB   cmovgel  %edi, %r9d           
+0x7FFB01EBD6DF   vmovss   %xmm0, -0x8c(%rbp)   
+0x7FFB01EBD6E7   vcvtsi2ss %r9d, %xmm2, %xmm2   
+0x7FFB01EBD6EC   vsubss   %xmm1, %xmm2, %xmm2  
+0x7FFB01EBD6F0   vcvttss2si %xmm2, %r13d         
+0x7FFB01EBD6F4   shrq     $0x30, %rdx          
+0x7FFB01EBD6F8   incl     %edx                 
+0x7FFB01EBD6FA   cmpl     %esi, %edx           
+0x7FFB01EBD6FC   cmovgel  %esi, %edx           
+0x7FFB01EBD6FF   movl     %r13d, -0xc0(%rbp)   
+0x7FFB01EBD706   vcvtsi2ss %edx, %xmm3, %xmm2   
+0x7FFB01EBD70A   vsubss   %xmm0, %xmm2, %xmm2  
+0x7FFB01EBD70E   vcvttss2si %xmm2, %r12d         
+0x7FFB01EBD712   movl     %r12d, -0xbc(%rbp)   
+0x7FFB01EBD719   jmp      0x7ffb01ebd729       
+0x7FFB01EBD71B   vxorps   %xmm0, %xmm0, %xmm0  
+0x7FFB01EBD71F   movl     %eax, %r12d          
+0x7FFB01EBD722   movl     %ecx, %r13d          
+0x7FFB01EBD725   vxorps   %xmm1, %xmm1, %xmm1  
+0x7FFB01EBD729   movq     -0x78(%rbp), %rsi    
+0x7FFB01EBD72D   movq     0x30(%rsi), %rdi     
+0x7FFB01EBD731   xorl     %edx, %edx           
+0x7FFB01EBD733   testq    %rdi, %rdi           
+0x7FFB01EBD736   setne    %dl                  
+0x7FFB01EBD739   movl     0x3e04(%rsi,%rdx,4), %edx 
+0x7FFB01EBD740   movq     %rdx, -0xd8(%rbp)    
+0x7FFB01EBD747   leal     -0x1(%rdx), %esi     
+0x7FFB01EBD74A   cmpl     $0x7, %esi           
+0x7FFB01EBD74D   movq     %rsi, -0x150(%rbp)   
+0x7FFB01EBD754   ja       0x7ffb01ebd770       
+0x7FFB01EBD756   leaq     0x2e63(%rip), %rdx   ; 
+0x7FFB01EBD75D   movslq   (%rdx,%rsi,4), %rsi  
+0x7FFB01EBD761   addq     %rdx, %rsi           
+0x7FFB01EBD764   jmpq     *%rsi                
+0x7FFB01EBD766   vmovaps  0xb6ec32(%rip), %xmm2  ; 
+0x7FFB01EBD76E   jmp      0x7ffb01ebd79b       
+0x7FFB01EBD770   cmpl     $0x10, -0xd8(%rbp)   
+0x7FFB01EBD777   jne      0x7ffb01ebd783       
+0x7FFB01EBD779   vmovaps  0xb6ec0f(%rip), %xmm2  ; 
+0x7FFB01EBD781   jmp      0x7ffb01ebd79b       
+0x7FFB01EBD783   vxorps   %xmm2, %xmm2, %xmm2  
+0x7FFB01EBD787   jmp      0x7ffb01ebd79b       
+0x7FFB01EBD789   vmovaps  0xb6ebef(%rip), %xmm2  ; 
+0x7FFB01EBD791   jmp      0x7ffb01ebd79b       
+0x7FFB01EBD793   vmovddup 0xb6822d(%rip), %xmm2  ; 
+0x7FFB01EBD79B   testb    %r10b, %r10b         
+0x7FFB01EBD79E   je       0x7ffb01ebd9b9       
+0x7FFB01EBD7A4   vcvtsi2ss %r13d, %xmm3, %xmm3  
+0x7FFB01EBD7A9   vaddss   %xmm3, %xmm1, %xmm3  
+0x7FFB01EBD7AD   vcvtsi2ss %r12d, %xmm4, %xmm4  
+0x7FFB01EBD7B2   vinsertps $0x10, %xmm0, %xmm1, %xmm1 
+0x7FFB01EBD7B8   vinsertps $0x20, %xmm3, %xmm1, %xmm1 
+0x7FFB01EBD7BE   vaddss   %xmm4, %xmm0, %xmm0  
+0x7FFB01EBD7C2   vinsertps $0x30, %xmm0, %xmm1, %xmm0 
+0x7FFB01EBD7C8   vbroadcastss 0xb6817f(%rip), %xmm1  ; 
+0x7FFB01EBD7D1   vcvttps2dq %xmm0, %xmm3         
+0x7FFB01EBD7D5   vsubps   %xmm1, %xmm0, %xmm0  
+0x7FFB01EBD7D9   vpsrad   $0x1f, %xmm3, %xmm1  
+0x7FFB01EBD7DE   vcvttps2dq %xmm0, %xmm0         
+0x7FFB01EBD7E2   vpand    %xmm1, %xmm0, %xmm0  
+0x7FFB01EBD7E6   vpor     %xmm0, %xmm3, %xmm0  
+0x7FFB01EBD7EA   vinsertf128 $0x1, %xmm2, %ymm2, %ymm1 
+0x7FFB01EBD7F0   cmpl     %ecx, %r13d          
+0x7FFB01EBD7F3   setne    %dl                  
+0x7FFB01EBD7F6   vpmovzxdq %xmm0, %ymm0         
+0x7FFB01EBD7FB   vptest   %ymm0, %ymm1         
+0x7FFB01EBD800   jne      0x7ffb01ebd80b       
+0x7FFB01EBD802   testb    %dl, %dl             
+0x7FFB01EBD804   jne      0x7ffb01ebd80b       
+0x7FFB01EBD806   cmpl     %eax, %r12d          
+0x7FFB01EBD809   je       0x7ffb01ebd86a       
+0x7FFB01EBD80B   movq     -0x78(%rbp), %rdx    
+0x7FFB01EBD80F   cmpb     $0x0, 0x8e94(%rdx)   
+0x7FFB01EBD816   jne      0x7ffb01ebd86a       
+0x7FFB01EBD818   movq     -0x78(%rbp), %rsi    
+0x7FFB01EBD81C   movl     0x81d8(%rsi), %edx   
+0x7FFB01EBD822   testb    $0x70, 0x62(%rsi)    
+0x7FFB01EBD826   je       0x7ffb01ebd846       
+0x7FFB01EBD828   movq     -0x78(%rbp), %rsi    
+0x7FFB01EBD82C   cmpb     $0x0, 0x3ed5(%rsi)   
+0x7FFB01EBD833   jne      0x7ffb01ebd86a       
+0x7FFB01EBD835   movl     %r10d, -0x88(%rbp)   
+0x7FFB01EBD83C   movl     $0x4, %eax           
+0x7FFB01EBD841   jmp      0x7ffb01ebd999       
+0x7FFB01EBD846   leal     -0x8(%rdx), %esi     
+0x7FFB01EBD849   leaq     0x1(%rsi), %r8       
+0x7FFB01EBD84D   xorl     %r9d, %r9d           
+0x7FFB01EBD850   cmpl     $0x3, %esi           
+0x7FFB01EBD853   cmovbq   %r8, %r9             
+0x7FFB01EBD857   movq     -0x78(%rbp), %r8     
+0x7FFB01EBD85B   cmpb     $0x0, 0x3ed1(%r8,%r9) 
+0x7FFB01EBD864   je       0x7ffb01ebd986       
+0x7FFB01EBD86A   movq     -0x78(%rbp), %rdx    
+0x7FFB01EBD86E   movq     0x8200(%rdx), %rdx   
+0x7FFB01EBD875   cmpl     %ecx, %r13d          
+0x7FFB01EBD878   jne      0x7ffb01ebd883       
+0x7FFB01EBD87A   cmpl     %eax, %r12d          
+0x7FFB01EBD87D   je       0x7ffb01ebd9b9       
+0x7FFB01EBD883   movq     -0x78(%rbp), %rax    
+0x7FFB01EBD887   cmpb     $0x1, 0x8e94(%rax)   
+0x7FFB01EBD88E   jne      0x7ffb01ebd89a       
+0x7FFB01EBD890   leaq     0x60(%rdx), %rcx     
+0x7FFB01EBD894   addq     $0x45, %rdx          
+0x7FFB01EBD898   jmp      0x7ffb01ebd8db       
+0x7FFB01EBD89A   movl     $0x4, %eax           
+0x7FFB01EBD89F   movq     -0x78(%rbp), %rcx    
+0x7FFB01EBD8A3   testb    $0x70, 0x62(%rcx)    
+0x7FFB01EBD8A7   jne      0x7ffb01ebd8c2       
+0x7FFB01EBD8A9   movq     -0x78(%rbp), %rax    
+0x7FFB01EBD8AD   movl     0x81d8(%rax), %eax   
+0x7FFB01EBD8B3   leal     -0x8(%rax), %ecx     
+0x7FFB01EBD8B6   cmpl     $0x2, %ecx           
+0x7FFB01EBD8B9   ja       0x7ffb01ebd8c0       
+0x7FFB01EBD8BB   addl     $-0x7, %eax          
+0x7FFB01EBD8BE   jmp      0x7ffb01ebd8c2       
+0x7FFB01EBD8C0   xorl     %eax, %eax           
+0x7FFB01EBD8C2   movq     -0x78(%rbp), %rdx    
+0x7FFB01EBD8C6   leaq     (%rdx,%rax,4), %rcx  
+0x7FFB01EBD8CA   addq     $0x3eb8, %rcx        
+0x7FFB01EBD8D1   addq     %rax, %rdx           
+0x7FFB01EBD8D4   addq     $0x3ecc, %rdx        
+0x7FFB01EBD8DB   vmovss   (%rcx), %xmm0        
+0x7FFB01EBD8DF   movq     -0xa0(%rbp), %rax    
+0x7FFB01EBD8E6   vucomiss 0x10(%rax), %xmm0    
+0x7FFB01EBD8EB   jne      0x7ffb01ebd8f3       
+0x7FFB01EBD8ED   jnp      0x7ffb01ebd9b9       
+0x7FFB01EBD8F3   cmpb     $0x0, (%rdx)         
+0x7FFB01EBD8F6   je       0x7ffb01ebd9b9       
+0x7FFB01EBD8FC   testq    %rdi, %rdi           
+0x7FFB01EBD8FF   je       0x7ffb01ebd95f       
+0x7FFB01EBD901   movq     0x8(%rdi), %rax      
+0x7FFB01EBD905   movq     0x40(%rax), %rsi     
+0x7FFB01EBD909   testq    %rsi, %rsi           
+0x7FFB01EBD90C   je       0x7ffb01ebd9b9       
+0x7FFB01EBD912   movq     (%rdi), %rax         
+0x7FFB01EBD915   movl     0x88(%rax), %ecx     
+0x7FFB01EBD91B   movq     (%rsi), %rdx         
+0x7FFB01EBD91E   movzbl   0x78(%rdx), %edi     
+0x7FFB01EBD922   subl     %edi, %ecx           
+0x7FFB01EBD924   xorl     %edi, %edi           
+0x7FFB01EBD926   cmpb     $0x2, 0x7b(%rdx)     
+0x7FFB01EBD92A   setb     %dil                 
+0x7FFB01EBD92E   movl     0x84(%rax,%rdi,8), %r8d 
+0x7FFB01EBD936   movq     -0x78(%rbp), %rdi    
+0x7FFB01EBD93A   movl     %ecx, %edx           
+0x7FFB01EBD93C   movl     %r8d, %r9d           
+0x7FFB01EBD93F   pushq    $0x0                 
+0x7FFB01EBD941   pushq    $0x7                 
+0x7FFB01EBD943   movl     %r10d, -0x88(%rbp)   
+0x7FFB01EBD94A   vzeroupper                      
+0x7FFB01EBD94D   callq    __Z21resolveDepthBufferFboP13GLDContextRecP13GLDTextureRecjjjj17EIntelResolveTypeb 
+0x7FFB01EBD952   movl     -0x88(%rbp), %r10d   
+0x7FFB01EBD959   addq     $0x10, %rsp          
+0x7FFB01EBD95D   jmp      0x7ffb01ebd9b9       
+0x7FFB01EBD95F   movq     -0x78(%rbp), %rdi    
+0x7FFB01EBD963   movl     $0x7, %esi           
+0x7FFB01EBD968   movl     $0x10, %edx          
+0x7FFB01EBD96D   xorl     %ecx, %ecx           
+0x7FFB01EBD96F   xorl     %r8d, %r8d           
+0x7FFB01EBD972   xorl     %r9d, %r9d           
+0x7FFB01EBD975   movl     %r10d, -0x88(%rbp)   
+0x7FFB01EBD97C   vzeroupper                      
+0x7FFB01EBD97F   callq    __Z25resolveDepthBufferLogicalP13GLDContextRec17EIntelResolveTypeibjj 
+0x7FFB01EBD984   jmp      0x7ffb01ebd9b2       
+0x7FFB01EBD986   cmpl     $0x2, %esi           
+0x7FFB01EBD989   movl     %r10d, -0x88(%rbp)   
+0x7FFB01EBD990   ja       0x7ffb01ebd997       
+0x7FFB01EBD992   leal     -0x7(%rdx), %eax     
+0x7FFB01EBD995   jmp      0x7ffb01ebd999       
+0x7FFB01EBD997   xorl     %eax, %eax           
+0x7FFB01EBD999   movq     -0x78(%rbp), %rdi    
+0x7FFB01EBD99D   movb     $0x1, 0x3ed1(%rdi,%rax) 
+0x7FFB01EBD9A5   movl     $0x2, %esi           
+0x7FFB01EBD9AA   vzeroupper                      
+0x7FFB01EBD9AD   callq    __Z35resolveDepthBufferLogicalInitializeP13GLDContextRec17EIntelResolveTypei 
+0x7FFB01EBD9B2   movl     -0x88(%rbp), %r10d   
+0x7FFB01EBD9B9   testl    %ebx, %ebx           
+0x7FFB01EBD9BB   sete     %cl                  
+0x7FFB01EBD9BE   popcntl  %ebx, %edx           
+0x7FFB01EBD9C2   movq     -0x78(%rbp), %rax    
+0x7FFB01EBD9C6   movb     0x8e94(%rax), %al    
+0x7FFB01EBD9CC   xorb     $0x1, %al            
+0x7FFB01EBD9CE   orb      %al, %cl             
+0x7FFB01EBD9D0   movq     %rdx, -0xb8(%rbp)    
+0x7FFB01EBD9D7   jne      0x7ffb01ebda22       
+0x7FFB01EBD9D9   movq     -0x78(%rbp), %rcx    
+0x7FFB01EBD9DD   movq     0x30(%rcx), %rcx     
+0x7FFB01EBD9E1   movq     (%rcx), %rcx         
+0x7FFB01EBD9E4   xorl     %edx, %edx           
+0x7FFB01EBD9E6   xorl     %r8d, %r8d           
+0x7FFB01EBD9E9   xorl     %esi, %esi           
+0x7FFB01EBD9EB   xorl     %edi, %edi           
+0x7FFB01EBD9ED   cmpw     $0x0, 0xa0(%rcx,%rdx,2) 
+0x7FFB01EBD9F6   cmovnel  %edx, %esi           
+0x7FFB01EBD9F9   setne    %dil                 
+0x7FFB01EBD9FD   addl     %edi, %r8d           
+0x7FFB01EBDA00   incq     %rdx                 
+0x7FFB01EBDA03   cmpq     $0x8, %rdx           
+0x7FFB01EBDA07   jne      0x7ffb01ebd9eb       
+0x7FFB01EBDA09   movslq   %esi, %rdx           
+0x7FFB01EBDA0C   movzwl   0xa0(%rcx,%rdx,2), %ecx 
+0x7FFB01EBDA14   addl     $0xffff7320, %ecx    
+0x7FFB01EBDA1A   movl     %ecx, -0xa4(%rbp)    
+0x7FFB01EBDA20   jmp      0x7ffb01ebda2f       
+0x7FFB01EBDA22   tzcntl   %ebx, %ecx           
+0x7FFB01EBDA26   movl     %ecx, -0xa4(%rbp)    
+0x7FFB01EBDA2C   movl     %edx, %r8d           
+0x7FFB01EBDA2F   movl     $0x0, -0x7c(%rbp)    
+0x7FFB01EBDA36   cmpl     $0x1, -0xd8(%rbp)    
+0x7FFB01EBDA3D   movl     %r8d, -0x94(%rbp)    
+0x7FFB01EBDA44   ja       0x7ffb01ebdaea       
+0x7FFB01EBDA4A   testl    %ebx, %ebx           
+0x7FFB01EBDA4C   je       0x7ffb01ebdaea       
+0x7FFB01EBDA52   cmpl     $0x1, %r8d           
+0x7FFB01EBDA56   jne      0x7ffb01ebdaea       
+0x7FFB01EBDA5C   movq     -0x78(%rbp), %rcx    
+0x7FFB01EBDA60   cmpl     0x68(%rcx), %r13d    
+0x7FFB01EBDA64   jne      0x7ffb01ebdae3       
+0x7FFB01EBDA66   movq     -0x78(%rbp), %rcx    
+0x7FFB01EBDA6A   cmpl     0x6c(%rcx), %r12d    
+0x7FFB01EBDA6E   jne      0x7ffb01ebdae3       
+0x7FFB01EBDA70   movq     -0x78(%rbp), %rcx    
+0x7FFB01EBDA74   movq     0x18(%rcx), %rcx     
+0x7FFB01EBDA78   cmpb     $0x0, 0x3d84(%rcx)   
+0x7FFB01EBDA7F   setne    %cl                  
+0x7FFB01EBDA82   orb      %al, %cl             
+0x7FFB01EBDA84   jne      0x7ffb01ebdae3       
+0x7FFB01EBDA86   movq     %rbx, %r12           
+0x7FFB01EBDA89   movq     -0x78(%rbp), %rax    
+0x7FFB01EBDA8D   movq     0x30(%rax), %rbx     
+0x7FFB01EBDA91   testq    %rbx, %rbx           
+0x7FFB01EBDA94   je       0x7ffb01ebe905       
+0x7FFB01EBDA9A   movl     %r10d, %r13d         
+0x7FFB01EBDA9D   movq     0x8(%rbx), %rax      
+0x7FFB01EBDAA1   movslq   -0xa4(%rbp), %rcx    
+0x7FFB01EBDAA8   movq     (%rax,%rcx,8), %rsi  
+0x7FFB01EBDAAC   movq     -0x78(%rbp), %rax    
+0x7FFB01EBDAB0   movq     0x10(%rax), %rdi     
+0x7FFB01EBDAB4   vzeroupper                      
+0x7FFB01EBDAB7   callq    __Z18IsFastClearAllowedP16GLDShareGroupRecP13GLDTextureRec 
+0x7FFB01EBDABC   testb    %al, %al             
+0x7FFB01EBDABE   je       0x7ffb01ebe90c       
+0x7FFB01EBDAC4   movq     (%rbx), %rax         
+0x7FFB01EBDAC7   cmpl     $0x1, 0xbc(%rax)     
+0x7FFB01EBDACE   movl     %r13d, %r10d         
+0x7FFB01EBDAD1   jle      0x7ffb01ebe97e       
+0x7FFB01EBDAD7   movl     $0x0, -0x7c(%rbp)    
+0x7FFB01EBDADE   jmp      0x7ffb01ebe9a9       
+0x7FFB01EBDAE3   movl     $0x0, -0x7c(%rbp)    
+0x7FFB01EBDAEA   movq     %rbx, -0x110(%rbp)   
+0x7FFB01EBDAF1   testl    %ebx, %ebx           
+0x7FFB01EBDAF3   setne    %al                  
+0x7FFB01EBDAF6   movq     -0xa0(%rbp), %rcx    
+0x7FFB01EBDAFD   vmovss   0x10(%rcx), %xmm0    
+0x7FFB01EBDB02   vminss   0xb64e56(%rip), %xmm0, %xmm1  ; 
+0x7FFB01EBDB0A   vxorps   %xmm2, %xmm2, %xmm2  
+0x7FFB01EBDB0E   vcmpnless %xmm0, %xmm2, %xmm0  
+0x7FFB01EBDB13   vandnps  %xmm1, %xmm0, %xmm0  
+0x7FFB01EBDB17   vmovss   %xmm0, 0x10(%rcx)    
+0x7FFB01EBDB1C   movl     -0x7c(%rbp), %ecx    
+0x7FFB01EBDB1F   xorb     $0x1, %cl            
+0x7FFB01EBDB22   andb     %al, %cl             
+0x7FFB01EBDB24   movzbl   %cl, %eax            
+0x7FFB01EBDB27   movzbl   %r15b, %r13d         
+0x7FFB01EBDB2B   movl     %r10d, %ebx          
+0x7FFB01EBDB2E   movzbl   %r10b, %r12d         
+0x7FFB01EBDB32   leaq     -0x90(%rbp), %rsi    
+0x7FFB01EBDB39   leaq     -0xc0(%rbp), %rdx    
+0x7FFB01EBDB40   movq     -0x78(%rbp), %r15    
+0x7FFB01EBDB44   movq     %r15, %rdi           
+0x7FFB01EBDB47   movq     -0xd8(%rbp), %rcx    
+0x7FFB01EBDB4E   movq     %r14, %r8            
+0x7FFB01EBDB51   movl     %r12d, %r9d          
+0x7FFB01EBDB54   movq     %rax, -0xf0(%rbp)    
+0x7FFB01EBDB5B   pushq    %rax                 
+0x7FFB01EBDB5C   pushq    %r13                 
+0x7FFB01EBDB5E   vzeroupper                      
+0x7FFB01EBDB61   callq    __Z28bCanDoOptimDepthStencilClearP13GLDContextRecRK9GLTCoord2RK16GLTDimensionsRecjPK11GLDStateRecbbb 
+0x7FFB01EBDB66   addq     $0x10, %rsp          
+0x7FFB01EBDB6A   movl     $0x4, %ecx           
+0x7FFB01EBDB6F   testb    $0x70, 0x62(%r15)    
+0x7FFB01EBDB74   jne      0x7ffb01ebdb8f       
+0x7FFB01EBDB76   movq     -0x78(%rbp), %rcx    
+0x7FFB01EBDB7A   movl     0x81d8(%rcx), %ecx   
+0x7FFB01EBDB80   leal     -0x8(%rcx), %edx     
+0x7FFB01EBDB83   cmpl     $0x2, %edx           
+0x7FFB01EBDB86   ja       0x7ffb01ebdb8d       
+0x7FFB01EBDB88   addl     $-0x7, %ecx          
+0x7FFB01EBDB8B   jmp      0x7ffb01ebdb8f       
+0x7FFB01EBDB8D   xorl     %ecx, %ecx           
+0x7FFB01EBDB8F   movq     -0x78(%rbp), %rdx    
+0x7FFB01EBDB93   movb     %al, 0x3f00(%rdx,%rcx) 
+0x7FFB01EBDB9A   testb    %al, %al             
+0x7FFB01EBDB9C   je       0x7ffb01ebdc0d       
+0x7FFB01EBDB9E   movq     -0x78(%rbp), %rax    
+0x7FFB01EBDBA2   movq     0xa700(%rax), %r14   
+0x7FFB01EBDBA9   testq    %r14, %r14           
+0x7FFB01EBDBAC   je       0x7ffb01ebdbc2       
+0x7FFB01EBDBAE   movl     $0x100, %esi         
+0x7FFB01EBDBB3   movl     $0x14, %ecx          
+0x7FFB01EBDBB8   movq     %r14, %rdi           
+0x7FFB01EBDBBB   xorl     %edx, %edx           
+0x7FFB01EBDBBD   callq    __ZN13IGTelemetryGL6sampleEyby 
+0x7FFB01EBDBC2   movq     -0x78(%rbp), %rax    
+0x7FFB01EBDBC6   cmpq     $0x0, 0x9168(%rax)   
+0x7FFB01EBDBCE   je       0x7ffb01ebe527       
+0x7FFB01EBDBD4   testb    %bl, %bl             
+0x7FFB01EBDBD6   je       0x7ffb01ebe527       
+0x7FFB01EBDBDC   movl     $0x4, %eax           
+0x7FFB01EBDBE1   movq     -0x78(%rbp), %rcx    
+0x7FFB01EBDBE5   testb    $0x70, 0x62(%rcx)    
+0x7FFB01EBDBE9   jne      0x7ffb01ebe51b       
+0x7FFB01EBDBEF   movq     -0x78(%rbp), %rax    
+0x7FFB01EBDBF3   movl     0x81d8(%rax), %eax   
+0x7FFB01EBDBF9   leal     -0x8(%rax), %ecx     
+0x7FFB01EBDBFC   cmpl     $0x2, %ecx           
+0x7FFB01EBDBFF   ja       0x7ffb01ebe519       
+0x7FFB01EBDC05   addl     $-0x7, %eax          
+0x7FFB01EBDC08   jmp      0x7ffb01ebe51b       
+0x7FFB01EBDC0D   movq     -0xa0(%rbp), %r10    
+0x7FFB01EBDC14   movl     -0x94(%rbp), %edx    
+0x7FFB01EBDC1A   movl     -0x98(%rbp), %r13d   
+0x7FFB01EBDC21   movl     %ebx, %r8d           
+0x7FFB01EBDC24   cmpl     $0x0, -0x110(%rbp)   
+0x7FFB01EBDC2B   je       0x7ffb01ebdc92       
+0x7FFB01EBDC2D   movq     -0xb8(%rbp), %rax    
+0x7FFB01EBDC34   leal     -0x1(%rax), %r14d    
+0x7FFB01EBDC38   movq     -0x78(%rbp), %rax    
+0x7FFB01EBDC3C   movq     0xa650(%rax,%r14,8), %rcx 
+0x7FFB01EBDC44   movq     %rcx, -0x170(%rbp)   
+0x7FFB01EBDC4B   testq    %rcx, %rcx           
+0x7FFB01EBDC4E   jne      0x7ffb01ebdc9d       
+0x7FFB01EBDC50   movq     -0x78(%rbp), %r15    
+0x7FFB01EBDC54   movq     %r15, %rdi           
+0x7FFB01EBDC57   movq     -0xb8(%rbp), %rsi    
+0x7FFB01EBDC5E   xorl     %edx, %edx           
+0x7FFB01EBDC60   xorl     %ecx, %ecx           
+0x7FFB01EBDC62   movl     %r8d, %ebx           
+0x7FFB01EBDC65   movq     %r10, %r12           
+0x7FFB01EBDC68   callq    __Z22CreateClearPixelShaderP13GLDContextRecjbb 
+0x7FFB01EBDC6D   movq     %r12, %r10           
+0x7FFB01EBDC70   movl     %ebx, %r8d           
+0x7FFB01EBDC73   movl     -0x94(%rbp), %edx    
+0x7FFB01EBDC79   movq     %rax, 0xa650(%r15,%r14,8) 
+0x7FFB01EBDC81   movq     %rax, -0x170(%rbp)   
+0x7FFB01EBDC88   testq    %rax, %rax           
+0x7FFB01EBDC8B   jne      0x7ffb01ebdc9d       
+0x7FFB01EBDC8D   jmp      0x7ffb01ec04e4       
+0x7FFB01EBDC92   movq     $0x0, -0x170(%rbp)   
+0x7FFB01EBDC9D   movq     -0x78(%rbp), %rcx    
+0x7FFB01EBDCA1   leaq     0x12b0(%rcx), %rax   
+0x7FFB01EBDCA8   movq     %rax, -0xe0(%rbp)    
+0x7FFB01EBDCAF   cmpb     $0x0, 0x3e8c(%rcx)   
+0x7FFB01EBDCB6   je       0x7ffb01ebdd47       
+0x7FFB01EBDCBC   testb    %r8b, %r8b           
+0x7FFB01EBDCBF   je       0x7ffb01ebdd47       
+0x7FFB01EBDCC5   movl     %r8d, -0x88(%rbp)    
+0x7FFB01EBDCCC   movzbl   %r13b, %eax          
+0x7FFB01EBDCD0   leaq     -0x90(%rbp), %rsi    
+0x7FFB01EBDCD7   leaq     -0xc0(%rbp), %rdx    
+0x7FFB01EBDCDE   movq     -0x78(%rbp), %rdi    
+0x7FFB01EBDCE2   movq     -0xd8(%rbp), %rcx    
+0x7FFB01EBDCE9   movq     %r10, %r14           
+0x7FFB01EBDCEC   movq     %r10, %r8            
+0x7FFB01EBDCEF   movl     $0x1, %r9d           
+0x7FFB01EBDCF5   pushq    -0xf0(%rbp)          
+0x7FFB01EBDCFB   pushq    %rax                 
+0x7FFB01EBDCFC   callq    __Z20bCanDoDepthFastClearP13GLDContextRecRK9GLTCoord2RK16GLTDimensionsRecjP17GLDClearValuesRecbbb 
+0x7FFB01EBDD01   addq     $0x10, %rsp          
+0x7FFB01EBDD05   testb    %al, %al             
+0x7FFB01EBDD07   je       0x7ffb01ebdece       
+0x7FFB01EBDD0D   movq     -0x78(%rbp), %rax    
+0x7FFB01EBDD11   cmpb     $0x1, 0x8e94(%rax)   
+0x7FFB01EBDD18   jne      0x7ffb01ebe4de       
+0x7FFB01EBDD1E   movq     -0x78(%rbp), %rax    
+0x7FFB01EBDD22   movq     0x8200(%rax), %rax   
+0x7FFB01EBDD29   movq     %r14, %rsi           
+0x7FFB01EBDD2C   vmovss   0x10(%r14), %xmm0    
+0x7FFB01EBDD32   vmovss   %xmm0, 0x60(%rax)    
+0x7FFB01EBDD37   addq     $0x45, %rax          
+0x7FFB01EBDD3B   movq     -0x110(%rbp), %rbx   
+0x7FFB01EBDD42   jmp      0x7ffb01ebe93b       
+0x7FFB01EBDD47   xorl     %r12d, %r12d         
+0x7FFB01EBDD4A   movq     -0x110(%rbp), %rbx   
+0x7FFB01EBDD51   movq     -0x78(%rbp), %rcx    
+0x7FFB01EBDD55   leaq     0xb518(%rcx), %rax   
+0x7FFB01EBDD5C   movq     %rax, -0xb8(%rbp)    
+0x7FFB01EBDD63   leaq     0xb918(%rcx), %rax   
+0x7FFB01EBDD6A   movq     %rax, -0x178(%rbp)   
+0x7FFB01EBDD71   cmpb     $0x0, -0x7c(%rbp)    
+0x7FFB01EBDD75   movl     %r12d, -0xc4(%rbp)   
+0x7FFB01EBDD7C   je       0x7ffb01ebde23       
+_IntelSetConfigData:
+0x7FFB020B3CD3   pushq    %rbp                 
+0x7FFB020B3CD4   movq     %rsp, %rbp           
+0x7FFB020B3CD7   pushq    %r15                 
+0x7FFB020B3CD9   pushq    %r14                 
+0x7FFB020B3CDB   pushq    %r13                 
+0x7FFB020B3CDD   pushq    %r12                 
+0x7FFB020B3CDF   pushq    %rbx                 
+0x7FFB020B3CE0   subq     $0x18, %rsp          
+0x7FFB020B3CE4   movq     %rdx, %r14           
+0x7FFB020B3CE7   movq     %rsi, %rbx           
+0x7FFB020B3CEA   vmovaps  0x97851e(%rip), %xmm0  ; 
+0x7FFB020B3CF2   vmovups  %xmm0, (%rsi)        
+0x7FFB020B3CF6   movabsq  $0x8080800000002, %rax 
+0x7FFB020B3D00   movq     %rax, 0x10(%rsi)     
+0x7FFB020B3D04   movb     $0x1, %r13b          
+0x7FFB020B3D07   movb     %r13b, 0x1eb(%rsi)   
+0x7FFB020B3D0E   movb     $0x40, 0x18(%rsi)    
+0x7FFB020B3D12   movw     $0x16, 0x1a(%rsi)    
+0x7FFB020B3D18   movq     $0x0, 0x1c(%rsi)     
+0x7FFB020B3D20   xorl     %r12d, %r12d         
+0x7FFB020B3D23   movl     %r12d, 0x24(%rsi)    
+0x7FFB020B3D27   movl     0x14(%rdx), %edi     
+0x7FFB020B3D2A   testl    $0x3ffffffc, %edi    
+0x7FFB020B3D30   setne    0x28(%rsi)           
+0x7FFB020B3D34   movb     0x10(%rdx), %al      
+0x7FFB020B3D37   movl     %eax, %ecx           
+0x7FFB020B3D39   shrb     $0x3, %cl            
+0x7FFB020B3D3C   andb     %r13b, %cl           
+0x7FFB020B3D3F   movb     %cl, 0x29(%rsi)      
+0x7FFB020B3D42   shrb     %al                  
+0x7FFB020B3D44   andb     %r13b, %al           
+0x7FFB020B3D47   movb     %al, 0x2a(%rsi)      
+0x7FFB020B3D4A   testl    $0x3f000000, %edi    
+0x7FFB020B3D50   setne    0x2b(%rsi)           
+0x7FFB020B3D54   movl     0xc(%rdx), %eax      
+0x7FFB020B3D57   shrl     $0xb, %eax           
+0x7FFB020B3D5A   andb     %r13b, %al           
+0x7FFB020B3D5D   movb     %al, 0x2c(%rsi)      
+0x7FFB020B3D60   leaq     -0x38(%rbp), %r15    
+0x7FFB020B3D64   movq     %r15, %rsi           
+0x7FFB020B3D67   callq    _gpusColorSizes      
+0x7FFB020B3D6C   movq     (%r15), %rax         
+0x7FFB020B3D6F   vmovq    %rax, %xmm0          
+0x7FFB020B3D74   vpshufb  0x9784a3(%rip), %xmm0, %xmm0  ; 
+0x7FFB020B3D7D   vmovd    %xmm0, 0x30(%rbx)    
+0x7FFB020B3D82   movb     0x8(%r15), %cl       
+0x7FFB020B3D86   movb     %cl, 0x2e(%rbx)      
+0x7FFB020B3D89   cmpw     $0x8, %ax            
+0x7FFB020B3D8D   sete     0x2d(%rbx)           
+0x7FFB020B3D91   movl     0x18(%r14), %edi     
+0x7FFB020B3D95   movq     %r15, %rsi           
+0x7FFB020B3D98   callq    _gpusColorSizes      
+0x7FFB020B3D9D   vmovq    (%r15), %xmm0        
+0x7FFB020B3DA2   vpshufb  0x978475(%rip), %xmm0, %xmm0  ; 
+0x7FFB020B3DAB   vmovd    %xmm0, 0x34(%rbx)    
+0x7FFB020B3DB0   movl     0x1c(%r14), %edi     
+0x7FFB020B3DB4   callq    _gpusDepthSize       
+0x7FFB020B3DB9   movb     %al, 0x38(%rbx)      
+0x7FFB020B3DBC   movl     0x20(%r14), %edi     
+0x7FFB020B3DC0   callq    _gpusDepthSize       
+0x7FFB020B3DC5   movb     %al, 0x39(%rbx)      
+0x7FFB020B3DC8   movb     0x26(%r14), %al      
+0x7FFB020B3DCC   movb     %al, 0x2f(%rbx)      
+0x7FFB020B3DCF   movb     0x28(%r14), %al      
+0x7FFB020B3DD3   movb     %al, 0x3a(%rbx)      
+0x7FFB020B3DD6   movb     0x2a(%r14), %al      
+0x7FFB020B3DDA   movb     %al, 0x3b(%rbx)      
+0x7FFB020B3DDD   vmovaps  0x9784db(%rip), %ymm0  ; 
+0x7FFB020B3DE5   vmovups  %ymm0, 0x3c(%rbx)    
+0x7FFB020B3DEA   vmovsd   0x97843e(%rip), %xmm0  ; 
+0x7FFB020B3DF2   vmovsd   %xmm0, 0x5c(%rbx)    
+0x7FFB020B3DF7   movw     $0x101, 0x64(%rbx)   
+0x7FFB020B3DFD   movl     %r12d, 0x66(%rbx)    
+0x7FFB020B3E01   movb     %r12b, 0x6a(%rbx)    
+0x7FFB020B3E05   movl     $0x1000001, 0x6b(%rbx) 
+0x7FFB020B3E0C   movb     %r13b, 0x6f(%rbx)    
+0x7FFB020B3E10   movl     $0xffff, 0x70(%rbx)  
+0x7FFB020B3E17   vmovaps  0x978421(%rip), %xmm0  ; 
+0x7FFB020B3E1F   vmovups  %xmm0, 0x78(%rbx)    
+0x7FFB020B3E24   vmovaps  0x978424(%rip), %xmm0  ; 
+0x7FFB020B3E2C   vmovups  %xmm0, 0x88(%rbx)    
+0x7FFB020B3E34   vmovaps  0x978424(%rip), %xmm0  ; 
+0x7FFB020B3E3C   vmovups  %xmm0, 0x98(%rbx)    
+0x7FFB020B3E44   movw     $0x4000, 0xa8(%rbx)  
+0x7FFB020B3E4D   movl     $0x1101010, 0xaa(%rbx) 
+0x7FFB020B3E57   movw     $0x1001, 0xae(%rbx)  
+0x7FFB020B3E60   vmovaps  0x978408(%rip), %xmm0  ; 
+0x7FFB020B3E68   vmovups  %xmm0, 0xb0(%rbx)    
+0x7FFB020B3E70   movl     $0x400, %eax         
+0x7FFB020B3E75   movl     %eax, 0xc0(%rbx)     
+0x7FFB020B3E7B   movw     $0x4, %cx            
+0x7FFB020B3E7F   movw     %cx, 0xc4(%rbx)      
+0x7FFB020B3E86   movl     $0x10000, %edx       
+0x7FFB020B3E8B   movq     %rdx, 0xc8(%rbx)     
+0x7FFB020B3E92   movabsq  $0x400001200004000, %rsi 
+0x7FFB020B3E9C   movq     %rsi, 0x100(%rbx)    
+0x7FFB020B3EA3   movl     %eax, 0x108(%rbx)    
+0x7FFB020B3EA9   movw     $0x0, 0x10c(%rbx)    
+0x7FFB020B3EB2   vmovaps  0x9783c6(%rip), %xmm0  ; 
+0x7FFB020B3EBA   vmovups  %xmm0, 0x110(%rbx)   
+0x7FFB020B3EC2   movl     %eax, 0x120(%rbx)    
+0x7FFB020B3EC8   movw     %cx, 0x124(%rbx)     
+0x7FFB020B3ECF   movq     %rdx, 0x128(%rbx)    
+0x7FFB020B3ED6   vmovaps  0x9783b2(%rip), %xmm0  ; 
+0x7FFB020B3EDE   vmovups  %xmm0, 0x138(%rbx)   
+0x7FFB020B3EE6   movl     $0xff, 0x148(%rbx)   
+0x7FFB020B3EF0   movw     $0xf, %ax            
+0x7FFB020B3EF4   movw     %ax, 0x14e(%rbx)     
+0x7FFB020B3EFB   movw     $0x1000, 0x14c(%rbx) 
+0x7FFB020B3F04   vmovsd   0x978394(%rip), %xmm0  ; 
+0x7FFB020B3F0C   vmovsd   %xmm0, 0x130(%rbx)   
+0x7FFB020B3F14   movb     $0x4, 0x150(%rbx)    
+0x7FFB020B3F1B   movw     $0x1, 0x154(%rbx)    
+0x7FFB020B3F24   movw     %ax, 0x160(%rbx)     
+0x7FFB020B3F2B   movabsq  $0x8000001000, %rax  
+0x7FFB020B3F35   movq     %rax, 0x158(%rbx)    
+0x7FFB020B3F3C   movabsq  $0x8000000080, %rax  
+0x7FFB020B3F46   movq     %rax, 0x164(%rbx)    
+0x7FFB020B3F4D   movabsq  $0x40000001000, %rax 
+0x7FFB020B3F57   movq     %rax, 0x16c(%rbx)    
+0x7FFB020B3F5E   movabsq  $0x20000f00004000, %rax 
+0x7FFB020B3F68   movq     %rax, 0x174(%rbx)    
+0x7FFB020B3F6F   movabsq  $-0x7fffffff8001, %rax 
+0x7FFB020B3F79   movq     %rax, 0x1ec(%rbx)    
+0x7FFB020B3F80   movb     $0x10, 0x1f8(%rbx)   
+0x7FFB020B3F87   movl     $0x8e4d8e4d, 0x1f4(%rbx) 
+0x7FFB020B3F91   vmovaps  0x978347(%rip), %ymm0  ; 
+0x7FFB020B3F99   vmovups  %ymm0, 0x17c(%rbx)   
+0x7FFB020B3FA1   movabsq  $0x100000000080, %rax 
+0x7FFB020B3FAB   movq     %rax, 0x19c(%rbx)    
+0x7FFB020B3FB2   movl     $0xf, 0x1a4(%rbx)    
+0x7FFB020B3FBC   movabsq  $0x2000000040, %rax  
+0x7FFB020B3FC6   movq     %rax, 0x1fc(%rbx)    
+0x7FFB020B3FCD   movl     $0x78, 0x204(%rbx)   
+0x7FFB020B3FD7   movl     $0x3c, 0x1c0(%rbx)   
+0x7FFB020B3FE1   vmovddup 0x978317(%rip), %xmm0  ; 
+0x7FFB020B3FE9   vmovups  %xmm0, 0x1ac(%rbx)   
+0x7FFB020B3FF1   movl     $0x4b0004, 0x1bc(%rbx) 
+0x7FFB020B3FFB   movl     %r12d, 0x1a8(%rbx)   
+0x7FFB020B4002   movabsq  $0x100000010000, %rax 
+0x7FFB020B400C   movq     %rax, 0x1c4(%rbx)    
+0x7FFB020B4013   movl     $0x1000, 0x1cc(%rbx) 
+0x7FFB020B401D   movb     $0x4b, 0x1ea(%rbx)   
+0x7FFB020B4024   movw     $0x100, 0x1e8(%rbx)  
+0x7FFB020B402D   vmovaps  0x97827b(%rip), %xmm0  ; 
+0x7FFB020B4035   vmovups  %xmm0, 0x1d0(%rbx)   
+0x7FFB020B403D   movabsq  $0x400000020, %rax   
+0x7FFB020B4047   movq     %rax, 0x1e0(%rbx)    
+0x7FFB020B404E   movabsq  $0x8003fef7bee7, %rax 
+0x7FFB020B4058   orq      %rax, 0x228(%rbx)    
+0x7FFB020B405F   orl      $0xfff7ffe9, 0x220(%rbx) 
+0x7FFB020B4069   orl      $0xdffffffb, 0x224(%rbx) 
+0x7FFB020B4073   leaq     0xa08c54(%rip), %rdi  ; string literal: "com.apple.driver.AppleIntelHD4000"
+0x7FFB020B407A   vzeroupper                      
+0x7FFB020B407D   callq    ___CFStringMakeConstantString 
+0x7FFB020B4082   movq     %rax, %r14           
+0x7FFB020B4085   leaq     0xa08c64(%rip), %rdi  ; string literal: "enable_nv_programs"
+0x7FFB020B408C   callq    ___CFStringMakeConstantString 
+0x7FFB020B4091   leaq     -0x29(%rbp), %r15    
+0x7FFB020B4095   movb     %r12b, (%r15)        
+0x7FFB020B4098   movq     %rax, %rdi           
+0x7FFB020B409B   movq     %r14, %rsi           
+0x7FFB020B409E   movq     %r15, %rdx           
+0x7FFB020B40A1   callq    _CFPreferencesGetAppIntegerValue 
+0x7FFB020B40A6   movl     0x22c(%rbx), %ecx    
+0x7FFB020B40AC   movl     %ecx, %edx           
+0x7FFB020B40AE   orl      $0x6180000, %edx     
+0x7FFB020B40B4   testl    %eax, %eax           
+0x7FFB020B40B6   cmovel   %ecx, %edx           
+0x7FFB020B40B9   cmpb     %r12b, (%r15)        
+0x7FFB020B40BC   cmovel   %ecx, %edx           
+0x7FFB020B40BF   orl      $0x84100, 0x228(%rbx) 
+0x7FFB020B40C9   orb      $0x14, 0x220(%rbx)   
+0x7FFB020B40D0   orl      $0x318727fc, %edx    
+0x7FFB020B40D6   movl     %edx, 0x22c(%rbx)    
+0x7FFB020B40DC   addq     $0x18, %rsp          
+0x7FFB020B40E0   popq     %rbx                 
+0x7FFB020B40E1   popq     %r12                 
+0x7FFB020B40E3   popq     %r13                 
+0x7FFB020B40E5   popq     %r14                 
+0x7FFB020B40E7   popq     %r15                 
+0x7FFB020B40E9   popq     %rbp                 
+0x7FFB020B40EA   retq                          

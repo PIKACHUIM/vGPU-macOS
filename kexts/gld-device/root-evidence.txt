@@ -1,0 +1,11 @@
+uid=0 type=0x56475055 registry=0x000000010000045e association-index=0 source-send-refs=1
+PASS zero/disjoint/partially-outside mask, NULL output, untouched C and canaries
+backend connected=1 liveness=0xe00002d8 renderer=0x01027e00 mask=0x80000081 page-size=4096 flags=0
+PASS 64 real create/destroy cycles, 1024 identical queries, C/R/handle canaries
+PASS duplicate service slots 0/7/31 share ordinal 1, renderer ID and merged mask
+PASS reinitialize with live device refused; terminate closes remaining device
+PASS service send refs baseline=1 final=1
+PASS non-vgpuAccelerator rejected, partial initialization rolled back
+PASS caller service released before create; module retains remain usable
+FINAL refs=0 devices=0 connections=0 retains=73 releases=73 opens=66 closes=66 cleanup=0x00000000
+PASS all checks; standalone lifecycle only, no draw, no system GLD installation

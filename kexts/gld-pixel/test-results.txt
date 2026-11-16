@@ -1,0 +1,35 @@
+COMMAND clang --version
+Apple clang version 17.0.0 (clang-1700.0.13.5)
+Target: x86_64-apple-darwin24.6.0
+Thread model: posix
+InstalledDir: /Library/Developer/CommandLineTools/usr/bin
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -I. -O2 gld_pixel.c gld_pixel_probe.c -o gld_pixel_probe
+EXIT 0
+COMMAND ./gld_pixel_probe
+MODE structural/parser tests only; fixture capabilities are not device claims; no CGL or private ABI calls
+GROUP parser: valid, duplicate-max, token4-no-value, every-byte-truncation, missing-terminator, unknown, overflow
+GROUP selection: explicit-capabilities, no-default-flags, bitmaps, no-match, invalid-capability, allocation-failure, list-release
+GROUP lifetime: 4096-node chain and one-owner destruction
+GROUP bounds: PROT_NONE next-page guard, zero-length inaccessible pointer, 20000 deterministic streams
+SUMMARY checks=28154 failures=0
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -I. -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer gld_pixel.c gld_pixel_probe.c -o gld_pixel_probe_sanitized
+EXIT 0
+COMMAND ./gld_pixel_probe_sanitized
+MODE structural/parser tests only; fixture capabilities are not device claims; no CGL or private ABI calls
+GROUP parser: valid, duplicate-max, token4-no-value, every-byte-truncation, missing-terminator, unknown, overflow
+GROUP selection: explicit-capabilities, no-default-flags, bitmaps, no-match, invalid-capability, allocation-failure, list-release
+GROUP lifetime: 4096-node chain and one-owner destruction
+GROUP bounds: PROT_NONE next-page guard, zero-length inaccessible pointer, 20000 deterministic streams
+SUMMARY checks=28154 failures=0
+EXIT 0
+COMMAND clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common -I. --analyze -Xanalyzer -analyzer-output=text gld_pixel.c
+EXIT 0
+COMMAND nm -gU gld_pixel_probe
+0000000100000000 T __mh_execute_header
+0000000100000740 T _gp_choose_normalized
+00000001000005b0 T _gp_parse_normalized
+0000000100000ae0 T _gp_pixel_list_destroy
+0000000100000b20 T _main
+EXIT 0

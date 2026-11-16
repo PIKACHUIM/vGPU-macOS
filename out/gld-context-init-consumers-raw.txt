@@ -1,0 +1,1163 @@
+_gleInitializeContext:
+0x7FFB0637C155   pushq    %rbp                 
+0x7FFB0637C156   movq     %rsp, %rbp           
+0x7FFB0637C159   pushq    %r15                 
+0x7FFB0637C15B   pushq    %r14                 
+0x7FFB0637C15D   pushq    %rbx                 
+0x7FFB0637C15E   pushq    %rax                 
+0x7FFB0637C15F   movq     %rdi, %rbx           
+0x7FFB0637C162   xorl     %eax, %eax           
+0x7FFB0637C164   movq     %rax, 0xb570(%rdi)   
+0x7FFB0637C16B   movq     %rax, 0xb300(%rdi)   
+0x7FFB0637C172   movw     $0x0, 0xb634(%rdi)   
+0x7FFB0637C17B   movq     0xb318(%rdi), %rcx   
+0x7FFB0637C182   movb     0x29(%rcx), %cl      
+0x7FFB0637C185   movb     %cl, 0xc693(%rdi)    
+0x7FFB0637C18B   leaq     0x3d0b8966(%rip), %rcx  ; _gle_globals_struct
+0x7FFB0637C192   movq     %rcx, 0x5ac8(%rdi)   
+0x7FFB0637C199   movl     $0x3463a223, 0xb610(%rdi) 
+0x7FFB0637C1A3   movq     %rax, 0x5af8(%rdi)   
+0x7FFB0637C1AA   movq     %rax, 0xa278(%rdi)   
+0x7FFB0637C1B1   movq     %rax, 0x5b08(%rdi)   
+0x7FFB0637C1B8   movq     %rax, 0x9258(%rdi)   
+0x7FFB0637C1BF   xorps    %xmm0, %xmm0         
+0x7FFB0637C1C2   movups   %xmm0, 0x590(%rdi)   
+0x7FFB0637C1C9   movq     %rax, 0x5a0(%rdi)    
+0x7FFB0637C1D0   movaps   %xmm0, 0x5b0(%rdi)   
+0x7FFB0637C1D7   movups   %xmm0, 0x9328(%rdi)  
+0x7FFB0637C1DE   movups   %xmm0, 0x9338(%rdi)  
+0x7FFB0637C1E5   movups   %xmm0, 0x9348(%rdi)  
+0x7FFB0637C1EC   movups   %xmm0, 0x9358(%rdi)  
+0x7FFB0637C1F3   movups   %xmm0, 0x9368(%rdi)  
+0x7FFB0637C1FA   movups   %xmm0, 0x9378(%rdi)  
+0x7FFB0637C201   movups   %xmm0, 0x9388(%rdi)  
+0x7FFB0637C208   movups   %xmm0, 0x9398(%rdi)  
+0x7FFB0637C20F   movups   %xmm0, 0x93a8(%rdi)  
+0x7FFB0637C216   movups   %xmm0, 0x93b8(%rdi)  
+0x7FFB0637C21D   movups   %xmm0, 0x93c8(%rdi)  
+0x7FFB0637C224   movups   %xmm0, 0x93d8(%rdi)  
+0x7FFB0637C22B   movq     %rax, 0x93e8(%rdi)   
+0x7FFB0637C232   movzbl   0xc6a1(%rdi), %r15d  
+0x7FFB0637C23A   testq    %r15, %r15           
+0x7FFB0637C23D   je       0x7ffb0637c26d       
+0x7FFB0637C23F   leaq     0xcd68(%rbx), %rax   
+0x7FFB0637C246   imulq    $0xe20, %r15, %rcx   
+0x7FFB0637C24D   xorl     %edx, %edx           
+0x7FFB0637C24F   movups   %xmm0, 0x10(%rax,%rdx) 
+0x7FFB0637C254   movups   %xmm0, (%rax,%rdx)   
+0x7FFB0637C258   movq     $0x0, 0x20(%rax,%rdx) 
+0x7FFB0637C261   addq     $0xe20, %rdx         
+0x7FFB0637C268   cmpq     %rdx, %rcx           
+0x7FFB0637C26B   jne      0x7ffb0637c24f       
+0x7FFB0637C26D   movq     $0x0, 0xb2a8(%rbx)   
+0x7FFB0637C278   leaq     0x60d0(%rbx), %r14   
+0x7FFB0637C27F   leaq     0x8e28(%rbx), %rdi   
+0x7FFB0637C286   movl     $0x400, %esi         
+0x7FFB0637C28B   callq    ___bzero             
+0x7FFB0637C290   movl     $0x2cb0, %esi        
+0x7FFB0637C295   movq     %r14, %rdi           
+0x7FFB0637C298   callq    ___bzero             
+0x7FFB0637C29D   xorps    %xmm0, %xmm0         
+0x7FFB0637C2A0   movups   %xmm0, 0xa5a8(%rbx)  
+0x7FFB0637C2A7   movl     $0xb510, %eax        
+0x7FFB0637C2AC   xorl     %ecx, %ecx           
+0x7FFB0637C2AE   movq     %rcx, -0x5c70(%rbx,%rax) 
+0x7FFB0637C2B6   movq     %rcx, (%rbx,%rax)    
+0x7FFB0637C2BA   addq     $0x10, %rax          
+0x7FFB0637C2BE   cmpq     $0xb540, %rax        
+0x7FFB0637C2C4   jne      0x7ffb0637c2ae       
+0x7FFB0637C2C6   xorl     %eax, %eax           
+0x7FFB0637C2C8   movq     %rax, 0xa578(%rbx)   
+0x7FFB0637C2CF   xorps    %xmm0, %xmm0         
+0x7FFB0637C2D2   movaps   %xmm0, 0xb2b0(%rbx)  
+0x7FFB0637C2D9   movq     %rax, 0xb2c0(%rbx)   
+0x7FFB0637C2E0   testq    %r15, %r15           
+0x7FFB0637C2E3   je       0x7ffb0637c305       
+0x7FFB0637C2E5   imulq    $0xe20, %r15, %rax   
+0x7FFB0637C2EC   leaq     0xcdc0(%rbx), %rcx   
+0x7FFB0637C2F3   xorl     %edx, %edx           
+0x7FFB0637C2F5   movaps   %xmm0, (%rcx,%rdx)   
+0x7FFB0637C2F9   addq     $0xe20, %rdx         
+0x7FFB0637C300   cmpq     %rdx, %rax           
+0x7FFB0637C303   jne      0x7ffb0637c2f5       
+0x7FFB0637C305   xorl     %eax, %eax           
+0x7FFB0637C307   movq     %rax, 0xb2f0(%rbx)   
+0x7FFB0637C30E   movq     %rax, 0x5900(%rbx)   
+0x7FFB0637C315   movq     %rax, 0x5948(%rbx)   
+0x7FFB0637C31C   movq     %rax, 0x5990(%rbx)   
+0x7FFB0637C323   movq     %rax, 0x59d8(%rbx)   
+0x7FFB0637C32A   movups   %xmm0, 0x9498(%rbx)  
+0x7FFB0637C331   movups   %xmm0, 0xb1d8(%rbx)  
+0x7FFB0637C338   xorl     %edi, %edi           
+0x7FFB0637C33A   callq    _glgCreateProcessor  
+0x7FFB0637C33F   movq     %rax, 0xabb0(%rbx)   
+0x7FFB0637C346   movq     %rbx, %rdi           
+0x7FFB0637C349   callq    _gleLLVMInit         
+0x7FFB0637C34E   movq     %rbx, %rdi           
+0x7FFB0637C351   movl     $0x24, %esi          
+0x7FFB0637C356   callq    _gleAllocVertexMachine 
+0x7FFB0637C35B   testl    %eax, %eax           
+0x7FFB0637C35D   jne      0x7ffb0637c36b       
+0x7FFB0637C35F   movq     %rbx, %rdi           
+0x7FFB0637C362   callq    _gleAllocMaterials   
+0x7FFB0637C367   testl    %eax, %eax           
+0x7FFB0637C369   je       0x7ffb0637c384       
+0x7FFB0637C36B   movl     %eax, %r14d          
+0x7FFB0637C36E   movq     %rbx, %rdi           
+0x7FFB0637C371   callq    _gleTerminateContext 
+0x7FFB0637C376   movl     %r14d, %eax          
+0x7FFB0637C379   addq     $0x8, %rsp           
+0x7FFB0637C37D   popq     %rbx                 
+0x7FFB0637C37E   popq     %r14                 
+0x7FFB0637C380   popq     %r15                 
+0x7FFB0637C382   popq     %rbp                 
+0x7FFB0637C383   retq                          
+0x7FFB0637C384   movq     %rbx, %rdi           
+0x7FFB0637C387   callq    _gleShareEnableHashTable 
+0x7FFB0637C38C   movabsq  $0x400000000000000, %rax 
+0x7FFB0637C396   movq     %rax, 0xb240(%rbx)   
+0x7FFB0637C39D   leaq     0xb270(%rbx), %rax   
+0x7FFB0637C3A4   movq     %rax, 0xb288(%rbx)   
+0x7FFB0637C3AB   movq     %rax, 0xb280(%rbx)   
+0x7FFB0637C3B2   movq     %rax, 0xb278(%rbx)   
+0x7FFB0637C3B9   movq     %rax, 0xb270(%rbx)   
+0x7FFB0637C3C0   xorps    %xmm0, %xmm0         
+0x7FFB0637C3C3   movups   %xmm0, 0xb290(%rbx)  
+0x7FFB0637C3CA   xorl     %r14d, %r14d         
+0x7FFB0637C3CD   movq     %r14, 0xb2a0(%rbx)   
+0x7FFB0637C3D4   movups   %xmm0, 0xb248(%rbx)  
+0x7FFB0637C3DB   movups   %xmm0, 0xb258(%rbx)  
+0x7FFB0637C3E2   movq     %r14, 0xb268(%rbx)   
+0x7FFB0637C3E9   movq     %rbx, %rdi           
+0x7FFB0637C3EC   callq    _gleInitConstants    
+0x7FFB0637C3F1   movl     $0x6f00, %edi        
+0x7FFB0637C3F6   movl     $0x746fbc94, %esi    
+0x7FFB0637C3FB   callq    _malloc_type_malloc  
+0x7FFB0637C400   testq    %rax, %rax           
+0x7FFB0637C403   je       0x7ffb0637c799       
+0x7FFB0637C409   movq     %rax, 0x5af8(%rbx)   
+0x7FFB0637C410   leaq     0x168e67(%rip), %rsi  ; string literal: "GL Matrix Stacks"
+0x7FFB0637C417   movq     %rax, %rdi           
+0x7FFB0637C41A   callq    ___CFSetLastAllocationEventName 
+0x7FFB0637C41F   cmpq     $0x0, 0x5af8(%rbx)   
+0x7FFB0637C427   je       0x7ffb0637c36e       
+0x7FFB0637C42D   movl     $0x20, %edi          
+0x7FFB0637C432   movl     $0x746fbc94, %esi    
+0x7FFB0637C437   callq    _malloc_type_malloc  
+0x7FFB0637C43C   testq    %rax, %rax           
+0x7FFB0637C43F   je       0x7ffb0637c799       
+0x7FFB0637C445   movq     %rax, 0xb500(%rbx)   
+0x7FFB0637C44C   xorps    %xmm0, %xmm0         
+0x7FFB0637C44F   movups   %xmm0, 0xc(%rax)     
+0x7FFB0637C453   movups   %xmm0, (%rax)        
+0x7FFB0637C456   movaps   0x1675e3(%rip), %xmm0  ; 
+0x7FFB0637C45D   movups   %xmm0, 0xb5c4(%rbx)  
+0x7FFB0637C464   movl     $0xbfeffbfe, 0xb5d4(%rbx) 
+0x7FFB0637C46E   leaq     0xb5d8(%rbx), %rdi   
+0x7FFB0637C475   leaq     0x1675c4(%rip), %rsi  ; 
+0x7FFB0637C47C   movl     $0x20, %edx          
+0x7FFB0637C481   callq    _memset_pattern16    
+0x7FFB0637C486   movl     $0x101, 0xc68d(%rbx) 
+0x7FFB0637C490   movzbl   0xc6a1(%rbx), %eax   
+0x7FFB0637C497   testq    %rax, %rax           
+0x7FFB0637C49A   je       0x7ffb0637c4e6       
+0x7FFB0637C49C   imulq    $0xe20, %rax, %rdx   
+0x7FFB0637C4A3   movw     $0xffff, %ax         
+0x7FFB0637C4A7   xorl     %esi, %esi           
+0x7FFB0637C4A9   xorl     %edi, %edi           
+0x7FFB0637C4AB   xorl     %ecx, %ecx           
+0x7FFB0637C4AD   orb      0xc725(%rbx,%rsi), %dil 
+0x7FFB0637C4B5   movzwl   0xc6da(%rbx,%rsi), %r8d 
+0x7FFB0637C4BE   orl      %r8d, %ecx           
+0x7FFB0637C4C1   andl     %r8d, %eax           
+0x7FFB0637C4C4   addq     $0xe20, %rsi         
+0x7FFB0637C4CB   cmpq     %rsi, %rdx           
+0x7FFB0637C4CE   jne      0x7ffb0637c4ad       
+0x7FFB0637C4D0   movb     %dil, 0xc690(%rbx)   
+0x7FFB0637C4D7   andl     $0x4ef, %ecx         
+0x7FFB0637C4DD   andl     $0xfffffb10, %eax    
+0x7FFB0637C4E2   orl      %ecx, %eax           
+0x7FFB0637C4E4   jmp      0x7ffb0637c4ea       
+0x7FFB0637C4E6   movw     $0xfb10, %ax         
+0x7FFB0637C4EA   movq     0x5b00(%rbx), %rcx   
+0x7FFB0637C4F1   movw     %ax, 0x19a(%rcx)     
+0x7FFB0637C4F8   leaq     0xb578(%rbx), %rax   
+0x7FFB0637C4FF   leaq     0x8e0(%rbx), %rdi    
+0x7FFB0637C506   movq     %rax, 0x59c8(%rbx)   
+0x7FFB0637C50D   xorl     %r14d, %r14d         
+0x7FFB0637C510   movl     %r14d, 0xab60(%rbx)  
+0x7FFB0637C517   movl     %r14d, 0xab98(%rbx)  
+0x7FFB0637C51E   callq    _gleInitGLDState     
+0x7FFB0637C523   movw     $0x0, 0xb644(%rbx)   
+0x7FFB0637C52C   movq     $0x0, 0xb63c(%rbx)   
+0x7FFB0637C537   cmpb     $0x1, 0xc6a6(%rbx)   
+0x7FFB0637C53E   jne      0x7ffb0637c547       
+0x7FFB0637C540   movb     $0x1, 0x45b1(%rbx)   
+0x7FFB0637C547   movq     %rbx, %rdi           
+0x7FFB0637C54A   callq    _gleInitGLIState     
+0x7FFB0637C54F   xorps    %xmm1, %xmm1         
+0x7FFB0637C552   movaps   %xmm1, 0x5f0(%rbx)   
+0x7FFB0637C559   movaps   0x1674f0(%rip), %xmm0  ; 
+0x7FFB0637C560   movaps   %xmm0, 0x600(%rbx)   
+0x7FFB0637C567   movaps   %xmm1, 0x890(%rbx)   
+0x7FFB0637C56E   movl     %r14d, 0x8a0(%rbx)   
+0x7FFB0637C575   movq     $0xfffffe, 0x8a4(%rbx) 
+0x7FFB0637C580   movl     $0x89d8e67f, 0x8ac(%rbx) 
+0x7FFB0637C58A   movl     $0x20000000, 0xb618(%rbx) 
+0x7FFB0637C594   movq     %rbx, %rdi           
+0x7FFB0637C597   callq    _gleSetBaseTCLState  
+0x7FFB0637C59C   xorps    %xmm0, %xmm0         
+0x7FFB0637C59F   movups   %xmm0, 0x680(%rbx)   
+0x7FFB0637C5A6   movups   %xmm0, 0x670(%rbx)   
+0x7FFB0637C5AD   movups   %xmm0, 0x660(%rbx)   
+0x7FFB0637C5B4   movups   %xmm0, 0x650(%rbx)   
+0x7FFB0637C5BB   movups   %xmm0, 0x640(%rbx)   
+0x7FFB0637C5C2   movups   %xmm0, 0x630(%rbx)   
+0x7FFB0637C5C9   movups   %xmm0, 0x620(%rbx)   
+0x7FFB0637C5D0   movups   %xmm0, 0x610(%rbx)   
+0x7FFB0637C5D7   movups   %xmm0, 0x690(%rbx)   
+0x7FFB0637C5DE   movups   %xmm0, 0x6a0(%rbx)   
+0x7FFB0637C5E5   movups   %xmm0, 0x6b0(%rbx)   
+0x7FFB0637C5EC   movups   %xmm0, 0x6c0(%rbx)   
+0x7FFB0637C5F3   movups   %xmm0, 0x6d0(%rbx)   
+0x7FFB0637C5FA   movups   %xmm0, 0x6e0(%rbx)   
+0x7FFB0637C601   movups   %xmm0, 0x6f0(%rbx)   
+0x7FFB0637C608   movups   %xmm0, 0x700(%rbx)   
+0x7FFB0637C60F   movups   %xmm0, 0x710(%rbx)   
+0x7FFB0637C616   movups   %xmm0, 0x720(%rbx)   
+0x7FFB0637C61D   movups   %xmm0, 0x730(%rbx)   
+0x7FFB0637C624   movups   %xmm0, 0x740(%rbx)   
+0x7FFB0637C62B   movups   %xmm0, 0x750(%rbx)   
+0x7FFB0637C632   movups   %xmm0, 0x760(%rbx)   
+0x7FFB0637C639   movups   %xmm0, 0x770(%rbx)   
+0x7FFB0637C640   movups   %xmm0, 0x780(%rbx)   
+0x7FFB0637C647   movups   %xmm0, 0x800(%rbx)   
+0x7FFB0637C64E   movups   %xmm0, 0x7f0(%rbx)   
+0x7FFB0637C655   movups   %xmm0, 0x7e0(%rbx)   
+0x7FFB0637C65C   movups   %xmm0, 0x7d0(%rbx)   
+0x7FFB0637C663   movups   %xmm0, 0x7c0(%rbx)   
+0x7FFB0637C66A   movups   %xmm0, 0x7b0(%rbx)   
+0x7FFB0637C671   movups   %xmm0, 0x7a0(%rbx)   
+0x7FFB0637C678   movups   %xmm0, 0x790(%rbx)   
+0x7FFB0637C67F   movups   %xmm0, 0x810(%rbx)   
+0x7FFB0637C686   movups   %xmm0, 0x820(%rbx)   
+0x7FFB0637C68D   movups   %xmm0, 0x830(%rbx)   
+0x7FFB0637C694   movups   %xmm0, 0x840(%rbx)   
+0x7FFB0637C69B   movups   %xmm0, 0x850(%rbx)   
+0x7FFB0637C6A2   movups   %xmm0, 0x860(%rbx)   
+0x7FFB0637C6A9   movups   %xmm0, 0x870(%rbx)   
+0x7FFB0637C6B0   movups   %xmm0, 0x880(%rbx)   
+0x7FFB0637C6B7   movb     %r14b, 0xc6aa(%rbx)  
+0x7FFB0637C6BE   movq     %rbx, %rdi           
+0x7FFB0637C6C1   callq    _gleInitDerivedState 
+0x7FFB0637C6C6   movq     %rbx, %rdi           
+0x7FFB0637C6C9   callq    _gleInitTextureState 
+0x7FFB0637C6CE   movq     %rbx, %rdi           
+0x7FFB0637C6D1   callq    _gleInitShaderProgramState 
+0x7FFB0637C6D6   movq     %rbx, %rdi           
+0x7FFB0637C6D9   callq    _gleInitVertexArrayState 
+0x7FFB0637C6DE   movq     %rbx, %rdi           
+0x7FFB0637C6E1   callq    _gleInitPipelineProgramState 
+0x7FFB0637C6E6   movq     %rbx, %rdi           
+0x7FFB0637C6E9   callq    _gleInitBufferState  
+0x7FFB0637C6EE   leaq     0xa1b0(%rbx), %rdi   
+0x7FFB0637C6F5   callq    _gleInitHashMachine  
+0x7FFB0637C6FA   movq     %rbx, %rdi           
+0x7FFB0637C6FD   callq    _gleInitQueryMachine 
+0x7FFB0637C702   movq     %rbx, %rdi           
+0x7FFB0637C705   callq    _gleInitTransformFeedback 
+0x7FFB0637C70A   movq     %rbx, %rdi           
+0x7FFB0637C70D   callq    _gleInitDrawCopyPixelsObject 
+0x7FFB0637C712   movq     %rbx, %rdi           
+0x7FFB0637C715   callq    _gleInitBitmapObject 
+0x7FFB0637C71A   movq     %rbx, %rdi           
+0x7FFB0637C71D   callq    _gleInitAccumObject  
+0x7FFB0637C722   movq     %rbx, %rdi           
+0x7FFB0637C725   callq    _gleUpdateState      
+0x7FFB0637C72A   movl     %r14d, 0xb5fc(%rbx)  
+0x7FFB0637C731   movq     $0x0, 0xb628(%rbx)   
+0x7FFB0637C73C   movl     %r14d, 0xb630(%rbx)  
+0x7FFB0637C743   movb     %r14b, 0xc6a8(%rbx)  
+0x7FFB0637C74A   movw     $0x0, 0xc686(%rbx)   
+0x7FFB0637C753   movb     %r14b, 0xc688(%rbx)  
+0x7FFB0637C75A   xorps    %xmm0, %xmm0         
+0x7FFB0637C75D   movaps   %xmm0, 0x5a80(%rbx)  
+0x7FFB0637C764   movaps   %xmm0, 0x5a90(%rbx)  
+0x7FFB0637C76B   movaps   %xmm0, 0x5aa0(%rbx)  
+0x7FFB0637C772   cmpb     %r14b, 0xc693(%rbx)  
+0x7FFB0637C779   sete     0xc689(%rbx)         
+0x7FFB0637C780   addq     $0xa5e8, %rbx        
+0x7FFB0637C787   movl     $0x3a0, %esi         
+0x7FFB0637C78C   movq     %rbx, %rdi           
+0x7FFB0637C78F   callq    ___bzero             
+0x7FFB0637C794   jmp      0x7ffb0637c376       
+0x7FFB0637C799   callq    _abort               
+0x7FFB0637C79E   addb     %al, (%rax)          
+_gleInitConstants:
+0x7FFB0637C9DC   pushq    %rbp                 
+0x7FFB0637C9DD   movq     %rsp, %rbp           
+0x7FFB0637C9E0   pushq    %r14                 
+0x7FFB0637C9E2   pushq    %rbx                 
+0x7FFB0637C9E3   subq     $0x10, %rsp          
+0x7FFB0637C9E7   movq     %rdi, %rbx           
+0x7FFB0637C9EA   movaps   0x166eef(%rip), %xmm0  ; 
+0x7FFB0637C9F1   movaps   %xmm0, (%rdi)        
+0x7FFB0637C9F4   movaps   0x166ef5(%rip), %xmm0  ; 
+0x7FFB0637C9FB   movaps   %xmm0, 0x10(%rdi)    
+0x7FFB0637C9FF   movaps   0x166efa(%rip), %xmm0  ; 
+0x7FFB0637CA06   movaps   %xmm0, 0x20(%rdi)    
+0x7FFB0637CA0A   movaps   0x166eff(%rip), %xmm0  ; 
+0x7FFB0637CA11   movaps   %xmm0, 0x30(%rdi)    
+0x7FFB0637CA15   movaps   0x166f04(%rip), %xmm0  ; 
+0x7FFB0637CA1C   movaps   %xmm0, 0x40(%rdi)    
+0x7FFB0637CA20   movaps   0x166f09(%rip), %xmm0  ; 
+0x7FFB0637CA27   movaps   %xmm0, 0x50(%rdi)    
+0x7FFB0637CA2B   movaps   0x166f0e(%rip), %xmm0  ; 
+0x7FFB0637CA32   movaps   %xmm0, 0x60(%rdi)    
+0x7FFB0637CA36   movaps   0x166f13(%rip), %xmm0  ; 
+0x7FFB0637CA3D   movaps   %xmm0, 0x70(%rdi)    
+0x7FFB0637CA41   movaps   0x166f18(%rip), %xmm0  ; 
+0x7FFB0637CA48   movaps   %xmm0, 0x80(%rdi)    
+0x7FFB0637CA4F   movaps   0x166f1a(%rip), %xmm0  ; 
+0x7FFB0637CA56   movaps   %xmm0, 0x90(%rdi)    
+0x7FFB0637CA5D   movaps   0x166f1c(%rip), %xmm0  ; 
+0x7FFB0637CA64   movaps   %xmm0, 0xa0(%rdi)    
+0x7FFB0637CA6B   movaps   0x166f1e(%rip), %xmm0  ; 
+0x7FFB0637CA72   movaps   %xmm0, 0xb0(%rdi)    
+0x7FFB0637CA79   movaps   0x166f20(%rip), %xmm0  ; 
+0x7FFB0637CA80   movaps   %xmm0, 0xc0(%rdi)    
+0x7FFB0637CA87   movaps   0x166f22(%rip), %xmm0  ; 
+0x7FFB0637CA8E   movaps   %xmm0, 0xd0(%rdi)    
+0x7FFB0637CA95   movaps   0x166f24(%rip), %xmm0  ; 
+0x7FFB0637CA9C   movaps   %xmm0, 0xe0(%rdi)    
+0x7FFB0637CAA3   movaps   0x166f26(%rip), %xmm0  ; 
+0x7FFB0637CAAA   movaps   %xmm0, 0xf0(%rdi)    
+0x7FFB0637CAB1   movaps   0x166398(%rip), %xmm0  ; 
+0x7FFB0637CAB8   movaps   %xmm0, 0x100(%rdi)   
+0x7FFB0637CABF   leaq     -0x18(%rbp), %r14    
+0x7FFB0637CAC3   movq     $0x0, (%r14)         
+0x7FFB0637CACA   movq     %r14, %rdi           
+0x7FFB0637CACD   callq    _mach_timebase_info  
+0x7FFB0637CAD2   movl     0x4(%r14), %eax      
+0x7FFB0637CAD6   xorps    %xmm0, %xmm0         
+0x7FFB0637CAD9   cvtsi2sd %rax, %xmm0          
+0x7FFB0637CADE   movl     (%r14), %eax         
+0x7FFB0637CAE1   cvtsi2sd %rax, %xmm1          
+0x7FFB0637CAE6   divsd    %xmm1, %xmm0         
+0x7FFB0637CAEA   movsd    %xmm0, 0x1b0(%rbx)   
+0x7FFB0637CAF2   movaps   0x166ee7(%rip), %xmm0  ; 
+0x7FFB0637CAF9   movaps   %xmm0, 0x110(%rbx)   
+0x7FFB0637CB00   movaps   0x166ee9(%rip), %xmm0  ; 
+0x7FFB0637CB07   movaps   %xmm0, 0x120(%rbx)   
+0x7FFB0637CB0E   movaps   0x166eeb(%rip), %xmm0  ; 
+0x7FFB0637CB15   movaps   %xmm0, 0x130(%rbx)   
+0x7FFB0637CB1C   movaps   0x1663dd(%rip), %xmm0  ; 
+0x7FFB0637CB23   movaps   %xmm0, 0x140(%rbx)   
+0x7FFB0637CB2A   movaps   0x1663ef(%rip), %xmm0  ; 
+0x7FFB0637CB31   movaps   %xmm0, 0x150(%rbx)   
+0x7FFB0637CB38   movaps   0x1663d1(%rip), %xmm0  ; 
+0x7FFB0637CB3F   movaps   %xmm0, 0x160(%rbx)   
+0x7FFB0637CB46   movaps   0x166bb3(%rip), %xmm1  ; 
+0x7FFB0637CB4D   movaps   %xmm1, 0x170(%rbx)   
+0x7FFB0637CB54   movaps   0x166415(%rip), %xmm1  ; 
+0x7FFB0637CB5B   movaps   %xmm1, 0x180(%rbx)   
+0x7FFB0637CB62   movaps   %xmm0, 0x190(%rbx)   
+0x7FFB0637CB69   movaps   0x166ea0(%rip), %xmm0  ; 
+0x7FFB0637CB70   movaps   %xmm0, 0x1a0(%rbx)   
+0x7FFB0637CB77   leaq     0x37472(%rip), %rax  ; _gleFlushAndSubmit
+0x7FFB0637CB7E   movq     %rax, 0x1b8(%rbx)    
+0x7FFB0637CB85   leaq     0xca7d4(%rip), %rax  ; _gleNoop
+0x7FFB0637CB8C   movq     %rax, 0x1c0(%rbx)    
+0x7FFB0637CB93   callq    _glvmGetConstants    
+0x7FFB0637CB98   movq     %rax, 0x1c8(%rbx)    
+0x7FFB0637CB9F   leaq     0xec056(%rip), %rax  ; _gleClipPoints
+0x7FFB0637CBA6   movq     %rax, 0x1d0(%rbx)    
+0x7FFB0637CBAD   movq     %rax, 0x270(%rbx)    
+0x7FFB0637CBB4   leaq     0x37488(%rip), %rax  ; _gleClipLines
+0x7FFB0637CBBB   movq     %rax, 0x1d8(%rbx)    
+0x7FFB0637CBC2   movq     %rax, 0x278(%rbx)    
+0x7FFB0637CBC9   leaq     0x17c90(%rip), %rax  ; _gleClipPoly
+0x7FFB0637CBD0   movq     %rax, 0x1e0(%rbx)    
+0x7FFB0637CBD7   movq     %rax, 0x280(%rbx)    
+0x7FFB0637CBDE   cmpb     $0x1, 0xc6a6(%rbx)   
+0x7FFB0637CBE5   leaq     0xec04e(%rip), %rax  ; _gleClipPointsPlane
+0x7FFB0637CBEC   cmoveq   0x3ad73144(%rip), %rax  ; 
+0x7FFB0637CBF4   leaq     0xdf613(%rip), %rcx  ; _gleClipLinesPlane
+0x7FFB0637CBFB   cmoveq   0x3ad7312d(%rip), %rcx  ; 
+0x7FFB0637CC03   leaq     0xec167(%rip), %rdx  ; _gleClipPolyPlane
+0x7FFB0637CC0A   cmoveq   0x3ad7312e(%rip), %rdx  ; 
+0x7FFB0637CC12   movq     %rax, 0x1e8(%rbx)    
+0x7FFB0637CC19   movq     %rax, 0x288(%rbx)    
+0x7FFB0637CC20   movq     %rcx, 0x1f0(%rbx)    
+0x7FFB0637CC27   movq     %rcx, 0x290(%rbx)    
+0x7FFB0637CC2E   movq     %rdx, 0x1f8(%rbx)    
+0x7FFB0637CC35   movq     %rdx, 0x298(%rbx)    
+0x7FFB0637CC3C   leaq     0xec5b1(%rip), %rax  ; _gleCullPolygonStack
+0x7FFB0637CC43   movq     %rax, 0x200(%rbx)    
+0x7FFB0637CC4A   movq     %rax, 0x2a0(%rbx)    
+0x7FFB0637CC51   leaq     0x3a5ae(%rip), %rax  ; _gleCullPolygonPtrStack
+0x7FFB0637CC58   movq     %rax, 0x208(%rbx)    
+0x7FFB0637CC5F   movq     %rax, 0x2a8(%rbx)    
+0x7FFB0637CC66   leaq     0x38f21(%rip), %rax  ; _gleCullTriangle
+0x7FFB0637CC6D   movq     %rax, 0x210(%rbx)    
+0x7FFB0637CC74   movq     %rax, 0x2b0(%rbx)    
+0x7FFB0637CC7B   leaq     0x3946f(%rip), %rax  ; _gleCullQuad
+0x7FFB0637CC82   movq     %rax, 0x218(%rbx)    
+0x7FFB0637CC89   movq     %rax, 0x2b8(%rbx)    
+0x7FFB0637CC90   leaq     0x10f33f(%rip), %rax  ; _gleVPFlipColors
+0x7FFB0637CC97   movq     %rax, 0x220(%rbx)    
+0x7FFB0637CC9E   movq     %rax, 0x2c0(%rbx)    
+0x7FFB0637CCA5   leaq     0x115c44(%rip), %rax  ; _gleCPThread
+0x7FFB0637CCAC   movq     %rax, 0x228(%rbx)    
+0x7FFB0637CCB3   movq     %rax, 0x2c8(%rbx)    
+0x7FFB0637CCBA   movq     0x39cfa70f(%rip), %rax  ; 
+0x7FFB0637CCC1   movq     %rax, 0x230(%rbx)    
+0x7FFB0637CCC8   movq     %rax, 0x2d0(%rbx)    
+0x7FFB0637CCCF   movq     0x39cf8512(%rip), %rax  ; 
+0x7FFB0637CCD6   movq     %rax, 0x238(%rbx)    
+0x7FFB0637CCDD   movq     %rax, 0x2d8(%rbx)    
+0x7FFB0637CCE4   movq     0x39cf86c5(%rip), %rax  ; 
+0x7FFB0637CCEB   movq     %rax, 0x240(%rbx)    
+0x7FFB0637CCF2   movq     %rax, 0x2e0(%rbx)    
+0x7FFB0637CCF9   movq     0x39cf8518(%rip), %rax  ; 
+0x7FFB0637CD00   movq     %rax, 0x248(%rbx)    
+0x7FFB0637CD07   movq     %rax, 0x2e8(%rbx)    
+0x7FFB0637CD0E   addq     $0x10, %rsp          
+0x7FFB0637CD12   popq     %rbx                 
+0x7FFB0637CD13   popq     %r14                 
+0x7FFB0637CD15   popq     %rbp                 
+0x7FFB0637CD16   retq                          
+0x7FFB0637CD17   addb     %dl, 0x48(%rbp)      
+0x7FFB0637CD1A   movl     %esp, %ebp           
+0x7FFB0637CD1C   pushq    %r15                 
+0x7FFB0637CD1E   pushq    %r14                 
+0x7FFB0637CD20   pushq    %rbx                 
+0x7FFB0637CD21   pushq    %rax                 
+0x7FFB0637CD22   movq     %rdi, %rbx           
+0x7FFB0637CD25   movw     $0x0, 0x4(%rdi)      
+0x7FFB0637CD2B   movq     $0x0, 0x48d0(%rdi)   
+0x7FFB0637CD36   movabsq  $0x600013f800000, %rax 
+0x7FFB0637CD40   movq     %rax, 0x1b10(%rdi)   
+0x7FFB0637CD47   movl     $0x0, 0x1b18(%rdi)   
+0x7FFB0637CD51   xorl     %eax, %eax           
+0x7FFB0637CD53   movaps   0x166466(%rip), %xmm1  ; 
+0x7FFB0637CD5A   movups   %xmm1, 0x1820(%rbx,%rax) 
+0x7FFB0637CD62   movups   %xmm1, 0x1810(%rbx,%rax) 
+0x7FFB0637CD6A   addq     $0x20, %rax          
+0x7FFB0637CD6E   cmpq     $0x100, %rax         
+0x7FFB0637CD74   jne      0x7ffb0637cd5a       
+0x7FFB0637CD76   movl     $0x3f800000, %eax    
+0x7FFB0637CD7B   movl     %eax, 0x1828(%rbx)   
+0x7FFB0637CD81   movsd    0x166347(%rip), %xmm3  ; 
+0x7FFB0637CD89   movsd    %xmm3, 0x1830(%rbx)  
+0x7FFB0637CD91   movl     %eax, 0x1838(%rbx)   
+0x7FFB0637CD97   movl     %eax, 0x1850(%rbx)   
+0x7FFB0637CD9D   movl     $0x0, 0x185c(%rbx)   
+0x7FFB0637CDA7   movl     %eax, 0x1870(%rbx)   
+0x7FFB0637CDAD   leaq     0x1920(%rbx), %rax   
+0x7FFB0637CDB4   xorl     %ecx, %ecx           
+0x7FFB0637CDB6   xorps    %xmm0, %xmm0         
+0x7FFB0637CDB9   movaps   %xmm1, -0x10(%rax,%rcx) 
+0x7FFB0637CDBE   movaps   %xmm0, (%rax,%rcx)   
+0x7FFB0637CDC2   addq     $0x20, %rcx          
+0x7FFB0637CDC6   cmpq     $0x200, %rcx         
+0x7FFB0637CDCD   jne      0x7ffb0637cdb9       
+0x7FFB0637CDCF   movb     $0x0, 0x3b5e(%rbx)   
+0x7FFB0637CDD6   movw     $0x207, 0x3b5c(%rbx) 
+0x7FFB0637CDDF   movl     $0x0, 0x3b58(%rbx)   
+0x7FFB0637CDE9   movabsq  $0x100000001, %rcx   
+0x7FFB0637CDF3   movq     %rcx, 0x3b60(%rbx)   
+0x7FFB0637CDFA   xorps    %xmm0, %xmm0         
+0x7FFB0637CDFD   movaps   %xmm0, 0x3bc0(%rbx)  
+0x7FFB0637CE04   movl     $0x80068006, 0x3b68(%rbx) 
+0x7FFB0637CE0E   movw     $0x0, 0x3bd0(%rbx)   
+0x7FFB0637CE17   xorl     %eax, %eax           
+0x7FFB0637CE19   movq     %rcx, 0x3b6c(%rbx,%rax) 
+0x7FFB0637CE21   movl     $0x80068006, 0x3b74(%rbx,%rax) 
+0x7FFB0637CE2C   addq     $0xc, %rax           
+0x7FFB0637CE30   cmpq     $0x54, %rax          
+0x7FFB0637CE34   jne      0x7ffb0637ce19       
+0x7FFB0637CE36   xorps    %xmm0, %xmm0         
+0x7FFB0637CE39   movups   %xmm0, 0x3bf0(%rbx)  
+0x7FFB0637CE40   movups   %xmm0, 0x3be0(%rbx)  
+0x7FFB0637CE47   movabsq  $0x3ff0000000000000, %rax 
+0x7FFB0637CE51   movq     %rax, 0x3bd8(%rbx)   
+0x7FFB0637CE58   xorl     %r14d, %r14d         
+0x7FFB0637CE5B   movq     %r14, 0x3c00(%rbx)   
+0x7FFB0637CE62   movw     $0x201, 0x3c20(%rbx) 
+0x7FFB0637CE6B   movw     %r14w, 0x3c24(%rbx)  
+0x7FFB0637CE73   movb     %r14b, 0x3c26(%rbx)  
+0x7FFB0637CE7A   xorps    %xmm1, %xmm1         
+0x7FFB0637CE7D   movhps   0x165fac(%rip), %xmm1  ; 
+0x7FFB0637CE84   movups   %xmm1, 0x3c28(%rbx)  
+0x7FFB0637CE8B   movb     $0x1, %al            
+0x7FFB0637CE8D   movb     %al, 0x3c38(%rbx)    
+0x7FFB0637CE93   movups   %xmm0, 0x3c3c(%rbx)  
+0x7FFB0637CE9A   movaps   0x16731f(%rip), %xmm1  ; 
+0x7FFB0637CEA1   movups   %xmm1, 0x3c4c(%rbx)  
+0x7FFB0637CEA8   movaps   0x167321(%rip), %xmm2  ; 
+0x7FFB0637CEAF   movups   %xmm2, 0x3c5c(%rbx)  
+0x7FFB0637CEB6   movabsq  $0x855c84520800, %rdx 
+0x7FFB0637CEC0   movq     %rdx, 0x3c6c(%rbx)   
+0x7FFB0637CEC7   movaps   0x167312(%rip), %xmm2  ; 
+0x7FFB0637CECE   movups   %xmm2, 0x3c74(%rbx)  
+0x7FFB0637CED5   movdqa   0x167313(%rip), %xmm2  ; 
+0x7FFB0637CEDD   movdqu   %xmm2, 0x3c84(%rbx)  
+0x7FFB0637CEE5   movw     $0x1503, 0x3c94(%rbx) 
+0x7FFB0637CEEE   movb     %r14b, 0x3c97(%rbx)  
+0x7FFB0637CEF5   movb     %r14b, 0x3c96(%rbx)  
+0x7FFB0637CEFC   pcmpeqd  %xmm2, %xmm2         
+0x7FFB0637CF00   movdqu   %xmm2, 0x3c98(%rbx)  
+0x7FFB0637CF08   movl     $0xffffffff, 0x3ca8(%rbx) 
+0x7FFB0637CF12   movb     %al, 0x3cac(%rbx)    
+0x7FFB0637CF18   movsd    %xmm3, 0x4ec0(%rbx)  
+0x7FFB0637CF20   movups   %xmm0, 0x4ec8(%rbx)  
+0x7FFB0637CF27   movups   %xmm0, 0x4ed4(%rbx)  
+0x7FFB0637CF2E   movl     $0x4, 0x4ee4(%rbx)   
+0x7FFB0637CF38   movups   %xmm0, 0x4ee8(%rbx)  
+0x7FFB0637CF3F   movups   %xmm0, 0x4ef8(%rbx)  
+0x7FFB0637CF46   movq     $0x4, 0x4f08(%rbx)   
+0x7FFB0637CF51   movq     %r14, 0x4f38(%rbx)   
+0x7FFB0637CF58   movaps   0x166d51(%rip), %xmm3  ; 
+0x7FFB0637CF5F   movaps   %xmm3, 0x4f10(%rbx)  
+0x7FFB0637CF66   movaps   %xmm3, 0x4f20(%rbx)  
+0x7FFB0637CF6D   movsd    0x1662bb(%rip), %xmm3  ; 
+0x7FFB0637CF75   movsd    %xmm3, 0x4f30(%rbx)  
+0x7FFB0637CF7D   movl     %r14d, 0x5190(%rbx)  
+0x7FFB0637CF84   leaq     0x3d0b7b55(%rip), %rdx  ; _gle_default_pix_map_i
+0x7FFB0637CF8B   movq     %rdx, 0x4f40(%rbx)   
+0x7FFB0637CF92   movq     %rdx, 0x4f88(%rbx)   
+0x7FFB0637CF99   leaq     0x3d0b7b44(%rip), %rdx  ; _gle_default_pix_map_f
+0x7FFB0637CFA0   movq     %rdx, 0x4f48(%rbx)   
+0x7FFB0637CFA7   movq     %rdx, 0x4f50(%rbx)   
+0x7FFB0637CFAE   movaps   0x16724b(%rip), %xmm3  ; 
+0x7FFB0637CFB5   movaps   %xmm3, 0x4f90(%rbx)  
+0x7FFB0637CFBC   movq     %rdx, 0x4f58(%rbx)   
+0x7FFB0637CFC3   movq     %rdx, 0x4f60(%rbx)   
+0x7FFB0637CFCA   movq     %rdx, 0x4f68(%rbx)   
+0x7FFB0637CFD1   movq     %rdx, 0x4f70(%rbx)   
+0x7FFB0637CFD8   movaps   %xmm3, 0x4fa0(%rbx)  
+0x7FFB0637CFDF   movq     %rdx, 0x4f78(%rbx)   
+0x7FFB0637CFE6   movq     %rcx, 0x4fb0(%rbx)   
+0x7FFB0637CFED   movq     %rdx, 0x4f80(%rbx)   
+0x7FFB0637CFF4   movaps   0x167215(%rip), %xmm3  ; 
+0x7FFB0637CFFB   movups   %xmm3, 0x4ff8(%rbx)  
+0x7FFB0637D002   movups   %xmm3, 0x5008(%rbx)  
+0x7FFB0637D009   movups   %xmm3, 0x5040(%rbx)  
+0x7FFB0637D010   movups   %xmm3, 0x5050(%rbx)  
+0x7FFB0637D017   movups   %xmm3, 0x5088(%rbx)  
+0x7FFB0637D01E   movups   %xmm3, 0x5098(%rbx)  
+0x7FFB0637D025   movups   %xmm3, 0x5108(%rbx)  
+0x7FFB0637D02C   movups   %xmm3, 0x5118(%rbx)  
+0x7FFB0637D033   movups   %xmm3, 0x50c8(%rbx)  
+0x7FFB0637D03A   movups   %xmm3, 0x50d8(%rbx)  
+0x7FFB0637D041   movups   %xmm3, 0x5128(%rbx)  
+0x7FFB0637D048   movups   %xmm3, 0x5138(%rbx)  
+0x7FFB0637D04F   movups   %xmm3, 0x5148(%rbx)  
+0x7FFB0637D056   movups   %xmm3, 0x5158(%rbx)  
+0x7FFB0637D05D   movups   %xmm3, 0x5168(%rbx)  
+0x7FFB0637D064   movups   %xmm3, 0x5178(%rbx)  
+0x7FFB0637D06B   movl     %r14d, 0x5188(%rbx)  
+0x7FFB0637D072   movw     $0x8016, %cx         
+0x7FFB0637D076   movw     %cx, 0x5018(%rbx)    
+0x7FFB0637D07D   movw     %cx, 0x5060(%rbx)    
+0x7FFB0637D084   movw     %cx, 0x50a8(%rbx)    
+0x7FFB0637D08B   movups   %xmm0, 0x4fe8(%rbx)  
+0x7FFB0637D092   movups   %xmm0, 0x5030(%rbx)  
+0x7FFB0637D099   movups   %xmm0, 0x5078(%rbx)  
+0x7FFB0637D0A0   movw     $0x1908, %cx         
+0x7FFB0637D0A4   movw     %cx, 0x501a(%rbx)    
+0x7FFB0637D0AB   movw     %cx, 0x5062(%rbx)    
+0x7FFB0637D0B2   movw     %cx, 0x50aa(%rbx)    
+0x7FFB0637D0B9   movl     %r14d, 0x5028(%rbx)  
+0x7FFB0637D0C0   movl     %r14d, 0x5070(%rbx)  
+0x7FFB0637D0C7   movl     %r14d, 0x50b8(%rbx)  
+0x7FFB0637D0CE   movl     %r14d, 0x502c(%rbx)  
+0x7FFB0637D0D5   movl     %r14d, 0x5074(%rbx)  
+0x7FFB0637D0DC   movl     %r14d, 0x50bc(%rbx)  
+0x7FFB0637D0E3   movl     %r14d, 0x5100(%rbx)  
+0x7FFB0637D0EA   movw     %cx, 0x5104(%rbx)    
+0x7FFB0637D0F1   movb     %r14b, 0x5106(%rbx)  
+0x7FFB0637D0F8   leaq     0x24a0(%rbx), %rdx   
+0x7FFB0637D0FF   movq     %rdx, 0x50c0(%rbx)   
+0x7FFB0637D106   movq     0x50e8(%rbx), %rdx   
+0x7FFB0637D10D   movaps   0x165d3c(%rip), %xmm3  ; 
+0x7FFB0637D114   movups   %xmm3, (%rdx)        
+0x7FFB0637D117   movups   %xmm0, 0x10(%rdx)    
+0x7FFB0637D11B   movb     %r14b, 0x50f2(%rbx)  
+0x7FFB0637D122   movw     %cx, 0x50f0(%rbx)    
+0x7FFB0637D129   movb     %r14b, 0x3cd0(%rbx)  
+0x7FFB0637D130   movaps   %xmm1, 0x3cb0(%rbx)  
+0x7FFB0637D137   movaps   0x1670e2(%rip), %xmm1  ; 
+0x7FFB0637D13E   movaps   %xmm1, 0x3cc0(%rbx)  
+0x7FFB0637D145   movw     %r14w, 0x3cd1(%rbx)  
+0x7FFB0637D14D   movq     $0x8ca2, 0x3cd4(%rbx) 
+0x7FFB0637D158   movb     %r14b, 0x3cd3(%rbx)  
+0x7FFB0637D15F   movdqu   %xmm2, 0x3cdc(%rbx)  
+0x7FFB0637D167   movdqu   %xmm2, 0x3cec(%rbx)  
+0x7FFB0637D16F   movdqu   %xmm2, 0x3cfc(%rbx)  
+0x7FFB0637D177   movdqu   %xmm2, 0x3d0c(%rbx)  
+0x7FFB0637D17F   movdqu   %xmm2, 0x3d1c(%rbx)  
+0x7FFB0637D187   movdqu   %xmm2, 0x3d2c(%rbx)  
+0x7FFB0637D18F   movdqu   %xmm2, 0x3d3c(%rbx)  
+0x7FFB0637D197   movdqu   %xmm2, 0x3d4c(%rbx)  
+0x7FFB0637D19F   movq     %r14, 0x3d5c(%rbx)   
+0x7FFB0637D1A6   movl     $0x1b021b02, 0x3d64(%rbx) 
+0x7FFB0637D1B0   movb     %al, 0x3d72(%rbx)    
+0x7FFB0637D1B6   movq     $0x4050901, 0x3d68(%rbx) 
+0x7FFB0637D1C1   leaq     0x3d88(%rbx), %rdi   
+0x7FFB0637D1C8   movw     %r14w, 0x3d70(%rbx)  
+0x7FFB0637D1D0   movups   %xmm0, 0x3d74(%rbx)  
+0x7FFB0637D1D7   movb     %r14b, 0x3d84(%rbx)  
+0x7FFB0637D1DE   movl     $0x105, %esi         
+0x7FFB0637D1E3   callq    ___bzero             
+0x7FFB0637D1E8   movl     $0x1d01, 0x3e98(%rbx) 
+0x7FFB0637D1F2   movl     $0x8e4e, 0x4858(%rbx) 
+0x7FFB0637D1FC   movabsq  $0x1e001e001e000207, %rax 
+0x7FFB0637D206   movl     $0xffffffff, %ecx    
+0x7FFB0637D20B   movq     %rax, 0x3ea4(%rbx,%r14) 
+0x7FFB0637D213   movq     %rcx, 0x3e9c(%rbx,%r14) 
+0x7FFB0637D21B   addq     $0x10, %r14          
+0x7FFB0637D21F   cmpq     $0x30, %r14          
+0x7FFB0637D223   jne      0x7ffb0637d20b       
+0x7FFB0637D225   xorl     %r14d, %r14d         
+0x7FFB0637D228   movl     %r14d, 0x3ecc(%rbx)  
+0x7FFB0637D22F   movabsq  $-0xc0800000, %rax   
+0x7FFB0637D239   movq     %rax, 0x4838(%rbx)   
+0x7FFB0637D240   movb     $0x1, 0x4840(%rbx)   
+0x7FFB0637D247   movb     %r14b, 0x4847(%rbx)  
+0x7FFB0637D24E   movl     %r14d, 0x4848(%rbx)  
+0x7FFB0637D255   leaq     0x39c0(%rbx), %rdi   
+0x7FFB0637D25C   movl     %r14d, 0x4841(%rbx)  
+0x7FFB0637D263   movb     %r14b, 0x4845(%rbx)  
+0x7FFB0637D26A   movl     $0x180, %edx         
+0x7FFB0637D26F   movl     $0xff, %esi          
+0x7FFB0637D274   callq    _memset              
+0x7FFB0637D279   xorps    %xmm0, %xmm0         
+0x7FFB0637D27C   movups   %xmm0, 0x3b40(%rbx)  
+0x7FFB0637D283   movb     %r14b, 0x3b50(%rbx)  
+0x7FFB0637D28A   leaq     0x3f18(%rbx), %rax   
+0x7FFB0637D291   movaps   0x166f98(%rip), %xmm1  ; 
+0x7FFB0637D298   movabsq  $0x302030203000300, %rcx 
+0x7FFB0637D2A2   movsd    0x165e26(%rip), %xmm2  ; 
+0x7FFB0637D2AA   movups   %xmm1, -0x1c(%rax,%r14) 
+0x7FFB0637D2B0   movq     %rcx, -0xc(%rax,%r14) 
+0x7FFB0637D2B5   movl     $0x3020302, -0x4(%rax,%r14) 
+0x7FFB0637D2BE   movsd    %xmm2, (%rax,%r14)   
+0x7FFB0637D2C4   movw     $0x2100, -0x20(%rax,%r14) 
+0x7FFB0637D2CC   movl     $0x0, -0x24(%rax,%r14) 
+0x7FFB0637D2D5   movups   %xmm0, -0x44(%rax,%r14) 
+0x7FFB0637D2DB   addq     $0x4c, %r14          
+0x7FFB0637D2DF   cmpq     $0x260, %r14         
+0x7FFB0637D2E6   jne      0x7ffb0637d2aa       
+0x7FFB0637D2E8   leaq     0x4134(%rbx), %rdi   
+0x7FFB0637D2EF   movl     $0x200, %esi         
+0x7FFB0637D2F4   callq    ___bzero             
+0x7FFB0637D2F9   leaq     0x43c7(%rbx), %rax   
+0x7FFB0637D300   xorl     %ecx, %ecx           
+0x7FFB0637D302   movw     $0x2400, %dx         
+0x7FFB0637D306   movss    0x165b2a(%rip), %xmm0  ; 
+0x7FFB0637D30E   movsd    0x165f1a(%rip), %xmm1  ; 
+0x7FFB0637D316   xorps    %xmm2, %xmm2         
+0x7FFB0637D319   movw     %dx, -0x93(%rax,%rcx) 
+0x7FFB0637D321   movups   %xmm0, -0x8f(%rax,%rcx) 
+0x7FFB0637D329   movups   %xmm0, -0x7f(%rax,%rcx) 
+0x7FFB0637D32E   movl     $0x0, -0x3(%rax,%rcx) 
+0x7FFB0637D336   movw     %dx, -0x6f(%rax,%rcx) 
+0x7FFB0637D33B   movups   %xmm1, -0x6b(%rax,%rcx) 
+0x7FFB0637D340   movups   %xmm1, -0x5b(%rax,%rcx) 
+0x7FFB0637D345   movw     %dx, -0x4b(%rax,%rcx) 
+0x7FFB0637D34A   movups   %xmm2, -0x47(%rax,%rcx) 
+0x7FFB0637D34F   movups   %xmm2, -0x37(%rax,%rcx) 
+0x7FFB0637D354   movw     %dx, -0x27(%rax,%rcx) 
+0x7FFB0637D359   movups   %xmm2, -0x23(%rax,%rcx) 
+0x7FFB0637D35E   movups   %xmm2, -0x13(%rax,%rcx) 
+0x7FFB0637D363   addq     $0x94, %rcx          
+0x7FFB0637D36A   cmpq     $0x4a0, %rcx         
+0x7FFB0637D371   jne      0x7ffb0637d319       
+0x7FFB0637D373   xorl     %eax, %eax           
+0x7FFB0637D375   movb     %al, 0x4860(%rbx)    
+0x7FFB0637D37B   movw     $0x0, 0x3074(%rbx)   
+0x7FFB0637D384   movl     $0x3f800000, 0x3070(%rbx) 
+0x7FFB0637D38E   movb     %al, 0x3076(%rbx)    
+0x7FFB0637D394   movq     $0x0, 0x3078(%rbx)   
+0x7FFB0637D39F   leaq     0x3020(%rbx), %rdi   
+0x7FFB0637D3A6   callq    _gleMakeIdentityMatrix 
+0x7FFB0637D3AB   leaq     0x2a20(%rbx), %r14   
+0x7FFB0637D3B2   movl     $0x18, %r15d         
+0x7FFB0637D3B8   leaq     -0x600(%r14), %rdi   
+0x7FFB0637D3BF   callq    _gleMakeIdentityMatrix 
+0x7FFB0637D3C4   movq     %r14, %rdi           
+0x7FFB0637D3C7   callq    _gleMakeIdentityMatrix 
+0x7FFB0637D3CC   addq     $0x40, %r14          
+0x7FFB0637D3D0   decq     %r15                 
+0x7FFB0637D3D3   jne      0x7ffb0637d3b8       
+0x7FFB0637D3D5   movsd    0x165cf3(%rip), %xmm0  ; 
+0x7FFB0637D3DD   movaps   %xmm0, 0x3060(%rbx)  
+0x7FFB0637D3E4   movabsq  $0x1602040800000000, %rax 
+0x7FFB0637D3EE   movq     %rax, 0x39b0(%rbx)   
+0x7FFB0637D3F5   xorl     %eax, %eax           
+0x7FFB0637D3F7   movl     %eax, 0x39ba(%rbx)   
+0x7FFB0637D3FD   movb     $0x0, 0x39be(%rbx)   
+0x7FFB0637D404   xorps    %xmm0, %xmm0         
+0x7FFB0637D407   movups   %xmm0, 0x47d4(%rbx)  
+0x7FFB0637D40E   movups   %xmm0, 0x47e4(%rbx)  
+0x7FFB0637D415   movups   %xmm0, 0x47f4(%rbx)  
+0x7FFB0637D41C   movups   %xmm0, 0x4804(%rbx)  
+0x7FFB0637D423   movups   %xmm0, 0x4814(%rbx)  
+0x7FFB0637D42A   movups   %xmm0, 0x4824(%rbx)  
+0x7FFB0637D431   movl     %eax, 0x4834(%rbx)   
+0x7FFB0637D437   movw     $0x81f9, 0x39b8(%rbx) 
+0x7FFB0637D440   movaps   0x166df9(%rip), %xmm0  ; 
+0x7FFB0637D447   movaps   %xmm0, 0x3080(%rbx)  
+0x7FFB0637D44E   movss    0x1659e2(%rip), %xmm1  ; 
+0x7FFB0637D456   movaps   0x166df3(%rip), %xmm2  ; 
+0x7FFB0637D45D   movsd    0x1667ab(%rip), %xmm3  ; 
+0x7FFB0637D465   movsd    0x166df3(%rip), %xmm4  ; 
+0x7FFB0637D46D   movaps   0x165d4c(%rip), %xmm6  ; 
+0x7FFB0637D474   movaps   0x166da5(%rip), %xmm7  ; 
+0x7FFB0637D47B   movaps   %xmm6, 0x3090(%rbx,%rax) 
+0x7FFB0637D483   movaps   %xmm1, %xmm5         
+0x7FFB0637D486   testq    %rax, %rax           
+0x7FFB0637D489   je       0x7ffb0637d48e       
+0x7FFB0637D48B   xorps    %xmm5, %xmm5         
+0x7FFB0637D48E   movss    %xmm5, 0x30a0(%rbx,%rax) 
+0x7FFB0637D497   movss    %xmm5, 0x30a4(%rbx,%rax) 
+0x7FFB0637D4A0   movss    %xmm5, 0x30a8(%rbx,%rax) 
+0x7FFB0637D4A9   movl     $0x3f800000, 0x30ac(%rbx,%rax) 
+0x7FFB0637D4B4   movss    %xmm5, 0x30b0(%rbx,%rax) 
+0x7FFB0637D4BD   movss    %xmm5, 0x30b4(%rbx,%rax) 
+0x7FFB0637D4C6   movss    %xmm5, 0x30b8(%rbx,%rax) 
+0x7FFB0637D4CF   movups   %xmm7, 0x30bc(%rbx,%rax) 
+0x7FFB0637D4D7   movups   %xmm2, 0x30cc(%rbx,%rax) 
+0x7FFB0637D4DF   movups   %xmm3, 0x30dc(%rbx,%rax) 
+0x7FFB0637D4E7   movups   %xmm6, 0x30ec(%rbx,%rax) 
+0x7FFB0637D4EF   movups   %xmm2, 0x30fc(%rbx,%rax) 
+0x7FFB0637D4F7   movups   %xmm6, 0x310c(%rbx,%rax) 
+0x7FFB0637D4FF   movsd    %xmm4, 0x311c(%rbx,%rax) 
+0x7FFB0637D508   addq     $0xa0, %rax          
+0x7FFB0637D50E   cmpq     $0x500, %rax         
+0x7FFB0637D514   jne      0x7ffb0637d47b       
+0x7FFB0637D51A   leaq     0x1b20(%rbx), %rax   
+0x7FFB0637D521   xorl     %ecx, %ecx           
+0x7FFB0637D523   movaps   0x166d46(%rip), %xmm1  ; 
+0x7FFB0637D52A   movaps   0x166d4f(%rip), %xmm2  ; 
+0x7FFB0637D531   xorps    %xmm3, %xmm3         
+0x7FFB0637D534   xorps    %xmm4, %xmm4         
+0x7FFB0637D537   movhps   0x1658f2(%rip), %xmm4  ; 
+0x7FFB0637D53E   movaps   0x16669b(%rip), %xmm5  ; 
+0x7FFB0637D545   movups   %xmm1, (%rax,%rcx)   
+0x7FFB0637D549   movups   %xmm2, 0x10(%rax,%rcx) 
+0x7FFB0637D54E   movups   %xmm1, 0x20(%rax,%rcx) 
+0x7FFB0637D553   movups   %xmm2, 0x30(%rax,%rcx) 
+0x7FFB0637D558   movups   %xmm3, 0x50(%rax,%rcx) 
+0x7FFB0637D55D   movups   %xmm3, 0x60(%rax,%rcx) 
+0x7FFB0637D562   movups   %xmm4, 0x40(%rax,%rcx) 
+0x7FFB0637D567   movups   %xmm5, 0x70(%rax,%rcx) 
+0x7FFB0637D56C   addq     $0x90, %rcx          
+0x7FFB0637D573   cmpq     $0x900, %rcx         
+0x7FFB0637D57A   jne      0x7ffb0637d545       
+0x7FFB0637D57C   movups   %xmm0, 0x3590(%rbx)  
+0x7FFB0637D583   movaps   0x166d06(%rip), %xmm1  ; 
+0x7FFB0637D58A   movups   %xmm1, 0x35a0(%rbx)  
+0x7FFB0637D591   movups   %xmm6, 0x35b0(%rbx)  
+0x7FFB0637D598   movups   %xmm6, 0x35c0(%rbx)  
+0x7FFB0637D59F   movups   %xmm6, 0x35d0(%rbx)  
+0x7FFB0637D5A6   movups   %xmm0, 0x37a0(%rbx)  
+0x7FFB0637D5AD   movups   %xmm1, 0x37b0(%rbx)  
+0x7FFB0637D5B4   movups   %xmm6, 0x37c0(%rbx)  
+0x7FFB0637D5BB   movups   %xmm6, 0x37d0(%rbx)  
+0x7FFB0637D5C2   movups   %xmm6, 0x37e0(%rbx)  
+0x7FFB0637D5C9   xorl     %r15d, %r15d         
+0x7FFB0637D5CC   movb     %r15b, 0x484c(%rbx)  
+0x7FFB0637D5D3   movl     $0x1010000, %eax     
+0x7FFB0637D5D8   movl     %eax, 0x4854(%rbx)   
+0x7FFB0637D5DE   leaq     0x10(%rbx), %rcx     
+0x7FFB0637D5E2   movq     %rcx, 0x48e0(%rbx)   
+0x7FFB0637D5E9   leaq     0x1010(%rbx), %rcx   
+0x7FFB0637D5F0   movq     %rcx, 0x4920(%rbx)   
+0x7FFB0637D5F7   movq     $0x0, 0x4910(%rbx)   
+0x7FFB0637D602   movw     $0x1, 0x4850(%rbx)   
+0x7FFB0637D60B   movb     %r15b, 0x4852(%rbx)  
+0x7FFB0637D612   movb     %r15b, 0x4978(%rbx)  
+0x7FFB0637D619   xorps    %xmm0, %xmm0         
+0x7FFB0637D61C   movups   %xmm0, 0x49b0(%rbx)  
+0x7FFB0637D623   movups   %xmm0, 0x49a0(%rbx)  
+0x7FFB0637D62A   movups   %xmm0, 0x4990(%rbx)  
+0x7FFB0637D631   movups   %xmm0, 0x4980(%rbx)  
+0x7FFB0637D638   movw     $0xffff, 0x497a(%rbx) 
+0x7FFB0637D641   movl     %eax, 0x3c08(%rbx)   
+0x7FFB0637D647   movups   %xmm0, 0x3c0c(%rbx)  
+0x7FFB0637D64E   movb     %r15b, 0x3c1c(%rbx)  
+0x7FFB0637D655   movw     %r15w, 0x485c(%rbx)  
+0x7FFB0637D65D   movb     $0x3, 0x486c(%rbx)   
+0x7FFB0637D664   leaq     0x4870(%rbx), %rdi   
+0x7FFB0637D66B   leaq     0x1657de(%rip), %r14  ; 
+0x7FFB0637D672   movl     $0x10, %edx          
+0x7FFB0637D677   movq     %r14, %rsi           
+0x7FFB0637D67A   callq    _memset_pattern16    
+0x7FFB0637D67F   leaq     0x4880(%rbx), %rdi   
+0x7FFB0637D686   movl     $0x8, %edx           
+0x7FFB0637D68B   movq     %r14, %rsi           
+0x7FFB0637D68E   callq    _memset_pattern16    
+0x7FFB0637D693   movl     %r15d, 0x8(%rbx)     
+0x7FFB0637D697   movw     %r15w, 0xc(%rbx)     
+0x7FFB0637D69C   movb     %r15b, 0x4864(%rbx)  
+0x7FFB0637D6A3   movl     %r15d, 0x4868(%rbx)  
+0x7FFB0637D6AA   xorps    %xmm0, %xmm0         
+0x7FFB0637D6AD   movups   %xmm0, 0x4928(%rbx)  
+0x7FFB0637D6B4   movups   %xmm0, 0x4938(%rbx)  
+0x7FFB0637D6BB   movups   %xmm0, 0x4948(%rbx)  
+0x7FFB0637D6C2   movups   %xmm0, 0x4958(%rbx)  
+0x7FFB0637D6C9   movups   %xmm0, 0x4968(%rbx)  
+0x7FFB0637D6D0   addq     $0x8, %rsp           
+0x7FFB0637D6D4   popq     %rbx                 
+0x7FFB0637D6D5   popq     %r14                 
+0x7FFB0637D6D7   popq     %r15                 
+0x7FFB0637D6D9   popq     %rbp                 
+0x7FFB0637D6DA   retq                          
+_gleInitDerivedState:
+0x7FFB0637DA69   pushq    %rbp                 
+0x7FFB0637DA6A   movq     %rsp, %rbp           
+0x7FFB0637DA6D   pushq    %r14                 
+0x7FFB0637DA6F   pushq    %rbx                 
+0x7FFB0637DA70   movq     %rdi, %rbx           
+0x7FFB0637DA73   movq     0xb318(%rdi), %rax   
+0x7FFB0637DA7A   movb     0x65(%rax), %al      
+0x7FFB0637DA7D   movb     %al, 0xc691(%rdi)    
+0x7FFB0637DA83   movb     $0x1, %cl            
+0x7FFB0637DA85   cmpb     %cl, %al             
+0x7FFB0637DA87   movl     $0x4, %eax           
+0x7FFB0637DA8C   sbbl     $-0x1, %eax          
+0x7FFB0637DA8F   movl     %eax, 0xb614(%rdi)   
+0x7FFB0637DA95   leaq     0x5fb8(%rdi), %rax   
+0x7FFB0637DA9C   xorps    %xmm0, %xmm0         
+0x7FFB0637DA9F   movups   %xmm0, 0xab88(%rdi)  
+0x7FFB0637DAA6   movaps   %xmm0, 0xaba0(%rdi)  
+0x7FFB0637DAAD   movq     %rax, 0x6038(%rdi)   
+0x7FFB0637DAB4   leaq     0x6040(%rdi), %rax   
+0x7FFB0637DABB   movq     %rax, 0x60c0(%rdi)   
+0x7FFB0637DAC2   xorl     %eax, %eax           
+0x7FFB0637DAC4   movb     %al, 0xb138(%rdi)    
+0x7FFB0637DACA   movb     %cl, 0xc69c(%rdi)    
+0x7FFB0637DAD0   movq     0xa278(%rdi), %rdx   
+0x7FFB0637DAD7   movaps   0x1656e2(%rip), %xmm1  ; 
+0x7FFB0637DADE   movups   %xmm1, -0x4a0(%rdx)  
+0x7FFB0637DAE5   movups   %xmm1, -0x4b0(%rdx)  
+0x7FFB0637DAEC   movq     %rax, -0x4c0(%rdx)   
+0x7FFB0637DAF3   movl     %eax, -0x4b8(%rdx)   
+0x7FFB0637DAF9   movq     %rax, -0x490(%rdx)   
+0x7FFB0637DB00   movl     $0x3f800000, %esi    
+0x7FFB0637DB05   movl     %esi, -0x488(%rdx)   
+0x7FFB0637DB0B   movl     %esi, -0x44c(%rdx)   
+0x7FFB0637DB11   movl     $0x60100, -0x500(%rdx) 
+0x7FFB0637DB1B   movl     %eax, 0x9248(%rdi)   
+0x7FFB0637DB21   movups   %xmm0, 0x9228(%rdi)  
+0x7FFB0637DB28   movb     %cl, 0x924c(%rdi)    
+0x7FFB0637DB2E   movl     %esi, 0xb14c(%rdi)   
+0x7FFB0637DB34   movl     %esi, 0xb15c(%rdi)   
+0x7FFB0637DB3A   movl     %esi, 0xb16c(%rdi)   
+0x7FFB0637DB40   movb     %al, 0x5da8(%rdi)    
+0x7FFB0637DB46   movl     %eax, 0x5a8(%rdi)    
+0x7FFB0637DB4C   movaps   %xmm0, 0x5d90(%rdi)  
+0x7FFB0637DB53   movq     0x590(%rdi), %rcx    
+0x7FFB0637DB5A   movw     $0x3f, %dx           
+0x7FFB0637DB5E   movw     %dx, 0x1f0(%rcx)     
+0x7FFB0637DB65   movq     0x598(%rdi), %rcx    
+0x7FFB0637DB6C   movw     %dx, 0x1f0(%rcx)     
+0x7FFB0637DB73   movl     $0xbf800000, 0x310(%rbx,%rax) 
+0x7FFB0637DB7E   movl     $0x3f800000, 0x324(%rbx,%rax) 
+0x7FFB0637DB89   movl     $0x1010000, 0x329(%rbx,%rax) 
+0x7FFB0637DB94   addq     $0x50, %rax          
+0x7FFB0637DB98   cmpq     $0x280, %rax         
+0x7FFB0637DB9E   jne      0x7ffb0637db73       
+0x7FFB0637DBA0   movl     $0x12, 0x5fb0(%rbx)  
+0x7FFB0637DBAA   movb     $0x0, 0x5fb6(%rbx)   
+0x7FFB0637DBB1   leaq     0x2e00(%rbx), %rax   
+0x7FFB0637DBB8   movq     %rax, 0x5db0(%rbx)   
+0x7FFB0637DBBF   leaq     0x3400(%rbx), %rax   
+0x7FFB0637DBC6   movq     %rax, 0x5db8(%rbx)   
+0x7FFB0637DBCD   movb     $0x1, 0xb13c(%rbx)   
+0x7FFB0637DBD4   movb     $0x2, 0xb13e(%rbx)   
+0x7FFB0637DBDB   xorl     %eax, %eax           
+0x7FFB0637DBDD   movq     %rax, 0xaeb8(%rbx)   
+0x7FFB0637DBE4   movl     %eax, 0xaec8(%rbx)   
+0x7FFB0637DBEA   movl     %eax, 0xaecb(%rbx)   
+0x7FFB0637DBF0   movq     $-0x1, 0xaec0(%rbx)  
+0x7FFB0637DBFB   movq     %rax, 0x5d78(%rbx)   
+0x7FFB0637DC02   movw     $0x0, 0x5d88(%rbx)   
+0x7FFB0637DC0B   movl     %eax, 0x5d84(%rbx)   
+0x7FFB0637DC11   xorps    %xmm0, %xmm0         
+0x7FFB0637DC14   movaps   %xmm0, 0x5b60(%rbx)  
+0x7FFB0637DC1B   movups   %xmm0, 0x8d98(%rbx)  
+0x7FFB0637DC22   movq     %rax, 0xaed4(%rbx)   
+0x7FFB0637DC29   leaq     0x16af0(%rip), %rcx  ; _gleSetVertexSubmitFunc
+0x7FFB0637DC30   movq     %rcx, 0xa3d0(%rbx)   
+0x7FFB0637DC37   movq     %rcx, 0xa3d8(%rbx)   
+0x7FFB0637DC3E   leaq     0x111a8b(%rip), %rcx  ; _gleSetVertexConvertFunc
+0x7FFB0637DC45   movq     %rcx, 0xa3e0(%rbx)   
+0x7FFB0637DC4C   movq     %rcx, 0xa3e8(%rbx)   
+0x7FFB0637DC53   leaq     0x111b26(%rip), %rcx  ; _gleSetVertexArrayFunc
+0x7FFB0637DC5A   movq     %rcx, 0xa3f0(%rbx)   
+0x7FFB0637DC61   movq     %rcx, 0xa3f8(%rbx)   
+0x7FFB0637DC68   leaq     0x111bc1(%rip), %rcx  ; _gleSetVertexElemFunc
+0x7FFB0637DC6F   movq     %rcx, 0xa400(%rbx)   
+0x7FFB0637DC76   movq     %rcx, 0xa408(%rbx)   
+0x7FFB0637DC7D   leaq     0x111d8c(%rip), %rcx  ; _gleSetVertexArrayToListFunc
+0x7FFB0637DC84   movq     %rcx, 0xa410(%rbx)   
+0x7FFB0637DC8B   movq     %rcx, 0xa418(%rbx)   
+0x7FFB0637DC92   leaq     0x111e27(%rip), %rcx  ; _gleSetVertexElemToListFunc
+0x7FFB0637DC99   movq     %rcx, 0xa420(%rbx)   
+0x7FFB0637DCA0   movq     %rcx, 0xa428(%rbx)   
+0x7FFB0637DCA7   leaq     0x111c22(%rip), %rcx  ; _gleSetVertexArrayFromListFunc
+0x7FFB0637DCAE   movq     %rcx, 0xa430(%rbx)   
+0x7FFB0637DCB5   movq     %rcx, 0xa438(%rbx)   
+0x7FFB0637DCBC   leaq     0x111cad(%rip), %rcx  ; _gleSetVertexElemFromListFunc
+0x7FFB0637DCC3   movq     %rcx, 0xa440(%rbx)   
+0x7FFB0637DCCA   movq     %rcx, 0xa448(%rbx)   
+0x7FFB0637DCD1   leaq     0x111e98(%rip), %rcx  ; _gleSetVertexEval1Func
+0x7FFB0637DCD8   movq     %rcx, 0xa450(%rbx)   
+0x7FFB0637DCDF   movq     %rcx, 0xa458(%rbx)   
+0x7FFB0637DCE6   leaq     0x111f23(%rip), %rcx  ; _gleSetVertexEval2Func
+0x7FFB0637DCED   movq     %rcx, 0xa460(%rbx)   
+0x7FFB0637DCF4   movq     %rcx, 0xa468(%rbx)   
+0x7FFB0637DCFB   movq     0x1c0(%rbx), %rcx    
+0x7FFB0637DD02   movq     %rcx, 0xa3c8(%rbx)   
+0x7FFB0637DD09   movq     %rcx, 0xa3c0(%rbx)   
+0x7FFB0637DD10   movw     $0x280, 0xa3b4(%rbx) 
+0x7FFB0637DD19   movq     %rax, 0xa2a8(%rbx)   
+0x7FFB0637DD20   movups   %xmm0, 0xa550(%rbx)  
+0x7FFB0637DD27   movups   %xmm0, 0xa540(%rbx)  
+0x7FFB0637DD2E   movups   %xmm0, 0xa530(%rbx)  
+0x7FFB0637DD35   movups   %xmm0, 0xa520(%rbx)  
+0x7FFB0637DD3C   movups   %xmm0, 0xa510(%rbx)  
+0x7FFB0637DD43   leaq     0x116e46(%rip), %rcx  ; _gleSetEyeInterpFunc
+0x7FFB0637DD4A   movq     %rcx, 0xabb8(%rbx)   
+0x7FFB0637DD51   movq     %rcx, 0xabc0(%rbx)   
+0x7FFB0637DD58   leaq     0x16d21(%rip), %rcx  ; _gleSetClipInterpFunc
+0x7FFB0637DD5F   movq     %rcx, 0xabc8(%rbx)   
+0x7FFB0637DD66   movq     %rcx, 0xabd0(%rbx)   
+0x7FFB0637DD6D   leaq     0x116e6c(%rip), %rcx  ; _gleSetFlatCopyFunc
+0x7FFB0637DD74   movq     %rcx, 0xabd8(%rbx)   
+0x7FFB0637DD7B   movq     %rcx, 0xabe0(%rbx)   
+0x7FFB0637DD82   leaq     0xaefc(%rbx), %rcx   
+0x7FFB0637DD89   movaps   0x166480(%rip), %xmm1  ; 
+0x7FFB0637DD90   movups   %xmm1, -0x14(%rcx,%rax) 
+0x7FFB0637DD95   movl     $0x3f800000, -0x4(%rcx,%rax) 
+0x7FFB0637DD9D   movups   %xmm0, (%rcx,%rax)   
+0x7FFB0637DDA1   addq     $0x24, %rax          
+0x7FFB0637DDA5   cmpq     $0x240, %rax         
+0x7FFB0637DDAB   jne      0x7ffb0637dd90       
+0x7FFB0637DDAD   movb     $0x0, 0xc69d(%rbx)   
+0x7FFB0637DDB4   movzwl   0xc69e(%rbx), %eax   
+0x7FFB0637DDBB   andl     $0x6f00, %eax        
+0x7FFB0637DDC0   orl      $0x8000, %eax        
+0x7FFB0637DDC5   movw     %ax, 0xc69e(%rbx)    
+0x7FFB0637DDCC   movb     0xc6a0(%rbx), %al    
+0x7FFB0637DDD2   andb     $-0xc, %al           
+0x7FFB0637DDD4   incb     %al                  
+0x7FFB0637DDD6   movb     %al, 0xc6a0(%rbx)    
+0x7FFB0637DDDC   leaq     0x168724(%rip), %rdi  ; string literal: "GL_LLVM_IR_DISABLE_NORETURN_ON_DISCARD"
+0x7FFB0637DDE3   callq    _getenv              
+0x7FFB0637DDE8   movq     %rax, %r14           
+0x7FFB0637DDEB   leaq     0x16873c(%rip), %rdi  ; string literal: "com.apple.opengl"
+0x7FFB0637DDF2   callq    _os_variant_has_internal_diagnostics 
+0x7FFB0637DDF7   testb    %al, %al             
+0x7FFB0637DDF9   je       0x7ffb0637de0c       
+0x7FFB0637DDFB   testq    %r14, %r14           
+0x7FFB0637DDFE   je       0x7ffb0637de22       
+0x7FFB0637DE00   cmpb     $0x31, (%r14)        
+0x7FFB0637DE04   sete     %al                  
+0x7FFB0637DE07   shlb     $0x2, %al            
+0x7FFB0637DE0A   jmp      0x7ffb0637de24       
+0x7FFB0637DE0C   leaq     0x16872c(%rip), %rdi  ; string literal: "com.apple.opengles"
+0x7FFB0637DE13   callq    _os_variant_has_internal_diagnostics 
+0x7FFB0637DE18   testq    %r14, %r14           
+0x7FFB0637DE1B   setne    %cl                  
+0x7FFB0637DE1E   testb    %al, %cl             
+0x7FFB0637DE20   jne      0x7ffb0637de00       
+0x7FFB0637DE22   xorl     %eax, %eax           
+0x7FFB0637DE24   movb     0xc6a0(%rbx), %cl    
+0x7FFB0637DE2A   andb     $-0x5, %cl           
+0x7FFB0637DE2D   orb      %al, %cl             
+0x7FFB0637DE2F   movb     %cl, 0xc6a0(%rbx)    
+0x7FFB0637DE35   andb     $-0x28, 0xc69f(%rbx) 
+0x7FFB0637DE3C   movq     0xb318(%rbx), %rax   
+0x7FFB0637DE43   movq     0xb4d8(%rbx), %rsi   
+0x7FFB0637DE4A   movss    0x48(%rax), %xmm0    
+0x7FFB0637DE4F   maxss    0x40(%rax), %xmm0    
+0x7FFB0637DE54   movss    %xmm0, 0x4598(%rbx)  
+0x7FFB0637DE5C   xorl     %edi, %edi           
+0x7FFB0637DE5E   movb     %dil, 0xc6a9(%rbx)   
+0x7FFB0637DE65   movb     0x2b(%rax), %cl      
+0x7FFB0637DE68   movb     %cl, 0xc698(%rbx)    
+0x7FFB0637DE6E   movb     %cl, 0xc699(%rbx)    
+0x7FFB0637DE74   testb    %cl, %cl             
+0x7FFB0637DE76   sete     0x44ea(%rbx)         
+0x7FFB0637DE7D   sete     0x44eb(%rbx)         
+0x7FFB0637DE84   movb     %dil, 0xc6a7(%rbx)   
+0x7FFB0637DE8B   movl     $0x7ff, 0xb61c(%rbx) 
+0x7FFB0637DE95   leaq     0xb620(%rbx), %rcx   
+0x7FFB0637DE9C   xorl     %edx, %edx           
+0x7FFB0637DE9E   cmpb     %dil, 0x38(%rsi)     
+0x7FFB0637DEA2   setne    %dl                  
+0x7FFB0637DEA5   shll     $0x8, %edx           
+0x7FFB0637DEA8   incl     %edx                 
+0x7FFB0637DEAA   movl     %edx, 0xb620(%rbx)   
+0x7FFB0637DEB0   cmpb     %dil, 0x39(%rsi)     
+0x7FFB0637DEB4   je       0x7ffb0637debe       
+0x7FFB0637DEB6   orl      $0x600, %edx         
+0x7FFB0637DEBC   movl     %edx, (%rcx)         
+0x7FFB0637DEBE   movl     $0x0, 0xb624(%rbx)   
+0x7FFB0637DEC8   movq     0xb2b8(%rbx), %rdx   
+0x7FFB0637DECF   leaq     0x220(%rdx), %rsi    
+0x7FFB0637DED6   testq    %rdx, %rdx           
+0x7FFB0637DED9   cmoveq   %rcx, %rsi           
+0x7FFB0637DEDD   movzwl   (%rsi), %ecx         
+0x7FFB0637DEE0   andl     $0x7ff, %ecx         
+0x7FFB0637DEE6   movw     %cx, 0x458e(%rbx)    
+0x7FFB0637DEED   xorl     %ecx, %ecx           
+0x7FFB0637DEEF   cmpb     $0x0, 0x65(%rax)     
+0x7FFB0637DEF3   sete     %cl                  
+0x7FFB0637DEF6   movw     %cx, 0x8e4(%rbx)     
+0x7FFB0637DEFD   movw     %cx, 0xb63a(%rbx)    
+0x7FFB0637DF04   popq     %rbx                 
+0x7FFB0637DF05   popq     %r14                 
+0x7FFB0637DF07   popq     %rbp                 
+0x7FFB0637DF08   retq                          
+_gleUpdateDispatchJIT:
+0x7FFB064473D9   pushq    %rbp                 
+0x7FFB064473DA   movq     %rsp, %rbp           
+0x7FFB064473DD   xorps    %xmm0, %xmm0         
+0x7FFB064473E0   movups   %xmm0, 0xb498(%rdi)  
+0x7FFB064473E7   movups   %xmm0, 0xb488(%rdi)  
+0x7FFB064473EE   movups   %xmm0, 0xb478(%rdi)  
+0x7FFB064473F5   movups   %xmm0, 0xb468(%rdi)  
+0x7FFB064473FC   movups   %xmm0, 0xb458(%rdi)  
+0x7FFB06447403   movups   %xmm0, 0xb448(%rdi)  
+0x7FFB0644740A   movups   %xmm0, 0xb438(%rdi)  
+0x7FFB06447411   movups   %xmm0, 0xb428(%rdi)  
+0x7FFB06447418   movups   %xmm0, 0xb418(%rdi)  
+0x7FFB0644741F   movq     $0x0, 0xb4a8(%rdi)   
+0x7FFB0644742A   movaps   0xb320(%rdi), %xmm0  
+0x7FFB06447431   movaps   0xb330(%rdi), %xmm1  
+0x7FFB06447438   movaps   0xb340(%rdi), %xmm2  
+0x7FFB0644743F   movaps   0xb350(%rdi), %xmm3  
+0x7FFB06447446   movups   %xmm0, 0xb3e8(%rdi)  
+0x7FFB0644744D   movups   %xmm1, 0xb3f8(%rdi)  
+0x7FFB06447454   movups   %xmm2, 0xb408(%rdi)  
+0x7FFB0644745B   movups   %xmm3, 0xb418(%rdi)  
+0x7FFB06447462   movaps   0xb360(%rdi), %xmm0  
+0x7FFB06447469   movaps   0xb370(%rdi), %xmm1  
+0x7FFB06447470   movaps   0xb380(%rdi), %xmm2  
+0x7FFB06447477   movaps   0xb390(%rdi), %xmm3  
+0x7FFB0644747E   movups   %xmm0, 0xb428(%rdi)  
+0x7FFB06447485   movups   %xmm1, 0xb438(%rdi)  
+0x7FFB0644748C   movups   %xmm2, 0xb448(%rdi)  
+0x7FFB06447493   movups   %xmm3, 0xb458(%rdi)  
+0x7FFB0644749A   movaps   0xb3a0(%rdi), %xmm0  
+0x7FFB064474A1   movups   %xmm0, 0xb468(%rdi)  
+0x7FFB064474A8   movaps   0xb3b0(%rdi), %xmm0  
+0x7FFB064474AF   movups   %xmm0, 0xb478(%rdi)  
+0x7FFB064474B6   movaps   0xb3c0(%rdi), %xmm0  
+0x7FFB064474BD   movups   %xmm0, 0xb488(%rdi)  
+0x7FFB064474C4   movaps   0xb3d0(%rdi), %xmm0  
+0x7FFB064474CB   movups   %xmm0, 0xb498(%rdi)  
+0x7FFB064474D2   movq     0xb3e0(%rdi), %rax   
+0x7FFB064474D9   movq     %rax, 0xb4a8(%rdi)   
+0x7FFB064474E0   popq     %rbp                 
+0x7FFB064474E1   retq                          
+_glePopulateRenderDispatch:
+0x7FFB064474E2   pushq    %rbp                 
+0x7FFB064474E3   movq     %rsp, %rbp           
+0x7FFB064474E6   pushq    %rbx                 
+0x7FFB064474E7   pushq    %rax                 
+0x7FFB064474E8   movq     %rdi, %rbx           
+0x7FFB064474EB   movq     0xb308(%rdi), %rdi   
+0x7FFB064474F2   movq     0xb4b8(%rbx), %rax   
+0x7FFB064474F9   leaq     0xb320(%rbx), %rsi   
+0x7FFB06447500   callq    *0x88(%rax)          
+0x7FFB06447506   movq     %rbx, %rdi           
+0x7FFB06447509   addq     $0x8, %rsp           
+0x7FFB0644750D   popq     %rbx                 
+0x7FFB0644750E   popq     %rbp                 
+0x7FFB0644750F   jmp      _gleUpdateDispatchJIT 
+_gliUpdateDispatchState:
+0x7FFB064DA80C   pushq    %rbp                 
+0x7FFB064DA80D   movq     %rsp, %rbp           
+0x7FFB064DA810   pushq    %rbx                 
+0x7FFB064DA811   pushq    %rax                 
+0x7FFB064DA812   movq     %rdi, %rbx           
+0x7FFB064DA815   cmpb     $0x0, 0xc68d(%rdi)   
+0x7FFB064DA81C   movq     0xb300(%rdi), %rax   
+0x7FFB064DA823   je       0x7ffb064da849       
+0x7FFB064DA825   testq    %rax, %rax           
+0x7FFB064DA828   jne      0x7ffb064da870       
+0x7FFB064DA82A   movq     0xb2b8(%rbx), %rax   
+0x7FFB064DA831   cmpq     $0x0, 0xb2c0(%rbx)   
+0x7FFB064DA839   jne      0x7ffb064da842       
+0x7FFB064DA83B   orb      $0x8, 0xb61b(%rbx)   
+0x7FFB064DA842   testq    %rax, %rax           
+0x7FFB064DA845   jne      0x7ffb064da870       
+0x7FFB064DA847   jmp      0x7ffb064da85f       
+0x7FFB064DA849   testq    %rax, %rax           
+0x7FFB064DA84C   jne      0x7ffb064da85f       
+0x7FFB064DA84E   cmpq     $0x0, 0xb2c0(%rbx)   
+0x7FFB064DA856   jne      0x7ffb064da85f       
+0x7FFB064DA858   orb      $0x8, 0xb61b(%rbx)   
+0x7FFB064DA85F   movl     $0x0, 0xaebc(%rbx)   
+0x7FFB064DA869   orb      $0x20, 0xb61b(%rbx)  
+0x7FFB064DA870   cmpb     $0x0, 0xc68e(%rbx)   
+0x7FFB064DA877   je       0x7ffb064da8c0       
+0x7FFB064DA879   movb     $0x0, 0xc68e(%rbx)   
+0x7FFB064DA880   movl     $0x0, 0xaebc(%rbx)   
+0x7FFB064DA88A   movaps   0x5f0(%rbx), %xmm0   
+0x7FFB064DA891   orps     0x91f8(%rip), %xmm0  ; 
+0x7FFB064DA898   movaps   0x600(%rbx), %xmm1   
+0x7FFB064DA89F   movaps   %xmm0, 0x5f0(%rbx)   
+0x7FFB064DA8A6   orps     0x91f3(%rip), %xmm1  ; 
+0x7FFB064DA8AD   movaps   %xmm1, 0x600(%rbx)   
+0x7FFB064DA8B4   orl      $0xde3c0478, 0xb618(%rbx) 
+0x7FFB064DA8BE   jmp      0x7ffb064da8c9       
+0x7FFB064DA8C0   testb    %sil, %sil           
+0x7FFB064DA8C3   je       0x7ffb064da95f       
+0x7FFB064DA8C9   movq     %rbx, %rdi           
+0x7FFB064DA8CC   callq    _gleSetBaseTCLState  
+0x7FFB064DA8D1   movq     %rbx, %rdi           
+0x7FFB064DA8D4   callq    _glePopulateRenderDispatch 
+0x7FFB064DA8D9   movq     %rbx, %rdi           
+0x7FFB064DA8DC   callq    _gleUpdateViewScissorData 
+0x7FFB064DA8E1   movl     $0x0, 0xaebc(%rbx)   
+0x7FFB064DA8EB   orb      $0x4, 0x60e(%rbx)    
+0x7FFB064DA8F2   cmpq     $0x0, 0xa550(%rbx)   
+0x7FFB064DA8FA   sete     %al                  
+0x7FFB064DA8FD   movq     0xb318(%rbx), %rcx   
+0x7FFB064DA904   movq     0x208(%rcx), %rdx    
+0x7FFB064DA90B   movq     %rdx, 0xa550(%rbx)   
+0x7FFB064DA912   movq     0x210(%rcx), %rcx    
+0x7FFB064DA919   movq     %rcx, 0xa558(%rbx)   
+0x7FFB064DA920   testq    %rdx, %rdx           
+0x7FFB064DA923   setne    %sil                 
+0x7FFB064DA927   je       0x7ffb064da933       
+0x7FFB064DA929   cmpb     $0x0, 0x2(%rdx)      
+0x7FFB064DA92D   jne      0x7ffb064da933       
+0x7FFB064DA92F   movb     $0x1, 0x2(%rdx)      
+0x7FFB064DA933   xorb     %sil, %al            
+0x7FFB064DA936   testq    %rcx, %rcx           
+0x7FFB064DA939   je       0x7ffb064da945       
+0x7FFB064DA93B   cmpb     $0x0, 0x2(%rcx)      
+0x7FFB064DA93F   jne      0x7ffb064da945       
+0x7FFB064DA941   movb     $0x1, 0x2(%rcx)      
+0x7FFB064DA945   testb    %al, %al             
+0x7FFB064DA947   jne      0x7ffb064da951       
+0x7FFB064DA949   movq     %rbx, %rdi           
+0x7FFB064DA94C   callq    _gleSelectPrimitiveFunc 
+0x7FFB064DA951   movq     %rbx, %rdi           
+0x7FFB064DA954   addq     $0x8, %rsp           
+0x7FFB064DA958   popq     %rbx                 
+0x7FFB064DA959   popq     %rbp                 
+0x7FFB064DA95A   jmp      _gleSelectVertexSubmitFunc 
+0x7FFB064DA95F   addq     $0x8, %rsp           
+0x7FFB064DA963   popq     %rbx                 
+0x7FFB064DA964   popq     %rbp                 
+0x7FFB064DA965   retq                          

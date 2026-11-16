@@ -1,0 +1,724 @@
+/System/Library/Extensions/AppleIntelKBLGraphicsGLDriver.bundle/Contents/MacOS/AppleIntelKBLGraphicsGLDriver [x86_64h]:
+    -uuid:
+        84D33620-0DE3-3032-877D-D0D21C75C4C1
+
+_gldChoosePixelFormat:
+0x7FFB020B696B   pushq    %rbp                 
+0x7FFB020B696C   movq     %rsp, %rbp           
+0x7FFB020B696F   leaq     0x411b94ba(%rip), %rdx  ; 
+0x7FFB020B6976   leaq     0x6(%rip), %rcx      ; _glrSanitizePixelFormat
+0x7FFB020B697D   popq     %rbp                 
+0x7FFB020B697E   jmp      _gpumChoosePixelFormat 
+_glrSanitizePixelFormat:
+0x7FFB020B6983   pushq    %rbp                 
+0x7FFB020B6984   movq     %rsp, %rbp           
+0x7FFB020B6987   pushq    %r15                 
+0x7FFB020B6989   pushq    %r14                 
+0x7FFB020B698B   pushq    %rbx                 
+0x7FFB020B698C   pushq    %rax                 
+0x7FFB020B698D   movq     %rdi, %rbx           
+0x7FFB020B6990   orl      $0x72001, 0xc(%rdi)  
+0x7FFB020B6997   testb    $0x1, 0x20(%rdi)     
+0x7FFB020B699B   je       0x7ffb020b69a3       
+0x7FFB020B699D   testb    $0x1, 0x1c(%rbx)     
+0x7FFB020B69A1   jne      0x7ffb020b69a7       
+0x7FFB020B69A3   xorl     %eax, %eax           
+0x7FFB020B69A5   jmp      0x7ffb020b69b7       
+0x7FFB020B69A7   movabsq  $0x100000001, %rax   
+0x7FFB020B69B1   movq     %rax, 0x1c(%rbx)     
+0x7FFB020B69B5   movb     $0x1, %al            
+0x7FFB020B69B7   movzwl   0x28(%rbx), %ecx     
+0x7FFB020B69BB   cmpl     $0x1, %ecx           
+0x7FFB020B69BE   je       0x7ffb020b69d9       
+0x7FFB020B69C0   testl    %ecx, %ecx           
+0x7FFB020B69C2   jne      0x7ffb020b69d3       
+0x7FFB020B69C4   movw     $0x0, 0x2a(%rbx)     
+0x7FFB020B69CA   movl     $0x0, 0x2c(%rbx)     
+0x7FFB020B69D1   jmp      0x7ffb020b6a09       
+0x7FFB020B69D3   movw     $0x1, 0x28(%rbx)     
+0x7FFB020B69D9   movzwl   0x2a(%rbx), %edx     
+0x7FFB020B69DD   movw     $0x10, %cx           
+0x7FFB020B69E1   cmpw     $0x8, %dx            
+0x7FFB020B69E5   jg       0x7ffb020b6a05       
+0x7FFB020B69E7   movw     $0x8, %cx            
+0x7FFB020B69EB   cmpw     $0x4, %dx            
+0x7FFB020B69EF   jg       0x7ffb020b6a05       
+0x7FFB020B69F1   movw     $0x4, %cx            
+0x7FFB020B69F5   cmpw     $0x2, %dx            
+0x7FFB020B69F9   jg       0x7ffb020b6a05       
+0x7FFB020B69FB   xorl     %ecx, %ecx           
+0x7FFB020B69FD   testw    %dx, %dx             
+0x7FFB020B6A00   setg     %cl                  
+0x7FFB020B6A03   incl     %ecx                 
+0x7FFB020B6A05   movw     %cx, 0x2a(%rbx)      
+0x7FFB020B6A09   movl     0x14(%rbx), %ecx     
+0x7FFB020B6A0C   vmovups  (%rbx), %ymm0        
+0x7FFB020B6A10   vmovups  %ymm0, 0x38(%rbx)    
+0x7FFB020B6A15   vmovups  0x18(%rbx), %xmm0    
+0x7FFB020B6A1A   vmovups  %xmm0, 0x50(%rbx)    
+0x7FFB020B6A1F   movzwl   0x28(%rbx), %edx     
+0x7FFB020B6A23   movw     %dx, 0x60(%rbx)      
+0x7FFB020B6A27   movzwl   0x2a(%rbx), %edx     
+0x7FFB020B6A2B   movw     %dx, 0x62(%rbx)      
+0x7FFB020B6A2F   movl     0x2c(%rbx), %edx     
+0x7FFB020B6A32   movl     %edx, 0x64(%rbx)     
+0x7FFB020B6A35   movq     0x30(%rbx), %rdx     
+0x7FFB020B6A39   movq     %rdx, 0x68(%rbx)     
+0x7FFB020B6A3D   movl     $0x400, 0x14(%rbx)   
+0x7FFB020B6A44   movl     $0x8000, 0x4c(%rbx)  
+0x7FFB020B6A4B   movl     $0x2000000, %edx     
+0x7FFB020B6A50   testl    $0x3000000, %ecx     
+0x7FFB020B6A56   jne      0x7ffb020b6a69       
+0x7FFB020B6A58   movl     $0x8000000, %edx     
+0x7FFB020B6A5D   testl    $0xc000000, %ecx     
+0x7FFB020B6A63   je       0x7ffb020b6bbd       
+0x7FFB020B6A69   vmovups  (%rbx), %xmm0        
+0x7FFB020B6A6D   movl     0x10(%rbx), %ecx     
+0x7FFB020B6A70   movl     0x14(%rbx), %esi     
+0x7FFB020B6A73   movq     0x18(%rbx), %rdi     
+0x7FFB020B6A77   vmovups  0x18(%rbx), %ymm1    
+0x7FFB020B6A7C   vmovups  %xmm0, 0x70(%rbx)    
+0x7FFB020B6A81   movl     %ecx, 0x80(%rbx)     
+0x7FFB020B6A87   movl     %esi, 0x84(%rbx)     
+0x7FFB020B6A8D   movq     %rdi, 0x88(%rbx)     
+0x7FFB020B6A94   vmovups  %ymm1, 0x88(%rbx)    
+0x7FFB020B6A9C   movl     %edx, 0x84(%rbx)     
+0x7FFB020B6AA2   movl     $0x2, %ecx           
+0x7FFB020B6AA7   movl     $0x3, %r14d          
+0x7FFB020B6AAD   xorl     %edx, %edx           
+0x7FFB020B6AAF   testb    %al, %al             
+0x7FFB020B6AB1   jne      0x7ffb020b6b8f       
+0x7FFB020B6AB7   leaq     0x38(%rbx), %rsi     
+0x7FFB020B6ABB   movabsq  $0x100000400, %rdi   
+0x7FFB020B6AC5   movq     %rdi, 0x1c(%rbx)     
+0x7FFB020B6AC9   movq     %rdi, 0x54(%rbx)     
+0x7FFB020B6ACD   movl     %r14d, %eax          
+0x7FFB020B6AD0   imulq    $0x38, %rax, %rax    
+0x7FFB020B6AD4   vmovups  (%rsi), %ymm0        
+0x7FFB020B6AD8   vmovups  0x18(%rsi), %ymm1    
+0x7FFB020B6ADD   vmovups  %ymm1, 0x18(%rbx,%rax) 
+0x7FFB020B6AE3   vmovups  %ymm0, (%rbx,%rax)   
+0x7FFB020B6AE8   movl     $0x800, %esi         
+0x7FFB020B6AED   movl     %esi, 0x1c(%rbx,%rax) 
+0x7FFB020B6AF1   movl     $0x1, 0x20(%rbx,%rax) 
+0x7FFB020B6AF9   vmovups  0x70(%rbx), %ymm0    
+0x7FFB020B6AFE   vmovups  0x88(%rbx), %ymm1    
+0x7FFB020B6B06   vmovups  %ymm0, 0x38(%rbx,%rax) 
+0x7FFB020B6B0C   vmovups  %ymm1, 0x50(%rbx,%rax) 
+0x7FFB020B6B12   movl     %esi, 0x54(%rbx,%rax) 
+0x7FFB020B6B16   movl     $0x80, 0x58(%rbx,%rax) 
+0x7FFB020B6B1E   leal     0x2(%r14), %r8d      
+0x7FFB020B6B22   testb    %dl, %dl             
+0x7FFB020B6B24   je       0x7ffb020b6b2b       
+0x7FFB020B6B26   movl     %r8d, %r14d          
+0x7FFB020B6B29   jmp      0x7ffb020b6b8f       
+0x7FFB020B6B2B   addq     %rbx, %rax           
+0x7FFB020B6B2E   imulq    $0x38, %rcx, %rcx    
+0x7FFB020B6B32   movq     %rdi, 0x1c(%rbx,%rcx) 
+0x7FFB020B6B37   movl     %r8d, %edx           
+0x7FFB020B6B3A   imulq    $0x38, %rdx, %rdx    
+0x7FFB020B6B3E   vmovups  (%rbx,%rcx), %ymm0   
+0x7FFB020B6B43   vmovups  0x18(%rbx,%rcx), %ymm1 
+0x7FFB020B6B49   vmovups  %ymm1, 0x18(%rbx,%rdx) 
+0x7FFB020B6B4F   vmovups  %ymm0, (%rbx,%rdx)   
+0x7FFB020B6B54   movl     %esi, 0x1c(%rbx,%rdx) 
+0x7FFB020B6B58   movl     $0x1, 0x20(%rbx,%rdx) 
+0x7FFB020B6B60   vmovups  (%rbx,%rcx), %ymm0   
+0x7FFB020B6B65   vmovups  0x18(%rbx,%rcx), %ymm1 
+0x7FFB020B6B6B   vmovups  %ymm1, 0xc0(%rax)    
+0x7FFB020B6B73   vmovups  %ymm0, 0xa8(%rax)    
+0x7FFB020B6B7B   movl     %esi, 0xc4(%rax)     
+0x7FFB020B6B81   movl     $0x80, 0xc8(%rax)    
+0x7FFB020B6B8B   orl      $0x4, %r14d          
+0x7FFB020B6B8F   movl     %r14d, %r15d         
+0x7FFB020B6B92   movq     %rbx, %rsi           
+0x7FFB020B6B95   vzeroupper                      
+0x7FFB020B6B98   callq    _glrValidatePixelFormat 
+0x7FFB020B6B9D   testl    %eax, %eax           
+0x7FFB020B6B9F   jne      0x7ffb020b6bac       
+0x7FFB020B6BA1   addq     $0x38, %rbx          
+0x7FFB020B6BA5   decq     %r15                 
+0x7FFB020B6BA8   jne      0x7ffb020b6b92       
+0x7FFB020B6BAA   jmp      0x7ffb020b6baf       
+0x7FFB020B6BAC   xorl     %r14d, %r14d         
+0x7FFB020B6BAF   movl     %r14d, %eax          
+0x7FFB020B6BB2   addq     $0x8, %rsp           
+0x7FFB020B6BB6   popq     %rbx                 
+0x7FFB020B6BB7   popq     %r14                 
+0x7FFB020B6BB9   popq     %r15                 
+0x7FFB020B6BBB   popq     %rbp                 
+0x7FFB020B6BBC   retq                          
+0x7FFB020B6BBD   movl     $0xffffffff, %ecx    
+0x7FFB020B6BC2   movb     $0x1, %dl            
+0x7FFB020B6BC4   movl     $0x2, %r14d          
+0x7FFB020B6BCA   jmp      0x7ffb020b6aaf       
+_gldDestroyPixelFormat:
+0x7FFB020B6BCF   pushq    %rbp                 
+0x7FFB020B6BD0   movq     %rsp, %rbp           
+0x7FFB020B6BD3   leaq     0x411b9256(%rip), %rsi  ; 
+0x7FFB020B6BDA   popq     %rbp                 
+0x7FFB020B6BDB   jmp      _gpumDestroyPixelFormat 
+/System/Library/PrivateFrameworks/GPUSupport.framework/Versions/A/Libraries/libGPUSupportMercury.dylib [x86_64]:
+    -uuid:
+        F206CE07-BCA7-3CC7-A494-112686CDE945
+
+_gpumChoosePixelFormat:
+0x7FF918355614   pushq    %rbp                 
+0x7FF918355615   movq     %rsp, %rbp           
+0x7FF918355618   pushq    %r15                 
+0x7FF91835561A   pushq    %r14                 
+0x7FF91835561C   pushq    %r13                 
+0x7FF91835561E   pushq    %r12                 
+0x7FF918355620   pushq    %rbx                 
+0x7FF918355621   subq     $0x258, %rsp         
+0x7FF918355628   movq     %rcx, -0x278(%rbp)   
+0x7FF91835562F   movq     %rdx, %rbx           
+0x7FF918355632   movq     0x27d213b7(%rip), %rax  ; 
+0x7FF918355639   movq     (%rax), %rax         
+0x7FF91835563C   movq     %rax, -0x30(%rbp)    
+0x7FF918355640   movq     %rdi, -0x240(%rbp)   
+0x7FF918355647   movq     $0x0, (%rdi)         
+0x7FF91835564E   movb     $0x0, -0x206(%rbp)   
+0x7FF918355655   movw     $0x0, -0x208(%rbp)   
+0x7FF91835565E   movl     0xe4(%rdx), %eax     
+0x7FF918355664   movl     %eax, -0x214(%rbp)   
+0x7FF91835566A   movl     $0xfffffc, %r12d     
+0x7FF918355670   movl     $0x500, %r14d        
+0x7FF918355676   movl     $0x0, -0x210(%rbp)   
+0x7FF918355680   leaq     0x765(%rip), %rcx    ; 
+0x7FF918355687   leaq     0x78e(%rip), %rdx    ; 
+0x7FF91835568E   movl     $0x0, -0x1fc(%rbp)   
+0x7FF918355698   movl     $0x0, -0x20c(%rbp)   
+0x7FF9183556A2   movl     $0x0, -0x1f8(%rbp)   
+0x7FF9183556AC   movl     $0x0, -0x21c(%rbp)   
+0x7FF9183556B6   movl     $0x0, -0x22c(%rbp)   
+0x7FF9183556C0   movl     $0x0, -0x234(%rbp)   
+0x7FF9183556CA   movl     $0x0, -0x230(%rbp)   
+0x7FF9183556D4   movq     %rsi, %r9            
+0x7FF9183556D7   xorl     %r13d, %r13d         
+0x7FF9183556DA   movl     $0x0, -0x1f4(%rbp)   
+0x7FF9183556E4   xorl     %edi, %edi           
+0x7FF9183556E6   xorl     %r15d, %r15d         
+0x7FF9183556E9   movl     $0x0, -0x200(%rbp)   
+0x7FF9183556F3   movl     $0x2710, %eax        
+0x7FF9183556F8   movl     (%r9), %r10d         
+0x7FF9183556FB   testl    %r10d, %r10d         
+0x7FF9183556FE   je       0x7ff9183558de       
+0x7FF918355704   leaq     0x4(%r9), %r8        
+0x7FF918355708   leal     -0x33(%r10), %r11d   
+0x7FF91835570C   cmpl     $0x27, %r11d         
+0x7FF918355710   ja       0x7ff91835572b       
+0x7FF918355712   movslq   (%rdx,%r11,4), %r10  
+0x7FF918355716   addq     %rdx, %r10           
+0x7FF918355719   jmpq     *%r10                
+0x7FF91835571C   movl     $0x1, -0x230(%rbp)   
+0x7FF918355726   jmp      0x7ff918355828       
+0x7FF91835572B   addl     $-0x3, %r10d         
+0x7FF91835572F   cmpl     $0xb, %r10d          
+0x7FF918355733   ja       0x7ff918355dbe       
+0x7FF918355739   movslq   (%rcx,%r10,4), %r10  
+0x7FF91835573D   addq     %rcx, %r10           
+0x7FF918355740   jmpq     *%r10                
+0x7FF918355743   orl      $0x18, -0x1f8(%rbp)  
+0x7FF91835574A   jmp      0x7ff918355828       
+0x7FF91835574F   orl      $0x2000, %r14d       
+0x7FF918355756   jmp      0x7ff918355828       
+0x7FF91835575B   movl     -0x214(%rbp), %r8d   
+0x7FF918355762   andl     0x4(%r9), %r8d       
+0x7FF918355766   movl     %r8d, -0x214(%rbp)   
+0x7FF91835576D   jmp      0x7ff918355821       
+0x7FF918355772   movl     $0x1, -0x1fc(%rbp)   
+0x7FF91835577C   jmp      0x7ff918355828       
+0x7FF918355781   movl     (%r8), %r8d          
+0x7FF918355784   movl     %r8d, -0x210(%rbp)   
+0x7FF91835578B   jmp      0x7ff918355818       
+0x7FF918355790   orl      $0x4, %r14d          
+0x7FF918355794   jmp      0x7ff918355828       
+0x7FF918355799   orl      $0x8, %r14d          
+0x7FF91835579D   jmp      0x7ff918355828       
+0x7FF9183557A2   movl     $0x1, -0x234(%rbp)   
+0x7FF9183557AC   jmp      0x7ff918355828       
+0x7FF9183557AE   orl      $0x800, %r14d        
+0x7FF9183557B5   jmp      0x7ff918355828       
+0x7FF9183557B7   movl     $0x2, -0x1fc(%rbp)   
+0x7FF9183557C1   jmp      0x7ff918355828       
+0x7FF9183557C3   movl     $0x3f000000, %r12d   
+0x7FF9183557C9   jmp      0x7ff918355828       
+0x7FF9183557CB   movb     $0x1, %r9b           
+0x7FF9183557CE   movl     %r9d, -0x20c(%rbp)   
+0x7FF9183557D5   jmp      0x7ff918355828       
+0x7FF9183557D7   orl      $0x2, %r14d          
+0x7FF9183557DB   jmp      0x7ff918355828       
+0x7FF9183557DD   movl     (%r8), %r8d          
+0x7FF9183557E0   movl     %r8d, -0x21c(%rbp)   
+0x7FF9183557E7   jmp      0x7ff918355818       
+0x7FF9183557E9   orl      $0x1, %r14d          
+0x7FF9183557ED   jmp      0x7ff918355828       
+0x7FF9183557EF   orl      $0x10, %r14d         
+0x7FF9183557F3   jmp      0x7ff918355828       
+0x7FF9183557F5   movl     (%r8), %r8d          
+0x7FF9183557F8   testl    %r8d, %r8d           
+0x7FF9183557FB   js       0x7ff918355db9       
+0x7FF918355801   addq     $0x8, %r9            
+0x7FF918355805   cmpl     %r13d, %r8d          
+0x7FF918355808   cmovgl   %r8d, %r13d          
+0x7FF91835580C   jmp      0x7ff918355825       
+0x7FF91835580E   movl     (%r8), %r8d          
+0x7FF918355811   movl     %r8d, -0x22c(%rbp)   
+0x7FF918355818   testl    %r8d, %r8d           
+0x7FF91835581B   js       0x7ff918355db9       
+0x7FF918355821   addq     $0x8, %r9            
+0x7FF918355825   movq     %r9, %r8             
+0x7FF918355828   movq     %r8, %r10            
+0x7FF91835582B   subq     %rsi, %r10           
+0x7FF91835582E   movq     %r8, %r9             
+0x7FF918355831   cmpq     $0xc0, %r10          
+0x7FF918355838   jle      0x7ff9183556f8       
+0x7FF91835583E   jmp      0x7ff918355dbe       
+0x7FF918355843   orl      $0x8, -0x1f8(%rbp)   
+0x7FF91835584A   jmp      0x7ff918355828       
+0x7FF91835584C   movl     (%r8), %r8d          
+0x7FF91835584F   testl    %r8d, %r8d           
+0x7FF918355852   js       0x7ff918355db9       
+0x7FF918355858   addq     $0x8, %r9            
+0x7FF91835585C   cmpl     %r15d, %r8d          
+0x7FF91835585F   cmovgl   %r8d, %r15d          
+0x7FF918355863   jmp      0x7ff918355825       
+0x7FF918355865   movl     (%r8), %r8d          
+0x7FF918355868   testl    %r8d, %r8d           
+0x7FF91835586B   js       0x7ff918355db9       
+0x7FF918355871   addq     $0x8, %r9            
+0x7FF918355875   movl     -0x1f4(%rbp), %r10d  
+0x7FF91835587C   cmpl     %r10d, %r8d          
+0x7FF91835587F   cmovgl   %r8d, %r10d          
+0x7FF918355883   movl     %r10d, -0x1f4(%rbp)  
+0x7FF91835588A   jmp      0x7ff918355825       
+0x7FF91835588C   movl     (%r8), %r8d          
+0x7FF91835588F   testl    %r8d, %r8d           
+0x7FF918355892   js       0x7ff918355db9       
+0x7FF918355898   addq     $0x8, %r9            
+0x7FF91835589C   movl     -0x200(%rbp), %r10d  
+0x7FF9183558A3   cmpl     %r10d, %r8d          
+0x7FF9183558A6   cmovgl   %r8d, %r10d          
+0x7FF9183558AA   movl     %r10d, -0x200(%rbp)  
+0x7FF9183558B1   jmp      0x7ff918355825       
+0x7FF9183558B6   orl      $0x2, -0x1f8(%rbp)   
+0x7FF9183558BD   jmp      0x7ff918355828       
+0x7FF9183558C2   movl     (%r8), %r8d          
+0x7FF9183558C5   testl    %r8d, %r8d           
+0x7FF9183558C8   js       0x7ff918355db9       
+0x7FF9183558CE   addq     $0x8, %r9            
+0x7FF9183558D2   cmpl     %edi, %r8d           
+0x7FF9183558D5   cmovgl   %r8d, %edi           
+0x7FF9183558D9   jmp      0x7ff918355825       
+0x7FF9183558DE   callq    _gpulGLIBitsGE       
+0x7FF9183558E3   movl     %eax, -0x254(%rbp)   
+0x7FF9183558E9   movl     -0x1f4(%rbp), %edi   
+0x7FF9183558EF   callq    _gpulGLIBitsGE       
+0x7FF9183558F4   movl     %r12d, %ecx          
+0x7FF9183558F7   andl     $0x3f0ffffc, %ecx    
+0x7FF9183558FD   movl     -0x200(%rbp), %esi   
+0x7FF918355903   cmpl     $0x9, %esi           
+0x7FF918355906   cmovgel  %r12d, %ecx          
+0x7FF91835590A   cmpl     $0x21, %r13d         
+0x7FF91835590E   cmovgel  %r12d, %ecx          
+0x7FF918355912   movl     %ecx, %r8d           
+0x7FF918355915   movl     %eax, -0x1f4(%rbp)   
+0x7FF91835591B   xorl     %ecx, %ecx           
+0x7FF91835591D   movl     $0x0, %eax           
+0x7FF918355922   cmpl     $0x100, %r13d        
+0x7FF918355929   ja       0x7ff918355975       
+0x7FF91835592B   movl     $0x30000000, %eax    
+0x7FF918355930   cmpl     $0x80, %r13d         
+0x7FF918355937   ja       0x7ff918355975       
+0x7FF918355939   movl     $0xc000000, %eax     
+0x7FF91835593E   cmpl     $0x40, %r13d         
+0x7FF918355942   ja       0x7ff918355975       
+0x7FF918355944   movl     $0x3ff00000, %eax    
+0x7FF918355949   cmpl     $0x20, %r13d         
+0x7FF91835594D   ja       0x7ff918355975       
+0x7FF91835594F   movl     $0x3fffc000, %eax    
+0x7FF918355954   cmpl     $0x10, %r13d         
+0x7FF918355958   ja       0x7ff918355975       
+0x7FF91835595A   movl     $0x3fffffc0, %eax    
+0x7FF91835595F   cmpl     $0x8, %r13d          
+0x7FF918355963   ja       0x7ff918355975       
+0x7FF918355965   xorl     %eax, %eax           
+0x7FF918355967   testl    %r13d, %r13d         
+0x7FF91835596A   setne    %al                  
+0x7FF91835596D   shll     $0x1f, %eax          
+0x7FF918355970   addl     $0xbffffffc, %eax    
+0x7FF918355975   cmpl     $0x20, %esi          
+0x7FF918355978   movl     %r14d, %edi          
+0x7FF91835597B   ja       0x7ff9183559c9       
+0x7FF91835597D   movl     $0x8000000, %ecx     
+0x7FF918355982   cmpl     $0x10, %esi          
+0x7FF918355985   ja       0x7ff9183559c9       
+0x7FF918355987   movl     $0xa800000, %ecx     
+0x7FF91835598C   cmpl     $0xc, %esi           
+0x7FF91835598F   ja       0x7ff9183559c9       
+0x7FF918355991   movl     $0xaa00000, %ecx     
+0x7FF918355996   cmpl     $0x8, %esi           
+0x7FF918355999   ja       0x7ff9183559c9       
+0x7FF91835599B   movl     $0xaa9a928, %ecx     
+0x7FF9183559A0   cmpl     $0x4, %esi           
+0x7FF9183559A3   ja       0x7ff9183559c9       
+0x7FF9183559A5   movl     $0xaa9a9a8, %ecx     
+0x7FF9183559AA   cmpl     $0x2, %esi           
+0x7FF9183559AD   ja       0x7ff9183559c9       
+0x7FF9183559AF   testl    %esi, %esi           
+0x7FF9183559B1   movl     $0xbffffffc, %ecx    
+0x7FF9183559B6   movl     $0xaadada8, %edx     
+0x7FF9183559BB   cmovel   %ecx, %edx           
+0x7FF9183559BE   cmpl     $0x2, %esi           
+0x7FF9183559C1   movl     $0xaada9a8, %ecx     
+0x7FF9183559C6   cmovnel  %edx, %ecx           
+0x7FF9183559C9   testl    %r15d, %r15d         
+0x7FF9183559CC   movl     $0x80000000, %edx    
+0x7FF9183559D1   movl     $0x8000000, %esi     
+0x7FF9183559D6   cmovel   %edx, %esi           
+0x7FF9183559D9   movl     %esi, -0x250(%rbp)   
+0x7FF9183559DF   xorl     %r9d, %r9d           
+0x7FF9183559E2   cmpw     $0x0, -0x21c(%rbp)   
+0x7FF9183559EA   movl     -0x210(%rbp), %edx   
+0x7FF9183559F0   cmovel   %r9d, %edx           
+0x7FF9183559F4   movl     %edx, -0x210(%rbp)   
+0x7FF9183559FA   movl     -0x1fc(%rbp), %edx   
+0x7FF918355A00   cmovel   %r9d, %edx           
+0x7FF918355A04   movl     %edx, -0x1fc(%rbp)   
+0x7FF918355A0A   movzbl   -0x20c(%rbp), %edx   
+0x7FF918355A11   cmovel   %r9d, %edx           
+0x7FF918355A15   movl     %edx, -0x20c(%rbp)   
+0x7FF918355A1B   xorl     %edx, %edx           
+0x7FF918355A1D   testl    $0x2006, %edi        
+0x7FF918355A23   sete     %sil                 
+0x7FF918355A27   cmpl     $0x0, 0xe0(%rbx)     
+0x7FF918355A2E   je       0x7ff918355da9       
+0x7FF918355A34   andl     $0x3ffffffc, %r8d    
+0x7FF918355A3B   andl     %eax, %r8d           
+0x7FF918355A3E   andl     %ecx, %r8d           
+0x7FF918355A41   movl     %r8d, -0x24c(%rbp)   
+0x7FF918355A48   movb     %sil, %dl            
+0x7FF918355A4B   orl      %edx, %edi           
+0x7FF918355A4D   movl     -0x1f8(%rbp), %eax   
+0x7FF918355A53   andl     $-0x11, %eax         
+0x7FF918355A56   movl     %eax, -0x248(%rbp)   
+0x7FF918355A5C   movl     %edi, %eax           
+0x7FF918355A5E   orl      $0x200, %eax         
+0x7FF918355A63   movl     %eax, -0x244(%rbp)   
+0x7FF918355A69   xorl     %r15d, %r15d         
+0x7FF918355A6C   movq     $0x0, -0x228(%rbp)   
+0x7FF918355A77   movq     %rbx, -0x260(%rbp)   
+0x7FF918355A7E   movl     %edi, -0x218(%rbp)   
+0x7FF918355A84   movq     0xd8(%rbx), %r13     
+0x7FF918355A8B   movq     0x48(%rbx), %rax     
+0x7FF918355A8F   imulq    %r15, %rax           
+0x7FF918355A93   movl     0x23c(%r13,%rax), %esi 
+0x7FF918355A9B   andl     -0x214(%rbp), %esi   
+0x7FF918355AA1   je       0x7ff918355d78       
+0x7FF918355AA7   movq     %r9, -0x270(%rbp)    
+0x7FF918355AAE   addq     %rax, %r13           
+0x7FF918355AB1   movl     %esi, %eax           
+0x7FF918355AB3   shrl     %eax                 
+0x7FF918355AB5   andl     $0x55555555, %eax    
+0x7FF918355ABA   movl     %esi, %ecx           
+0x7FF918355ABC   subl     %eax, %ecx           
+0x7FF918355ABE   movl     %ecx, %eax           
+0x7FF918355AC0   movl     $0x33333333, %edx    
+0x7FF918355AC5   andl     %edx, %eax           
+0x7FF918355AC7   shrl     $0x2, %ecx           
+0x7FF918355ACA   andl     %edx, %ecx           
+0x7FF918355ACC   addl     %eax, %ecx           
+0x7FF918355ACE   movl     %ecx, %eax           
+0x7FF918355AD0   shrl     $0x4, %eax           
+0x7FF918355AD3   addl     %ecx, %eax           
+0x7FF918355AD5   andl     $0xf0f0f0f, %eax     
+0x7FF918355ADA   imull    $0x1010101, %eax, %eax 
+0x7FF918355AE0   shrl     $0x18, %eax          
+0x7FF918355AE3   movl     %eax, -0x200(%rbp)   
+0x7FF918355AE9   movq     %r15, -0x268(%rbp)   
+0x7FF918355AF0   shll     $0x18, %r15d         
+0x7FF918355AF4   addl     $0x1000000, %r15d    
+0x7FF918355AFB   movb     $0x1, %bl            
+0x7FF918355AFD   xorl     %eax, %eax           
+0x7FF918355AFF   movq     $0x0, -0x1f0(%rbp)   
+0x7FF918355B0A   movl     $0x0, -0x1e8(%rbp)   
+0x7FF918355B14   movl     %edi, -0x1e4(%rbp)   
+0x7FF918355B1A   movl     -0x1f8(%rbp), %ecx   
+0x7FF918355B20   movl     %ecx, -0x1e0(%rbp)   
+0x7FF918355B26   movl     -0x24c(%rbp), %ecx   
+0x7FF918355B2C   movl     %ecx, -0x1dc(%rbp)   
+0x7FF918355B32   movl     -0x250(%rbp), %ecx   
+0x7FF918355B38   movl     %ecx, -0x1d8(%rbp)   
+0x7FF918355B3E   movl     -0x1f4(%rbp), %ecx   
+0x7FF918355B44   movl     %ecx, -0x1d4(%rbp)   
+0x7FF918355B4A   movl     -0x254(%rbp), %ecx   
+0x7FF918355B50   movl     %ecx, -0x1d0(%rbp)   
+0x7FF918355B56   movw     $0x0, -0x1cc(%rbp)   
+0x7FF918355B5F   movl     -0x22c(%rbp), %ecx   
+0x7FF918355B65   movw     %cx, -0x1ca(%rbp)    
+0x7FF918355B6C   movl     -0x21c(%rbp), %ecx   
+0x7FF918355B72   movw     %cx, -0x1c8(%rbp)    
+0x7FF918355B79   movl     -0x210(%rbp), %ecx   
+0x7FF918355B7F   movw     %cx, -0x1c6(%rbp)    
+0x7FF918355B86   movl     -0x1fc(%rbp), %ecx   
+0x7FF918355B8C   movl     %ecx, -0x1c4(%rbp)   
+0x7FF918355B92   movl     -0x20c(%rbp), %ecx   
+0x7FF918355B98   movb     %cl, -0x1c0(%rbp)    
+0x7FF918355B9E   movzwl   -0x208(%rbp), %ecx   
+0x7FF918355BA5   leaq     -0x1bf(%rbp), %rdx   
+0x7FF918355BAC   movw     %cx, (%rdx)          
+0x7FF918355BAF   movb     -0x206(%rbp), %cl    
+0x7FF918355BB5   movb     %cl, 0x2(%rdx)       
+0x7FF918355BB8   movl     -0x214(%rbp), %ecx   
+0x7FF918355BBE   movl     %ecx, -0x1bc(%rbp)   
+0x7FF918355BC4   testb    $0x1, %al            
+0x7FF918355BC6   je       0x7ff918355bd4       
+0x7FF918355BC8   movl     -0x248(%rbp), %eax   
+0x7FF918355BCE   movl     %eax, -0x1e0(%rbp)   
+0x7FF918355BD4   cmpl     $0x2, -0x200(%rbp)   
+0x7FF918355BDB   jb       0x7ff918355be9       
+0x7FF918355BDD   movl     -0x244(%rbp), %eax   
+0x7FF918355BE3   movl     %eax, -0x1e4(%rbp)   
+0x7FF918355BE9   movl     0x2f4(%r13), %eax    
+0x7FF918355BF0   orl      %r15d, %eax          
+0x7FF918355BF3   movl     %eax, -0x1e8(%rbp)   
+0x7FF918355BF9   movl     %esi, %r14d          
+0x7FF918355BFC   movl     %esi, -0x1bc(%rbp)   
+0x7FF918355C02   leaq     -0x1f0(%rbp), %rdi   
+0x7FF918355C09   movq     %r13, %rsi           
+0x7FF918355C0C   movl     -0x230(%rbp), %edx   
+0x7FF918355C12   movl     -0x234(%rbp), %ecx   
+0x7FF918355C18   callq    *-0x278(%rbp)        
+0x7FF918355C1E   testl    %eax, %eax           
+0x7FF918355C20   jne      0x7ff918355c60       
+0x7FF918355C22   movb     -0x1e0(%rbp), %cl    
+0x7FF918355C28   andb     $0x10, %cl           
+0x7FF918355C2B   shrb     $0x4, %cl            
+0x7FF918355C2E   movb     $0x1, %al            
+0x7FF918355C30   testb    %bl, %cl             
+0x7FF918355C32   movl     $0x0, %ebx           
+0x7FF918355C37   movl     -0x218(%rbp), %edi   
+0x7FF918355C3D   movl     %r14d, %esi          
+0x7FF918355C40   jne      0x7ff918355aff       
+0x7FF918355C46   movq     -0x260(%rbp), %rbx   
+0x7FF918355C4D   movq     -0x268(%rbp), %r15   
+0x7FF918355C54   movq     -0x270(%rbp), %r9    
+0x7FF918355C5B   jmp      0x7ff918355d78       
+0x7FF918355C60   movl     %eax, %r12d          
+0x7FF918355C63   movq     -0x270(%rbp), %r14   
+0x7FF918355C6A   addl     %r14d, %r12d         
+0x7FF918355C6D   movslq   %r12d, %rax          
+0x7FF918355C70   imulq    $0x38, %rax, %rdi    
+0x7FF918355C74   movl     $0xea0a09e6, %esi    
+0x7FF918355C79   callq    _malloc_type_malloc  
+0x7FF918355C7E   testq    %rax, %rax           
+0x7FF918355C81   je       0x7ff918355de0       
+0x7FF918355C87   movq     %rax, %r13           
+0x7FF918355C8A   testl    %r14d, %r14d         
+0x7FF918355C8D   movq     -0x260(%rbp), %rbx   
+0x7FF918355C94   movq     -0x268(%rbp), %r15   
+0x7FF918355C9B   jle      0x7ff918355ce0       
+0x7FF918355C9D   movl     %r14d, %eax          
+0x7FF918355CA0   leaq     0x38(%r13), %rcx     
+0x7FF918355CA4   movq     -0x228(%rbp), %rdx   
+0x7FF918355CAB   movups   (%rdx), %xmm0        
+0x7FF918355CAE   movups   0x10(%rdx), %xmm1    
+0x7FF918355CB2   movups   0x20(%rdx), %xmm2    
+0x7FF918355CB6   movups   %xmm0, -0x38(%rcx)   
+0x7FF918355CBA   movq     0x30(%rdx), %rsi     
+0x7FF918355CBE   movq     %rsi, -0x8(%rcx)     
+0x7FF918355CC2   movups   %xmm2, -0x18(%rcx)   
+0x7FF918355CC6   movups   %xmm1, -0x28(%rcx)   
+0x7FF918355CCA   movq     %rcx, -0x38(%rcx)    
+0x7FF918355CCE   addq     $0x38, %rdx          
+0x7FF918355CD2   addq     $0x38, %rcx          
+0x7FF918355CD6   decq     %rax                 
+0x7FF918355CD9   jne      0x7ff918355cab       
+0x7FF918355CDB   movl     %r14d, %eax          
+0x7FF918355CDE   jmp      0x7ff918355ce2       
+0x7FF918355CE0   xorl     %eax, %eax           
+0x7FF918355CE2   movl     %eax, %edi           
+0x7FF918355CE4   cmpl     %r12d, %eax          
+0x7FF918355CE7   jge      0x7ff918355d4a       
+0x7FF918355CE9   movl     %r12d, %eax          
+0x7FF918355CEC   movl     %edi, %ecx           
+0x7FF918355CEE   subl     %r14d, %ecx          
+0x7FF918355CF1   imulq    $0x38, %rdi, %rdx    
+0x7FF918355CF5   addq     %r13, %rdx           
+0x7FF918355CF8   addq     $0x38, %rdx          
+0x7FF918355CFC   movq     %rax, %rsi           
+0x7FF918355CFF   subq     %rdi, %rsi           
+0x7FF918355D02   movl     %ecx, %edi           
+0x7FF918355D04   imulq    $0x38, %rdi, %rdi    
+0x7FF918355D08   movups   -0x1f0(%rbp,%rdi), %xmm0 
+0x7FF918355D10   movups   -0x1e0(%rbp,%rdi), %xmm1 
+0x7FF918355D18   movups   -0x1d0(%rbp,%rdi), %xmm2 
+0x7FF918355D20   movups   %xmm0, -0x38(%rdx)   
+0x7FF918355D24   movq     -0x1c0(%rbp,%rdi), %rdi 
+0x7FF918355D2C   movq     %rdi, -0x8(%rdx)     
+0x7FF918355D30   movups   %xmm2, -0x18(%rdx)   
+0x7FF918355D34   movups   %xmm1, -0x28(%rdx)   
+0x7FF918355D38   movq     %rdx, -0x38(%rdx)    
+0x7FF918355D3C   incl     %ecx                 
+0x7FF918355D3E   addq     $0x38, %rdx          
+0x7FF918355D42   decq     %rsi                 
+0x7FF918355D45   jne      0x7ff918355d02       
+0x7FF918355D47   movq     %rax, %rdi           
+0x7FF918355D4A   imulq    $0x38, %rdi, %rax    
+0x7FF918355D4E   movq     $0x0, -0x38(%r13,%rax) 
+0x7FF918355D57   movq     -0x228(%rbp), %rdi   
+0x7FF918355D5E   testq    %rdi, %rdi           
+0x7FF918355D61   je       0x7ff918355d68       
+0x7FF918355D63   callq    _free                
+0x7FF918355D68   movq     %r13, -0x228(%rbp)   
+0x7FF918355D6F   movl     %r12d, %r9d          
+0x7FF918355D72   movl     -0x218(%rbp), %edi   
+0x7FF918355D78   incq     %r15                 
+0x7FF918355D7B   movl     0xe0(%rbx), %eax     
+0x7FF918355D81   cmpq     %rax, %r15           
+0x7FF918355D84   jb       0x7ff918355a84       
+0x7FF918355D8A   testl    %r9d, %r9d           
+0x7FF918355D8D   setle    %al                  
+0x7FF918355D90   movq     -0x228(%rbp), %rdi   
+0x7FF918355D97   testq    %rdi, %rdi           
+0x7FF918355D9A   setne    %cl                  
+0x7FF918355D9D   andb     %al, %cl             
+0x7FF918355D9F   cmpb     $0x1, %cl            
+0x7FF918355DA2   jne      0x7ff918355dab       
+0x7FF918355DA4   callq    _free                
+0x7FF918355DA9   xorl     %edi, %edi           
+0x7FF918355DAB   movq     -0x240(%rbp), %rax   
+0x7FF918355DB2   movq     %rdi, (%rax)         
+0x7FF918355DB5   xorl     %eax, %eax           
+0x7FF918355DB7   jmp      0x7ff918355dbe       
+0x7FF918355DB9   movl     $0x2718, %eax        
+0x7FF918355DBE   movq     0x27d20c2b(%rip), %rcx  ; 
+0x7FF918355DC5   movq     (%rcx), %rcx         
+0x7FF918355DC8   cmpq     -0x30(%rbp), %rcx    
+0x7FF918355DCC   jne      0x7ff918355de5       
+0x7FF918355DCE   addq     $0x258, %rsp         
+0x7FF918355DD5   popq     %rbx                 
+0x7FF918355DD6   popq     %r12                 
+0x7FF918355DD8   popq     %r13                 
+0x7FF918355DDA   popq     %r14                 
+0x7FF918355DDC   popq     %r15                 
+0x7FF918355DDE   popq     %rbp                 
+0x7FF918355DDF   retq                          
+0x7FF918355DE0   callq    _abort               
+0x7FF918355DE5   callq    ___stack_chk_fail    
+0x7FF918355DEA   nop                           
+0x7FF918355DEC   pushq    %rdi                 
+0x7FF918355DED   stc                           
+0x7FF918355EBE   movl     %esp, %ebp           
+0x7FF918355EC0   movl     $0x10000, %eax       
+0x7FF918355EC5   cmpl     $0x7f, %edi          
+0x7FF918355EC8   ja       0x7ff918355f6b       
+0x7FF918355ECE   movl     $0x18000, %eax       
+0x7FF918355ED3   cmpl     $0x5f, %edi          
+0x7FF918355ED6   ja       0x7ff918355f6b       
+0x7FF918355EDC   movl     $0x1c000, %eax       
+0x7FF918355EE1   cmpl     $0x3f, %edi          
+0x7FF918355EE4   ja       0x7ff918355f6b       
+0x7FF918355EEA   movl     $0x1e000, %eax       
+0x7FF918355EEF   cmpl     $0x2f, %edi          
+0x7FF918355EF2   ja       0x7ff918355f6b       
+0x7FF918355EF4   movl     $0x1f000, %eax       
+0x7FF918355EF9   cmpl     $0x1f, %edi          
+0x7FF918355EFC   ja       0x7ff918355f6b       
+0x7FF918355EFE   movl     $0x1f800, %eax       
+0x7FF918355F03   cmpl     $0x17, %edi          
+0x7FF918355F06   ja       0x7ff918355f6b       
+0x7FF918355F08   movl     $0x1fc00, %eax       
+0x7FF918355F0D   cmpl     $0xf, %edi           
+0x7FF918355F10   ja       0x7ff918355f6b       
+0x7FF918355F12   movl     $0x1fe00, %eax       
+0x7FF918355F17   cmpl     $0xb, %edi           
+0x7FF918355F1A   ja       0x7ff918355f6b       
+0x7FF918355F1C   movl     $0x1ff00, %eax       
+0x7FF918355F21   cmpl     $0x9, %edi           
+0x7FF918355F24   ja       0x7ff918355f6b       
+0x7FF918355F26   movl     $0x1ff80, %eax       
+0x7FF918355F2B   cmpl     $0x7, %edi           
+0x7FF918355F2E   ja       0x7ff918355f6b       
+0x7FF918355F30   movl     $0x1ffc0, %eax       
+0x7FF918355F35   cmpl     $0x5, %edi           
+0x7FF918355F38   ja       0x7ff918355f6b       
+0x7FF918355F3A   movl     $0x1ffe0, %eax       
+0x7FF918355F3F   je       0x7ff918355f6b       
+0x7FF918355F41   movl     $0x1fff0, %eax       
+0x7FF918355F46   cmpl     $0x3, %edi           
+0x7FF918355F49   ja       0x7ff918355f6b       
+0x7FF918355F4B   movl     $0x1fff8, %eax       
+0x7FF918355F50   je       0x7ff918355f6b       
+0x7FF918355F52   movl     $0x1fffc, %eax       
+0x7FF918355F57   cmpl     $0x1, %edi           
+0x7FF918355F5A   ja       0x7ff918355f6b       
+0x7FF918355F5C   testl    %edi, %edi           
+0x7FF918355F5E   movl     $0x3ffff, %ecx       
+0x7FF918355F63   movl     $0x1fffe, %eax       
+0x7FF918355F68   cmovel   %ecx, %eax           
+0x7FF918355F6B   popq     %rbp                 
+0x7FF918355F6C   retq                          
+_gpumDestroyPixelFormat:
+0x7FF918355F6D   testq    %rdi, %rdi           
+0x7FF918355F70   je       0x7ff918355f7c       
+0x7FF918355F72   pushq    %rbp                 
+0x7FF918355F73   movq     %rsp, %rbp           
+0x7FF918355F76   callq    _free                
+0x7FF918355F7B   popq     %rbp                 
+0x7FF918355F7C   xorl     %eax, %eax           
+0x7FF918355F7E   retq                          
+TABLE_GATE UUID=f206ce07bca73cc7a494112686cde945 symbol=gpumChoosePixelFormat arch=x86_64
+TOKEN 3 cell=0x7ff918355dec bytes=57f9ffff target=0x7ff918355743
+TOKEN 4 cell=0x7ff918355df0 bytes=3cfaffff target=0x7ff918355828
+TOKEN 5 cell=0x7ff918355df4 bytes=57faffff target=0x7ff918355843
+TOKEN 6 cell=0x7ff918355df8 bytes=cafaffff target=0x7ff9183558b6
+TOKEN 7 cell=0x7ff918355dfc bytes=22faffff target=0x7ff91835580e
+TOKEN 8 cell=0x7ff918355e00 bytes=09faffff target=0x7ff9183557f5
+TOKEN 9 cell=0x7ff918355e04 bytes=d2ffffff target=0x7ff918355dbe
+TOKEN 10 cell=0x7ff918355e08 bytes=d2ffffff target=0x7ff918355dbe
+TOKEN 11 cell=0x7ff918355e0c bytes=a0faffff target=0x7ff91835588c
+TOKEN 12 cell=0x7ff918355e10 bytes=79faffff target=0x7ff918355865
+TOKEN 13 cell=0x7ff918355e14 bytes=d6faffff target=0x7ff9183558c2
+TOKEN 14 cell=0x7ff918355e18 bytes=60faffff target=0x7ff91835584c
+TOKEN 51 cell=0x7ff918355e1c bytes=00f9ffff target=0x7ff91835571c
+TOKEN 52 cell=0x7ff918355e20 bytes=86f9ffff target=0x7ff9183557a2
+TOKEN 53 cell=0x7ff918355e24 bytes=74f9ffff target=0x7ff918355790
+TOKEN 54 cell=0x7ff918355e28 bytes=bbf9ffff target=0x7ff9183557d7
+TOKEN 55 cell=0x7ff918355e2c bytes=c1f9ffff target=0x7ff9183557dd
+TOKEN 56 cell=0x7ff918355e30 bytes=65f9ffff target=0x7ff918355781
+TOKEN 57 cell=0x7ff918355e34 bytes=92f9ffff target=0x7ff9183557ae
+TOKEN 58 cell=0x7ff918355e38 bytes=a7f9ffff target=0x7ff9183557c3
+TOKEN 59 cell=0x7ff918355e3c bytes=9bf9ffff target=0x7ff9183557b7
+TOKEN 60 cell=0x7ff918355e40 bytes=56f9ffff target=0x7ff918355772
+TOKEN 61 cell=0x7ff918355e44 bytes=aff9ffff target=0x7ff9183557cb
+TOKEN 62 cell=0x7ff918355e48 bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 63 cell=0x7ff918355e4c bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 64 cell=0x7ff918355e50 bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 65 cell=0x7ff918355e54 bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 66 cell=0x7ff918355e58 bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 67 cell=0x7ff918355e5c bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 68 cell=0x7ff918355e60 bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 69 cell=0x7ff918355e64 bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 70 cell=0x7ff918355e68 bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 71 cell=0x7ff918355e6c bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 72 cell=0x7ff918355e70 bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 73 cell=0x7ff918355e74 bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 74 cell=0x7ff918355e78 bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 75 cell=0x7ff918355e7c bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 76 cell=0x7ff918355e80 bytes=7df9ffff target=0x7ff918355799
+TOKEN 77 cell=0x7ff918355e84 bytes=d3f9ffff target=0x7ff9183557ef
+TOKEN 78 cell=0x7ff918355e88 bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 79 cell=0x7ff918355e8c bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 80 cell=0x7ff918355e90 bytes=cdf9ffff target=0x7ff9183557e9
+TOKEN 81 cell=0x7ff918355e94 bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 82 cell=0x7ff918355e98 bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 83 cell=0x7ff918355e9c bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 84 cell=0x7ff918355ea0 bytes=3ff9ffff target=0x7ff91835575b
+TOKEN 85 cell=0x7ff918355ea4 bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 86 cell=0x7ff918355ea8 bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 87 cell=0x7ff918355eac bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 88 cell=0x7ff918355eb0 bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 89 cell=0x7ff918355eb4 bytes=a2ffffff target=0x7ff918355dbe
+TOKEN 90 cell=0x7ff918355eb8 bytes=33f9ffff target=0x7ff91835574f

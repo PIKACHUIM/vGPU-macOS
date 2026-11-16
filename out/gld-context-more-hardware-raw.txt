@@ -1,0 +1,242 @@
+/System/Library/Extensions/AMDRadeonX4000GLDriver.bundle/Contents/MacOS/AMDRadeonX4000GLDriver [x86_64h]:
+    -uuid:
+        6C57AF6E-4735-3086-A81F-A19269B313F9
+
+_gldPopulateContextDispatch:
+0x000000FB0   pushq    %rbp                 
+0x000000FB1   movq     %rsp, %rbp           
+0x000000FB4   movq     %rsi, 0x80(%rdi)     
+0x000000FBB   movq     $0x0, (%rsi)         
+0x000000FC2   leaq     0x556f(%rip), %rax   ; _glrdATICopyPixels
+0x000000FC9   movq     %rax, 0x10(%rsi)     
+0x000000FCD   leaq     0x6095f(%rip), %rax  ; _glrdATI_Hwl_DrawPixels
+0x000000FD4   movq     %rax, 0x8(%rsi)      
+0x000000FD8   leaq     0x290a1(%rip), %rax  ; _glrdAMD_BeginPrimitiveBuffer
+0x000000FDF   movq     %rax, 0xa0(%rsi)     
+0x000000FE6   leaq     0x2921f(%rip), %rax  ; _glrdAMD_EndPrimitiveBuffer
+0x000000FED   movq     %rax, 0xa8(%rsi)     
+0x000000FF4   vxorps   %xmm0, %xmm0, %xmm0  
+0x000000FF8   vmovups  %xmm0, 0xb0(%rsi)    
+0x000001000   leaq     0x58d5a(%rip), %rax  ; _glrdAMD_RenderVertexArray
+0x000001007   movq     %rax, 0xc0(%rsi)     
+0x00000100E   vxorps   %xmm0, %xmm0, %xmm0  
+0x000001012   vmovups  %ymm0, 0x68(%rsi)    
+0x000001017   leaq     0xc31(%rip), %rax    ; _glrATI_SI_NoOp
+0x00000101E   vmovq    %rax, %xmm0          
+0x000001023   vpbroadcastq %xmm0, %ymm0         
+0x000001028   vmovdqu  %ymm0, 0x18(%rsi)    
+0x00000102D   movq     %rax, 0x58(%rsi)     
+0x000001031   movq     %rax, 0x60(%rsi)     
+0x000001035   vmovdqu  %ymm0, 0x38(%rsi)    
+0x00000103A   movq     %rax, 0x88(%rsi)     
+0x000001041   movq     %rax, 0x90(%rsi)     
+0x000001048   movq     %rax, 0x98(%rsi)     
+0x00000104F   andb     $-0x3, 0x2b41(%rdi)  
+0x000001056   popq     %rbp                 
+0x000001057   vzeroupper                      
+0x00000105A   retq                          
+_glrPopulateContextConfig:
+0x0000574F0   pushq    %rbp                 
+0x0000574F1   movq     %rsp, %rbp           
+0x0000574F4   pushq    %r15                 
+0x0000574F6   pushq    %r14                 
+0x0000574F8   pushq    %r13                 
+0x0000574FA   pushq    %r12                 
+0x0000574FC   pushq    %rbx                 
+0x0000574FD   subq     $0x18, %rsp          
+0x000057501   movq     %rdx, %r14           
+0x000057504   movq     %rsi, %rbx           
+0x000057507   movabsq  $0x40000000000a, %rax 
+0x000057511   movq     %rax, (%rsi)         
+0x000057514   movb     $0x40, 0x18(%rsi)    
+0x000057518   movw     $0x6, 0x1a(%rsi)     
+0x00005751E   movl     $0x4000, 0x8(%rsi)   
+0x000057525   movb     $0x8, 0x16(%rsi)     
+0x000057529   movb     $0x1, %r13b          
+0x00005752C   movb     %r13b, 0x1eb(%rsi)   
+0x000057533   movabsq  $0x2000000020, %rax  
+0x00005753D   movq     %rax, 0xc(%rsi)      
+0x000057541   movw     $0x808, 0x14(%rsi)   
+0x000057547   vmovaps  0x672f1(%rip), %ymm0  ; 
+0x00005754F   vmovups  %ymm0, 0x3c(%rsi)    
+0x000057554   vmovsd   0x67344(%rip), %xmm0  ; 
+0x00005755C   vmovsd   %xmm0, 0x5c(%rsi)    
+0x000057561   movabsq  $0x8000000080, %rax  
+0x00005756B   movq     %rax, 0x7c(%rsi)     
+0x00005756F   movl     $0x3f, 0x84(%rsi)    
+0x000057579   movw     $0x101, %ax          
+0x00005757D   movw     %ax, 0x64(%rsi)      
+0x000057581   xorl     %r12d, %r12d         
+0x000057584   movw     %r12w, 0x67(%rsi)    
+0x000057589   movb     $0x0, 0x69(%rsi)     
+0x00005758D   movb     %r13b, 0x6b(%rsi)    
+0x000057591   movb     0x50(%rdi), %cl      
+0x000057594   notb     %cl                  
+0x000057596   shrb     $0x7, %cl            
+0x000057599   movb     %cl, 0x6a(%rsi)      
+0x00005759C   movb     %r13b, 0x66(%rsi)    
+0x0000575A0   movw     %ax, 0x6d(%rsi)      
+0x0000575A4   testl    $0x3ffffffc, 0x14(%rdx) 
+0x0000575AB   setne    0x28(%rsi)           
+0x0000575AF   movb     0x10(%rdx), %al      
+0x0000575B2   shrb     $0x3, %al            
+0x0000575B5   andb     %r13b, %al           
+0x0000575B8   movb     %al, 0x29(%rsi)      
+0x0000575BB   movb     0x10(%rdx), %al      
+0x0000575BE   shrb     %al                  
+0x0000575C0   andb     %r13b, %al           
+0x0000575C3   movb     %al, 0x2a(%rsi)      
+0x0000575C6   testl    $0x3f000000, 0x14(%rdx) 
+0x0000575CD   setne    0x2b(%rsi)           
+0x0000575D1   movl     0xc(%rdx), %eax      
+0x0000575D4   shrl     $0xb, %eax           
+0x0000575D7   andb     %r13b, %al           
+0x0000575DA   movb     %al, 0x2c(%rsi)      
+0x0000575DD   movl     0x14(%rdx), %edi     
+0x0000575E0   leaq     -0x38(%rbp), %r15    
+0x0000575E4   movq     %r15, %rsi           
+0x0000575E7   vzeroupper                      
+0x0000575EA   callq    _gpusColorSizes      
+0x0000575EF   movq     (%r15), %rax         
+0x0000575F2   vmovq    %rax, %xmm0          
+0x0000575F7   vpshufb  0x672b0(%rip), %xmm0, %xmm0  ; 
+0x000057600   vmovd    %xmm0, 0x30(%rbx)    
+0x000057605   cmpw     $0x8, %ax            
+0x000057609   sete     0x2d(%rbx)           
+0x00005760D   movb     0x8(%r15), %al       
+0x000057611   movb     %al, 0x2e(%rbx)      
+0x000057614   movl     0x1c(%r14), %edi     
+0x000057618   callq    _gpusDepthSize       
+0x00005761D   movb     %al, 0x38(%rbx)      
+0x000057620   movl     0x20(%r14), %edi     
+0x000057624   callq    _gpusDepthSize       
+0x000057629   movb     %al, 0x39(%rbx)      
+0x00005762C   movb     0x26(%r14), %al      
+0x000057630   movb     %al, 0x2f(%rbx)      
+0x000057633   movb     0x28(%r14), %al      
+0x000057637   movb     %al, 0x3a(%rbx)      
+0x00005763A   movb     0x2a(%r14), %al      
+0x00005763E   movb     %al, 0x3b(%rbx)      
+0x000057641   vpxor    %xmm0, %xmm0, %xmm0  
+0x000057645   vmovdqu  %xmm0, 0x208(%rbx)   
+0x00005764D   movl     $0xfffff, 0x70(%rbx) 
+0x000057654   movb     %r13b, 0x17(%rbx)    
+0x000057658   movb     $0x50, 0x1ea(%rbx)   
+0x00005765F   movw     $0x100, 0x1e8(%rbx)  
+0x000057668   movl     $0x800008, 0x98(%rbx) 
+0x000057672   movw     $0x80, 0x9c(%rbx)    
+0x00005767B   vbroadcastss 0x640f0(%rip), %xmm0  ; 
+0x000057684   vmovlps  %xmm0, 0x90(%rbx)    
+0x00005768C   movabsq  $0x4000080040000008, %rax 
+0x000057696   movq     %rax, 0x9e(%rbx)     
+0x00005769D   movabsq  $0x800000000004000, %rax 
+0x0000576A7   movq     %rax, 0xb0(%rbx)     
+0x0000576AE   movabsq  $0x108080840004000, %rax 
+0x0000576B8   movq     %rax, 0xa6(%rbx)     
+0x0000576BF   movw     $0x8001, 0xae(%rbx)  
+0x0000576C8   movabsq  $-0x7fffffff8001, %rax 
+0x0000576D2   movq     %rax, 0x1ec(%rbx)    
+0x0000576D9   movl     $0x8e4d8e4d, 0x1f4(%rbx) 
+0x0000576E3   movb     $0x10, 0x1f8(%rbx)   
+0x0000576EA   movabsq  $0x100001000004000, %rax 
+0x0000576F4   movq     %rax, 0xb8(%rbx)     
+0x0000576FB   movl     $0x400, %ecx         
+0x000057700   movl     %ecx, 0xc0(%rbx)     
+0x000057706   movw     $0x4, %dx            
+0x00005770A   movw     %dx, 0xc4(%rbx)      
+0x000057711   movabsq  $0xc00004000, %rsi   
+0x00005771B   movq     %rsi, 0xc8(%rbx)     
+0x000057722   movl     $0x80, 0x15c(%rbx)   
+0x00005772C   movw     $0x1, 0x154(%rbx)    
+0x000057735   movw     $0x10, 0x160(%rbx)   
+0x00005773E   movl     $0x1000, 0x158(%rbx) 
+0x000057748   movabsq  $0x100000a00004000, %rdi 
+0x000057752   movq     %rdi, 0x118(%rbx)    
+0x000057759   movl     %ecx, 0x120(%rbx)    
+0x00005775F   movw     %dx, 0x124(%rbx)     
+0x000057766   movq     %rsi, 0x128(%rbx)    
+0x00005776D   vmovaps  0x6714b(%rip), %xmm0  ; 
+0x000057775   vmovups  %xmm0, 0x138(%rbx)   
+0x00005777D   movabsq  $0x101000000000ff, %rdx 
+0x000057787   movq     %rdx, 0x148(%rbx)    
+0x00005778E   vmovsd   0x6713a(%rip), %xmm0  ; 
+0x000057796   vmovsd   %xmm0, 0x130(%rbx)   
+0x00005779E   movb     $0x4, 0x150(%rbx)    
+0x0000577A5   vmovaps  0x67133(%rip), %xmm0  ; 
+0x0000577AD   vmovups  %xmm0, 0x100(%rbx)   
+0x0000577B5   movq     %rsi, 0x110(%rbx)    
+0x0000577BC   vmovaps  0x6712c(%rip), %xmm0  ; 
+0x0000577C4   vmovups  %xmm0, 0x164(%rbx)   
+0x0000577CC   movabsq  $0x20001000004000, %rdx 
+0x0000577D6   movq     %rdx, 0x174(%rbx)    
+0x0000577DD   movq     %rax, 0xd0(%rbx)     
+0x0000577E4   movl     %ecx, 0xd8(%rbx)     
+0x0000577EA   movw     %r12w, 0xdc(%rbx)    
+0x0000577F2   movabsq  $0xc00000000, %rdx   
+0x0000577FC   movq     %rdx, 0xe0(%rbx)     
+0x000057803   movq     %rax, 0xe8(%rbx)     
+0x00005780A   movl     %ecx, 0xf0(%rbx)     
+0x000057810   movw     %r12w, 0xf4(%rbx)    
+0x000057818   movq     %rdx, 0xf8(%rbx)     
+0x00005781F   vmovaps  0x67039(%rip), %ymm0  ; 
+0x000057827   vmovups  %ymm0, 0x17c(%rbx)   
+0x00005782F   movabsq  $0x2000000040, %rax  
+0x000057839   movq     %rax, 0x1fc(%rbx)    
+0x000057840   movl     $0x78, 0x204(%rbx)   
+0x00005784A   vmovaps  0x670ae(%rip), %xmm0  ; 
+0x000057852   vmovups  %xmm0, 0x19c(%rbx)   
+0x00005785A   movl     $0x10000, 0x1c4(%rbx) 
+0x000057864   vmovaps  0x670a4(%rip), %xmm0  ; 
+0x00005786C   vmovups  %xmm0, 0x1ac(%rbx)   
+0x000057874   movabsq  $0x8000500004, %rax  
+0x00005787E   movq     %rax, 0x1bc(%rbx)    
+0x000057885   vmovaps  0x66ff3(%rip), %ymm0  ; 
+0x00005788D   vmovups  %ymm0, 0x1c8(%rbx)   
+0x000057895   movq     $-0x1, 0x220(%rbx)   
+0x0000578A0   movabsq  $0x3987ffffffffff7f, %rax 
+0x0000578AA   orq      %rax, 0x228(%rbx)    
+0x0000578B1   addq     $0x18, %rsp          
+0x0000578B5   popq     %rbx                 
+0x0000578B6   popq     %r12                 
+0x0000578B8   popq     %r13                 
+0x0000578BA   popq     %r14                 
+0x0000578BC   popq     %r15                 
+0x0000578BE   popq     %rbp                 
+0x0000578BF   vzeroupper                      
+0x0000578C2   retq                          
+/System/Library/Extensions/AppleIntelICLGraphicsGLDriver.bundle/Contents/MacOS/AppleIntelICLGraphicsGLDriver [x86_64h]:
+    -uuid:
+        92B06C89-66A9-35A4-8991-F451319C4C99
+
+_glrPopulateContextConfig:
+0x7FFB039D8A03   pushq    %rbp                 
+0x7FFB039D8A04   movq     %rsp, %rbp           
+0x7FFB039D8A07   popq     %rbp                 
+0x7FFB039D8A08   jmp      _IntelSetConfigData  
+_gldPopulateContextDispatch:
+0x7FFB039D8E25   pushq    %rbp                 
+0x7FFB039D8E26   movq     %rsp, %rbp           
+0x7FFB039D8E29   vxorps   %xmm0, %xmm0, %xmm0  
+0x7FFB039D8E2D   vmovups  %ymm0, 0x80(%rsi)    
+0x7FFB039D8E35   vmovups  %ymm0, 0x60(%rsi)    
+0x7FFB039D8E3A   vmovups  %ymm0, 0x40(%rsi)    
+0x7FFB039D8E3F   vmovups  %ymm0, 0x20(%rsi)    
+0x7FFB039D8E44   vmovups  %ymm0, (%rsi)        
+0x7FFB039D8E48   leaq     -0x549b(%rip), %rax  ; _glrIntelBeginPrimitiveBuffer
+0x7FFB039D8E4F   movq     %rax, 0xa0(%rsi)     
+0x7FFB039D8E56   leaq     -0x51d3(%rip), %rax  ; _glrIntelEndPrimitiveBuffer
+0x7FFB039D8E5D   movq     %rax, 0xa8(%rsi)     
+0x7FFB039D8E64   vxorps   %xmm0, %xmm0, %xmm0  
+0x7FFB039D8E68   vmovups  %xmm0, 0xb0(%rsi)    
+0x7FFB039D8E70   leaq     0xf709(%rip), %rax   ; _glrIntelNoopRenderVertexArray
+0x7FFB039D8E77   movq     %rax, 0xc0(%rsi)     
+0x7FFB039D8E7E   popq     %rbp                 
+0x7FFB039D8E7F   vzeroupper                      
+0x7FFB039D8E82   retq                          
+0x7FFB039D8E83   nop                           
+0x7FFB039D8E84   addb     %al, (%rax)          
+0x7FFB039D8E86   addb     %al, (%rax)          
+0x7FFB039D8E88   addb     %al, (%rax)          
+0x7FFB039D8E8A   addb     %al, (%rax)          
+0x7FFB039D8E8C   addb     %al, (%rax)          
+0x7FFB039D8E8E   addb     %al, (%rax)          

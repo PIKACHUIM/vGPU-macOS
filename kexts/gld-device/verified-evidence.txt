@@ -1,0 +1,87 @@
+独立 GLD device 生命周期模块实测证据
+日期：2026-11-16
+目标：macOS 15.7.3 / 24G419 / x86_64
+范围：只新增 kexts/gld-device/ 与 kexts/probes/gld_device_probe.c。
+没有修改内核、gld-diagnostic、既有文档；没有 git 操作、系统安装或重启。
+没有调用 draw/clear selector 0/2/3、没有提交 GPU 工作、没有复制 127 trap。
+
+实现
+- gldInitializeLibrary 为已核验六参数调用点 ABI，复制活动槽 service/byte/mask，并逐槽 IOObjectRetain。
+- 仅接受同时 conformsTo vgpuAccelerator 和 IOAccelerator 的服务；错误服务导致整次初始化回滚。
+- 同一实际服务的多槽合并，按首次出现顺序分配设备 ordinal。
+- ID = (ordinal << 24) | 0x00027e00；0x7e00 是独立实验 driver field，0x20000 对应已核验 loader driver ID 位。
+- gldCreateDevice(void **, uint32_t, void *C) 要求非零 mask 完全属于一个服务组。
+- D 真正拥有 IOServiceOpen(service, mach_task_self(), 0x56475055) 管理员私有连接及 service 引用。
+- 仅在打开、连接响应、registry ID 和页大小查询全部成功后分配并发布 D。
+- C 全部 0x190 字节清零，只在 +0x180 写实际 u64 registry ID，+0x188 写 getpagesize 的 int64 值。
+- create 失败时 *out=NULL，C 完全不写，所有临时引用/连接回滚。
+- Populate 写恰好 0x88 字节：+8 renderer ID，+0x24 服务组 mask，+0x34 实际 registry ID。
+  R 的其余字节为零，包括能力 flags、颜色/深度/样本/计算/显存字段。
+- destroy 关闭连接、释放服务和 D，不释放或修改调用者 C/R。
+- terminate 释放剩余 D 和全部库级 service 引用，重复 terminate 安全。
+- 已释放设备在未被新设备地址复用前会被活动列表拒绝；不承诺 stale handle 跨地址复用仍可识别。
+- 模块入口以 pthread mutex 串行化生命周期；未实施多线程压力测试。
+- vgpuGLDDeviceGetStatus / vgpuGLDDeviceGetCounts 是本模块专用检查接口，不是苹果 ABI。
+
+连接检查的真实边界
+首次 root 实验 IOServiceOpen 成功，但 IOConnectGetService 返回 0xe00002c7 (Unsupported)，因此早期实现正确拒绝 create。
+最终实现不使用这个不受支持的查询。改用既有已核验 selector 1：input={generation=0,row=0}，output 长度1024。
+kexts/framebuffer/vgpuFramebuffer.cpp:userReadRow 明确要求 generation 非零才复制已有数据；零 generation 恒返回 NotReady。
+实测 0xe00002d8 (NotReady)，表示该私有连接可调用到已验证的拒绝读取路径。
+这个调用不改 generation、不触发绘制、不复制像素，更不证明 GPU 资源已就绪。
+已打开连接真实存在和能够响应才允许发布设备；不是 malloc dummy success。
+没有为此修改内核或增加未经验证的内核 selector。
+
+构建与运行
+最终客体目录：/var/tmp/gld-device-PQ42V35e
+早期实验目录：/var/tmp/gld-device-NaEnatGZ（保留，不清理）
+严格构建（exit=0，无警告）：
+clang -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -Wstrict-prototypes -O2 -g -fvisibility=hidden -I/var/tmp/gld-device-PQ42V35e /var/tmp/gld-device-PQ42V35e/gld_device.c /var/tmp/gld-device-PQ42V35e/gld_device_probe.c -framework IOKit -framework CoreFoundation -o /var/tmp/gld-device-PQ42V35e/gld_device_probe
+失败构建同源，增加 -DGLD_DEVICE_OPEN_TYPE=0xffffffffU，输出 gld_device_probe_bad_type。
+此失败构建只用于实际 IOServiceOpen 拒绝回滚用例，不可用作设备实现。
+ASan/UBSan：同一源码与严格告警，使用 -O1 -fsanitize=address,undefined -fno-omit-frame-pointer；
+root 运行 ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1，exit=0，无 sanitizer 报告。
+仓库 build.sh 可在 macOS 传入一个已有输出目录，构建正常与失败版本；本地 bash -n 通过。
+最终源文件经 mssh 上传；实际编译与运行均在 SSH 客体完成。
+
+结果与原始日志
+root-evidence.txt：exit=0
+  uid=0，registry ID=0x000000010000045e，关联 index=0。
+  renderer ID=0x01027e00，合并 mask=0x80000081，getpagesize=4096，flags=0。
+  64 create/destroy 轮次，1024 renderer 查询，另含 terminate 遗留设备和 caller 提前释放服务用例。
+  最终 service refs=0、devices=0、connections=0、retains/releases=73/73、opens/closes=66/66。
+nonroot-evidence.txt：exit=0
+  uid=501（已有 admin 组用户，非 root），实际拒绝 0xe00002c1 (NotPrivileged)。
+  64 次 create 失败回滚，retains/releases=68/68、opens/closes=0/0。
+open-failure-evidence.txt：exit=0
+  uid=0，type=0xffffffff，真实内核 open 拒绝 0xe00002c7 (Unsupported)。
+  64 次 create 失败回滚，retains/releases=68/68、opens/closes=0/0。
+sanitized-evidence.txt：exit=0
+  与 root 同完整生命周期用例，最终73/73 service retains/releases与66/66 opens/closes。
+所有运行 cleanup_status=0；service Mach send urefs 实测 baseline=1，terminate 后 final=1。
+独立检查了 source service 在 create 前由 caller 释放，模块 retained service 仍能完成真正 create/destroy。
+全部运行验证 zero/disjoint/partially-outside mask，失败时 NULL 输出、C 完全保持，初始化中途回滚。
+成功全字节对比 C、R，前后16字节 canary 和8字节句柄边界全保持。
+重复 populate 不改 C；destroy 不改 C/R；销毁后重复查询/销毁被拒绝；重复 terminate 不重复释放。
+错误非加速器服务在正常槽之后出现时，先前 retain 全部释放。
+
+源文件 SHA256（客体与本地一致）
+gld_device.c 4d4615ca77fd025bb0ab3ad764917325a2c72513d66dd58e85462079d4c13df4
+gld_device.h 1fd3979ed64a5c0b14ce3f7c89e1178ba87546f5bac1e8f181dc37d4f2fe5563
+gld_device_probe.c e6947ee7a7b2b1be9547f77cf99d48166a9e680ae9ee1627afc9104afdf586e6
+
+仍未闭合的字段与集成事项
+1. C+0/+4/+6/+7正式语义、C+5实际 removable 属性来源、C完整消费者仍未闭合；本模块全部保持零。
+2. C+0x10..0x17f 计算能力、字符串/指针、OpenCL profile、格式列表不发布。
+3. 初始化 byte 数组正式意义、flags 位、flush/bind 回调签名未恢复；byte 仅复制，回调不调用。
+4. R未映射字节含义、完整 pixel/context/share/resources/dispatch ABI未完成；能力flags全零。
+   已知 CGL MajorGLVersion 消费者即使flags=0仍返回基础值2，故不能将本记录交给系统后声称GL2支持。
+5. 单真实 accelerator 已验证，槽0/7/31重复服务合并已验证；多物理 accelerator、跨服务 mask 拒绝分支未能在本客体验证。
+6. ID 与本模块槽位/组编号一致，但未通过真实 libGFXShared W / pixel-format 节点集成验证；未来集成需统一0x7e00来源和设备排序。
+7. 不导出完整129 GLD接口，不实现 gldGetVersion/像素格式/上下文，不构造安装 bundle，不宣称系统 loader 已装载。
+8. malloc/retain 故障、服务热拔插、IOServiceClose异常没有注入测试；连接失败和初始化部分retain回滚是实际负向覆盖。
+9. 资源计数、所有 close/release 返回值与Mach发送引用验证支持无遗留引用结论；不是全系统内核堆泄漏扫描。
+10. selector1零generation返回NotReady是无绘制活性检查；未来如需真正资源就绪状态，应设计并验证独立只读后端状态ABI。
+
+结论：未安装的独立device生命周期模块真实持有已核验加速器私有连接，正反生命周期及边界实测通过。
+此结果不等同可安装GLD、不等同可创建CGL context、不等同可渲染OpenGL。

@@ -1,0 +1,676 @@
+=== render[21] direct _gleDrawPixelsFast: ===
+0x7FFB0639B00D   movl     $0x1, %r12d          
+0x7FFB0639B013   xorl     %ecx, %ecx           
+0x7FFB0639B015   xorl     %r13d, %r13d         
+0x7FFB0639B018   xorl     %r14d, %r14d         
+0x7FFB0639B01B   movq     %rcx, -0x170(%rbp)   
+0x7FFB0639B022   movss    0xaef0(%r10), %xmm0  
+0x7FFB0639B02B   movss    %xmm7, -0xa4(%rbp)   
+0x7FFB0639B033   mulss    %xmm7, %xmm0         
+0x7FFB0639B037   addss    0xaef4(%r10), %xmm0  
+0x7FFB0639B040   movss    %xmm0, -0x4bc(%r9)   
+0x7FFB0639B049   cmpl     $0x0, -0x48(%rbp)    
+0x7FFB0639B04D   jle      0x7ffb0639b14b       
+0x7FFB0639B053   xorl     %ebx, %ebx           
+0x7FFB0639B055   movaps   -0x190(%rbp), %xmm0  
+0x7FFB0639B05C   movss    %xmm0, -0x38(%rbp)   
+0x7FFB0639B061   cmpq     %r12, %r14           
+0x7FFB0639B064   je       0x7ffb0639b06d       
+0x7FFB0639B066   testl    %r13d, %r13d         
+0x7FFB0639B069   jne      0x7ffb0639b0c9       
+0x7FFB0639B06B   jmp      0x7ffb0639b089       
+0x7FFB0639B06D   movq     0xb308(%r10), %rdi   
+0x7FFB0639B074   xorl     %esi, %esi           
+0x7FFB0639B076   xorl     %edx, %edx           
+0x7FFB0639B078   movl     %r13d, %ecx          
+0x7FFB0639B07B   movq     -0x30(%rbp), %rax    
+0x7FFB0639B07F   callq    *0xb3c8(%rax)        
+0x7FFB0639B085   movq     -0x30(%rbp), %r10    
+0x7FFB0639B089   movl     $0x0, -0x240(%rbp)   
+0x7FFB0639B093   movq     0xb308(%r10), %rdi   
+0x7FFB0639B09A   xorl     %r13d, %r13d         
+0x7FFB0639B09D   xorl     %esi, %esi           
+0x7FFB0639B09F   leaq     -0x240(%rbp), %rdx   
+0x7FFB0639B0A6   movq     -0x30(%rbp), %rax    
+
+=== render[20] direct _gleDrawPixelsFast: ===
+0x7FFB0639B037   addss    0xaef4(%r10), %xmm0  
+0x7FFB0639B040   movss    %xmm0, -0x4bc(%r9)   
+0x7FFB0639B049   cmpl     $0x0, -0x48(%rbp)    
+0x7FFB0639B04D   jle      0x7ffb0639b14b       
+0x7FFB0639B053   xorl     %ebx, %ebx           
+0x7FFB0639B055   movaps   -0x190(%rbp), %xmm0  
+0x7FFB0639B05C   movss    %xmm0, -0x38(%rbp)   
+0x7FFB0639B061   cmpq     %r12, %r14           
+0x7FFB0639B064   je       0x7ffb0639b06d       
+0x7FFB0639B066   testl    %r13d, %r13d         
+0x7FFB0639B069   jne      0x7ffb0639b0c9       
+0x7FFB0639B06B   jmp      0x7ffb0639b089       
+0x7FFB0639B06D   movq     0xb308(%r10), %rdi   
+0x7FFB0639B074   xorl     %esi, %esi           
+0x7FFB0639B076   xorl     %edx, %edx           
+0x7FFB0639B078   movl     %r13d, %ecx          
+0x7FFB0639B07B   movq     -0x30(%rbp), %rax    
+0x7FFB0639B07F   callq    *0xb3c8(%rax)        
+0x7FFB0639B085   movq     -0x30(%rbp), %r10    
+0x7FFB0639B089   movl     $0x0, -0x240(%rbp)   
+0x7FFB0639B093   movq     0xb308(%r10), %rdi   
+0x7FFB0639B09A   xorl     %r13d, %r13d         
+0x7FFB0639B09D   xorl     %esi, %esi           
+0x7FFB0639B09F   leaq     -0x240(%rbp), %rdx   
+0x7FFB0639B0A6   movq     -0x30(%rbp), %rax    
+0x7FFB0639B0AA   callq    *0xb3c0(%rax)        
+0x7FFB0639B0B0   movq     -0x30(%rbp), %r10    
+0x7FFB0639B0B4   movq     %rax, %r14           
+0x7FFB0639B0B7   movl     -0x240(%rbp), %r12d  
+0x7FFB0639B0BE   imull    -0x160(%rbp), %r12d  
+0x7FFB0639B0C6   addq     %rax, %r12           
+0x7FFB0639B0C9   movss    0xaee8(%r10), %xmm0  
+0x7FFB0639B0D2   mulss    -0x38(%rbp), %xmm0   
+
+=== render[3] direct _gleDrawPixelsFast: ===
+0x7FFB0639B5A3   movslq   %esi, %rcx           
+0x7FFB0639B5A6   movq     %rcx, -0x170(%rbp)   
+0x7FFB0639B5AD   movl     %r13d, %ecx          
+0x7FFB0639B5B0   movq     %rcx, -0xb8(%rbp)    
+0x7FFB0639B5B7   movl     -0x48(%rbp), %r12d   
+0x7FFB0639B5BB   xorl     %ebx, %ebx           
+0x7FFB0639B5BD   xorl     %edx, %edx           
+0x7FFB0639B5BF   movss    0xaef0(%r10), %xmm0  
+0x7FFB0639B5C8   mulss    %xmm7, %xmm0         
+0x7FFB0639B5CC   addss    0xaef4(%r10), %xmm0  
+0x7FFB0639B5D5   movss    %xmm0, -0x4bc(%r9)   
+0x7FFB0639B5DE   cmpl     $0x0, -0x48(%rbp)    
+0x7FFB0639B5E2   movq     %rbx, -0xd8(%rbp)    
+0x7FFB0639B5E9   jle      0x7ffb0639b771       
+0x7FFB0639B5EF   imulq    -0x170(%rbp), %rbx   
+0x7FFB0639B5F7   xorl     %r13d, %r13d         
+0x7FFB0639B5FA   movaps   %xmm1, %xmm2         
+0x7FFB0639B5FD   movss    %xmm7, -0xa4(%rbp)   
+0x7FFB0639B605   cmpq     0xa290(%r10), %rax   
+0x7FFB0639B60C   jne      0x7ffb0639b662       
+0x7FFB0639B60E   movq     0xb308(%r10), %rdi   
+0x7FFB0639B615   movq     0xa278(%r10), %rsi   
+0x7FFB0639B61C   xorl     %ecx, %ecx           
+0x7FFB0639B61E   movq     -0x30(%rbp), %rax    
+0x7FFB0639B622   movss    %xmm2, -0x160(%rbp)  
+0x7FFB0639B62A   callq    *0xb338(%rax)        
+0x7FFB0639B630   movss    -0x160(%rbp), %xmm2  
+0x7FFB0639B638   movaps   -0x190(%rbp), %xmm1  
+0x7FFB0639B63F   movss    -0xa4(%rbp), %xmm7   
+0x7FFB0639B647   movl     %r14d, %r8d          
+0x7FFB0639B64A   movq     -0xc8(%rbp), %r11    
+0x7FFB0639B651   movq     -0x50(%rbp), %r9     
+0x7FFB0639B655   movq     -0x30(%rbp), %r10    
+
+=== render[11] direct _gleDrawPixelsFast: ===
+0x7FFB0639BFB1   callq    *0xb3c0(%r10)        
+0x7FFB0639BFB8   movq     %rax, %r13           
+0x7FFB0639BFBB   movq     %r14, -0x90(%rbp)    
+0x7FFB0639BFC2   leaq     (%rax,%r14,4), %rax  
+0x7FFB0639BFC6   movq     %rax, -0x38(%rbp)    
+0x7FFB0639BFCA   leaq     0x280(%rbx), %r14    
+0x7FFB0639BFD1   movq     %r12, %rdi           
+0x7FFB0639BFD4   movq     %rbx, %rsi           
+0x7FFB0639BFD7   movq     %r13, %rdx           
+0x7FFB0639BFDA   callq    *0xa3e0(%r12)        
+0x7FFB0639BFE2   addq     -0x90(%rbp), %r13    
+0x7FFB0639BFE9   movq     %r14, %rbx           
+0x7FFB0639BFEC   cmpq     -0x38(%rbp), %r13    
+0x7FFB0639BFF0   jb       0x7ffb0639bfca       
+0x7FFB0639BFF2   movq     0xb308(%r12), %rdi   
+0x7FFB0639BFFA   movl     $0x2, %esi           
+0x7FFB0639BFFF   movl     $0x7, %edx           
+0x7FFB0639C004   movl     $0x4, %ecx           
+0x7FFB0639C009   callq    *0xb3c8(%r12)        
+0x7FFB0639C011   jmp      0x7ffb0639c031       
+0x7FFB0639C013   movq     0xb308(%r10), %rdi   
+0x7FFB0639C01A   movq     %rbx, %rsi           
+0x7FFB0639C01D   movl     $0x4, %edx           
+0x7FFB0639C022   movl     $0x2, %ecx           
+0x7FFB0639C027   movq     %r10, %r12           
+0x7FFB0639C02A   callq    *0xb378(%r10)        
+0x7FFB0639C031   movq     0x5b00(%r12), %rax   
+0x7FFB0639C039   movl     0x17c(%rax), %eax    
+0x7FFB0639C03F   movl     $0x1, -0x38(%rbp)    
+0x7FFB0639C046   movl     $0x0, -0x5c(%rbp)    
+0x7FFB0639C04D   cmpl     %eax, 0xb628(%r12)   
+0x7FFB0639C055   movq     %r12, %r10           
+0x7FFB0639C058   movq     -0x58(%rbp), %rdi    
+
+=== render[24] direct _glDrawArrays_Exec: ===
+0x7FFB0639FBA1   je       0x7ffb0639fbb7       
+0x7FFB0639FBA3   movq     $0x0, 0xa580(%rbx)   
+0x7FFB0639FBAE   movw     $0x14ff, 0xa598(%rbx) 
+0x7FFB0639FBB7   movq     %rbx, %rdi           
+0x7FFB0639FBBA   xorl     %esi, %esi           
+0x7FFB0639FBBC   movl     %r12d, %edx          
+0x7FFB0639FBBF   movl     $0x1, %ecx           
+0x7FFB0639FBC4   movl     $0x4, %r8d           
+0x7FFB0639FBCA   movq     %r9, -0x38(%rbp)     
+0x7FFB0639FBCE   callq    _gleDrawArraysOrElements_Entries_Body 
+0x7FFB0639FBD3   cmpl     $0x2, %eax           
+0x7FFB0639FBD6   je       0x7ffb0639fcb4       
+0x7FFB0639FBDC   movl     %eax, %r15d          
+0x7FFB0639FBDF   testl    %eax, %eax           
+0x7FFB0639FBE1   je       0x7ffb0639fc19       
+0x7FFB0639FBE3   movzwl   0xa598(%rbx), %r9d   
+0x7FFB0639FBEB   movq     0xb308(%rbx), %rdi   
+0x7FFB0639FBF2   subq     $0x8, %rsp           
+0x7FFB0639FBF6   xorl     %esi, %esi           
+0x7FFB0639FBF8   movl     %r12d, %edx          
+0x7FFB0639FBFB   movl     -0x2c(%rbp), %ecx    
+0x7FFB0639FBFE   movl     %r14d, %r8d          
+0x7FFB0639FC01   pushq    $0x0                 
+0x7FFB0639FC03   pushq    $0x1                 
+0x7FFB0639FC05   pushq    0xa580(%rbx)         
+0x7FFB0639FC0B   callq    *0xb3e0(%rbx)        
+0x7FFB0639FC11   addq     $0x20, %rsp          
+0x7FFB0639FC15   testl    %eax, %eax           
+0x7FFB0639FC17   jne      0x7ffb0639fc7a       
+0x7FFB0639FC19   movl     $0x1, %esi           
+0x7FFB0639FC1E   movl     %r12d, %ecx          
+0x7FFB0639FC21   shll     %cl, %esi            
+0x7FFB0639FC23   cmpb     $-0x1, 0xc68c(%rbx)  
+
+=== render[2] direct _gleBlitFramebuffer: ===
+0x7FFB06458287   movaps   -0x180(%rbp), %xmm0  
+0x7FFB0645828E   movaps   -0x170(%rbp), %xmm3  
+0x7FFB06458295   cmpl     $0x0, -0xac(%rbp)    
+0x7FFB0645829C   je       0x7ffb06458319       
+0x7FFB0645829E   cmpl     $0x0, -0xa8(%rbp)    
+0x7FFB064582A5   je       0x7ffb06458319       
+0x7FFB064582A7   movss    0xaee8(%rbx), %xmm2  
+0x7FFB064582AF   insertps $0x10, 0xaef0(%rbx), %xmm2 
+0x7FFB064582B9   movss    0xaeec(%rbx), %xmm1  
+0x7FFB064582C1   mulps    %xmm3, %xmm2         
+0x7FFB064582C4   insertps $0x10, 0xaef4(%rbx), %xmm1 
+0x7FFB064582CE   addps    %xmm2, %xmm1         
+0x7FFB064582D1   leaq     -0x40(%rbp), %r14    
+0x7FFB064582D5   movlps   %xmm1, (%r14)        
+0x7FFB064582D9   movshdup %xmm0, %xmm1         
+0x7FFB064582DD   movq     %rbx, %rdi           
+0x7FFB064582E0   callq    _glPixelZoom_Exec    
+0x7FFB064582E5   movq     0xb308(%rbx), %rdi   
+0x7FFB064582EC   movl     -0x50(%rbp), %edx    
+0x7FFB064582EF   movl     -0x84(%rbp), %ecx    
+0x7FFB064582F5   movl     -0xac(%rbp), %r8d    
+0x7FFB064582FC   movl     -0xa8(%rbp), %r9d    
+0x7FFB06458303   subq     $0x8, %rsp           
+0x7FFB06458307   movq     %r14, %rsi           
+0x7FFB0645830A   pushq    $0x1802              
+0x7FFB0645830F   callq    *0xb330(%rbx)        
+0x7FFB06458315   addq     $0x10, %rsp          
+0x7FFB06458319   leaq     -0x390(%rbp), %r14   
+0x7FFB06458320   movq     0x5b00(%rbx), %rax   
+0x7FFB06458327   movl     0x17c(%rax), %eax    
+0x7FFB0645832D   cmpl     %eax, 0xb628(%rbx)   
+0x7FFB06458333   je       0x7ffb0645835a       
+0x7FFB06458335   cmpq     $0x0, 0xb2b8(%rbx)   
+
+=== render[17] direct _gleLLVMVecPrimPointRender: ===
+0x7FFB064BE9F4   je       0x7ffb064beb70       
+0x7FFB064BE9FA   movl     %eax, %edx           
+0x7FFB064BE9FC   cmpb     $0x0, -0x32(%rbp)    
+0x7FFB064BEA00   jne      0x7ffb064bea19       
+0x7FFB064BEA02   movq     %r14, %rdi           
+0x7FFB064BEA05   movq     %r13, %rsi           
+0x7FFB064BEA08   callq    *0x1e8(%r14)         
+0x7FFB064BEA0F   movl     %eax, %edx           
+0x7FFB064BEA11   testl    %eax, %eax           
+0x7FFB064BEA13   je       0x7ffb064beb70       
+0x7FFB064BEA19   cmpb     $0x0, -0x2b(%rbp)    
+0x7FFB064BEA1D   movq     %rdx, -0x40(%rbp)    
+0x7FFB064BEA21   jne      0x7ffb064bea34       
+0x7FFB064BEA23   movq     %r14, %rdi           
+0x7FFB064BEA26   movq     %r13, %rsi           
+0x7FFB064BEA29   callq    *0x5e88(%r14)        
+0x7FFB064BEA30   movq     -0x40(%rbp), %rdx    
+0x7FFB064BEA34   cmpb     $0x0, -0x31(%rbp)    
+0x7FFB064BEA38   je       0x7ffb064beb74       
+0x7FFB064BEA3E   cmpb     $0x0, -0x30(%rbp)    
+0x7FFB064BEA42   je       0x7ffb064beb85       
+0x7FFB064BEA48   testb    $0x1, -0x68(%rbp)    
+0x7FFB064BEA4C   je       0x7ffb064bebb9       
+0x7FFB064BEA52   movq     0xb308(%r14), %rdi   
+0x7FFB064BEA59   movq     %r13, %rsi           
+0x7FFB064BEA5C   callq    *0xb3a8(%r14)        
+0x7FFB064BEA63   jmp      0x7ffb064beba0       
+0x7FFB064BEA68   nopl     (%rax,%rax)          
+0x7FFB064BEA70   cmpb     $0x0, -0x2b(%rbp)    
+0x7FFB064BEA74   movq     %rdx, -0x40(%rbp)    
+0x7FFB064BEA78   jne      0x7ffb064bea8b       
+0x7FFB064BEA7A   movq     %r14, %rdi           
+0x7FFB064BEA7D   movq     %r12, %rsi           
+
+=== render[6] direct _gleLLVMVecPrimPointRender: ===
+0x7FFB064BFAE6   movl     %r13d, %edx          
+0x7FFB064BFAE9   movq     %r10, %rbx           
+0x7FFB064BFAEC   movq     %rdi, %r14           
+0x7FFB064BFAEF   callq    *0x5e68(%rdi)        
+0x7FFB064BFAF5   movq     %r14, %rdi           
+0x7FFB064BFAF8   movq     %rbx, %r10           
+0x7FFB064BFAFB   cmpb     $0x0, -0x35(%rbp)    
+0x7FFB064BFAFF   je       0x7ffb064bfb6d       
+0x7FFB064BFB01   cmpl     $0x8000100, -0x88(%rbp) 
+0x7FFB064BFB0B   jne      0x7ffb064bfb25       
+0x7FFB064BFB0D   movq     %r12, %rsi           
+0x7FFB064BFB10   movl     %r13d, %edx          
+0x7FFB064BFB13   movq     %r10, %rbx           
+0x7FFB064BFB16   movq     %rdi, %r14           
+0x7FFB064BFB19   callq    *0x5e68(%rdi)        
+0x7FFB064BFB1F   movq     %r14, %rdi           
+0x7FFB064BFB22   movq     %rbx, %r10           
+0x7FFB064BFB25   testl    $0x20000, %r10d      
+0x7FFB064BFB2C   jne      0x7ffb064bfc94       
+0x7FFB064BFB32   movq     %rdi, %r14           
+0x7FFB064BFB35   movq     0xb308(%rdi), %rdi   
+0x7FFB064BFB3C   movq     %r12, %rsi           
+0x7FFB064BFB3F   movl     %r13d, %edx          
+0x7FFB064BFB42   movl     $0x1, %ecx           
+0x7FFB064BFB47   movq     %r10, %rbx           
+0x7FFB064BFB4A   callq    *0xb350(%r14)        
+0x7FFB064BFB51   jmp      0x7ffb064bfe16       
+0x7FFB064BFB56   addq     $-0x280, %rax        
+0x7FFB064BFB5C   movq     %rax, -0xa0(%rbp)    
+0x7FFB064BFB63   movl     $0x1, %ecx           
+0x7FFB064BFB68   jmp      0x7ffb064c059d       
+0x7FFB064BFB6D   cmpl     $0x1, -0x60(%rbp)    
+0x7FFB064BFB71   jne      0x7ffb064bfdaf       
+
+=== render[4] direct _gleLLVMVecPrimPointRender: ===
+0x7FFB064BFB8F   movslq   %r13d, %rax          
+0x7FFB064BFB92   leaq     (%rax,%rax,4), %rbx  
+0x7FFB064BFB96   shlq     $0x7, %rbx           
+0x7FFB064BFB9A   addq     %r12, %rbx           
+0x7FFB064BFB9D   movq     -0xb0(%rbp), %rax    
+0x7FFB064BFBA4   leaq     (%rax,%rax,4), %r14  
+0x7FFB064BFBA8   shll     $0x7, %r14d          
+0x7FFB064BFBAC   addq     %r12, %r14           
+0x7FFB064BFBAF   nop                           
+0x7FFB064BFBB0   movq     %r15, %rdi           
+0x7FFB064BFBB3   movq     %r14, %rsi           
+0x7FFB064BFBB6   movl     $0x1, %edx           
+0x7FFB064BFBBB   callq    *0x5e68(%r15)        
+0x7FFB064BFBC2   addq     $0x500, %r14         
+0x7FFB064BFBC9   cmpq     %rbx, %r14           
+0x7FFB064BFBCC   jb       0x7ffb064bfbb0       
+0x7FFB064BFBCE   movq     -0x48(%rbp), %rax    
+0x7FFB064BFBD2   testl    $0x20000, %eax       
+0x7FFB064BFBD7   jne      0x7ffb064bfe62       
+0x7FFB064BFBDD   movq     -0x40(%rbp), %r14    
+0x7FFB064BFBE1   movq     0xb308(%r14), %rdi   
+0x7FFB064BFBE8   movq     %r12, %rsi           
+0x7FFB064BFBEB   movl     %r13d, %edx          
+0x7FFB064BFBEE   movl     $0x2, %ecx           
+0x7FFB064BFBF3   movq     %rax, %rbx           
+0x7FFB064BFBF6   callq    *0xb340(%r14)        
+0x7FFB064BFBFD   movq     %r14, %rdi           
+0x7FFB064BFC00   movq     %rbx, %r10           
+0x7FFB064BFC03   jmp      0x7ffb064bfff5       
+0x7FFB064BFC08   movq     %rax, %rdx           
+0x7FFB064BFC0B   movl     $0x4, %eax           
+0x7FFB064BFC10   movq     -0x20(%r12,%rax,8), %rcx 
+0x7FFB064BFC15   movq     %rcx, -0x20(%rdx,%rax,8) 
+
+=== render[5] direct _gleLLVMVecPrimPointRender: ===
+0x7FFB064BFDA0   movl     %ecx, -0x34(%rbp)    
+0x7FFB064BFDA3   movq     -0x90(%rbp), %r13    
+0x7FFB064BFDAA   jmp      0x7ffb064bfe41       
+0x7FFB064BFDAF   cmpl     $0x8000100, -0x88(%rbp) 
+0x7FFB064BFDB9   jne      0x7ffb064bfde2       
+0x7FFB064BFDBB   movq     -0xb0(%rbp), %rax    
+0x7FFB064BFDC2   leaq     (%rax,%rax,4), %rsi  
+0x7FFB064BFDC6   shll     $0x7, %esi           
+0x7FFB064BFDC9   addq     %r12, %rsi           
+0x7FFB064BFDCC   leal     -0x1(%r13), %edx     
+0x7FFB064BFDD0   movq     %r10, %rbx           
+0x7FFB064BFDD3   movq     %rdi, %r14           
+0x7FFB064BFDD6   callq    *0x5e68(%rdi)        
+0x7FFB064BFDDC   movq     %r14, %rdi           
+0x7FFB064BFDDF   movq     %rbx, %r10           
+0x7FFB064BFDE2   testl    $0x20000, %r10d      
+0x7FFB064BFDE9   jne      0x7ffb064bff21       
+0x7FFB064BFDEF   movq     %rdi, %r14           
+0x7FFB064BFDF2   movq     0xb308(%rdi), %rdi   
+0x7FFB064BFDF9   xorl     %ecx, %ecx           
+0x7FFB064BFDFB   cmpb     $0x0, 0xaecc(%r14)   
+0x7FFB064BFE03   sete     %cl                  
+0x7FFB064BFE06   movq     %r12, %rsi           
+0x7FFB064BFE09   movl     %r13d, %edx          
+0x7FFB064BFE0C   movq     %r10, %rbx           
+0x7FFB064BFE0F   callq    *0xb348(%r14)        
+0x7FFB064BFE16   movq     %r14, %rdi           
+0x7FFB064BFE19   movq     %rbx, %r10           
+0x7FFB064BFE1C   jmp      0x7ffb064bfffc       
+0x7FFB064BFE21   movq     %r10, %rbx           
+0x7FFB064BFE24   movb     $-0x1, %r9b          
+0x7FFB064BFE27   xorl     %r10d, %r10d         
+0x7FFB064BFE2A   jmp      0x7ffb064c0575       
+
+=== render[18] direct _gleLLVMVecPrimPointRender: ===
+0x7FFB064C08E3   je       0x7ffb064c08f9       
+0x7FFB064C08E5   movq     %r14, %rdi           
+0x7FFB064C08E8   movq     -0x70(%rbp), %rsi    
+0x7FFB064C08EC   movl     %r13d, %edx          
+0x7FFB064C08EF   callq    *0x5e88(%rdi)        
+0x7FFB064C08F5   movq     -0x48(%rbp), %r10    
+0x7FFB064C08F9   movq     %r12, %rdx           
+0x7FFB064C08FC   movq     %rbx, %r12           
+0x7FFB064C08FF   testl    $0x400, %r10d        
+0x7FFB064C0906   jne      0x7ffb064c080e       
+0x7FFB064C090C   testl    $0x800, %r10d        
+0x7FFB064C0913   movq     %r14, %r8            
+0x7FFB064C0916   jne      0x7ffb064c0956       
+0x7FFB064C0918   testl    $0x20000, %r10d      
+0x7FFB064C091F   jne      0x7ffb064c098a       
+0x7FFB064C0921   movq     %rdx, %rbx           
+0x7FFB064C0924   movl     $0x2, %ecx           
+0x7FFB064C0929   cmpb     $0x0, -0x2d(%rbp)    
+0x7FFB064C092D   jne      0x7ffb064c093c       
+0x7FFB064C092F   xorl     %ecx, %ecx           
+0x7FFB064C0931   cmpb     $0x0, 0xaecc(%r8)    
+0x7FFB064C0939   sete     %cl                  
+0x7FFB064C093C   movq     0xb308(%r8), %rdi    
+0x7FFB064C0943   movq     -0x70(%rbp), %rsi    
+0x7FFB064C0947   movl     %r13d, %edx          
+0x7FFB064C094A   callq    *0xb3b0(%r8)         
+0x7FFB064C0951   jmp      0x7ffb064c083c       
+0x7FFB064C0956   movq     0x5ac8(%r8), %rax    
+0x7FFB064C095D   movq     %r8, %rdi            
+0x7FFB064C0960   movq     -0x70(%rbp), %rsi    
+0x7FFB064C0964   movq     %rdx, %rbx           
+0x7FFB064C0967   movl     %r13d, %edx          
+0x7FFB064C096A   callq    *0x18(%rax)          
+
+=== render[19] direct _gleLLVMVecPrimMultiRender: ===
+0x7FFB064C204C   movd     0x20de4(%rip), %xmm0  ; 
+0x7FFB064C2054   cmpl     $0x0, -0xe8(%rbp)    
+0x7FFB064C205B   je       0x7ffb064c2061       
+0x7FFB064C205D   pxor     %xmm0, %xmm0         
+0x7FFB064C2061   movd     %xmm0, 0x23f0(%r13)  
+0x7FFB064C206A   cmpl     $0x5, %r10d          
+0x7FFB064C206E   jne      0x7ffb064c20e0       
+0x7FFB064C2070   cmpl     $0x0, -0x98(%rbp)    
+0x7FFB064C2077   je       0x7ffb064c20e0       
+0x7FFB064C2079   movq     -0x188(%rbp), %rax   
+0x7FFB064C2080   movq     (%r13,%rax), %r12    
+0x7FFB064C2085   movq     -0x58(%rbp), %rax    
+0x7FFB064C2089   leaq     0x500(%rax), %rcx    
+0x7FFB064C2090   leaq     0x280(%rax), %rdx    
+0x7FFB064C2097   movq     %rcx, -0x98(%rbp)    
+0x7FFB064C209E   movq     %rcx, (%r12)         
+0x7FFB064C20A2   movq     %rdx, -0x100(%rbp)   
+0x7FFB064C20A9   movq     %rdx, 0x8(%r12)      
+0x7FFB064C20AE   movq     %rax, 0x10(%r12)     
+0x7FFB064C20B3   testl    $0x20000, %r11d      
+0x7FFB064C20BA   jne      0x7ffb064c2135       
+0x7FFB064C20BC   movq     0xb308(%r13), %rdi   
+0x7FFB064C20C3   movq     %r12, %rsi           
+0x7FFB064C20C6   movl     $0x3, %edx           
+0x7FFB064C20CB   movl     $0x2, %ecx           
+0x7FFB064C20D0   callq    *0xb3b8(%r13)        
+0x7FFB064C20D7   jmp      0x7ffb064c21fe       
+0x7FFB064C20DC   nopl     (%rax)               
+0x7FFB064C20E0   movq     -0x58(%rbp), %r14    
+0x7FFB064C20E4   testl    $0x20000, %r11d      
+0x7FFB064C20EB   jne      0x7ffb064c2236       
+0x7FFB064C20F1   movq     -0x120(%rbp), %rax   
+0x7FFB064C20F8   cmpl     $0x4, %eax           
+
+=== render[8] direct _gleLLVMVecPrimMultiRender: ===
+0x7FFB064C20B3   testl    $0x20000, %r11d      
+0x7FFB064C20BA   jne      0x7ffb064c2135       
+0x7FFB064C20BC   movq     0xb308(%r13), %rdi   
+0x7FFB064C20C3   movq     %r12, %rsi           
+0x7FFB064C20C6   movl     $0x3, %edx           
+0x7FFB064C20CB   movl     $0x2, %ecx           
+0x7FFB064C20D0   callq    *0xb3b8(%r13)        
+0x7FFB064C20D7   jmp      0x7ffb064c21fe       
+0x7FFB064C20DC   nopl     (%rax)               
+0x7FFB064C20E0   movq     -0x58(%rbp), %r14    
+0x7FFB064C20E4   testl    $0x20000, %r11d      
+0x7FFB064C20EB   jne      0x7ffb064c2236       
+0x7FFB064C20F1   movq     -0x120(%rbp), %rax   
+0x7FFB064C20F8   cmpl     $0x4, %eax           
+0x7FFB064C20FB   ja       0x7ffb064c2543       
+0x7FFB064C2101   movq     %rbx, %r15           
+0x7FFB064C2104   movq     %r11, %rbx           
+0x7FFB064C2107   leaq     0x1bf2(%rip), %rcx   ; 
+0x7FFB064C210E   movslq   (%rcx,%rax,4), %rax  
+0x7FFB064C2112   addq     %rcx, %rax           
+0x7FFB064C2115   jmpq     *%rax                
+0x7FFB064C2117   movq     0xb308(%r13), %rdi   
+0x7FFB064C211E   movq     %r14, %rsi           
+0x7FFB064C2121   movl     %r8d, %edx           
+0x7FFB064C2124   movl     $0x2, %ecx           
+0x7FFB064C2129   callq    *0xb360(%r13)        
+0x7FFB064C2130   jmp      0x7ffb064c2532       
+0x7FFB064C2135   addq     $0x8, %r12           
+0x7FFB064C2139   movswq   0xa3bc(%r13), %r14   
+0x7FFB064C2141   movl     $0x2, %ebx           
+0x7FFB064C2146   nopw     %cs:(%rax,%rax)      
+0x7FFB064C2150   movl     $0x0, -0x2c(%rbp)    
+0x7FFB064C2157   movq     0xb308(%r13), %rdi   
+
+=== render[12] direct _gleLLVMVecPrimMultiRender: ===
+0x7FFB064C238D   movq     %r12, %rdx           
+0x7FFB064C2390   callq    *0xa3e0(%r13)        
+0x7FFB064C2397   addq     %rbx, %r12           
+0x7FFB064C239A   cmpq     %r15, %r12           
+0x7FFB064C239D   jb       0x7ffb064c2380       
+0x7FFB064C239F   movl     -0x2c(%rbp), %r12d   
+0x7FFB064C23A3   movq     0xb308(%r13), %rdi   
+0x7FFB064C23AA   movl     $0x2, %esi           
+0x7FFB064C23AF   movq     -0x38(%rbp), %r15    
+0x7FFB064C23B3   movl     %r15d, %edx          
+0x7FFB064C23B6   movl     %r12d, %ecx          
+0x7FFB064C23B9   callq    *0xb3c8(%r13)        
+0x7FFB064C23C0   addq     $-0x500, %r14        
+0x7FFB064C23C7   movq     -0x48(%rbp), %r8     
+0x7FFB064C23CB   subl     %r12d, %r8d          
+0x7FFB064C23CE   movq     %r15, %r10           
+0x7FFB064C23D1   leal     0x2(%r8), %r8d       
+0x7FFB064C23D5   jne      0x7ffb064c2340       
+0x7FFB064C23DB   movq     -0x50(%rbp), %r11    
+0x7FFB064C23DF   movq     -0x60(%rbp), %rbx    
+0x7FFB064C23E3   jmp      0x7ffb064c253c       
+0x7FFB064C23E8   movq     0xb308(%r13), %rdi   
+0x7FFB064C23EF   movq     %r14, %rsi           
+0x7FFB064C23F2   movl     %r8d, %edx           
+0x7FFB064C23F5   movl     $0x2, %ecx           
+0x7FFB064C23FA   callq    *0xb380(%r13)        
+0x7FFB064C2401   jmp      0x7ffb064c2532       
+0x7FFB064C2406   movswq   0xa3bc(%r13), %rbx   
+0x7FFB064C240E   nop                           
+0x7FFB064C2410   movl     $0x0, -0x2c(%rbp)    
+0x7FFB064C2417   movq     0xb308(%r13), %rdi   
+0x7FFB064C241E   movl     $0x6, %esi           
+0x7FFB064C2423   leaq     -0x2c(%rbp), %rdx    
+
+=== render[9] direct _gleLLVMVecPrimMultiRender: ===
+0x7FFB064C247D   movq     %r12, %rdx           
+0x7FFB064C2480   callq    *0xa3e0(%r13)        
+0x7FFB064C2487   addq     %rbx, %r12           
+0x7FFB064C248A   cmpq     %r15, %r12           
+0x7FFB064C248D   jb       0x7ffb064c2470       
+0x7FFB064C248F   movl     -0x2c(%rbp), %r15d   
+0x7FFB064C2493   movq     0xb308(%r13), %rdi   
+0x7FFB064C249A   leal     0x1(%r15), %ecx      
+0x7FFB064C249E   movl     $0x2, %esi           
+0x7FFB064C24A3   movl     $0x6, %edx           
+0x7FFB064C24A8   callq    *0xb3c8(%r13)        
+0x7FFB064C24AF   addq     $-0x280, %r14        
+0x7FFB064C24B6   movq     -0x48(%rbp), %r8     
+0x7FFB064C24BA   subl     %r15d, %r8d          
+0x7FFB064C24BD   leal     0x1(%r8), %r8d       
+0x7FFB064C24C1   jne      0x7ffb064c2410       
+0x7FFB064C24C7   movq     -0x50(%rbp), %r11    
+0x7FFB064C24CB   movq     -0x38(%rbp), %r10    
+0x7FFB064C24CF   movq     -0x60(%rbp), %rbx    
+0x7FFB064C24D3   jmp      0x7ffb064c253c       
+0x7FFB064C24D5   movq     0xb308(%r13), %rdi   
+0x7FFB064C24DC   movq     %r15, %rsi           
+0x7FFB064C24DF   movq     %r14, %rdx           
+0x7FFB064C24E2   movl     %r8d, %ecx           
+0x7FFB064C24E5   movl     $0x2, %r8d           
+0x7FFB064C24EB   callq    *0xb368(%r13)        
+0x7FFB064C24F2   movq     %rbx, %r11           
+0x7FFB064C24F5   movq     %r15, %rbx           
+0x7FFB064C24F8   movq     -0x38(%rbp), %r10    
+0x7FFB064C24FC   jmp      0x7ffb064c253c       
+0x7FFB064C24FE   movq     0xb308(%r13), %rdi   
+0x7FFB064C2505   movq     %r14, %rsi           
+0x7FFB064C2508   movl     %r8d, %edx           
+
+=== render[10] direct _gleLLVMVecPrimMultiRender: ===
+0x7FFB064C24C1   jne      0x7ffb064c2410       
+0x7FFB064C24C7   movq     -0x50(%rbp), %r11    
+0x7FFB064C24CB   movq     -0x38(%rbp), %r10    
+0x7FFB064C24CF   movq     -0x60(%rbp), %rbx    
+0x7FFB064C24D3   jmp      0x7ffb064c253c       
+0x7FFB064C24D5   movq     0xb308(%r13), %rdi   
+0x7FFB064C24DC   movq     %r15, %rsi           
+0x7FFB064C24DF   movq     %r14, %rdx           
+0x7FFB064C24E2   movl     %r8d, %ecx           
+0x7FFB064C24E5   movl     $0x2, %r8d           
+0x7FFB064C24EB   callq    *0xb368(%r13)        
+0x7FFB064C24F2   movq     %rbx, %r11           
+0x7FFB064C24F5   movq     %r15, %rbx           
+0x7FFB064C24F8   movq     -0x38(%rbp), %r10    
+0x7FFB064C24FC   jmp      0x7ffb064c253c       
+0x7FFB064C24FE   movq     0xb308(%r13), %rdi   
+0x7FFB064C2505   movq     %r14, %rsi           
+0x7FFB064C2508   movl     %r8d, %edx           
+0x7FFB064C250B   movl     $0x2, %ecx           
+0x7FFB064C2510   callq    *0xb378(%r13)        
+0x7FFB064C2517   jmp      0x7ffb064c2532       
+0x7FFB064C2519   movq     0xb308(%r13), %rdi   
+0x7FFB064C2520   movq     %r14, %rsi           
+0x7FFB064C2523   movl     %r8d, %edx           
+0x7FFB064C2526   movl     $0x2, %ecx           
+0x7FFB064C252B   callq    *0xb370(%r13)        
+0x7FFB064C2532   movq     %rbx, %r11           
+0x7FFB064C2535   movq     -0x38(%rbp), %r10    
+0x7FFB064C2539   movq     %r15, %rbx           
+0x7FFB064C253C   movq     -0xb0(%rbp), %rsi    
+0x7FFB064C2543   movq     -0x90(%rbp), %rdx    
+0x7FFB064C254A   jmp      0x7ffb064c1b24       
+0x7FFB064C254F   movb     $-0x1, %dil          
+
+=== render[7] direct _gleLLVMVecPrimMultiRender: ===
+0x7FFB064C497F   testl    $0x800000, %r12d     
+0x7FFB064C4986   je       0x7ffb064c499c       
+0x7FFB064C4988   xorl     %eax, %eax           
+0x7FFB064C498A   testl    %ecx, %ecx           
+0x7FFB064C498C   setne    %al                  
+0x7FFB064C498F   movzwl   0x4644(%rbx,%rax,2), %eax 
+0x7FFB064C4997   addl     $0xffffe500, %eax    
+0x7FFB064C499C   movl     %r12d, %edx          
+0x7FFB064C499F   shrl     $0x19, %edx          
+0x7FFB064C49A2   cmpl     $0x1, %ecx           
+0x7FFB064C49A5   sete     %cl                  
+0x7FFB064C49A8   andb     %dl, %cl             
+0x7FFB064C49AA   cmpb     $0x1, %cl            
+0x7FFB064C49AD   jne      0x7ffb064c49b9       
+0x7FFB064C49AF   movl     $0x0, 0x23f0(%rbx)   
+0x7FFB064C49B9   cmpl     $0x1, %eax           
+0x7FFB064C49BC   je       0x7ffb064c4bce       
+0x7FFB064C49C2   cmpl     $0x2, %eax           
+0x7FFB064C49C5   jne      0x7ffb064c4da6       
+0x7FFB064C49CB   testl    $0x20000, %r12d      
+0x7FFB064C49D2   jne      0x7ffb064c4f40       
+0x7FFB064C49D8   movq     0xb308(%rbx), %rdi   
+0x7FFB064C49DF   movq     %r15, %rsi           
+0x7FFB064C49E2   movl     %r8d, %edx           
+0x7FFB064C49E5   movl     $0x2, %ecx           
+0x7FFB064C49EA   callq    *0xb358(%rbx)        
+0x7FFB064C49F0   movl     %r13d, %edi          
+0x7FFB064C49F3   movq     -0x50(%rbp), %r8     
+0x7FFB064C49F7   pmovsxwq 0x1fea0(%rip), %xmm4  ; 
+0x7FFB064C4A00   pmovsxwq 0x1ff3f(%rip), %xmm5  ; 
+0x7FFB064C4A09   pmovsxbq 0x1ff32(%rip), %xmm6  ; 
+0x7FFB064C4A12   movq     -0x58(%rbp), %r13    
+0x7FFB064C4A16   jmp      0x7ffb064c5230       
+
+=== render[22] direct _gleDrawArraysOrElements_ExecCore: ===
+0x7FFB064E08C7   je       0x7ffb064e09b2       
+0x7FFB064E08CD   cmpb     $0x0, 0xc691(%rbx)   
+0x7FFB064E08D4   je       0x7ffb064e09b2       
+0x7FFB064E08DA   movl     0xa588(%rbx), %r15d  
+0x7FFB064E08E1   movl     0xa58c(%rbx), %r12d  
+0x7FFB064E08E8   movl     %r12d, %r14d         
+0x7FFB064E08EB   subl     %r15d, %r14d         
+0x7FFB064E08EE   cmpl     -0xb4(%rbp), %r14d   
+0x7FFB064E08F5   jge      0x7ffb064e09b2       
+0x7FFB064E08FB   cmpl     0x1c(%rax), %r14d    
+0x7FFB064E08FF   jl       0x7ffb064e09b2       
+0x7FFB064E0905   cmpl     0x20(%rax), %r14d    
+0x7FFB064E0909   jge      0x7ffb064e09b2       
+0x7FFB064E090F   movl     -0xb4(%rbp), %ecx    
+0x7FFB064E0915   cmpl     %ecx, 0x24(%rax)     
+0x7FFB064E0918   jle      0x7ffb064e09b2       
+0x7FFB064E091E   movq     0xa580(%rbx), %rax   
+0x7FFB064E0925   movq     %rax, -0xd0(%rbp)    
+0x7FFB064E092C   movzwl   0xa598(%rbx), %r8d   
+0x7FFB064E0934   movq     0xb308(%rbx), %rdi   
+0x7FFB064E093B   movl     -0xb8(%rbp), %esi    
+0x7FFB064E0941   movl     %r15d, %edx          
+0x7FFB064E0944   movl     %r12d, %ecx          
+0x7FFB064E0947   movl     %r8d, -0xc8(%rbp)    
+0x7FFB064E094E   movl     -0xb4(%rbp), %r9d    
+0x7FFB064E0955   callq    *0xb3d0(%rbx)        
+0x7FFB064E095B   testq    %rax, %rax           
+0x7FFB064E095E   je       0x7ffb064e09b2       
+0x7FFB064E0960   movq     %rax, %rsi           
+0x7FFB064E0963   movq     0xacc8(%rbx), %rax   
+0x7FFB064E096A   movq     %rax, -0xe0(%rbp)    
+0x7FFB064E0971   movq     0xa280(%rbx), %r13   
+0x7FFB064E0978   leaq     -0xb772a(%rip), %rax  ; _gleNoopFlushFunc
+
+=== render[23] direct _gleDrawArraysOrElements_ExecCore: ===
+0x7FFB064E0D7A   movq     -0xd8(%rbp), %rsi    
+0x7FFB064E0D81   leaq     -0x51608(%rip), %rax  ; _gleSetVertexArrayFunc
+0x7FFB064E0D88   movq     %rax, 0xa3f0(%rbx)   
+0x7FFB064E0D8F   movq     %rax, 0xa3f8(%rbx)   
+0x7FFB064E0D96   movw     $0x14ff, 0xa59a(%rbx) 
+0x7FFB064E0D9F   movslq   %r14d, %rcx          
+0x7FFB064E0DA2   incq     %rcx                 
+0x7FFB064E0DA5   movl     %ecx, 0xaec8(%rbx)   
+0x7FFB064E0DAB   movswq   0xa3be(%rbx), %rdx   
+0x7FFB064E0DB3   imulq    %rcx, %rdx           
+0x7FFB064E0DB7   movq     %rsi, 0xa280(%rbx)   
+0x7FFB064E0DBE   addq     %rdx, %rsi           
+0x7FFB064E0DC1   movq     %rsi, 0xa2a0(%rbx)   
+0x7FFB064E0DC8   movq     %rbx, %rdi           
+0x7FFB064E0DCB   movl     %r15d, %esi          
+0x7FFB064E0DCE   movl     -0xbc(%rbp), %edx    
+0x7FFB064E0DD4   callq    *%rax                
+0x7FFB064E0DD6   movq     0xb308(%rbx), %rdi   
+0x7FFB064E0DDD   movq     -0xd0(%rbp), %rax    
+0x7FFB064E0DE4   movq     %rax, (%rsp)         
+0x7FFB064E0DE8   movl     -0xb8(%rbp), %esi    
+0x7FFB064E0DEE   movl     %r15d, %edx          
+0x7FFB064E0DF1   movl     %r12d, %ecx          
+0x7FFB064E0DF4   movl     -0xc8(%rbp), %r8d    
+0x7FFB064E0DFB   movl     -0xb4(%rbp), %r9d    
+0x7FFB064E0E02   callq    *0xb3d8(%rbx)        
+0x7FFB064E0E08   movq     %r13, 0xa280(%rbx)   
+0x7FFB064E0E0F   movq     -0xe0(%rbp), %rax    
+0x7FFB064E0E16   movq     %rax, 0xacc8(%rbx)   
+0x7FFB064E0E1D   jmp      0x7ffb064e0d2e       
+0x7FFB064E0E22   callq    ___stack_chk_fail    
+_glDrawRangeElementArrayAPPLE_CompExec.cold.1:
+0x7FFB064E0E27   pushq    %rbp                 
+
+NO DIRECT CALL slot 0
+
+NO DIRECT CALL slot 1
+
+NO DIRECT CALL slot 13
+
+NO DIRECT CALL slot 14
+
+NO DIRECT CALL slot 15
+
+NO DIRECT CALL slot 16

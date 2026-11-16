@@ -1,0 +1,252 @@
+=== reference ===
+0x7FFB064473C6   jmp      0x7ffb064473cf       
+0x7FFB064473C8   movaps   0x9c6b1(%rip), %xmm0  ; 
+0x7FFB064473CF   movups   %xmm0, 0x8b4(%rdi)   
+0x7FFB064473D6   popq     %rbp                 
+0x7FFB064473D7   jmp      0x7ffb0644738e       
+_gleUpdateDispatchJIT:
+0x7FFB064473D9   pushq    %rbp                 
+0x7FFB064473DA   movq     %rsp, %rbp           
+0x7FFB064473DD   xorps    %xmm0, %xmm0         
+0x7FFB064473E0   movups   %xmm0, 0xb498(%rdi)  
+0x7FFB064473E7   movups   %xmm0, 0xb488(%rdi)  
+0x7FFB064473EE   movups   %xmm0, 0xb478(%rdi)  
+0x7FFB064473F5   movups   %xmm0, 0xb468(%rdi)  
+0x7FFB064473FC   movups   %xmm0, 0xb458(%rdi)  
+0x7FFB06447403   movups   %xmm0, 0xb448(%rdi)  
+0x7FFB0644740A   movups   %xmm0, 0xb438(%rdi)  
+0x7FFB06447411   movups   %xmm0, 0xb428(%rdi)  
+0x7FFB06447418   movups   %xmm0, 0xb418(%rdi)  
+0x7FFB0644741F   movq     $0x0, 0xb4a8(%rdi)   
+0x7FFB0644742A   movaps   0xb320(%rdi), %xmm0  
+0x7FFB06447431   movaps   0xb330(%rdi), %xmm1  
+0x7FFB06447438   movaps   0xb340(%rdi), %xmm2  
+0x7FFB0644743F   movaps   0xb350(%rdi), %xmm3  
+0x7FFB06447446   movups   %xmm0, 0xb3e8(%rdi)  
+0x7FFB0644744D   movups   %xmm1, 0xb3f8(%rdi)  
+0x7FFB06447454   movups   %xmm2, 0xb408(%rdi)  
+0x7FFB0644745B   movups   %xmm3, 0xb418(%rdi)  
+0x7FFB06447462   movaps   0xb360(%rdi), %xmm0  
+0x7FFB06447469   movaps   0xb370(%rdi), %xmm1  
+0x7FFB06447470   movaps   0xb380(%rdi), %xmm2  
+0x7FFB06447477   movaps   0xb390(%rdi), %xmm3  
+0x7FFB0644747E   movups   %xmm0, 0xb428(%rdi)  
+0x7FFB06447485   movups   %xmm1, 0xb438(%rdi)  
+0x7FFB0644748C   movups   %xmm2, 0xb448(%rdi)  
+0x7FFB06447493   movups   %xmm3, 0xb458(%rdi)  
+0x7FFB0644749A   movaps   0xb3a0(%rdi), %xmm0  
+0x7FFB064474A1   movups   %xmm0, 0xb468(%rdi)  
+0x7FFB064474A8   movaps   0xb3b0(%rdi), %xmm0  
+=== reference ===
+0x7FFB064473C8   movaps   0x9c6b1(%rip), %xmm0  ; 
+0x7FFB064473CF   movups   %xmm0, 0x8b4(%rdi)   
+0x7FFB064473D6   popq     %rbp                 
+0x7FFB064473D7   jmp      0x7ffb0644738e       
+_gleUpdateDispatchJIT:
+0x7FFB064473D9   pushq    %rbp                 
+0x7FFB064473DA   movq     %rsp, %rbp           
+0x7FFB064473DD   xorps    %xmm0, %xmm0         
+0x7FFB064473E0   movups   %xmm0, 0xb498(%rdi)  
+0x7FFB064473E7   movups   %xmm0, 0xb488(%rdi)  
+0x7FFB064473EE   movups   %xmm0, 0xb478(%rdi)  
+0x7FFB064473F5   movups   %xmm0, 0xb468(%rdi)  
+0x7FFB064473FC   movups   %xmm0, 0xb458(%rdi)  
+0x7FFB06447403   movups   %xmm0, 0xb448(%rdi)  
+0x7FFB0644740A   movups   %xmm0, 0xb438(%rdi)  
+0x7FFB06447411   movups   %xmm0, 0xb428(%rdi)  
+0x7FFB06447418   movups   %xmm0, 0xb418(%rdi)  
+0x7FFB0644741F   movq     $0x0, 0xb4a8(%rdi)   
+0x7FFB0644742A   movaps   0xb320(%rdi), %xmm0  
+0x7FFB06447431   movaps   0xb330(%rdi), %xmm1  
+0x7FFB06447438   movaps   0xb340(%rdi), %xmm2  
+0x7FFB0644743F   movaps   0xb350(%rdi), %xmm3  
+0x7FFB06447446   movups   %xmm0, 0xb3e8(%rdi)  
+0x7FFB0644744D   movups   %xmm1, 0xb3f8(%rdi)  
+0x7FFB06447454   movups   %xmm2, 0xb408(%rdi)  
+0x7FFB0644745B   movups   %xmm3, 0xb418(%rdi)  
+0x7FFB06447462   movaps   0xb360(%rdi), %xmm0  
+0x7FFB06447469   movaps   0xb370(%rdi), %xmm1  
+0x7FFB06447470   movaps   0xb380(%rdi), %xmm2  
+0x7FFB06447477   movaps   0xb390(%rdi), %xmm3  
+0x7FFB0644747E   movups   %xmm0, 0xb428(%rdi)  
+0x7FFB06447485   movups   %xmm1, 0xb438(%rdi)  
+0x7FFB0644748C   movups   %xmm2, 0xb448(%rdi)  
+0x7FFB06447493   movups   %xmm3, 0xb458(%rdi)  
+0x7FFB0644749A   movaps   0xb3a0(%rdi), %xmm0  
+0x7FFB064474A1   movups   %xmm0, 0xb468(%rdi)  
+0x7FFB064474A8   movaps   0xb3b0(%rdi), %xmm0  
+0x7FFB064474AF   movups   %xmm0, 0xb478(%rdi)  
+=== reference ===
+0x7FFB0644741F   movq     $0x0, 0xb4a8(%rdi)   
+0x7FFB0644742A   movaps   0xb320(%rdi), %xmm0  
+0x7FFB06447431   movaps   0xb330(%rdi), %xmm1  
+0x7FFB06447438   movaps   0xb340(%rdi), %xmm2  
+0x7FFB0644743F   movaps   0xb350(%rdi), %xmm3  
+0x7FFB06447446   movups   %xmm0, 0xb3e8(%rdi)  
+0x7FFB0644744D   movups   %xmm1, 0xb3f8(%rdi)  
+0x7FFB06447454   movups   %xmm2, 0xb408(%rdi)  
+0x7FFB0644745B   movups   %xmm3, 0xb418(%rdi)  
+0x7FFB06447462   movaps   0xb360(%rdi), %xmm0  
+0x7FFB06447469   movaps   0xb370(%rdi), %xmm1  
+0x7FFB06447470   movaps   0xb380(%rdi), %xmm2  
+0x7FFB06447477   movaps   0xb390(%rdi), %xmm3  
+0x7FFB0644747E   movups   %xmm0, 0xb428(%rdi)  
+0x7FFB06447485   movups   %xmm1, 0xb438(%rdi)  
+0x7FFB0644748C   movups   %xmm2, 0xb448(%rdi)  
+0x7FFB06447493   movups   %xmm3, 0xb458(%rdi)  
+0x7FFB0644749A   movaps   0xb3a0(%rdi), %xmm0  
+0x7FFB064474A1   movups   %xmm0, 0xb468(%rdi)  
+0x7FFB064474A8   movaps   0xb3b0(%rdi), %xmm0  
+0x7FFB064474AF   movups   %xmm0, 0xb478(%rdi)  
+0x7FFB064474B6   movaps   0xb3c0(%rdi), %xmm0  
+0x7FFB064474BD   movups   %xmm0, 0xb488(%rdi)  
+0x7FFB064474C4   movaps   0xb3d0(%rdi), %xmm0  
+0x7FFB064474CB   movups   %xmm0, 0xb498(%rdi)  
+0x7FFB064474D2   movq     0xb3e0(%rdi), %rax   
+0x7FFB064474D9   movq     %rax, 0xb4a8(%rdi)   
+0x7FFB064474E0   popq     %rbp                 
+0x7FFB064474E1   retq                          
+_glePopulateRenderDispatch:
+0x7FFB064474E2   pushq    %rbp                 
+0x7FFB064474E3   movq     %rsp, %rbp           
+0x7FFB064474E6   pushq    %rbx                 
+0x7FFB064474E7   pushq    %rax                 
+0x7FFB064474E8   movq     %rdi, %rbx           
+0x7FFB064474EB   movq     0xb308(%rdi), %rdi   
+0x7FFB064474F2   movq     0xb4b8(%rbx), %rax   
+0x7FFB064474F9   leaq     0xb320(%rbx), %rsi   
+=== reference ===
+0x7FFB0644743F   movaps   0xb350(%rdi), %xmm3  
+0x7FFB06447446   movups   %xmm0, 0xb3e8(%rdi)  
+0x7FFB0644744D   movups   %xmm1, 0xb3f8(%rdi)  
+0x7FFB06447454   movups   %xmm2, 0xb408(%rdi)  
+0x7FFB0644745B   movups   %xmm3, 0xb418(%rdi)  
+0x7FFB06447462   movaps   0xb360(%rdi), %xmm0  
+0x7FFB06447469   movaps   0xb370(%rdi), %xmm1  
+0x7FFB06447470   movaps   0xb380(%rdi), %xmm2  
+0x7FFB06447477   movaps   0xb390(%rdi), %xmm3  
+0x7FFB0644747E   movups   %xmm0, 0xb428(%rdi)  
+0x7FFB06447485   movups   %xmm1, 0xb438(%rdi)  
+0x7FFB0644748C   movups   %xmm2, 0xb448(%rdi)  
+0x7FFB06447493   movups   %xmm3, 0xb458(%rdi)  
+0x7FFB0644749A   movaps   0xb3a0(%rdi), %xmm0  
+0x7FFB064474A1   movups   %xmm0, 0xb468(%rdi)  
+0x7FFB064474A8   movaps   0xb3b0(%rdi), %xmm0  
+0x7FFB064474AF   movups   %xmm0, 0xb478(%rdi)  
+0x7FFB064474B6   movaps   0xb3c0(%rdi), %xmm0  
+0x7FFB064474BD   movups   %xmm0, 0xb488(%rdi)  
+0x7FFB064474C4   movaps   0xb3d0(%rdi), %xmm0  
+0x7FFB064474CB   movups   %xmm0, 0xb498(%rdi)  
+0x7FFB064474D2   movq     0xb3e0(%rdi), %rax   
+0x7FFB064474D9   movq     %rax, 0xb4a8(%rdi)   
+0x7FFB064474E0   popq     %rbp                 
+0x7FFB064474E1   retq                          
+_glePopulateRenderDispatch:
+0x7FFB064474E2   pushq    %rbp                 
+0x7FFB064474E3   movq     %rsp, %rbp           
+0x7FFB064474E6   pushq    %rbx                 
+0x7FFB064474E7   pushq    %rax                 
+0x7FFB064474E8   movq     %rdi, %rbx           
+0x7FFB064474EB   movq     0xb308(%rdi), %rdi   
+0x7FFB064474F2   movq     0xb4b8(%rbx), %rax   
+0x7FFB064474F9   leaq     0xb320(%rbx), %rsi   
+0x7FFB06447500   callq    *0x88(%rax)          
+0x7FFB06447506   movq     %rbx, %rdi           
+0x7FFB06447509   addq     $0x8, %rsp           
+0x7FFB0644750D   popq     %rbx                 
+=== reference ===
+0x7FFB06447446   movups   %xmm0, 0xb3e8(%rdi)  
+0x7FFB0644744D   movups   %xmm1, 0xb3f8(%rdi)  
+0x7FFB06447454   movups   %xmm2, 0xb408(%rdi)  
+0x7FFB0644745B   movups   %xmm3, 0xb418(%rdi)  
+0x7FFB06447462   movaps   0xb360(%rdi), %xmm0  
+0x7FFB06447469   movaps   0xb370(%rdi), %xmm1  
+0x7FFB06447470   movaps   0xb380(%rdi), %xmm2  
+0x7FFB06447477   movaps   0xb390(%rdi), %xmm3  
+0x7FFB0644747E   movups   %xmm0, 0xb428(%rdi)  
+0x7FFB06447485   movups   %xmm1, 0xb438(%rdi)  
+0x7FFB0644748C   movups   %xmm2, 0xb448(%rdi)  
+0x7FFB06447493   movups   %xmm3, 0xb458(%rdi)  
+0x7FFB0644749A   movaps   0xb3a0(%rdi), %xmm0  
+0x7FFB064474A1   movups   %xmm0, 0xb468(%rdi)  
+0x7FFB064474A8   movaps   0xb3b0(%rdi), %xmm0  
+0x7FFB064474AF   movups   %xmm0, 0xb478(%rdi)  
+0x7FFB064474B6   movaps   0xb3c0(%rdi), %xmm0  
+0x7FFB064474BD   movups   %xmm0, 0xb488(%rdi)  
+0x7FFB064474C4   movaps   0xb3d0(%rdi), %xmm0  
+0x7FFB064474CB   movups   %xmm0, 0xb498(%rdi)  
+0x7FFB064474D2   movq     0xb3e0(%rdi), %rax   
+0x7FFB064474D9   movq     %rax, 0xb4a8(%rdi)   
+0x7FFB064474E0   popq     %rbp                 
+0x7FFB064474E1   retq                          
+_glePopulateRenderDispatch:
+0x7FFB064474E2   pushq    %rbp                 
+0x7FFB064474E3   movq     %rsp, %rbp           
+0x7FFB064474E6   pushq    %rbx                 
+0x7FFB064474E7   pushq    %rax                 
+0x7FFB064474E8   movq     %rdi, %rbx           
+0x7FFB064474EB   movq     0xb308(%rdi), %rdi   
+0x7FFB064474F2   movq     0xb4b8(%rbx), %rax   
+0x7FFB064474F9   leaq     0xb320(%rbx), %rsi   
+0x7FFB06447500   callq    *0x88(%rax)          
+0x7FFB06447506   movq     %rbx, %rdi           
+0x7FFB06447509   addq     $0x8, %rsp           
+0x7FFB0644750D   popq     %rbx                 
+0x7FFB0644750E   popq     %rbp                 
+=== reference ===
+0x7FFB0644744D   movups   %xmm1, 0xb3f8(%rdi)  
+0x7FFB06447454   movups   %xmm2, 0xb408(%rdi)  
+0x7FFB0644745B   movups   %xmm3, 0xb418(%rdi)  
+0x7FFB06447462   movaps   0xb360(%rdi), %xmm0  
+0x7FFB06447469   movaps   0xb370(%rdi), %xmm1  
+0x7FFB06447470   movaps   0xb380(%rdi), %xmm2  
+0x7FFB06447477   movaps   0xb390(%rdi), %xmm3  
+0x7FFB0644747E   movups   %xmm0, 0xb428(%rdi)  
+0x7FFB06447485   movups   %xmm1, 0xb438(%rdi)  
+0x7FFB0644748C   movups   %xmm2, 0xb448(%rdi)  
+0x7FFB06447493   movups   %xmm3, 0xb458(%rdi)  
+0x7FFB0644749A   movaps   0xb3a0(%rdi), %xmm0  
+0x7FFB064474A1   movups   %xmm0, 0xb468(%rdi)  
+0x7FFB064474A8   movaps   0xb3b0(%rdi), %xmm0  
+0x7FFB064474AF   movups   %xmm0, 0xb478(%rdi)  
+0x7FFB064474B6   movaps   0xb3c0(%rdi), %xmm0  
+0x7FFB064474BD   movups   %xmm0, 0xb488(%rdi)  
+0x7FFB064474C4   movaps   0xb3d0(%rdi), %xmm0  
+0x7FFB064474CB   movups   %xmm0, 0xb498(%rdi)  
+0x7FFB064474D2   movq     0xb3e0(%rdi), %rax   
+0x7FFB064474D9   movq     %rax, 0xb4a8(%rdi)   
+0x7FFB064474E0   popq     %rbp                 
+0x7FFB064474E1   retq                          
+_glePopulateRenderDispatch:
+0x7FFB064474E2   pushq    %rbp                 
+0x7FFB064474E3   movq     %rsp, %rbp           
+0x7FFB064474E6   pushq    %rbx                 
+0x7FFB064474E7   pushq    %rax                 
+0x7FFB064474E8   movq     %rdi, %rbx           
+0x7FFB064474EB   movq     0xb308(%rdi), %rdi   
+0x7FFB064474F2   movq     0xb4b8(%rbx), %rax   
+0x7FFB064474F9   leaq     0xb320(%rbx), %rsi   
+0x7FFB06447500   callq    *0x88(%rax)          
+0x7FFB06447506   movq     %rbx, %rdi           
+0x7FFB06447509   addq     $0x8, %rsp           
+0x7FFB0644750D   popq     %rbx                 
+0x7FFB0644750E   popq     %rbp                 
+0x7FFB0644750F   jmp      _gleUpdateDispatchJIT 
+=== -exports ===
+        0x000035AD  _gldClearFramebufferData
+=== -function_starts ===
+        0x7FFB01EBD024  __ZN10GenContext19UnbindStencilBufferEv
+        0x7FFB01EBD038  __ZN10GenContext17UnbindColorBufferEj
+        0x7FFB01EBD048  _glrUpdateContextDrawBufferState
+        0x7FFB01EBD5AD  _gldClearFramebufferData
+        0x7FFB01EC060E  __ZN10GenContext20ProgramClearPipelineEjP17GLDClearValuesRec15COLOR_CLEAR_BPPjbbbbbPN3USC9IM_ShaderE
+=== -section_bytes ===
+0x7FFB01EBD598: C3 0F 1F 00 8F FB FF FF CD FB FF FF B4 FB FF FF 
+0x7FFB01EBD5A8: C6 FB FF FF 00 
+0x7FFB01EBD5AD: 55 48 89 E5 41 57 41 56 41 55 41 54 53 48 81 EC 
+0x7FFB01EBD5BD: 98 01 00 00 48 89 7D 88 48 8B 05 14 81 E4 3E 48 
+0x7FFB01EBD5CD: 8B 00 48 89 45 D0 0F BA E6 08 72 05 45 31 D2 EB 
+0x7FFB01EBD5DD: 0F 48 8B 45 88 83 B8 7C 8D 00 00 00 41 0F 95 C2 
+0x7FFB020B3DF3: FB 11 43 5C 66 C7 43 64 01 01 44 89 63 66 44 88 
+0x7FFB020B3E03: 63 6A C7 43 6B 01 00 00 01 44 88 6B 6F C7 43 70 
+0x7FFB020B3E13: FF FF 00 00 C5 F8 28 05 21 84 97 00 C5 F8 11 43 

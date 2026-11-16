@@ -1,0 +1,1973 @@
+/System/Library/Extensions/AMDRadeonX5000GLDriver.bundle/Contents/MacOS/AMDRadeonX5000GLDriver [x86_64h]:
+    -uuid:
+        FB94CB01-F4EE-3367-AE56-3B50EAE49E03
+
+_glrPopulateContextConfig:
+0x00001359C   pushq    %rbp                 
+0x00001359D   movq     %rsp, %rbp           
+0x0000135A0   pushq    %r15                 
+0x0000135A2   pushq    %r14                 
+0x0000135A4   pushq    %r13                 
+0x0000135A6   pushq    %r12                 
+0x0000135A8   pushq    %rbx                 
+0x0000135A9   subq     $0x18, %rsp          
+0x0000135AD   movq     %rdx, %r14           
+0x0000135B0   movq     %rsi, %rbx           
+0x0000135B3   movabsq  $0x40000000000a, %rax 
+0x0000135BD   movq     %rax, (%rsi)         
+0x0000135C0   movb     $0x40, 0x18(%rsi)    
+0x0000135C4   movw     $0x6, 0x1a(%rsi)     
+0x0000135CA   movl     $0x4000, 0x8(%rsi)   
+0x0000135D1   movb     $0x8, 0x16(%rsi)     
+0x0000135D5   movb     $0x1, %r13b          
+0x0000135D8   movb     %r13b, 0x1eb(%rsi)   
+0x0000135DF   movabsq  $0x2000000020, %rax  
+0x0000135E9   movq     %rax, 0xc(%rsi)      
+0x0000135ED   movw     $0x808, 0x14(%rsi)   
+0x0000135F3   vmovaps  0xdaa85(%rip), %ymm0  ; 
+0x0000135FB   vmovups  %ymm0, 0x3c(%rsi)    
+0x000013600   vmovsd   0xdaad8(%rip), %xmm0  ; 
+0x000013608   vmovsd   %xmm0, 0x5c(%rsi)    
+0x00001360D   movabsq  $0x8000000080, %rax  
+0x000013617   movq     %rax, 0x7c(%rsi)     
+0x00001361B   movl     $0x3f, 0x84(%rsi)    
+0x000013625   movw     $0x101, %ax          
+0x000013629   movw     %ax, 0x64(%rsi)      
+0x00001362D   xorl     %r12d, %r12d         
+0x000013630   movw     %r12w, 0x67(%rsi)    
+0x000013635   movb     $0x0, 0x69(%rsi)     
+0x000013639   movb     %r13b, 0x6b(%rsi)    
+0x00001363D   movb     0x50(%rdi), %cl      
+0x000013640   notb     %cl                  
+0x000013642   shrb     $0x7, %cl            
+0x000013645   movb     %cl, 0x6a(%rsi)      
+0x000013648   movb     %r13b, 0x66(%rsi)    
+0x00001364C   movw     %ax, 0x6d(%rsi)      
+0x000013650   testl    $0x3ffffffc, 0x14(%rdx) 
+0x000013657   setne    0x28(%rsi)           
+0x00001365B   movb     0x10(%rdx), %al      
+0x00001365E   shrb     $0x3, %al            
+0x000013661   andb     %r13b, %al           
+0x000013664   movb     %al, 0x29(%rsi)      
+0x000013667   movb     0x10(%rdx), %al      
+0x00001366A   shrb     %al                  
+0x00001366C   andb     %r13b, %al           
+0x00001366F   movb     %al, 0x2a(%rsi)      
+0x000013672   testl    $0x3f000000, 0x14(%rdx) 
+0x000013679   setne    0x2b(%rsi)           
+0x00001367D   movl     0xc(%rdx), %eax      
+0x000013680   shrl     $0xb, %eax           
+0x000013683   andb     %r13b, %al           
+0x000013686   movb     %al, 0x2c(%rsi)      
+0x000013689   movl     0x14(%rdx), %edi     
+0x00001368C   leaq     -0x38(%rbp), %r15    
+0x000013690   movq     %r15, %rsi           
+0x000013693   vzeroupper                      
+0x000013696   callq    _gpusColorSizes      
+0x00001369B   movq     (%r15), %rax         
+0x00001369E   vmovq    %rax, %xmm0          
+0x0000136A3   vpshufb  0xdaa44(%rip), %xmm0, %xmm0  ; 
+0x0000136AC   vmovd    %xmm0, 0x30(%rbx)    
+0x0000136B1   cmpw     $0x8, %ax            
+0x0000136B5   sete     0x2d(%rbx)           
+0x0000136B9   movb     0x8(%r15), %al       
+0x0000136BD   movb     %al, 0x2e(%rbx)      
+0x0000136C0   movl     0x1c(%r14), %edi     
+0x0000136C4   callq    _gpusDepthSize       
+0x0000136C9   movb     %al, 0x38(%rbx)      
+0x0000136CC   movl     0x20(%r14), %edi     
+0x0000136D0   callq    _gpusDepthSize       
+0x0000136D5   movb     %al, 0x39(%rbx)      
+0x0000136D8   movb     0x26(%r14), %al      
+0x0000136DC   movb     %al, 0x2f(%rbx)      
+0x0000136DF   movb     0x28(%r14), %al      
+0x0000136E3   movb     %al, 0x3a(%rbx)      
+0x0000136E6   movb     0x2a(%r14), %al      
+0x0000136EA   movb     %al, 0x3b(%rbx)      
+0x0000136ED   vpxor    %xmm0, %xmm0, %xmm0  
+0x0000136F1   vmovdqu  %xmm0, 0x208(%rbx)   
+0x0000136F9   movl     $0xfffff, 0x70(%rbx) 
+0x000013700   movb     %r13b, 0x17(%rbx)    
+0x000013704   movb     $0x50, 0x1ea(%rbx)   
+0x00001370B   movw     $0x100, 0x1e8(%rbx)  
+0x000013714   movl     $0x800008, 0x98(%rbx) 
+0x00001371E   movw     $0x80, 0x9c(%rbx)    
+0x000013727   vbroadcastss 0xd9d28(%rip), %xmm0  ; 
+0x000013730   vmovlps  %xmm0, 0x90(%rbx)    
+0x000013738   movabsq  $0x4000080040000008, %rax 
+0x000013742   movq     %rax, 0x9e(%rbx)     
+0x000013749   movabsq  $0x800000000004000, %rax 
+0x000013753   movq     %rax, 0xb0(%rbx)     
+0x00001375A   movabsq  $0x108080840004000, %rax 
+0x000013764   movq     %rax, 0xa6(%rbx)     
+0x00001376B   movw     $0x8001, 0xae(%rbx)  
+0x000013774   movabsq  $-0x7fffffff8001, %rax 
+0x00001377E   movq     %rax, 0x1ec(%rbx)    
+0x000013785   movl     $0x8e4d8e4d, 0x1f4(%rbx) 
+0x00001378F   movb     $0x10, 0x1f8(%rbx)   
+0x000013796   movabsq  $0x100001000004000, %rax 
+0x0000137A0   movq     %rax, 0xb8(%rbx)     
+0x0000137A7   movl     $0x400, %ecx         
+0x0000137AC   movl     %ecx, 0xc0(%rbx)     
+0x0000137B2   movw     $0x4, %dx            
+0x0000137B6   movw     %dx, 0xc4(%rbx)      
+0x0000137BD   movabsq  $0xc00004000, %rsi   
+0x0000137C7   movq     %rsi, 0xc8(%rbx)     
+0x0000137CE   movl     $0x80, 0x15c(%rbx)   
+0x0000137D8   movw     $0x1, 0x154(%rbx)    
+0x0000137E1   movw     $0x10, 0x160(%rbx)   
+0x0000137EA   movl     $0x1000, 0x158(%rbx) 
+0x0000137F4   movabsq  $0x100000a00004000, %rdi 
+0x0000137FE   movq     %rdi, 0x118(%rbx)    
+0x000013805   movl     %ecx, 0x120(%rbx)    
+0x00001380B   movw     %dx, 0x124(%rbx)     
+0x000013812   movq     %rsi, 0x128(%rbx)    
+0x000013819   vmovaps  0xda8df(%rip), %xmm0  ; 
+0x000013821   vmovups  %xmm0, 0x138(%rbx)   
+0x000013829   movabsq  $0x101000000000ff, %rdx 
+0x000013833   movq     %rdx, 0x148(%rbx)    
+0x00001383A   vmovsd   0xda8ce(%rip), %xmm0  ; 
+0x000013842   vmovsd   %xmm0, 0x130(%rbx)   
+0x00001384A   movb     $0x4, 0x150(%rbx)    
+0x000013851   vmovaps  0xda8c7(%rip), %xmm0  ; 
+0x000013859   vmovups  %xmm0, 0x100(%rbx)   
+0x000013861   movq     %rsi, 0x110(%rbx)    
+0x000013868   vmovaps  0xda8c0(%rip), %xmm0  ; 
+0x000013870   vmovups  %xmm0, 0x164(%rbx)   
+0x000013878   movabsq  $0x20001000004000, %rdx 
+0x000013882   movq     %rdx, 0x174(%rbx)    
+0x000013889   movq     %rax, 0xd0(%rbx)     
+0x000013890   movl     %ecx, 0xd8(%rbx)     
+0x000013896   movw     %r12w, 0xdc(%rbx)    
+0x00001389E   movabsq  $0xc00000000, %rdx   
+0x0000138A8   movq     %rdx, 0xe0(%rbx)     
+0x0000138AF   movq     %rax, 0xe8(%rbx)     
+0x0000138B6   movl     %ecx, 0xf0(%rbx)     
+0x0000138BC   movw     %r12w, 0xf4(%rbx)    
+0x0000138C4   movq     %rdx, 0xf8(%rbx)     
+0x0000138CB   vmovaps  0xda7cd(%rip), %ymm0  ; 
+0x0000138D3   vmovups  %ymm0, 0x17c(%rbx)   
+0x0000138DB   movabsq  $0x2000000040, %rax  
+0x0000138E5   movq     %rax, 0x1fc(%rbx)    
+0x0000138EC   movl     $0x78, 0x204(%rbx)   
+0x0000138F6   vmovaps  0xda842(%rip), %xmm0  ; 
+0x0000138FE   vmovups  %xmm0, 0x19c(%rbx)   
+0x000013906   movl     $0x10000, 0x1c4(%rbx) 
+0x000013910   vmovaps  0xda838(%rip), %xmm0  ; 
+0x000013918   vmovups  %xmm0, 0x1ac(%rbx)   
+0x000013920   movabsq  $0x8000500004, %rax  
+0x00001392A   movq     %rax, 0x1bc(%rbx)    
+0x000013931   vmovaps  0xda787(%rip), %ymm0  ; 
+0x000013939   vmovups  %ymm0, 0x1c8(%rbx)   
+0x000013941   movq     $-0x1, 0x220(%rbx)   
+0x00001394C   movabsq  $0x3987ffffffffff7f, %rax 
+0x000013956   orq      %rax, 0x228(%rbx)    
+0x00001395D   addq     $0x18, %rsp          
+0x000013961   popq     %rbx                 
+0x000013962   popq     %r12                 
+0x000013964   popq     %r13                 
+0x000013966   popq     %r14                 
+0x000013968   popq     %r15                 
+0x00001396A   popq     %rbp                 
+0x00001396B   vzeroupper                      
+0x00001396E   retq                          
+_gldPopulateContextDispatch:
+0x0000630F8   pushq    %rbp                 
+0x0000630F9   movq     %rsp, %rbp           
+0x0000630FC   movq     %rsi, 0x80(%rdi)     
+0x000063103   movq     $0x0, (%rsi)         
+0x00006310A   leaq     -0x5605f(%rip), %rax  ; _glrdATICopyPixels
+0x000063111   movq     %rax, 0x10(%rsi)     
+0x000063115   leaq     -0x2a5e(%rip), %rax  ; _glrdATI_Hwl_DrawPixels
+0x00006311C   movq     %rax, 0x8(%rsi)      
+0x000063120   leaq     -0x41283(%rip), %rax  ; _glrdAMD_BeginPrimitiveBuffer
+0x000063127   movq     %rax, 0xa0(%rsi)     
+0x00006312E   leaq     -0x41105(%rip), %rax  ; _glrdAMD_EndPrimitiveBuffer
+0x000063135   movq     %rax, 0xa8(%rsi)     
+0x00006313C   vxorps   %xmm0, %xmm0, %xmm0  
+0x000063140   vmovups  %xmm0, 0xb0(%rsi)    
+0x000063148   leaq     -0x1db72(%rip), %rax  ; _glrdAMD_RenderVertexArray
+0x00006314F   movq     %rax, 0xc0(%rsi)     
+0x000063156   vxorps   %xmm0, %xmm0, %xmm0  
+0x00006315A   vmovups  %ymm0, 0x68(%rsi)    
+0x00006315F   leaq     0xfa3(%rip), %rax    ; _glrAMD_GFX9_NoOp
+0x000063166   vmovq    %rax, %xmm0          
+0x00006316B   vpbroadcastq %xmm0, %ymm0         
+0x000063170   vmovdqu  %ymm0, 0x18(%rsi)    
+0x000063175   movq     %rax, 0x58(%rsi)     
+0x000063179   movq     %rax, 0x60(%rsi)     
+0x00006317D   vmovdqu  %ymm0, 0x38(%rsi)    
+0x000063182   movq     %rax, 0x88(%rsi)     
+0x000063189   movq     %rax, 0x90(%rsi)     
+0x000063190   movq     %rax, 0x98(%rsi)     
+0x000063197   andb     $-0x9, 0x30e9(%rdi)  
+0x00006319E   popq     %rbp                 
+0x00006319F   vzeroupper                      
+0x0000631A2   retq                          
+_gldUpdateDispatch:
+0x0000631A3   pushq    %rbp                 
+0x0000631A4   movq     %rsp, %rbp           
+0x0000631A7   pushq    %r15                 
+0x0000631A9   pushq    %r14                 
+0x0000631AB   pushq    %r13                 
+0x0000631AD   pushq    %r12                 
+0x0000631AF   pushq    %rbx                 
+0x0000631B0   pushq    %rax                 
+0x0000631B1   movq     %rdx, %r14           
+0x0000631B4   movq     %rdi, %rbx           
+0x0000631B7   movq     %rdx, 0x78(%rdi)     
+0x0000631BB   movl     0x944(%rdi), %eax    
+0x0000631C1   btl      $0x15, %eax          
+0x0000631C5   jae      0x631d2              
+0x0000631C7   orb      $0x1, 0x8(%r14)      
+0x0000631CC   movl     0x944(%rbx), %eax    
+0x0000631D2   andl     $0xffdfffff, %eax    
+0x0000631D7   orl      %eax, (%r14)         
+0x0000631DA   movl     $0x0, 0x944(%rbx)    
+0x0000631E4   movq     0x12e0(%rbx), %rax   
+0x0000631EB   movl     (%rax), %eax         
+0x0000631ED   btl      $0x11, %eax          
+0x0000631F1   jb       0x631fc              
+0x0000631F3   cmpl     $0x0, 0x88(%rbx)     
+0x0000631FA   je       0x6321b              
+0x0000631FC   btl      $0x12, %eax          
+0x000063200   jb       0x6323d              
+0x000063202   cmpl     $0x0, 0x88(%rbx)     
+0x000063209   jne      0x6323d              
+0x00006320B   movq     0x28(%rbx), %rax     
+0x00006320F   cmpq     $0x0, 0x460(%rax)    
+0x000063217   jne      0x63229              
+0x000063219   jmp      0x6323d              
+0x00006321B   movq     0x28(%rbx), %rcx     
+0x00006321F   cmpq     $0x0, 0x458(%rcx)    
+0x000063227   je       0x631fc              
+0x000063229   movl     $0x2000, 0x88(%rbx)  
+0x000063233   orb      $0x10, 0xf(%r14)     
+0x000063238   orb      $0x20, 0x2(%r14)     
+0x00006323D   movl     0x4(%r14), %r15d     
+0x000063241   btl      $0x17, %r15d         
+0x000063246   jae      0x632ad              
+0x000063248   movq     0x18(%rbx), %rax     
+0x00006324C   movzwl   0x485c(%rax), %eax   
+0x000063253   cmpw     0x2f92(%rbx), %ax    
+0x00006325A   je       0x632a0              
+0x00006325C   movq     0x918(%rbx), %r15    
+0x000063263   testq    %r15, %r15           
+0x000063266   je       0x63299              
+0x000063268   movslq   0x4(%r15), %r12      
+0x00006326C   movq     %rbx, %rdi           
+0x00006326F   movq     %r15, %rsi           
+0x000063272   movl     %r12d, %edx          
+0x000063275   callq    _glrEndQuery         
+0x00006327A   movl     $0xc, 0x4(%r15)      
+0x000063282   movq     $0x0, 0x8c8(%rbx,%r12,8) 
+0x00006328E   movq     0x18(%rbx), %rax     
+0x000063292   movzwl   0x485c(%rax), %eax   
+0x000063299   movw     %ax, 0x2f92(%rbx)    
+0x0000632A0   movq     %rbx, %rdi           
+0x0000632A3   callq    _gpusLoadCurrentQueries 
+0x0000632A8   movzwl   0x4(%r14), %r15d     
+0x0000632AD   andl     $0xffff, %r15d       
+0x0000632B4   je       0x63358              
+0x0000632BA   movq     0x10(%rbx), %rdi     
+0x0000632BE   cmpb     $0x0, 0x120(%rdi)    
+0x0000632C5   je       0x632d4              
+0x0000632C7   addq     $0x30, %rdi          
+0x0000632CB   callq    _pthread_mutex_lock  
+0x0000632D0   movq     0x10(%rbx), %rdi     
+0x0000632D4   movq     %rbx, 0x580(%rdi)    
+0x0000632DB   movl     $0x3b00, %edx        
+0x0000632E0   addq     0x18(%rbx), %rdx     
+0x0000632E4   movq     %rbx, %rdi           
+0x0000632E7   movl     %r15d, %esi          
+0x0000632EA   callq    _gpusLoadCurrentTextures 
+0x0000632EF   movl     0x88(%rbx), %eax     
+0x0000632F5   movl     %eax, %edx           
+0x0000632F7   andl     $0x400000, %edx      
+0x0000632FD   xorl     %ecx, %ecx           
+0x0000632FF   cmpl     $0x0, 0x8c(%rbx)     
+0x000063306   setne    %cl                  
+0x000063309   shll     $0x16, %ecx          
+0x00006330C   cmpl     %ecx, %edx           
+0x00006330E   je       0x63327              
+0x000063310   andl     $0xffbfffff, %eax    
+0x000063315   orl      %eax, %ecx           
+0x000063317   movl     %ecx, 0x88(%rbx)     
+0x00006331D   orb      $0x10, 0xf(%r14)     
+0x000063322   orb      $0x20, 0x2(%r14)     
+0x000063327   movzwl   0x10(%r14), %esi     
+0x00006332C   testl    %esi, %esi           
+0x00006332E   je       0x63338              
+0x000063330   movq     %rbx, %rdi           
+0x000063333   callq    _gpusLoadCurrentSamplers 
+0x000063338   movq     %rbx, %rdi           
+0x00006333B   callq    _glrAMD_GFX9_UpdateTextureSamplerState 
+0x000063340   movq     %rbx, %rdi           
+0x000063343   movl     %r15d, %esi          
+0x000063346   callq    _glrAMD_GFX9_UpdateTextureEnableState 
+0x00006334B   movq     %rbx, %rdi           
+0x00006334E   movl     %r15d, %esi          
+0x000063351   callq    _glrAMD_GFX9_UpdateTextureBindState 
+0x000063356   jmp      0x6339a              
+0x000063358   movzwl   0x10(%r14), %r15d    
+0x00006335D   testl    %r15d, %r15d         
+0x000063360   je       0x6344e              
+0x000063366   movq     0x10(%rbx), %rdi     
+0x00006336A   cmpb     $0x0, 0x120(%rdi)    
+0x000063371   je       0x63380              
+0x000063373   addq     $0x30, %rdi          
+0x000063377   callq    _pthread_mutex_lock  
+0x00006337C   movq     0x10(%rbx), %rdi     
+0x000063380   movq     %rbx, 0x580(%rdi)    
+0x000063387   movq     %rbx, %rdi           
+0x00006338A   movl     %r15d, %esi          
+0x00006338D   callq    _gpusLoadCurrentSamplers 
+0x000063392   movq     %rbx, %rdi           
+0x000063395   callq    _glrAMD_GFX9_UpdateTextureSamplerState 
+0x00006339A   movb     $0x1, %r12b          
+0x00006339D   xorl     %r13d, %r13d         
+0x0000633A0   movl     0xc(%r14), %eax      
+0x0000633A4   btl      $0x1e, %eax          
+0x0000633A8   jae      0x63506              
+0x0000633AE   cmpl     $0x0, 0x88(%rbx)     
+0x0000633B5   je       0x633dd              
+0x0000633B7   orl      $0x440000, %eax      
+0x0000633BC   movl     %eax, 0xc(%r14)      
+0x0000633C0   movq     0x10(%rbx), %rax     
+0x0000633C4   movl     0x164(%rax), %ecx    
+0x0000633CA   incl     %ecx                 
+0x0000633CC   movl     %ecx, 0x164(%rax)    
+0x0000633D2   movl     %ecx, 0x12c0(%rbx)   
+0x0000633D8   jmp      0x634ee              
+0x0000633DD   movq     0x28(%rbx), %rcx     
+0x0000633E1   cmpq     $0x0, 0x458(%rcx)    
+0x0000633E9   movq     0x460(%rcx), %rcx    
+0x0000633F0   je       0x63459              
+0x0000633F2   testq    %rcx, %rcx           
+0x0000633F5   je       0x6349d              
+0x0000633FB   orl      $0x7c0000, %eax      
+0x000063400   movl     %eax, 0xc(%r14)      
+0x000063404   movq     0x10(%rbx), %rax     
+0x000063408   movl     0x164(%rax), %ecx    
+0x00006340E   incl     %ecx                 
+0x000063410   movl     %ecx, 0x164(%rax)    
+0x000063416   movl     %ecx, 0x12c0(%rbx)   
+0x00006341C   movq     0x10(%rbx), %rax     
+0x000063420   movl     0x164(%rax), %ecx    
+0x000063426   incl     %ecx                 
+0x000063428   movl     %ecx, 0x164(%rax)    
+0x00006342E   movl     %ecx, 0x12c4(%rbx)   
+0x000063434   movq     0x10(%rbx), %rax     
+0x000063438   movl     0x164(%rax), %ecx    
+0x00006343E   incl     %ecx                 
+0x000063440   movl     %ecx, 0x164(%rax)    
+0x000063446   movl     %ecx, 0x12c8(%rbx)   
+0x00006344C   jmp      0x63483              
+0x00006344E   movb     $0x1, %r13b          
+0x000063451   xorl     %r12d, %r12d         
+0x000063454   jmp      0x633a0              
+0x000063459   testq    %rcx, %rcx           
+0x00006345C   je       0x633b7              
+0x000063462   orl      $0x640000, %eax      
+0x000063467   movl     %eax, 0xc(%r14)      
+0x00006346B   movq     0x10(%rbx), %rax     
+0x00006346F   movl     0x164(%rax), %ecx    
+0x000063475   incl     %ecx                 
+0x000063477   movl     %ecx, 0x164(%rax)    
+0x00006347D   movl     %ecx, 0x12c0(%rbx)   
+0x000063483   movq     0x10(%rbx), %rax     
+0x000063487   movl     0x164(%rax), %ecx    
+0x00006348D   incl     %ecx                 
+0x00006348F   movl     %ecx, 0x164(%rax)    
+0x000063495   movl     %ecx, 0x12cc(%rbx)   
+0x00006349B   jmp      0x634ee              
+0x00006349D   orl      $0x5c0000, %eax      
+0x0000634A2   movl     %eax, 0xc(%r14)      
+0x0000634A6   movq     0x10(%rbx), %rax     
+0x0000634AA   movl     0x164(%rax), %ecx    
+0x0000634B0   incl     %ecx                 
+0x0000634B2   movl     %ecx, 0x164(%rax)    
+0x0000634B8   movl     %ecx, 0x12c0(%rbx)   
+0x0000634BE   movq     0x10(%rbx), %rax     
+0x0000634C2   movl     0x164(%rax), %ecx    
+0x0000634C8   incl     %ecx                 
+0x0000634CA   movl     %ecx, 0x164(%rax)    
+0x0000634D0   movl     %ecx, 0x12c4(%rbx)   
+0x0000634D6   movq     0x10(%rbx), %rax     
+0x0000634DA   movl     0x164(%rax), %ecx    
+0x0000634E0   incl     %ecx                 
+0x0000634E2   movl     %ecx, 0x164(%rax)    
+0x0000634E8   movl     %ecx, 0x12c8(%rbx)   
+0x0000634EE   movq     0x10(%rbx), %rax     
+0x0000634F2   movl     0x164(%rax), %ecx    
+0x0000634F8   incl     %ecx                 
+0x0000634FA   movl     %ecx, 0x164(%rax)    
+0x000063500   movl     %ecx, 0x12d0(%rbx)   
+0x000063506   testb    $0x40, 0x6(%r14)     
+0x00006350B   movl     0xc(%r14), %eax      
+0x00006350F   je       0x63570              
+0x000063511   orl      $0x40000, %eax       
+0x000063516   movl     %eax, 0xc(%r14)      
+0x00006351A   movq     0x10(%rbx), %rax     
+0x00006351E   movl     0x164(%rax), %ecx    
+0x000063524   incl     %ecx                 
+0x000063526   movl     %ecx, 0x164(%rax)    
+0x00006352C   movl     %ecx, 0x12c0(%rbx)   
+0x000063532   orb      $0x20, 0xe(%r14)     
+0x000063537   movq     0x10(%rbx), %rax     
+0x00006353B   movl     0x164(%rax), %ecx    
+0x000063541   incl     %ecx                 
+0x000063543   movl     %ecx, 0x164(%rax)    
+0x000063549   movl     %ecx, 0x12cc(%rbx)   
+0x00006354F   orb      $0x40, 0xe(%r14)     
+0x000063554   movq     0x10(%rbx), %rax     
+0x000063558   movl     0x164(%rax), %ecx    
+0x00006355E   incl     %ecx                 
+0x000063560   movl     %ecx, 0x164(%rax)    
+0x000063566   movl     %ecx, 0x12d0(%rbx)   
+0x00006356C   movl     0xc(%r14), %eax      
+0x000063570   testl    %eax, %eax           
+0x000063572   js       0x63579              
+0x000063574   movl     (%r14), %ecx         
+0x000063577   jmp      0x63591              
+0x000063579   movq     %rbx, %rdi           
+0x00006357C   callq    _gpusHandleProcessingModeChange 
+0x000063581   movl     (%r14), %ecx         
+0x000063584   testl    %eax, %eax           
+0x000063586   je       0x63591              
+0x000063588   orl      $0x200000, %ecx      
+0x00006358E   movl     %ecx, (%r14)         
+0x000063591   xorl     %r15d, %r15d         
+0x000063594   testl    $0x22e04000, %ecx    
+0x00006359A   je       0x635b3              
+0x00006359C   movq     %rbx, %rdi           
+0x00006359F   callq    _glrAMD_UpdatePrimitiveGroups 
+0x0000635A4   testl    %eax, %eax           
+0x0000635A6   je       0x635b3              
+0x0000635A8   orb      $-0x80, 0x7(%r14)    
+0x0000635AD   movl     $0x20, %r15d         
+0x0000635B3   testb    $0x4, 0x2bb4(%rbx)   
+0x0000635BA   je       0x63604              
+0x0000635BC   testb    $0x1, 0x3(%r14)      
+0x0000635C1   je       0x63604              
+0x0000635C3   leaq     0x2ba8(%rbx), %rsi   
+0x0000635CA   movq     %rbx, %rdi           
+0x0000635CD   movl     $0x2, %edx           
+0x0000635D2   movl     $0x2, %ecx           
+0x0000635D7   callq    _glrATIAAStippleProcessModeChange 
+0x0000635DC   testb    %al, %al             
+0x0000635DE   je       0x63604              
+0x0000635E0   orb      $0x2, 0x302d(%rbx)   
+0x0000635E7   orb      $0x40, 0xe(%r14)     
+0x0000635EC   movq     0x10(%rbx), %rax     
+0x0000635F0   movl     0x164(%rax), %ecx    
+0x0000635F6   incl     %ecx                 
+0x0000635F8   movl     %ecx, 0x164(%rax)    
+0x0000635FE   movl     %ecx, 0x12d0(%rbx)   
+0x000063604   cmpl     $0x0, 0x4(%r14)      
+0x000063609   jns      0x63613              
+0x00006360B   movq     %rbx, %rdi           
+0x00006360E   callq    _glrAMD_ChoosePrimitiveGroup 
+0x000063613   testb    $0x1, (%r14)         
+0x000063617   movq     0x30e8(%rbx), %rax   
+0x00006361E   je       0x63634              
+0x000063620   orq      $0x1000, %rax        
+0x000063626   movq     %rax, 0x30e8(%rbx)   
+0x00006362D   orb      $0x2, 0x302d(%rbx)   
+0x000063634   btq      $0x23, %rax          
+0x000063639   jae      0x63659              
+0x00006363B   cmpl     $0x1000000, 0x8(%r14) 
+0x000063643   jb       0x63659              
+0x000063645   orb      $0xa, 0x302c(%rbx)   
+0x00006364C   orq      $0x6000, %rax        
+0x000063652   movq     %rax, 0x30e8(%rbx)   
+0x000063659   testb    $0x20, 0x3(%r14)     
+0x00006365E   je       0x6369a              
+0x000063660   movl     %eax, %edx           
+0x000063662   shrl     $0x4, %edx           
+0x000063665   andl     $0x1, %edx           
+0x000063668   movq     0x18(%rbx), %rcx     
+0x00006366C   movzbl   0x4847(%rcx), %ecx   
+0x000063673   cmpl     %ecx, %edx           
+0x000063675   je       0x6369a              
+0x000063677   shll     $0x4, %ecx           
+0x00006367A   andl     $0x10, %ecx          
+0x00006367D   andq     $-0x1011, %rax       
+0x000063683   addq     %rcx, %rax           
+0x000063686   addq     $0x1000, %rax        
+0x00006368C   movq     %rax, 0x30e8(%rbx)   
+0x000063693   orb      $0x3, 0x302d(%rbx)   
+0x00006369A   movl     0x88(%rbx), %ecx     
+0x0000636A0   testl    %ecx, %ecx           
+0x0000636A2   je       0x636bd              
+0x0000636A4   testl    %eax, %eax           
+0x0000636A6   jns      0x636de              
+0x0000636A8   movabsq  $-0x80002001, %rdx   
+0x0000636B2   andq     %rdx, %rax           
+0x0000636B5   orq      $0x2000, %rax        
+0x0000636BB   jmp      0x636d7              
+0x0000636BD   movq     0x28(%rbx), %rdx     
+0x0000636C1   cmpq     $0x0, 0x460(%rdx)    
+0x0000636C9   je       0x636a4              
+0x0000636CB   testl    %eax, %eax           
+0x0000636CD   js       0x636de              
+0x0000636CF   movl     $0x80002000, %edx    
+0x0000636D4   orq      %rdx, %rax           
+0x0000636D7   movq     %rax, 0x30e8(%rbx)   
+0x0000636DE   testb    $0x2, 0xc(%r14)      
+0x0000636E3   je       0x6371c              
+0x0000636E5   movq     0x18(%rbx), %rdx     
+0x0000636E9   movzbl   0x486c(%rdx), %edx   
+0x0000636F0   movl     %edx, 0x303c(%rbx)   
+0x0000636F6   testl    %ecx, %ecx           
+0x0000636F8   jne      0x6371c              
+0x0000636FA   movq     0x28(%rbx), %rcx     
+0x0000636FE   cmpq     $0x0, 0x458(%rcx)    
+0x000063706   je       0x6371c              
+0x000063708   movabsq  $0x200000018000, %rcx 
+0x000063712   orq      %rcx, %rax           
+0x000063715   movq     %rax, 0x30e8(%rbx)   
+0x00006371C   btl      $0xd, %eax           
+0x000063720   movl     0xc(%r14), %ecx      
+0x000063724   jae      0x63761              
+0x000063726   orl      $0x40000, %ecx       
+0x00006372C   movl     %ecx, 0xc(%r14)      
+0x000063730   movq     0x10(%rbx), %rax     
+0x000063734   movl     0x164(%rax), %ecx    
+0x00006373A   incl     %ecx                 
+0x00006373C   movl     %ecx, 0x164(%rax)    
+0x000063742   movl     %ecx, 0x12c0(%rbx)   
+0x000063748   movq     $-0x2001, %rax       
+0x00006374F   andq     0x30e8(%rbx), %rax   
+0x000063756   movq     %rax, 0x30e8(%rbx)   
+0x00006375D   movl     0xc(%r14), %ecx      
+0x000063761   testw    %ax, %ax             
+0x000063764   jns      0x637a1              
+0x000063766   orl      $0x80000, %ecx       
+0x00006376C   movl     %ecx, 0xc(%r14)      
+0x000063770   movq     0x10(%rbx), %rax     
+0x000063774   movl     0x164(%rax), %ecx    
+0x00006377A   incl     %ecx                 
+0x00006377C   movl     %ecx, 0x164(%rax)    
+0x000063782   movl     %ecx, 0x12c4(%rbx)   
+0x000063788   movq     $-0x8001, %rax       
+0x00006378F   andq     0x30e8(%rbx), %rax   
+0x000063796   movq     %rax, 0x30e8(%rbx)   
+0x00006379D   movl     0xc(%r14), %ecx      
+0x0000637A1   btl      $0x10, %eax          
+0x0000637A5   jae      0x637e2              
+0x0000637A7   orl      $0x100000, %ecx      
+0x0000637AD   movl     %ecx, 0xc(%r14)      
+0x0000637B1   movq     0x10(%rbx), %rax     
+0x0000637B5   movl     0x164(%rax), %ecx    
+0x0000637BB   incl     %ecx                 
+0x0000637BD   movl     %ecx, 0x164(%rax)    
+0x0000637C3   movl     %ecx, 0x12c8(%rbx)   
+0x0000637C9   movq     $-0x10001, %rax      
+0x0000637D0   andq     0x30e8(%rbx), %rax   
+0x0000637D7   movq     %rax, 0x30e8(%rbx)   
+0x0000637DE   movl     0xc(%r14), %ecx      
+0x0000637E2   btl      $0xe, %eax           
+0x0000637E6   jae      0x63823              
+0x0000637E8   orl      $0x200000, %ecx      
+0x0000637EE   movl     %ecx, 0xc(%r14)      
+0x0000637F2   movq     0x10(%rbx), %rax     
+0x0000637F6   movl     0x164(%rax), %ecx    
+0x0000637FC   incl     %ecx                 
+0x0000637FE   movl     %ecx, 0x164(%rax)    
+0x000063804   movl     %ecx, 0x12cc(%rbx)   
+0x00006380A   movq     $-0x4001, %rax       
+0x000063811   andq     0x30e8(%rbx), %rax   
+0x000063818   movq     %rax, 0x30e8(%rbx)   
+0x00006381F   movl     0xc(%r14), %ecx      
+0x000063823   btl      $0xc, %eax           
+0x000063827   jae      0x63856              
+0x000063829   orl      $0x400000, %ecx      
+0x00006382F   movl     %ecx, 0xc(%r14)      
+0x000063833   movq     0x10(%rbx), %rax     
+0x000063837   movl     0x164(%rax), %ecx    
+0x00006383D   incl     %ecx                 
+0x00006383F   movl     %ecx, 0x164(%rax)    
+0x000063845   movl     %ecx, 0x12d0(%rbx)   
+0x00006384B   andb     $-0x11, 0x30e9(%rbx) 
+0x000063852   movl     0xc(%r14), %ecx      
+0x000063856   btl      $0x1d, %ecx          
+0x00006385A   jae      0x63866              
+0x00006385C   movq     %rbx, %rdi           
+0x00006385F   xorl     %esi, %esi           
+0x000063861   callq    _glrAMD_GFX9_SysUniformBufferObjectsChanged 
+0x000063866   testb    $0x1, 0x8(%r14)      
+0x00006386B   je       0x6387d              
+0x00006386D   testb    $-0x80, 0x30ed(%rbx) 
+0x000063874   je       0x6387d              
+0x000063876   orb      $0x2, 0x302d(%rbx)   
+0x00006387D   testb    $0x10, 0xf(%r14)     
+0x000063882   je       0x638d1              
+0x000063884   movq     0x30e8(%rbx), %rax   
+0x00006388B   btq      $0x36, %rax          
+0x000063890   jae      0x63899              
+0x000063892   orb      $0x2, 0x302c(%rbx)   
+0x000063899   btq      $0x37, %rax          
+0x00006389E   jae      0x638a7              
+0x0000638A0   orb      $0x20, 0x302c(%rbx)  
+0x0000638A7   btq      $0x38, %rax          
+0x0000638AC   jae      0x638b5              
+0x0000638AE   orb      $-0x80, 0x302c(%rbx) 
+0x0000638B5   btq      $0x39, %rax          
+0x0000638BA   jae      0x638c3              
+0x0000638BC   orb      $0x8, 0x302c(%rbx)   
+0x0000638C3   btq      $0x3a, %rax          
+0x0000638C8   jae      0x638d1              
+0x0000638CA   orb      $0x2, 0x302d(%rbx)   
+0x0000638D1   movl     0xc(%r14), %eax      
+0x0000638D5   testl    $0xbffc0000, %eax    
+0x0000638DA   je       0x6391b              
+0x0000638DC   testb    %r13b, %r13b         
+0x0000638DF   je       0x63902              
+0x0000638E1   movq     0x10(%rbx), %rdi     
+0x0000638E5   cmpb     $0x0, 0x120(%rdi)    
+0x0000638EC   je       0x638fb              
+0x0000638EE   addq     $0x30, %rdi          
+0x0000638F2   callq    _pthread_mutex_lock  
+0x0000638F7   movq     0x10(%rbx), %rdi     
+0x0000638FB   movq     %rbx, 0x580(%rdi)    
+0x000063902   movq     %rbx, %rdi           
+0x000063905   movq     %r14, %rsi           
+0x000063908   callq    _gpusLoadCurrentPipelinePrograms 
+0x00006390D   testb    $0x20, 0x30ec(%rbx)  
+0x000063914   jne      0x63955              
+0x000063916   xorl     %r12d, %r12d         
+0x000063919   jmp      0x63998              
+0x00006391B   testl    $0x1001, %eax        
+0x000063920   je       0x63b93              
+0x000063926   testb    %r13b, %r13b         
+0x000063929   je       0x63b88              
+0x00006392F   movq     0x10(%rbx), %rdi     
+0x000063933   cmpb     $0x0, 0x120(%rdi)    
+0x00006393A   je       0x63949              
+0x00006393C   addq     $0x30, %rdi          
+0x000063940   callq    _pthread_mutex_lock  
+0x000063945   movq     0x10(%rbx), %rdi     
+0x000063949   movq     %rbx, 0x580(%rdi)    
+0x000063950   jmp      0x63b88              
+0x000063955   movl     0x88(%rbx), %eax     
+0x00006395B   testw    %ax, %ax             
+0x00006395E   sete     %cl                  
+0x000063961   cmpl     $0x10000, %eax       
+0x000063966   setae    %dl                  
+0x000063969   orb      %cl, %dl             
+0x00006396B   jne      0x639a0              
+0x00006396D   orl      $0x800000, %eax      
+0x000063972   movl     %eax, 0x88(%rbx)     
+0x000063978   orb      $0x40, 0xe(%r14)     
+0x00006397D   movq     0x10(%rbx), %rax     
+0x000063981   movl     0x164(%rax), %ecx    
+0x000063987   incl     %ecx                 
+0x000063989   movl     %ecx, 0x164(%rax)    
+0x00006398F   movl     %ecx, 0x12d0(%rbx)   
+0x000063995   movb     $0x1, %r12b          
+0x000063998   movl     0x88(%rbx), %eax     
+0x00006399E   jmp      0x639a3              
+0x0000639A0   xorl     %r12d, %r12d         
+0x0000639A3   cmpl     $0xffff, %eax        
+0x0000639A8   ja       0x63ada              
+0x0000639AE   testb    $0x10, 0x30ea(%rbx)  
+0x0000639B5   jne      0x63a21              
+0x0000639B7   movl     0x2bb4(%rbx), %ecx   
+0x0000639BD   testb    $0x8, %cl            
+0x0000639C0   je       0x63ada              
+0x0000639C6   movq     0x18(%rbx), %rax     
+0x0000639CA   andl     $-0x9, %ecx          
+0x0000639CD   movl     %ecx, 0x2bb4(%rbx)   
+0x0000639D3   movl     0x3028(%rbx), %edx   
+0x0000639D9   cmpl     $0x8, %edx           
+0x0000639DC   je       0x639e3              
+0x0000639DE   cmpl     $0x4, %edx           
+0x0000639E1   jne      0x639ec              
+0x0000639E3   orl      $0x2, %ecx           
+0x0000639E6   movl     %ecx, 0x2bb4(%rbx)   
+0x0000639EC   cmpb     $0x0, 0x3cd0(%rax)   
+0x0000639F3   jne      0x63aba              
+0x0000639F9   cmpb     $0x0, 0x3c93(%rax)   
+0x000063A00   jne      0x63aba              
+0x000063A06   movl     0x3120(%rbx), %esi   
+0x000063A0C   movq     %rbx, %rdi           
+0x000063A0F   callq    _glrATIRenderMultiSampled 
+0x000063A14   testb    %al, %al             
+0x000063A16   jne      0x63aba              
+0x000063A1C   jmp      0x63ada              
+0x000063A21   movq     0x18(%rbx), %rax     
+0x000063A25   cmpb     $0x0, 0x3cd0(%rax)   
+0x000063A2C   jne      0x63a37              
+0x000063A2E   cmpb     $0x0, 0x3c93(%rax)   
+0x000063A35   je       0x63a66              
+0x000063A37   cmpl     $0x5, 0x2b38(%rbx)   
+0x000063A3E   jne      0x63a8e              
+0x000063A40   cmpl     $0x1, 0x2b34(%rbx)   
+0x000063A47   ja       0x63a8e              
+0x000063A49   movl     0x2bb4(%rbx), %eax   
+0x000063A4F   movl     %eax, %ecx           
+0x000063A51   andl     $-0x3, %ecx          
+0x000063A54   movl     %ecx, 0x2bb4(%rbx)   
+0x000063A5A   testb    $0x8, %al            
+0x000063A5C   jne      0x63ada              
+0x000063A5E   andl     $-0xb, %eax          
+0x000063A61   orl      $0x8, %eax           
+0x000063A64   jmp      0x63ab4              
+0x000063A66   movl     0x3120(%rbx), %esi   
+0x000063A6C   movq     %rbx, %rdi           
+0x000063A6F   callq    _glrATIRenderMultiSampled 
+0x000063A74   testb    %al, %al             
+0x000063A76   je       0x640ed              
+0x000063A7C   cmpl     $0x5, 0x2b38(%rbx)   
+0x000063A83   jne      0x63a8e              
+0x000063A85   cmpl     $0x0, 0x2b34(%rbx)   
+0x000063A8C   je       0x63a49              
+0x000063A8E   movl     0x2bb4(%rbx), %eax   
+0x000063A94   testb    $0x8, %al            
+0x000063A96   je       0x63ada              
+0x000063A98   andl     $-0x9, %eax          
+0x000063A9B   movl     %eax, 0x2bb4(%rbx)   
+0x000063AA1   movl     0x3028(%rbx), %ecx   
+0x000063AA7   cmpl     $0x8, %ecx           
+0x000063AAA   je       0x63ab1              
+0x000063AAC   cmpl     $0x4, %ecx           
+0x000063AAF   jne      0x63aba              
+0x000063AB1   orl      $0x2, %eax           
+0x000063AB4   movl     %eax, 0x2bb4(%rbx)   
+0x000063ABA   orb      $0x40, 0xe(%r14)     
+0x000063ABF   movq     0x10(%rbx), %rax     
+0x000063AC3   movl     0x164(%rax), %ecx    
+0x000063AC9   incl     %ecx                 
+0x000063ACB   movl     %ecx, 0x164(%rax)    
+0x000063AD1   movl     %ecx, 0x12d0(%rbx)   
+0x000063AD7   movb     $0x1, %r12b          
+0x000063ADA   cmpl     $0x0, 0x88(%rbx)     
+0x000063AE1   jne      0x63b5d              
+0x000063AE3   movq     0x30e8(%rbx), %rax   
+0x000063AEA   btl      $0x14, %eax          
+0x000063AEE   jb       0x63b50              
+0x000063AF0   movabsq  $0x6000000000, %rcx  
+0x000063AFA   andq     %rax, %rcx           
+0x000063AFD   movabsq  $0x4000000000, %rdx  
+0x000063B07   cmpq     %rdx, %rcx           
+0x000063B0A   je       0x63b1b              
+0x000063B0C   movabsq  $0x2000000000, %rdx  
+0x000063B16   cmpq     %rdx, %rcx           
+0x000063B19   jne      0x63b50              
+0x000063B1B   andl     $0x200000, %eax      
+0x000063B20   movl     $0x40000, %ecx       
+0x000063B25   movl     $0x100000, %edx      
+0x000063B2A   cmovel   %ecx, %edx           
+0x000063B2D   orl      %edx, 0xc(%r14)      
+0x000063B31   shrl     $0x12, %eax          
+0x000063B34   movq     0x10(%rbx), %rcx     
+0x000063B38   movl     0x164(%rcx), %edx    
+0x000063B3E   incl     %edx                 
+0x000063B40   movl     %edx, 0x164(%rcx)    
+0x000063B46   movl     %edx, 0x12c0(%rbx,%rax) 
+0x000063B4D   movb     $0x1, %r12b          
+0x000063B50   cmpl     $0x0, 0x88(%rbx)     
+0x000063B57   je       0x63ff5              
+0x000063B5D   testb    %r12b, %r12b         
+0x000063B60   je       0x63b6d              
+0x000063B62   movq     %rbx, %rdi           
+0x000063B65   movq     %r14, %rsi           
+0x000063B68   callq    _gpusLoadCurrentPipelinePrograms 
+0x000063B6D   orl      0x3024(%rbx), %r15d  
+0x000063B74   movl     $0x0, 0x3024(%rbx)   
+0x000063B7E   testl    $0x10041001, 0xc(%r14) 
+0x000063B86   je       0x63b90              
+0x000063B88   movq     %rbx, %rdi           
+0x000063B8B   callq    _gpusLoadCurrentVertexArray 
+0x000063B90   movb     $0x1, %r12b          
+0x000063B93   movl     0x88(%rbx), %eax     
+0x000063B99   testl    %eax, %eax           
+0x000063B9B   je       0x63bcb              
+0x000063B9D   cmpl     $0x10000, %eax       
+0x000063BA2   jae      0x63bf1              
+0x000063BA4   orl      $0x4, %r15d          
+0x000063BA8   movzwl   0x2f90(%rbx), %eax   
+0x000063BAF   cmpl     $0x1, %eax           
+0x000063BB2   je       0x63c0b              
+0x000063BB4   cmpl     $0x2, %eax           
+0x000063BB7   jne      0x63bc0              
+0x000063BB9   orl      $0x400001, (%r14)    
+0x000063BC0   movw     $0x1, 0x2f90(%rbx)   
+0x000063BC9   jmp      0x63c0b              
+0x000063BCB   orl      $0x5, %r15d          
+0x000063BCF   movzwl   0x2f90(%rbx), %eax   
+0x000063BD6   testl    %eax, %eax           
+0x000063BD8   je       0x63c0b              
+0x000063BDA   cmpl     $0x2, %eax           
+0x000063BDD   jne      0x63be6              
+0x000063BDF   orl      $0x400001, (%r14)    
+0x000063BE6   movw     $0x0, 0x2f90(%rbx)   
+0x000063BEF   jmp      0x63c0b              
+0x000063BF1   cmpw     $0x2, 0x2f90(%rbx)   
+0x000063BF9   je       0x63c0b              
+0x000063BFB   orl      $0x400001, (%r14)    
+0x000063C02   movw     $0x2, 0x2f90(%rbx)   
+0x000063C0B   movq     0x78(%rbx), %r13     
+0x000063C0F   movl     (%r13), %eax         
+0x000063C13   movl     0x4(%r13), %ecx      
+0x000063C17   movl     $0xdfffefff, %edx    
+0x000063C1C   andl     0xc(%r13), %edx      
+0x000063C20   orl      0x8(%r13), %ecx      
+0x000063C24   orl      %edx, %ecx           
+0x000063C26   orl      0x10(%r13), %ecx     
+0x000063C2A   orl      %eax, %ecx           
+0x000063C2C   je       0x63c7b              
+0x000063C2E   btl      $0x1d, %eax          
+0x000063C32   jae      0x63c3c              
+0x000063C34   movq     %rbx, %rdi           
+0x000063C37   callq    _glrATIEvaluateFSAAState 
+0x000063C3C   movq     0x18(%rbx), %rax     
+0x000063C40   movq     0x30e8(%rbx), %rsi   
+0x000063C47   movl     (%r13), %ecx         
+0x000063C4B   testb    $0x8, %sil           
+0x000063C4F   je       0x63c62              
+0x000063C51   orl      $0x24000000, %ecx    
+0x000063C57   movl     %ecx, (%r13)         
+0x000063C5B   movq     0x30e8(%rbx), %rsi   
+0x000063C62   movabsq  $0x800000000, %rdx   
+0x000063C6C   btq      $0x29, %rsi          
+0x000063C71   jb       0x63c95              
+0x000063C73   testl    %ecx, %ecx           
+0x000063C75   jne      0x63c9f              
+0x000063C77   xorl     %ecx, %ecx           
+0x000063C79   jmp      0x63ce4              
+0x000063C7B   cmpl     $0x0, 0x302c(%rbx)   
+0x000063C82   je       0x63f15              
+0x000063C88   movq     %rbx, %rdi           
+0x000063C8B   callq    _glrAMD_GFX9_ValidatePipelinePrograms 
+0x000063C90   jmp      0x63f15              
+0x000063C95   orl      $0x8000000, %ecx     
+0x000063C9B   movl     %ecx, (%r13)         
+0x000063C9F   movl     %ecx, %esi           
+0x000063CA1   andl     $0x41c000, %esi      
+0x000063CA7   movl     %ecx, %edi           
+0x000063CA9   orl      $0x800000, %edi      
+0x000063CAF   testl    %esi, %esi           
+0x000063CB1   cmovel   %ecx, %edi           
+0x000063CB4   movl     %edi, %r8d           
+0x000063CB7   andl     $0x20000, %r8d       
+0x000063CBE   movl     %r8d, %r9d           
+0x000063CC1   shrl     $0x10, %r9d          
+0x000063CC5   orl      %esi, %r8d           
+0x000063CC8   movl     %edi, %esi           
+0x000063CCA   andl     $0x20000000, %esi    
+0x000063CD0   movl     $0x3, %ecx           
+0x000063CD5   cmovel   %r9d, %ecx           
+0x000063CD9   orl      %edi, %ecx           
+0x000063CDB   orl      %r8d, %esi           
+0x000063CDE   je       0x63ce4              
+0x000063CE0   movl     %ecx, (%r13)         
+0x000063CE4   movl     0x8(%r13), %esi      
+0x000063CE8   movl     %esi, %r8d           
+0x000063CEB   shrb     $0x3, %r8b           
+0x000063CEF   movq     0x30e8(%rbx), %rdi   
+0x000063CF6   andq     %rdi, %rdx           
+0x000063CF9   sete     %dl                  
+0x000063CFC   andb     %r8b, %dl            
+0x000063CFF   cmpb     $0x1, %dl            
+0x000063D02   jne      0x63d1e              
+0x000063D04   cmpl     $0x0, 0x47d4(%rax)   
+0x000063D0B   je       0x63d1e              
+0x000063D0D   orl      $0xff000000, %esi    
+0x000063D13   movl     %esi, 0x8(%r13)      
+0x000063D17   movq     0x30e8(%rbx), %rdi   
+0x000063D1E   btq      $0x31, %rdi          
+0x000063D23   jae      0x63d36              
+0x000063D25   orl      $0x4000000, %ecx     
+0x000063D2B   movl     %ecx, (%r13)         
+0x000063D2F   orl      $0x1, %esi           
+0x000063D32   movl     %esi, 0x8(%r13)      
+0x000063D36   movzwl   0xe(%r13), %eax      
+0x000063D3B   testl    $0xd0fc, %eax        
+0x000063D40   je       0x63d65              
+0x000063D42   movq     %rbx, %rdi           
+0x000063D45   callq    _glrATIEvaluateTCLEnableState 
+0x000063D4A   testb    %al, %al             
+0x000063D4C   je       0x63d65              
+0x000063D4E   movq     %rbx, %rdi           
+0x000063D51   callq    _glrAMD_GFX9_WriteHwXformClipRegs 
+0x000063D56   movq     %rbx, %rdi           
+0x000063D59   callq    _glrAMD_GFX9_RestartStreamOutPipelineCounters 
+0x000063D5E   orb      $0x20, 0x30e9(%rbx)  
+0x000063D65   movq     0x78(%rbx), %r14     
+0x000063D69   movl     (%r14), %eax         
+0x000063D6C   btl      $0x1d, %eax          
+0x000063D70   jb       0x63d7b              
+0x000063D72   testb    $0x28, 0x30e8(%rbx)  
+0x000063D79   je       0x63d86              
+0x000063D7B   movq     %rbx, %rdi           
+0x000063D7E   callq    _glrATI_Hwl_WriteMultisampleState 
+0x000063D83   movl     (%r14), %eax         
+0x000063D86   testl    %eax, %eax           
+0x000063D88   je       0x63e69              
+0x000063D8E   testl    $0x3800000, %eax     
+0x000063D93   je       0x63db8              
+0x000063D95   movq     %rbx, %rdi           
+0x000063D98   callq    _glrAMD_GFX9_UpdateHwPolygonState 
+0x000063D9D   movq     %rbx, %rdi           
+0x000063DA0   callq    _glrAMD_GFX9_UpdateHwCullState 
+0x000063DA5   movl     (%r14), %eax         
+0x000063DA8   btl      $0x18, %eax          
+0x000063DAC   jae      0x63db8              
+0x000063DAE   orb      $0x2, 0x302d(%rbx)   
+0x000063DB5   movl     (%r14), %eax         
+0x000063DB8   testl    $0x1c000, %eax       
+0x000063DBD   je       0x63dca              
+0x000063DBF   movq     %rbx, %rdi           
+0x000063DC2   callq    _glrAMD_GFX9_UpdateHwLineState 
+0x000063DC7   movl     (%r14), %eax         
+0x000063DCA   btl      $0x16, %eax          
+0x000063DCE   jae      0x63ddb              
+0x000063DD0   movq     %rbx, %rdi           
+0x000063DD3   callq    _glrAMD_GFX9_UpdateHwPointState 
+0x000063DD8   movl     (%r14), %eax         
+0x000063DDB   testl    $0x300, %eax         
+0x000063DE0   je       0x63df4              
+0x000063DE2   movq     %rbx, %rdi           
+0x000063DE5   callq    _glrAMD_GFX9_UpdateHwDepthTestState 
+0x000063DEA   orb      $0x8, 0x30f0(%rbx)   
+0x000063DF1   movl     (%r14), %eax         
+0x000063DF4   btl      $0x1c, %eax          
+0x000063DF8   jae      0x63e0c              
+0x000063DFA   movq     %rbx, %rdi           
+0x000063DFD   callq    _glrAMD_GFX9_UpdateHwStencilTestState 
+0x000063E02   orb      $0x8, 0x30f0(%rbx)   
+0x000063E09   movl     (%r14), %eax         
+0x000063E0C   btl      $0x1b, %eax          
+0x000063E10   jae      0x63e1d              
+0x000063E12   movq     %rbx, %rdi           
+0x000063E15   callq    _glrAMD_GFX9_UpdateHwShadeModelState 
+0x000063E1A   movl     (%r14), %eax         
+0x000063E1D   testb    $0x2, %al            
+0x000063E1F   je       0x63e3b              
+0x000063E21   movq     %rbx, %rdi           
+0x000063E24   callq    _glrAMD_GFX9_UpdateHwBlendState 
+0x000063E29   movq     %rbx, %rdi           
+0x000063E2C   callq    _glrAMD_GFX9_UpdateHwSxBlendOptState 
+0x000063E31   orb      $0x8, 0x30f0(%rbx)   
+0x000063E38   movl     (%r14), %eax         
+0x000063E3B   testb    $0x4, %al            
+0x000063E3D   je       0x63e4a              
+0x000063E3F   movq     %rbx, %rdi           
+0x000063E42   callq    _glrAMD_GFX9_UpdateHwBlendColorState 
+0x000063E47   movl     (%r14), %eax         
+0x000063E4A   btl      $0x11, %eax          
+0x000063E4E   jae      0x63e5b              
+0x000063E50   movq     %rbx, %rdi           
+0x000063E53   callq    _glrAMD_GFX9_UpdateHwLogicOpState 
+0x000063E58   movl     (%r14), %eax         
+0x000063E5B   btl      $0x1a, %eax          
+0x000063E5F   jae      0x63e69              
+0x000063E61   movq     %rbx, %rdi           
+0x000063E64   callq    _glrAMD_GFX9_UpdateHwScissorState 
+0x000063E69   movl     0x4(%r14), %eax      
+0x000063E6D   testl    %eax, %eax           
+0x000063E6F   je       0x63e93              
+0x000063E71   btl      $0x1e, %eax          
+0x000063E75   jae      0x63e83              
+0x000063E77   movq     %rbx, %rdi           
+0x000063E7A   callq    _glrAMD_GFX9_UpdateHwRasterizerDiscardState 
+0x000063E7F   movl     0x4(%r14), %eax      
+0x000063E83   btl      $0x13, %eax          
+0x000063E87   jae      0x63e93              
+0x000063E89   movq     %rbx, %rdi           
+0x000063E8C   xorl     %esi, %esi           
+0x000063E8E   callq    _glrAMD_GFX9_UpdateHwPrimitiveRestartState 
+0x000063E93   movl     0x8(%r14), %eax      
+0x000063E97   testl    %eax, %eax           
+0x000063E99   je       0x63ec2              
+0x000063E9B   testb    $0x1, %al            
+0x000063E9D   je       0x63ea7              
+0x000063E9F   movq     %rbx, %rdi           
+0x000063EA2   callq    _glrAMD_GFX9_UpdateHwViewportState 
+0x000063EA7   cmpl     $0x0, 0x88(%rbx)     
+0x000063EAE   jne      0x63ec2              
+0x000063EB0   testl    $0xff000008, 0x8(%r14) 
+0x000063EB8   je       0x63ec2              
+0x000063EBA   movq     %rbx, %rdi           
+0x000063EBD   callq    _glrAMD_GFX9_UpdateHwUserClipPlaneState 
+0x000063EC2   movl     0x10(%r14), %eax     
+0x000063EC6   testl    $0xff0000, %eax      
+0x000063ECB   jne      0x63edd              
+0x000063ECD   movl     $0x4ffff, %ecx       
+0x000063ED2   andl     0x4(%r14), %ecx      
+0x000063ED6   movzwl   %ax, %eax            
+0x000063ED9   orl      %ecx, %eax           
+0x000063EDB   je       0x63ee5              
+0x000063EDD   movq     %rbx, %rdi           
+0x000063EE0   callq    _glrAMD_GFX9_UpdateHwTextureState 
+0x000063EE5   testb    $0x4, 0x30e8(%rbx)   
+0x000063EEC   je       0x63ef6              
+0x000063EEE   movq     %rbx, %rdi           
+0x000063EF1   callq    _glrAMD_GFX9_UpdateHwEdgeRuleState 
+0x000063EF6   movq     %rbx, %rdi           
+0x000063EF9   callq    _glrAMD_GFX9_ValidatePipelinePrograms 
+0x000063EFE   leaq     0x1cb0(%rbx), %rsi   
+0x000063F05   movq     %rbx, %rdi           
+0x000063F08   callq    _glrAMD_GFX9_ValidateShaderRings 
+0x000063F0D   movq     %rbx, %rdi           
+0x000063F10   callq    _glrAMD_GFX9_UpdateSpecialHwState 
+0x000063F15   movl     0x30f0(%rbx), %esi   
+0x000063F1B   testb    $0x8, %sil           
+0x000063F1F   je       0x63f36              
+0x000063F21   shrl     $0x4, %esi           
+0x000063F24   andl     $0x1, %esi           
+0x000063F27   movq     %rbx, %rdi           
+0x000063F2A   callq    _glrAMD_GFX9_UpdateHwPrimBatchBinning 
+0x000063F2F   andb     $-0x19, 0x30f0(%rbx) 
+0x000063F36   testb    $0x10, 0xd(%r13)     
+0x000063F3B   jne      0x63f4b              
+0x000063F3D   movq     0x30e8(%rbx), %r14   
+0x000063F44   btl      $0x18, %r14d         
+0x000063F49   jae      0x63f5a              
+0x000063F4B   movq     %rbx, %rdi           
+0x000063F4E   callq    _glrAMD_GFX9_UpdateVertexArrayState 
+0x000063F53   movq     0x30e8(%rbx), %r14   
+0x000063F5A   btl      $0x18, %r14d         
+0x000063F5F   jb       0x63f7f              
+0x000063F61   btl      $0x1b, %r14d         
+0x000063F66   jb       0x63f71              
+0x000063F68   testb    $0x10, 0xd(%r13)     
+0x000063F6D   jne      0x63f7f              
+0x000063F6F   jmp      0x63f90              
+0x000063F71   movq     0x20(%rbx), %rax     
+0x000063F75   cmpq     $0x0, 0x210(%rax)    
+0x000063F7D   je       0x63f90              
+0x000063F7F   movq     %rbx, %rdi           
+0x000063F82   xorl     %esi, %esi           
+0x000063F84   callq    _glrAMD_GFX9_UpdatePrimitiveBufferState 
+0x000063F89   movq     0x30e8(%rbx), %r14   
+0x000063F90   movabsq  $-0xf02000100002d, %rax 
+0x000063F9A   andq     %r14, %rax           
+0x000063F9D   movq     %rax, 0x30e8(%rbx)   
+0x000063FA4   movl     $0x0, 0x302c(%rbx)   
+0x000063FAE   testb    %r12b, %r12b         
+0x000063FB1   je       0x63fd8              
+0x000063FB3   movq     0x10(%rbx), %rax     
+0x000063FB7   movq     $0x0, 0x580(%rax)    
+0x000063FC2   movq     0x10(%rbx), %rdi     
+0x000063FC6   cmpb     $0x0, 0x120(%rdi)    
+0x000063FCD   je       0x63fd8              
+0x000063FCF   addq     $0x30, %rdi          
+0x000063FD3   callq    _pthread_mutex_unlock 
+0x000063FD8   shrl     $0x17, %r14d         
+0x000063FDC   andl     $0x2, %r14d          
+0x000063FE0   orl      %r15d, %r14d         
+0x000063FE3   movl     %r14d, %eax          
+0x000063FE6   addq     $0x8, %rsp           
+0x000063FEA   popq     %rbx                 
+0x000063FEB   popq     %r12                 
+0x000063FED   popq     %r13                 
+0x000063FEF   popq     %r14                 
+0x000063FF1   popq     %r15                 
+0x000063FF3   popq     %rbp                 
+0x000063FF4   retq                          
+0x000063FF5   movq     0x30e8(%rbx), %rax   
+0x000063FFC   btl      $0x15, %eax          
+0x000064000   jb       0x64021              
+0x000064002   movq     0x1d58(%rbx), %rdx   
+0x000064009   movl     $0x1c00000, %ecx     
+0x00006400E   andl     0x6c(%rdx), %ecx     
+0x000064011   btl      $0x14, %eax          
+0x000064015   jb       0x6403a              
+0x000064017   cmpl     $0x400000, %ecx      
+0x00006401D   jne      0x64042              
+0x00006401F   jmp      0x6407d              
+0x000064021   movq     0x1d58(%rbx), %rax   
+0x000064028   movl     $0x1c00000, %ecx     
+0x00006402D   andl     0x6c(%rax), %ecx     
+0x000064030   cmpl     $0x1000000, %ecx     
+0x000064036   jne      0x64042              
+0x000064038   jmp      0x6407d              
+0x00006403A   cmpl     $0x1400000, %ecx     
+0x000064040   je       0x6407d              
+0x000064042   orb      $0x4, 0xe(%r14)      
+0x000064047   movq     0x10(%rbx), %rax     
+0x00006404B   movl     0x164(%rax), %ecx    
+0x000064051   incl     %ecx                 
+0x000064053   movl     %ecx, 0x164(%rax)    
+0x000064059   movl     %ecx, 0x12c0(%rbx)   
+0x00006405F   movq     0xa0(%rbx), %rax     
+0x000064066   movq     0x8(%rax), %rax      
+0x00006406A   orl      $0x1, (%rax)         
+0x00006406D   cmpl     $0x0, 0x88(%rbx)     
+0x000064074   jne      0x63b62              
+0x00006407A   movb     $0x1, %r12b          
+0x00006407D   movq     0x30e8(%rbx), %rax   
+0x000064084   btl      $0x15, %eax          
+0x000064088   jae      0x63b5d              
+0x00006408E   movq     0x1d68(%rbx), %rdx   
+0x000064095   movl     $0x1c00000, %ecx     
+0x00006409A   andl     0x6c(%rdx), %ecx     
+0x00006409D   btl      $0x14, %eax          
+0x0000640A1   jb       0x640b1              
+0x0000640A3   cmpl     $0x400000, %ecx      
+0x0000640A9   je       0x63b5d              
+0x0000640AF   jmp      0x640bd              
+0x0000640B1   cmpl     $0x1400000, %ecx     
+0x0000640B7   je       0x63b5d              
+0x0000640BD   orb      $0x10, 0xe(%r14)     
+0x0000640C2   movq     0x10(%rbx), %rax     
+0x0000640C6   movl     0x164(%rax), %ecx    
+0x0000640CC   incl     %ecx                 
+0x0000640CE   movl     %ecx, 0x164(%rax)    
+0x0000640D4   movl     %ecx, 0x12c8(%rbx)   
+0x0000640DA   movq     0xb0(%rbx), %rax     
+0x0000640E1   movq     0x8(%rax), %rax      
+0x0000640E5   orl      $0x1, (%rax)         
+0x0000640E8   jmp      0x63b62              
+0x0000640ED   movl     0x2bb4(%rbx), %eax   
+0x0000640F3   testb    $0x8, %al            
+0x0000640F5   je       0x63ada              
+0x0000640FB   andl     $-0x9, %eax          
+0x0000640FE   movl     %eax, 0x2bb4(%rbx)   
+0x000064104   jmp      0x63ada              
+/System/Library/PrivateFrameworks/GPUSupport.framework/Versions/A/Libraries/libGPUSupportMercury.dylib [x86_64]:
+    -uuid:
+        F206CE07-BCA7-3CC7-A494-112686CDE945
+
+_gldCreateContext:
+0x7FF9183542C8   pushq    %rbp                 
+0x7FF9183542C9   movq     %rsp, %rbp           
+0x7FF9183542CC   pushq    %r15                 
+0x7FF9183542CE   pushq    %r14                 
+0x7FF9183542D0   pushq    %r13                 
+0x7FF9183542D2   pushq    %r12                 
+0x7FF9183542D4   pushq    %rbx                 
+0x7FF9183542D5   subq     $0x438, %rsp         
+0x7FF9183542DC   movq     %r9, -0x458(%rbp)    
+0x7FF9183542E3   movq     %r8, -0x450(%rbp)    
+0x7FF9183542EA   movq     %rcx, -0x460(%rbp)   
+0x7FF9183542F1   movq     %rdx, %r15           
+0x7FF9183542F4   movq     %rsi, %r14           
+0x7FF9183542F7   movq     %rdi, %r13           
+0x7FF9183542FA   movq     0x27d226ef(%rip), %rax  ; 
+0x7FF918354301   movq     (%rax), %rax         
+0x7FF918354304   movq     %rax, -0x30(%rbp)    
+0x7FF918354308   movq     0x8(%rdi), %r12      
+0x7FF91835430C   movq     (%r12), %rbx         
+0x7FF918354310   movq     $0x0, (%rsi)         
+0x7FF918354317   movq     %r12, %rdi           
+0x7FF91835431A   movq     %rdx, %rsi           
+0x7FF91835431D   callq    *0xf8(%r12)          
+0x7FF918354325   testl    %eax, %eax           
+0x7FF918354327   je       0x7ff91835434f       
+0x7FF918354329   movq     0x27d226c0(%rip), %rcx  ; 
+0x7FF918354330   movq     (%rcx), %rcx         
+0x7FF918354333   cmpq     -0x30(%rbp), %rcx    
+0x7FF918354337   jne      0x7ff9183547a9       
+0x7FF91835433D   addq     $0x438, %rsp         
+0x7FF918354344   popq     %rbx                 
+0x7FF918354345   popq     %r12                 
+0x7FF918354347   popq     %r13                 
+0x7FF918354349   popq     %r14                 
+0x7FF91835434B   popq     %r15                 
+0x7FF91835434D   popq     %rbp                 
+0x7FF91835434E   retq                          
+0x7FF91835434F   movl     0x34(%r15), %ecx     
+0x7FF918354353   movl     0x23c(%r12), %edx    
+0x7FF91835435B   movl     $0x2716, %eax        
+0x7FF918354360   testl    %ecx, %edx           
+0x7FF918354362   je       0x7ff918354329       
+0x7FF918354364   notl     %edx                 
+0x7FF918354366   testl    %edx, %ecx           
+0x7FF918354368   jne      0x7ff918354329       
+0x7FF91835436A   movq     0x58(%rbx), %rsi     
+0x7FF91835436E   movl     $0x1, %edi           
+0x7FF918354373   movl     $0x2934f877, %edx    
+0x7FF918354378   callq    _malloc_type_calloc  
+0x7FF91835437D   testq    %rax, %rax           
+0x7FF918354380   je       0x7ff9183547ae       
+0x7FF918354386   leaq     0x8330(%rip), %rsi   ; string literal: "GLDContext"
+0x7FF91835438D   movq     %rax, -0x438(%rbp)   
+0x7FF918354394   movq     -0x438(%rbp), %rdi   
+0x7FF91835439B   callq    ___CFSetLastAllocationEventName 
+0x7FF9183543A0   movq     0x28(%r13), %rdi     
+0x7FF9183543A4   callq    _IOAccelGLContextCreate 
+0x7FF9183543A9   movq     -0x438(%rbp), %rcx   
+0x7FF9183543B0   movq     %rax, 0x40(%rcx)     
+0x7FF9183543B4   testq    %rax, %rax           
+0x7FF9183543B7   je       0x7ff918354480       
+0x7FF9183543BD   cmpb     $0x0, 0xec(%rbx)     
+0x7FF9183543C4   movq     %r14, -0x448(%rbp)   
+0x7FF9183543CB   je       0x7ff918354446       
+0x7FF9183543CD   leaq     -0x43c(%rbp), %rax   
+0x7FF9183543D4   movl     $0x0, (%rax)         
+0x7FF9183543DA   leaq     -0x430(%rbp), %rdi   
+0x7FF9183543E1   movl     $0x400, %esi         
+0x7FF9183543E6   callq    ___bzero             
+0x7FF9183543EB   movq     0x27d2390e(%rip), %rax  ; 
+0x7FF9183543F2   movl     (%rax), %edi         
+0x7FF9183543F4   leaq     -0x43c(%rbp), %rsi   
+0x7FF9183543FB   callq    _pid_for_task        
+0x7FF918354400   leaq     -0x43c(%rbp), %rax   
+0x7FF918354407   movl     (%rax), %edi         
+0x7FF918354409   leaq     -0x430(%rbp), %rsi   
+0x7FF918354410   movl     $0x400, %edx         
+0x7FF918354415   callq    _proc_pidpath        
+0x7FF91835441A   testl    %eax, %eax           
+0x7FF91835441C   js       0x7ff918354428       
+0x7FF91835441E   movl     %eax, %eax           
+0x7FF918354420   movb     $0x0, -0x430(%rbp,%rax) 
+0x7FF918354428   movq     -0x438(%rbp), %r14   
+0x7FF91835442F   movq     0x40(%r14), %rdi     
+0x7FF918354433   leaq     -0x430(%rbp), %rsi   
+0x7FF91835443A   callq    _IOAccelGLContextSetExecutableName 
+0x7FF91835443F   movq     %r14, %rcx           
+0x7FF918354442   movq     0x40(%r14), %rax     
+0x7FF918354446   leaq     0x1178(%rcx), %rsi   
+0x7FF91835444D   movq     $0x0, 0x1178(%rcx)   
+0x7FF918354458   leaq     0x1180(%rcx), %rdx   
+0x7FF91835445F   movq     %rcx, %r14           
+0x7FF918354462   movq     %rax, %rdi           
+0x7FF918354465   callq    _IOAccelGLContextGetSidebandBuffer 
+0x7FF91835446A   movq     0x40(%r14), %rdi     
+0x7FF91835446E   testl    %eax, %eax           
+0x7FF918354470   je       0x7ff91835448a       
+0x7FF918354472   callq    _IOAccelGLContextRelease 
+0x7FF918354477   movq     -0x438(%rbp), %rdi   
+0x7FF91835447E   jmp      0x7ff9183544f9       
+0x7FF918354480   movl     $0x2714, %eax        
+0x7FF918354485   jmp      0x7ff918354329       
+0x7FF91835448A   movq     -0x438(%rbp), %r8    
+0x7FF918354491   leaq     0x1198(%r8), %rsi    
+0x7FF918354498   leaq     0x11a0(%r8), %rdx    
+0x7FF91835449F   leaq     0x1188(%r8), %rcx    
+0x7FF9183544A6   addq     $0x1190, %r8         
+0x7FF9183544AD   callq    _IOAccelGLContextGetFenceBuffer 
+0x7FF9183544B2   testl    %eax, %eax           
+0x7FF9183544B4   jne      0x7ff9183544e6       
+0x7FF9183544B6   movq     -0x438(%rbp), %rdi   
+0x7FF9183544BD   movq     0x1190(%rdi), %rax   
+0x7FF9183544C4   shrq     $0x6, %rax           
+0x7FF9183544C8   movq     %rax, 0x11b0(%rdi)   
+0x7FF9183544CF   movl     $0x10, 0x1164(%rdi)  
+0x7FF9183544D9   movq     %r12, 0x8(%rdi)      
+0x7FF9183544DD   callq    _gpusSubmitDataBuffers 
+0x7FF9183544E2   testl    %eax, %eax           
+0x7FF9183544E4   je       0x7ff918354508       
+0x7FF9183544E6   movq     -0x438(%rbp), %rbx   
+0x7FF9183544ED   movq     0x40(%rbx), %rdi     
+0x7FF9183544F1   callq    _IOAccelGLContextRelease 
+0x7FF9183544F6   movq     %rbx, %rdi           
+0x7FF9183544F9   callq    _free                
+0x7FF9183544FE   movl     $0x271f, %eax        
+0x7FF918354503   jmp      0x7ff918354329       
+0x7FF918354508   leaq     0x30(%r13), %r14     
+0x7FF91835450C   movq     %r14, %rdi           
+0x7FF91835450F   callq    _pthread_mutex_lock  
+0x7FF918354514   movl     0x124(%r13), %eax    
+0x7FF91835451B   incl     %eax                 
+0x7FF91835451D   movl     %eax, 0x124(%r13)    
+0x7FF918354524   cmpl     $0x3, %eax           
+0x7FF918354527   jb       0x7ff91835453f       
+0x7FF918354529   movb     $0x1, 0x120(%r13)    
+0x7FF918354531   movq     0x20(%r13), %rdi     
+0x7FF918354535   movl     $0x1, %esi           
+0x7FF91835453A   callq    _glgSetTakeLock      
+0x7FF91835453F   movq     %r14, %rdi           
+0x7FF918354542   callq    _pthread_mutex_unlock 
+0x7FF918354547   movl     0x128(%r13), %eax    
+0x7FF91835454E   movq     -0x438(%rbp), %r14   
+0x7FF918354555   movl     %eax, 0x50(%r14)     
+0x7FF918354559   movq     0x2f8(%r12), %rax    
+0x7FF918354561   movq     %rax, 0x58(%r14)     
+0x7FF918354565   movq     0x11b0(%r14), %rdi   
+0x7FF91835456C   shrq     $0x3, %rdi           
+0x7FF918354570   andq     $-0x4, %rdi          
+0x7FF918354574   callq    ___abort_calloc      
+0x7FF918354579   movq     %rax, 0x11a8(%r14)   
+0x7FF918354580   movabsq  $0x7fffffe00020, %rax 
+0x7FF91835458A   movl     (%rax), %eax         
+0x7FF91835458C   testb    $0x20, %al           
+0x7FF91835458E   jne      0x7ff91835459b       
+0x7FF918354590   testb    $0x40, %al           
+0x7FF918354592   jne      0x7ff9183545a2       
+0x7FF918354594   movb     $0x20, 0x48(%r14)    
+0x7FF918354599   jmp      0x7ff9183545a7       
+0x7FF91835459B   movb     $0x40, 0x48(%r14)    
+0x7FF9183545A0   jmp      0x7ff9183545a7       
+0x7FF9183545A2   movb     $-0x80, 0x48(%r14)   
+0x7FF9183545A7   xorl     %edi, %edi           
+0x7FF9183545A9   callq    _glgCreateProcessor  
+0x7FF9183545AE   movq     %rax, 0x98(%r14)     
+0x7FF9183545B5   movq     %rbx, (%r14)         
+0x7FF9183545B8   movq     %r12, 0x8(%r14)      
+0x7FF9183545BC   movq     %r13, 0x10(%r14)     
+0x7FF9183545C0   movq     -0x450(%rbp), %rax   
+0x7FF9183545C7   movq     %rax, 0x18(%r14)     
+0x7FF9183545CB   movq     -0x458(%rbp), %rax   
+0x7FF9183545D2   movq     %rax, 0x28(%r14)     
+0x7FF9183545D6   movb     $0x1, %al            
+0x7FF9183545D8   movb     %al, 0x123e(%r14)    
+0x7FF9183545DF   movb     %al, 0x123b(%r14)    
+0x7FF9183545E6   movl     $0x3, 0x70(%r14)     
+0x7FF9183545EE   testb    $0x8, 0x10(%r15)     
+0x7FF9183545F3   je       0x7ff9183545fa       
+0x7FF9183545F5   movb     $0x1, 0x49(%r14)     
+0x7FF9183545FA   movl     0xc(%r15), %edx      
+0x7FF9183545FE   btl      $0xd, %edx           
+0x7FF918354602   jae      0x7ff918354609       
+0x7FF918354604   movb     $0x1, 0x4b(%r14)     
+0x7FF918354609   shll     $0x2, %edx           
+0x7FF91835460C   andl     $0x2000, %edx        
+0x7FF918354612   orq      0x60(%r14), %rdx     
+0x7FF918354616   movq     %rdx, %rax           
+0x7FF918354619   orq      $0x800, %rax         
+0x7FF91835461F   movq     %rax, 0x60(%r14)     
+0x7FF918354623   movl     0x10(%r15), %ecx     
+0x7FF918354627   testb    $0x8, %cl            
+0x7FF91835462A   je       0x7ff91835463e       
+0x7FF91835462C   orq      $0xc00, %rdx         
+0x7FF918354633   movq     %rdx, 0x60(%r14)     
+0x7FF918354637   movl     0x10(%r15), %ecx     
+0x7FF91835463B   movq     %rdx, %rax           
+0x7FF91835463E   testb    $0x10, %cl           
+0x7FF918354641   je       0x7ff918354650       
+0x7FF918354643   btsq     $0x20, %rax          
+0x7FF918354648   movq     %rax, 0x60(%r14)     
+0x7FF91835464C   movl     0x10(%r15), %ecx     
+0x7FF918354650   movl     %eax, %edx           
+0x7FF918354652   andl     $0xc00, %edx         
+0x7FF918354658   movq     %rdx, 0x1248(%r14)   
+0x7FF91835465F   movb     0x49(%r14), %dl      
+0x7FF918354663   movb     %dl, 0x1239(%r14)    
+0x7FF91835466A   testb    $0x2, %cl            
+0x7FF91835466D   je       0x7ff918354677       
+0x7FF91835466F   orq      $0x10, %rax          
+0x7FF918354673   movq     %rax, 0x60(%r14)     
+0x7FF918354677   movl     0x14(%r15), %ecx     
+0x7FF91835467B   testl    $0xfffffc, %ecx      
+0x7FF918354681   je       0x7ff9183546b9       
+0x7FF918354683   movl     $0x3, %edx           
+0x7FF918354688   testl    $0x3fc0, %ecx        
+0x7FF91835468E   jne      0x7ff9183546db       
+0x7FF918354690   movl     $0xf, %edx           
+0x7FF918354695   testl    $0xe0000, %ecx       
+0x7FF91835469B   jne      0x7ff9183546db       
+0x7FF91835469D   movl     $0x4, %edx           
+0x7FF9183546A2   testl    $0x1c000, %ecx       
+0x7FF9183546A8   jne      0x7ff9183546db       
+0x7FF9183546AA   movl     $0xb, %edx           
+0x7FF9183546AF   testl    $0x3f00000, %ecx     
+0x7FF9183546B5   jne      0x7ff9183546db       
+0x7FF9183546B7   jmp      0x7ff9183546e2       
+0x7FF9183546B9   testl    $0x3f000000, %ecx    
+0x7FF9183546BF   je       0x7ff9183546e2       
+0x7FF9183546C1   movl     $0xc, %edx           
+0x7FF9183546C6   testl    $0x3000000, %ecx     
+0x7FF9183546CC   jne      0x7ff9183546db       
+0x7FF9183546CE   movl     $0xd, %edx           
+0x7FF9183546D3   testl    $0xc000000, %ecx     
+0x7FF9183546D9   je       0x7ff9183546e2       
+0x7FF9183546DB   orq      %rdx, %rax           
+0x7FF9183546DE   movq     %rax, 0x60(%r14)     
+0x7FF9183546E2   cmpl     $0x1, 0x1c(%r15)     
+0x7FF9183546E7   je       0x7ff9183546f1       
+0x7FF9183546E9   orq      $0x40, %rax          
+0x7FF9183546ED   movq     %rax, 0x60(%r14)     
+0x7FF9183546F1   cmpl     $0x1, 0x20(%r15)     
+0x7FF9183546F6   je       0x7ff918354702       
+0x7FF9183546F8   orq      $0x80, %rax          
+0x7FF9183546FE   movq     %rax, 0x60(%r14)     
+0x7FF918354702   movzwl   0x26(%r15), %ecx     
+0x7FF918354707   cmpl     $0x1, %ecx           
+0x7FF91835470A   je       0x7ff918354718       
+0x7FF91835470C   cmpl     $0x2, %ecx           
+0x7FF91835470F   jne      0x7ff918354724       
+0x7FF918354711   movl     $0x200, %ecx         
+0x7FF918354716   jmp      0x7ff91835471d       
+0x7FF918354718   movl     $0x100, %ecx         
+0x7FF91835471D   orq      %rcx, %rax           
+0x7FF918354720   movq     %rax, 0x60(%r14)     
+0x7FF918354724   cmpw     $0x0, 0x28(%r15)     
+0x7FF91835472A   jle      0x7ff918354736       
+0x7FF91835472C   orq      $0x1000, %rax        
+0x7FF918354732   movq     %rax, 0x60(%r14)     
+0x7FF918354736   movl     0xc(%r15), %ecx      
+0x7FF91835473A   testb    $0x8, %cl            
+0x7FF91835473D   je       0x7ff918354752       
+0x7FF91835473F   orq      $0x800000, %rax      
+0x7FF918354745   movq     %rax, 0x60(%r14)     
+0x7FF918354749   movb     $0x1, 0x4f(%r14)     
+0x7FF91835474E   movl     0xc(%r15), %ecx      
+0x7FF918354752   testb    $0x10, %cl           
+0x7FF918354755   je       0x7ff918354760       
+0x7FF918354757   btsq     $0x21, %rax          
+0x7FF91835475C   movq     %rax, 0x60(%r14)     
+0x7FF918354760   movq     %r14, %rdi           
+0x7FF918354763   movq     %r15, %rsi           
+0x7FF918354766   callq    *0x20(%r12)          
+0x7FF91835476B   xorl     %eax, %eax           
+0x7FF91835476D   cmpb     $0x0, 0x50(%r14)     
+0x7FF918354772   setns    %al                  
+0x7FF918354775   leal     0x1(%rax,%rax), %eax 
+0x7FF918354779   movq     -0x460(%rbp), %rbx   
+0x7FF918354780   movl     %eax, 0x78(%rbx)     
+0x7FF918354783   movq     %r14, %rdi           
+0x7FF918354786   movq     %rbx, %rsi           
+0x7FF918354789   movq     %r15, %rdx           
+0x7FF91835478C   callq    *0x100(%r12)         
+0x7FF918354794   movq     %rbx, 0x20(%r14)     
+0x7FF918354798   movq     -0x448(%rbp), %rax   
+0x7FF91835479F   movq     %r14, (%rax)         
+0x7FF9183547A2   xorl     %eax, %eax           
+0x7FF9183547A4   jmp      0x7ff918354329       
+0x7FF9183547A9   callq    ___stack_chk_fail    
+0x7FF9183547AE   callq    _abort               
+_gldDestroyContext:
+0x7FF9183549F7   pushq    %rbp                 
+0x7FF9183549F8   movq     %rsp, %rbp           
+0x7FF9183549FB   pushq    %r14                 
+0x7FF9183549FD   pushq    %rbx                 
+0x7FF9183549FE   movq     %rdi, %rbx           
+0x7FF918354A01   movq     0x10(%rdi), %rdi     
+0x7FF918354A05   movq     0x18(%rdi), %r14     
+0x7FF918354A09   testq    %r14, %r14           
+0x7FF918354A0C   je       0x7ff918354a57       
+0x7FF918354A0E   cmpb     $0x0, 0x120(%rdi)    
+0x7FF918354A15   je       0x7ff918354a2d       
+0x7FF918354A17   addq     $0x30, %rdi          
+0x7FF918354A1B   callq    _pthread_mutex_lock  
+0x7FF918354A20   movq     0x10(%rbx), %rdi     
+0x7FF918354A24   movq     0x18(%rdi), %r14     
+0x7FF918354A28   testq    %r14, %r14           
+0x7FF918354A2B   je       0x7ff918354a45       
+0x7FF918354A2D   movq     %rbx, %rdi           
+0x7FF918354A30   movq     %r14, %rsi           
+0x7FF918354A33   callq    _gpuiCleanContextFromProgram 
+0x7FF918354A38   movq     0x20(%r14), %r14     
+0x7FF918354A3C   testq    %r14, %r14           
+0x7FF918354A3F   jne      0x7ff918354a2d       
+0x7FF918354A41   movq     0x10(%rbx), %rdi     
+0x7FF918354A45   cmpb     $0x0, 0x120(%rdi)    
+0x7FF918354A4C   je       0x7ff918354a57       
+0x7FF918354A4E   addq     $0x30, %rdi          
+0x7FF918354A52   callq    _pthread_mutex_unlock 
+0x7FF918354A57   movq     %rbx, %rdi           
+0x7FF918354A5A   callq    _gpuiReleaseDrawable 
+0x7FF918354A5F   movq     0x8(%rbx), %rax      
+0x7FF918354A63   movq     %rbx, %rdi           
+0x7FF918354A66   callq    *0x28(%rax)          
+0x7FF918354A69   movq     0x98(%rbx), %rdi     
+0x7FF918354A70   callq    _glgDestroyProcessor 
+0x7FF918354A75   movq     0x40(%rbx), %rdi     
+0x7FF918354A79   callq    _IOAccelGLContextRelease 
+0x7FF918354A7E   movq     0x11a8(%rbx), %rdi   
+0x7FF918354A85   testq    %rdi, %rdi           
+0x7FF918354A88   je       0x7ff918354a8f       
+0x7FF918354A8A   callq    _free                
+0x7FF918354A8F   movq     (%rbx), %rax         
+0x7FF918354A92   cmpb     $0x0, 0xef(%rax)     
+0x7FF918354A99   je       0x7ff918354ab9       
+0x7FF918354A9B   cmpq     $0x0, 0x938(%rbx)    
+0x7FF918354AA3   je       0x7ff918354ab9       
+0x7FF918354AA5   movq     %rbx, %rdi           
+0x7FF918354AA8   callq    _gpuiDestroyQueryBufferClientAlloc 
+0x7FF918354AAD   movq     0x938(%rbx), %rdi    
+0x7FF918354AB4   callq    _free                
+0x7FF918354AB9   movq     0x11c0(%rbx), %rdi   
+0x7FF918354AC0   testq    %rdi, %rdi           
+0x7FF918354AC3   je       0x7ff918354aca       
+0x7FF918354AC5   callq    _free                
+0x7FF918354ACA   movq     0x930(%rbx), %rdi    
+0x7FF918354AD1   testq    %rdi, %rdi           
+0x7FF918354AD4   je       0x7ff918354adb       
+0x7FF918354AD6   callq    _free                
+0x7FF918354ADB   movq     %rbx, %rdi           
+0x7FF918354ADE   callq    _free                
+0x7FF918354AE3   xorl     %eax, %eax           
+0x7FF918354AE5   popq     %rbx                 
+0x7FF918354AE6   popq     %r14                 
+0x7FF918354AE8   popq     %rbp                 
+0x7FF918354AE9   retq                          
+_gldCreateFramebuffer:
+0x7FF918355F7F   pushq    %rbp                 
+0x7FF918355F80   movq     %rsp, %rbp           
+0x7FF918355F83   pushq    %r15                 
+0x7FF918355F85   pushq    %r14                 
+0x7FF918355F87   pushq    %r13                 
+0x7FF918355F89   pushq    %r12                 
+0x7FF918355F8B   pushq    %rbx                 
+0x7FF918355F8C   pushq    %rax                 
+0x7FF918355F8D   movq     %rcx, %r15           
+0x7FF918355F90   movq     %rdx, %r12           
+0x7FF918355F93   movq     %rsi, %rbx           
+0x7FF918355F96   movq     %rdi, %r14           
+0x7FF918355F99   movq     (%rdi), %rax         
+0x7FF918355F9C   movq     0x68(%rax), %rsi     
+0x7FF918355FA0   movl     $0x1, %edi           
+0x7FF918355FA5   movl     $0x2934f877, %edx    
+0x7FF918355FAA   callq    _malloc_type_calloc  
+0x7FF918355FAF   testq    %rax, %rax           
+0x7FF918355FB2   je       0x7ff918355fe6       
+0x7FF918355FB4   movq     %rax, %r13           
+0x7FF918355FB7   movq     %r12, (%rax)         
+0x7FF918355FBA   movq     %r15, 0x8(%rax)      
+0x7FF918355FBE   movl     $0x0, 0x10(%rax)     
+0x7FF918355FC5   movq     0x8(%r14), %rax      
+0x7FF918355FC9   movq     %r14, %rdi           
+0x7FF918355FCC   movq     %r13, %rsi           
+0x7FF918355FCF   callq    *0x40(%rax)          
+0x7FF918355FD2   movq     %r13, (%rbx)         
+0x7FF918355FD5   xorl     %eax, %eax           
+0x7FF918355FD7   addq     $0x8, %rsp           
+0x7FF918355FDB   popq     %rbx                 
+0x7FF918355FDC   popq     %r12                 
+0x7FF918355FDE   popq     %r13                 
+0x7FF918355FE0   popq     %r14                 
+0x7FF918355FE2   popq     %r15                 
+0x7FF918355FE4   popq     %rbp                 
+0x7FF918355FE5   retq                          
+0x7FF918355FE6   callq    _abort               
+_gldLoadFramebuffer:
+0x7FF918356078   pushq    %rbp                 
+0x7FF918356079   movq     %rsp, %rbp           
+0x7FF91835607C   pushq    %r15                 
+0x7FF91835607E   pushq    %r14                 
+0x7FF918356080   pushq    %r13                 
+0x7FF918356082   pushq    %r12                 
+0x7FF918356084   pushq    %rbx                 
+0x7FF918356085   pushq    %rax                 
+0x7FF918356086   movq     %rsi, %rbx           
+0x7FF918356089   movq     %rdi, %r14           
+0x7FF91835608C   movq     (%rsi), %rax         
+0x7FF91835608F   movl     0xc0(%rax), %r13d    
+0x7FF918356096   cmpb     $0x0, 0x120(%rdi)    
+0x7FF91835609D   je       0x7ff9183560a8       
+0x7FF91835609F   leaq     0x30(%r14), %rdi     
+0x7FF9183560A3   callq    _pthread_mutex_lock  
+0x7FF9183560A8   movq     0x8(%rbx), %rax      
+0x7FF9183560AC   movb     $0x1, 0x51(%rax)     
+0x7FF9183560B0   testl    %r13d, %r13d         
+0x7FF9183560B3   je       0x7ff918356126       
+0x7FF9183560B5   bsfl     %r13d, %r15d         
+0x7FF9183560B9   movq     0x8(%rbx), %rax      
+0x7FF9183560BD   movq     (%rax,%r15,8), %r12  
+0x7FF9183560C1   movq     0x8(%r12), %rcx      
+0x7FF9183560C6   movb     0x14(%rcx), %al      
+0x7FF9183560C9   testb    %al, %al             
+0x7FF9183560CB   je       0x7ff91835610d       
+0x7FF9183560CD   movl     0x134(%r14), %edx    
+0x7FF9183560D4   incl     %edx                 
+0x7FF9183560D6   movl     %edx, 0x134(%r14)    
+0x7FF9183560DD   movl     %edx, 0x38(%r12)     
+0x7FF9183560E2   movq     0x8(%r14), %r8       
+0x7FF9183560E6   addq     $0x8, %rcx           
+0x7FF9183560EA   movzbl   %al, %edx            
+0x7FF9183560ED   movq     %r14, %rdi           
+0x7FF9183560F0   movq     %r12, %rsi           
+0x7FF9183560F3   callq    *0x128(%r8)          
+0x7FF9183560FA   testl    %eax, %eax           
+0x7FF9183560FC   je       0x7ff91835615c       
+0x7FF9183560FE   movq     0x8(%r12), %rax      
+0x7FF918356103   xorl     %ecx, %ecx           
+0x7FF918356105   movq     %rcx, 0xd(%rax)      
+0x7FF918356109   movq     %rcx, 0x8(%rax)      
+0x7FF91835610D   movl     $0x1, %eax           
+0x7FF918356112   movl     %r15d, %ecx          
+0x7FF918356115   shll     %cl, %eax            
+0x7FF918356117   movl     %r13d, %ecx          
+0x7FF91835611A   btcl     %r15d, %ecx          
+0x7FF91835611E   cmpl     %r13d, %eax          
+0x7FF918356121   movl     %ecx, %r13d          
+0x7FF918356124   jne      0x7ff9183560b5       
+0x7FF918356126   movl     0x130(%r14), %eax    
+0x7FF91835612D   incl     %eax                 
+0x7FF91835612F   movl     %eax, 0x130(%r14)    
+0x7FF918356136   movl     %eax, 0x10(%rbx)     
+0x7FF918356139   movq     0x8(%r14), %rax      
+0x7FF91835613D   movq     %r14, %rdi           
+0x7FF918356140   movq     %rbx, %rsi           
+0x7FF918356143   movl     $0x7, %edx           
+0x7FF918356148   callq    *0x108(%rax)         
+0x7FF91835614E   testl    %eax, %eax           
+0x7FF918356150   movq     0x8(%rbx), %rax      
+0x7FF918356154   sete     0x51(%rax)           
+0x7FF918356158   movb     $0x0, 0x50(%rax)     
+0x7FF91835615C   cmpb     $0x0, 0x120(%r14)    
+0x7FF918356164   je       0x7ff918356172       
+0x7FF918356166   addq     $0x30, %r14          
+0x7FF91835616A   movq     %r14, %rdi           
+0x7FF91835616D   callq    _pthread_mutex_unlock 
+0x7FF918356172   movq     0x8(%rbx), %rcx      
+0x7FF918356176   xorl     %eax, %eax           
+0x7FF918356178   cmpb     $0x0, 0x51(%rcx)     
+0x7FF91835617C   sete     %al                  
+0x7FF91835617F   addq     $0x8, %rsp           
+0x7FF918356183   popq     %rbx                 
+0x7FF918356184   popq     %r12                 
+0x7FF918356186   popq     %r13                 
+0x7FF918356188   popq     %r14                 
+0x7FF91835618A   popq     %r15                 
+0x7FF91835618C   popq     %rbp                 
+0x7FF91835618D   retq                          
+_gldUpdateReadFramebuffer:
+0x7FF91835618E   testl    %esi, %esi           
+0x7FF918356190   jns      0x7ff9183561f7       
+0x7FF918356192   pushq    %rbp                 
+0x7FF918356193   movq     %rsp, %rbp           
+0x7FF918356196   pushq    %r14                 
+0x7FF918356198   pushq    %rbx                 
+0x7FF918356199   movq     %rdi, %rbx           
+0x7FF91835619C   movq     0x28(%rdi), %rax     
+0x7FF9183561A0   movq     0x4a8(%rax), %r14    
+0x7FF9183561A7   testq    %r14, %r14           
+0x7FF9183561AA   je       0x7ff9183561d6       
+0x7FF9183561AC   movq     0x10(%rbx), %rdi     
+0x7FF9183561B0   movq     %r14, %rsi           
+0x7FF9183561B3   callq    _gpulCheckForFramebufferIOSurfaceChanges 
+0x7FF9183561B8   movl     0x10(%r14), %eax     
+0x7FF9183561BC   cmpl     %eax, 0x94c(%rbx)    
+0x7FF9183561C2   je       0x7ff9183561ef       
+0x7FF9183561C4   movl     %eax, 0x94c(%rbx)    
+0x7FF9183561CA   movq     0x8(%rbx), %rax      
+0x7FF9183561CE   movq     %rbx, %rdi           
+0x7FF9183561D1   movq     %r14, %rsi           
+0x7FF9183561D4   jmp      0x7ff9183561e9       
+0x7FF9183561D6   movl     $0x0, 0x94c(%rbx)    
+0x7FF9183561E0   movq     0x8(%rbx), %rax      
+0x7FF9183561E4   movq     %rbx, %rdi           
+0x7FF9183561E7   xorl     %esi, %esi           
+0x7FF9183561E9   callq    *0x168(%rax)         
+0x7FF9183561EF   movq     %r14, 0x38(%rbx)     
+0x7FF9183561F3   popq     %rbx                 
+0x7FF9183561F4   popq     %r14                 
+0x7FF9183561F6   popq     %rbp                 
+0x7FF9183561F7   movl     $0x1, %eax           
+0x7FF9183561FC   retq                          
+_gldUpdateDrawFramebuffer:
+0x7FF91835627F   pushq    %rbp                 
+0x7FF918356280   movq     %rsp, %rbp           
+0x7FF918356283   pushq    %r15                 
+0x7FF918356285   pushq    %r14                 
+0x7FF918356287   pushq    %rbx                 
+0x7FF918356288   pushq    %rax                 
+0x7FF918356289   movl     %esi, %r14d          
+0x7FF91835628C   movq     %rdi, %rbx           
+0x7FF91835628F   btl      $0x1e, %esi          
+0x7FF918356293   jb       0x7ff91835629e       
+0x7FF918356295   andl     $0x43c0478, %r14d    
+0x7FF91835629C   jmp      0x7ff91835630d       
+0x7FF91835629E   movq     0x28(%rbx), %rax     
+0x7FF9183562A2   movq     0x4a0(%rax), %r15    
+0x7FF9183562A9   testq    %r15, %r15           
+0x7FF9183562AC   je       0x7ff9183562d8       
+0x7FF9183562AE   movq     0x10(%rbx), %rdi     
+0x7FF9183562B2   movq     %r15, %rsi           
+0x7FF9183562B5   callq    _gpulCheckForFramebufferIOSurfaceChanges 
+0x7FF9183562BA   movl     0x10(%r15), %eax     
+0x7FF9183562BE   cmpl     %eax, 0x948(%rbx)    
+0x7FF9183562C4   je       0x7ff9183562f1       
+0x7FF9183562C6   movl     %eax, 0x948(%rbx)    
+0x7FF9183562CC   movq     0x8(%rbx), %rax      
+0x7FF9183562D0   movq     %rbx, %rdi           
+0x7FF9183562D3   movq     %r15, %rsi           
+0x7FF9183562D6   jmp      0x7ff9183562eb       
+0x7FF9183562D8   movl     $0x0, 0x948(%rbx)    
+0x7FF9183562E2   movq     0x8(%rbx), %rax      
+0x7FF9183562E6   movq     %rbx, %rdi           
+0x7FF9183562E9   xorl     %esi, %esi           
+0x7FF9183562EB   callq    *0x160(%rax)         
+0x7FF9183562F1   movq     %r15, 0x30(%rbx)     
+0x7FF9183562F5   andl     $0x43c0478, %r14d    
+0x7FF9183562FC   orl      0x940(%rbx), %r14d   
+0x7FF918356303   movl     $0x0, 0x940(%rbx)    
+0x7FF91835630D   testl    %r14d, %r14d         
+0x7FF918356310   je       0x7ff918356322       
+0x7FF918356312   movq     0x8(%rbx), %rax      
+0x7FF918356316   movq     %rbx, %rdi           
+0x7FF918356319   movl     %r14d, %esi          
+0x7FF91835631C   callq    *0x148(%rax)         
+0x7FF918356322   cmpl     $0x1, 0x944(%rbx)    
+0x7FF918356329   movl     $0x2, %eax           
+0x7FF91835632E   sbbl     $0x0, %eax           
+0x7FF918356331   addq     $0x8, %rsp           
+0x7FF918356335   popq     %rbx                 
+0x7FF918356336   popq     %r14                 
+0x7FF918356338   popq     %r15                 
+0x7FF91835633A   popq     %rbp                 
+0x7FF91835633B   retq                          
+_gpusPixelSettings:
+0x7FF9183571CC   pushq    %rbp                 
+0x7FF9183571CD   movq     %rsp, %rbp           
+0x7FF9183571D0   pushq    %r15                 
+0x7FF9183571D2   pushq    %r14                 
+0x7FF9183571D4   pushq    %r13                 
+0x7FF9183571D6   pushq    %r12                 
+0x7FF9183571D8   pushq    %rbx                 
+0x7FF9183571D9   pushq    %rax                 
+0x7FF9183571DA   movq     %r9, %r12            
+0x7FF9183571DD   movq     %r8, %r13            
+0x7FF9183571E0   movl     %ecx, -0x2c(%rbp)    
+0x7FF9183571E3   movl     %edx, %r14d          
+0x7FF9183571E6   movl     %esi, %ebx           
+0x7FF9183571E8   movl     %edi, %r15d          
+0x7FF9183571EB   callq    _gpusPixelBytes      
+0x7FF9183571F0   movl     %ebx, %r8d           
+0x7FF9183571F3   movq     0x18(%rbp), %rdi     
+0x7FF9183571F7   movl     %eax, %ebx           
+0x7FF9183571F9   movl     %eax, (%r12)         
+0x7FF9183571FD   testq    %rdi, %rdi           
+0x7FF918357200   setne    %al                  
+0x7FF918357203   testl    %r8d, %r8d           
+0x7FF918357206   setne    %cl                  
+0x7FF918357209   testb    %al, %cl             
+0x7FF91835720B   jne      0x7ff91835722e       
+0x7FF91835720D   movq     0x10(%rbp), %rax     
+0x7FF918357211   movl     $0x0, (%rax)         
+0x7FF918357217   movl     %r15d, %edi          
+0x7FF91835721A   movl     %r8d, %esi           
+0x7FF91835721D   movl     %r14d, %edx          
+0x7FF918357220   callq    _gpusRowBytes        
+0x7FF918357225   movl     %eax, (%r13)         
+0x7FF918357229   jmp      0x7ff9183572cc       
+0x7FF91835722E   movq     0x10(%rbp), %r12     
+0x7FF918357232   movl     0x4(%rdi), %ecx      
+0x7FF918357235   testl    %ecx, %ecx           
+0x7FF918357237   jne      0x7ff918357282       
+0x7FF918357239   movl     (%rdi), %ecx         
+0x7FF91835723B   testl    %ecx, %ecx           
+0x7FF91835723D   jle      0x7ff918357250       
+0x7FF91835723F   cmpl     $0x1a00, %r8d        
+0x7FF918357246   jne      0x7ff91835726c       
+0x7FF918357248   addl     $0x7, %ecx           
+0x7FF91835724B   shrl     $0x3, %ecx           
+0x7FF91835724E   jmp      0x7ff91835726f       
+0x7FF918357250   movl     %r15d, %edi          
+0x7FF918357253   movl     %r8d, %esi           
+0x7FF918357256   movl     %r14d, %edx          
+0x7FF918357259   movl     %r8d, %r14d          
+0x7FF91835725C   callq    _gpusRowBytes        
+0x7FF918357261   movl     %r14d, %r8d          
+0x7FF918357264   movq     0x18(%rbp), %rdi     
+0x7FF918357268   movl     %eax, %ecx           
+0x7FF91835726A   jmp      0x7ff91835726f       
+0x7FF91835726C   imull    %ebx, %ecx           
+0x7FF91835726F   movl     0x1c(%rdi), %esi     
+0x7FF918357272   movl     %ecx, %eax           
+0x7FF918357274   xorl     %edx, %edx           
+0x7FF918357276   divl     %esi                 
+0x7FF918357278   testl    %edx, %edx           
+0x7FF91835727A   je       0x7ff918357282       
+0x7FF91835727C   addl     %ecx, %esi           
+0x7FF91835727E   subl     %edx, %esi           
+0x7FF918357280   movl     %esi, %ecx           
+0x7FF918357282   movl     0x20(%rbp), %edx     
+0x7FF918357285   movl     %ecx, (%r13)         
+0x7FF918357289   movl     0xc(%rdi), %eax      
+0x7FF91835728C   testl    %eax, %eax           
+0x7FF91835728E   jne      0x7ff9183572a0       
+0x7FF918357290   movl     0x8(%rdi), %eax      
+0x7FF918357293   testl    %eax, %eax           
+0x7FF918357295   movl     -0x2c(%rbp), %esi    
+0x7FF918357298   cmovgl   %eax, %esi           
+0x7FF91835729B   imull    %ecx, %esi           
+0x7FF91835729E   movl     %esi, %eax           
+0x7FF9183572A0   movl     0x14(%rdi), %esi     
+0x7FF9183572A3   imull    %esi, %ebx           
+0x7FF9183572A6   sarl     $0x3, %esi           
+0x7FF9183572A9   cmpl     $0x1a00, %r8d        
+0x7FF9183572B0   cmovel   %esi, %ebx           
+0x7FF9183572B3   xorl     %esi, %esi           
+0x7FF9183572B5   testb    $0x4, %dl            
+0x7FF9183572B8   je       0x7ff9183572bd       
+0x7FF9183572BA   movl     0x18(%rdi), %esi     
+0x7FF9183572BD   imull    %eax, %esi           
+0x7FF9183572C0   addl     %ebx, %esi           
+0x7FF9183572C2   imull    0x10(%rdi), %ecx     
+0x7FF9183572C6   addl     %esi, %ecx           
+0x7FF9183572C8   movl     %ecx, (%r12)         
+0x7FF9183572CC   addq     $0x8, %rsp           
+0x7FF9183572D0   popq     %rbx                 
+0x7FF9183572D1   popq     %r12                 
+0x7FF9183572D3   popq     %r13                 
+0x7FF9183572D5   popq     %r14                 
+0x7FF9183572D7   popq     %r15                 
+0x7FF9183572D9   popq     %rbp                 
+0x7FF9183572DA   retq                          
+_gldReadFramebufferData:
+0x7FF918358254   pushq    %rbp                 
+0x7FF918358255   movq     %rsp, %rbp           
+0x7FF918358258   pushq    %r15                 
+0x7FF91835825A   pushq    %r14                 
+0x7FF91835825C   pushq    %r13                 
+0x7FF91835825E   pushq    %r12                 
+0x7FF918358260   pushq    %rbx                 
+0x7FF918358261   subq     $0x18, %rsp          
+0x7FF918358265   movl     %edx, %r12d          
+0x7FF918358268   movl     %esi, %r13d          
+0x7FF91835826B   movq     %rdi, %rbx           
+0x7FF91835826E   movq     0x28(%rbp), %r14     
+0x7FF918358272   testq    %r14, %r14           
+0x7FF918358275   je       0x7ff91835832c       
+0x7FF91835827B   movq     0x8(%r14), %rax      
+0x7FF91835827F   movl     (%rax), %r15d        
+0x7FF918358282   testl    %r15d, %r15d         
+0x7FF918358285   je       0x7ff91835832c       
+0x7FF91835828B   movq     0x10(%rbx), %rdi     
+0x7FF91835828F   cmpb     $0x0, 0x120(%rdi)    
+0x7FF918358296   movl     %r9d, -0x34(%rbp)    
+0x7FF91835829A   movl     %r8d, -0x30(%rbp)    
+0x7FF91835829E   movl     %ecx, -0x2c(%rbp)    
+0x7FF9183582A1   je       0x7ff9183582bf       
+0x7FF9183582A3   addq     $0x30, %rdi          
+0x7FF9183582A7   callq    _pthread_mutex_lock  
+0x7FF9183582AC   movl     -0x2c(%rbp), %ecx    
+0x7FF9183582AF   movl     -0x30(%rbp), %r8d    
+0x7FF9183582B3   movl     -0x34(%rbp), %r9d    
+0x7FF9183582B7   movq     0x8(%r14), %rax      
+0x7FF9183582BB   movzbl   (%rax), %r15d        
+0x7FF9183582BF   testb    %r15b, %r15b         
+0x7FF9183582C2   je       0x7ff9183582f5       
+0x7FF9183582C4   movq     0x8(%rbx), %rax      
+0x7FF9183582C8   movq     0x10(%rbx), %rdi     
+0x7FF9183582CC   movzbl   %r15b, %edx          
+0x7FF9183582D0   movq     %r14, %rsi           
+0x7FF9183582D3   callq    *0x140(%rax)         
+0x7FF9183582D9   movl     -0x2c(%rbp), %ecx    
+0x7FF9183582DC   movl     -0x30(%rbp), %r8d    
+0x7FF9183582E0   movl     -0x34(%rbp), %r9d    
+0x7FF9183582E4   testl    %eax, %eax           
+0x7FF9183582E6   je       0x7ff9183582f5       
+0x7FF9183582E8   movq     0x8(%r14), %rax      
+0x7FF9183582EC   movl     $0x0, (%rax)         
+0x7FF9183582F2   xorl     %r15d, %r15d         
+0x7FF9183582F5   movq     0x10(%rbx), %rdi     
+0x7FF9183582F9   cmpb     $0x0, 0x120(%rdi)    
+0x7FF918358300   je       0x7ff918358316       
+0x7FF918358302   addq     $0x30, %rdi          
+0x7FF918358306   callq    _pthread_mutex_unlock 
+0x7FF91835830B   movl     -0x2c(%rbp), %ecx    
+0x7FF91835830E   movl     -0x30(%rbp), %r8d    
+0x7FF918358312   movl     -0x34(%rbp), %r9d    
+0x7FF918358316   testb    %r15b, %r15b         
+0x7FF918358319   je       0x7ff91835832c       
+0x7FF91835831B   xorl     %eax, %eax           
+0x7FF91835831D   addq     $0x18, %rsp          
+0x7FF918358321   popq     %rbx                 
+0x7FF918358322   popq     %r12                 
+0x7FF918358324   popq     %r13                 
+0x7FF918358326   popq     %r14                 
+0x7FF918358328   popq     %r15                 
+0x7FF91835832A   popq     %rbp                 
+0x7FF91835832B   retq                          
+0x7FF91835832C   movq     0x8(%rbx), %rax      
+0x7FF918358330   movq     0x1b0(%rax), %rax    
+0x7FF918358337   movq     %rbx, %rdi           
+0x7FF91835833A   movl     %r13d, %esi          
+0x7FF91835833D   movl     %r12d, %edx          
+0x7FF918358340   addq     $0x18, %rsp          
+0x7FF918358344   popq     %rbx                 
+0x7FF918358345   popq     %r12                 
+0x7FF918358347   popq     %r13                 
+0x7FF918358349   popq     %r14                 
+0x7FF91835834B   popq     %r15                 
+0x7FF91835834D   popq     %rbp                 
+0x7FF91835834E   jmpq     *%rax                
+_gldCreateShareGroup:
+0x7FF9183586BC   pushq    %rbp                 
+0x7FF9183586BD   movq     %rsp, %rbp           
+0x7FF9183586C0   pushq    %r15                 
+0x7FF9183586C2   pushq    %r14                 
+0x7FF9183586C4   pushq    %r13                 
+0x7FF9183586C6   pushq    %r12                 
+0x7FF9183586C8   pushq    %rbx                 
+0x7FF9183586C9   pushq    %rax                 
+0x7FF9183586CA   movq     %rdx, %r12           
+0x7FF9183586CD   movq     %rsi, %rbx           
+0x7FF9183586D0   movq     %rdi, %r14           
+0x7FF9183586D3   movq     $0x0, (%rsi)         
+0x7FF9183586DA   movq     0x230(%rdi), %rdi    
+0x7FF9183586E1   callq    _IOAccelSharedCreate 
+0x7FF9183586E6   testq    %rax, %rax           
+0x7FF9183586E9   je       0x7ff918358790       
+0x7FF9183586EF   movq     %rax, %r13           
+0x7FF9183586F2   movq     (%r14), %rax         
+0x7FF9183586F5   movq     0x50(%rax), %rsi     
+0x7FF9183586F9   movl     $0x1, %edi           
+0x7FF9183586FE   movl     $0x2934f877, %edx    
+0x7FF918358703   callq    _malloc_type_calloc  
+0x7FF918358708   testq    %rax, %rax           
+0x7FF91835870B   je       0x7ff9183587a4       
+0x7FF918358711   movq     %rax, %r15           
+0x7FF918358714   movq     (%r14), %rax         
+0x7FF918358717   movq     %rax, (%r15)         
+0x7FF91835871A   movq     %r14, 0x8(%r15)      
+0x7FF91835871E   movq     %r12, 0x10(%r15)     
+0x7FF918358722   movq     %r13, 0x28(%r15)     
+0x7FF918358726   movl     0x2e4(%r14), %eax    
+0x7FF91835872D   movl     %eax, 0x128(%r15)    
+0x7FF918358734   movq     %r15, %rdi           
+0x7FF918358737   addq     $0x30, %rdi          
+0x7FF91835873B   xorl     %esi, %esi           
+0x7FF91835873D   callq    _pthread_mutex_init  
+0x7FF918358742   movb     $0x0, 0x120(%r15)    
+0x7FF91835874A   movl     $0x1, 0x124(%r15)    
+0x7FF918358755   movl     $0x0, 0x12c(%r15)    
+0x7FF918358760   movl     $0x1, %edi           
+0x7FF918358765   callq    _glgCreateProcessor  
+0x7FF91835876A   movq     %rax, 0x20(%r15)     
+0x7FF91835876E   movq     %r15, %rdi           
+0x7FF918358771   xorl     %esi, %esi           
+0x7FF918358773   callq    *0x10(%r14)          
+0x7FF918358777   movl     $0x2724, %eax        
+0x7FF91835877C   cmpl     $0x2724, 0x12c(%r15) 
+0x7FF918358787   je       0x7ff918358795       
+0x7FF918358789   movq     %r15, (%rbx)         
+0x7FF91835878C   xorl     %eax, %eax           
+0x7FF91835878E   jmp      0x7ff918358795       
+0x7FF918358790   movl     $0x271f, %eax        
+0x7FF918358795   addq     $0x8, %rsp           
+0x7FF918358799   popq     %rbx                 
+0x7FF91835879A   popq     %r12                 
+0x7FF91835879C   popq     %r13                 
+0x7FF91835879E   popq     %r14                 
+0x7FF9183587A0   popq     %r15                 
+0x7FF9183587A2   popq     %rbp                 
+0x7FF9183587A3   retq                          
+0x7FF9183587A4   callq    _abort               
+_gldDestroyShareGroup:
+0x7FF9183587A9   pushq    %rbp                 
+0x7FF9183587AA   movq     %rsp, %rbp           
+0x7FF9183587AD   pushq    %r14                 
+0x7FF9183587AF   pushq    %rbx                 
+0x7FF9183587B0   movq     %rdi, %rbx           
+0x7FF9183587B3   movl     $0xe, %r14d          
+0x7FF9183587B9   movq     (%rbx,%r14,8), %rsi  
+0x7FF9183587BD   testq    %rsi, %rsi           
+0x7FF9183587C0   je       0x7ff9183587d2       
+0x7FF9183587C2   movq     %rbx, %rdi           
+0x7FF9183587C5   callq    _gpusDestroyZeroTexture 
+0x7FF9183587CA   movq     $0x0, (%rbx,%r14,8)  
+0x7FF9183587D2   movq     0x58(%rbx,%r14,8), %rsi 
+0x7FF9183587D7   testq    %rsi, %rsi           
+0x7FF9183587DA   je       0x7ff9183587ed       
+0x7FF9183587DC   movq     %rbx, %rdi           
+0x7FF9183587DF   callq    _gpusDestroyZeroTexture 
+0x7FF9183587E4   movq     $0x0, 0x58(%rbx,%r14,8) 
+0x7FF9183587ED   incq     %r14                 
+0x7FF9183587F0   cmpq     $0x19, %r14          
+0x7FF9183587F4   jne      0x7ff9183587b9       
+0x7FF9183587F6   movq     0x8(%rbx), %rax      
+0x7FF9183587FA   movq     %rbx, %rdi           
+0x7FF9183587FD   callq    *0x18(%rax)          
+0x7FF918358800   movq     0x28(%rbx), %rdi     
+0x7FF918358804   callq    _IOAccelSharedRelease 
+0x7FF918358809   movq     0x20(%rbx), %rdi     
+0x7FF91835880D   callq    _glgDestroyProcessor 
+0x7FF918358812   leaq     0x30(%rbx), %rdi     
+0x7FF918358816   callq    _pthread_mutex_destroy 
+0x7FF91835881B   movq     %rbx, %rdi           
+0x7FF91835881E   callq    _free                
+0x7FF918358823   xorl     %eax, %eax           
+0x7FF918358825   popq     %rbx                 
+0x7FF918358826   popq     %r14                 
+0x7FF918358828   popq     %rbp                 
+0x7FF918358829   retq                          

@@ -1,0 +1,142 @@
+GLD pixel 独立有界模块交付
+日期：2026-11-16
+目标证据：macOS 15.7.3 / 24G419，x86_64；验证编译器 Apple clang 17.0.0，target x86_64-apple-darwin24.6.0。
+
+一、交付与范围
+本地只新增 kexts/gld-pixel/ 内文件及 kexts/probes/gld_pixel_probe.c。
+未执行 git、安装、重启；未修改项目其余文件；没有生成或安装成功 device 插件。
+客体只读提取实际驱动反汇编及 UUID 门控跳转表。测试源码/产物放在专用镜像 /var/tmp/vgpu-fb/kexts/gld-pixel/；该路径为本次新建，未改已有探针。镜像内还有 clang 产生的 sanitized dSYM 等编译产物。
+本机无可用 C 编译器；尝试查询 WSL 时被安全策略阻止，未重试或绕过。后续使用已存在且能执行的客体 clang。
+
+文件：
+- gld_pixel.h / gld_pixel.c：独立 C11 API、caller-length parser、能力驱动筛选、0x38 前缀节点及 owner 生命周期。
+- ../probes/gld_pixel_probe.c：纯结构/解析探针，夹具能力不是 backend 支持证明。
+- driver-evidence.txt：真实 Intel/GPUSupport 指令、UUID、原始跳转表条目。
+- research.py：重提取证据，不调用任何 GLD 私有函数；ctypes 仅载入 GPUSupport 映像、取导出地址、核验 UUID 后读取跳转表。
+- verify.py：镜像源文件，严格编译、普通/ASan+UBSan 测试、静态分析和符号检查。
+- test-results.txt：最终完整验证输出。
+
+二、内部 token 4 的确证含义
+证据映像：
+AppleIntelKBLGraphicsGLDriver UUID 84D33620-0DE3-3032-877D-D0D21C75C4C1。
+libGPUSupportMercury UUID F206CE07-BCA7-3CC7-A494-112686CDE945。
+地址均为本版本 unslid 地址。
+
+Intel gldChoosePixelFormat 0x7ffb020b696b：原 RDI/RSI 保持；0x696f 装入库状态 RDX，0x6976 装入 glrSanitizePixelFormat 回调 RCX，0x697e 跳 gpumChoosePixelFormat。
+GPUSupport choose 入口 0x7ff918355614；0x56d4 将 RSI 流保存到 R9；0x56f8 读取一个32位 token；0x56fe token0 跳到候选生成。
+0x5704 R8=R9+4；low table base 来自0x5680的 lea，结果为0x7ff918355dec；索引 token-3。
+token4 cell=0x7ff918355df0，原始字节3cfaffff（signed32=-1476）；target=0x7ff918355828。
+0x5828..5838只把 R8 变成下一轮 R9，检查相对流起点偏移，继续读取。没有读取值，没有改变颜色/flags/缓冲模式。
+结论：token4在该确证驱动链上是无值、无状态副作用的兼容性空操作；只消耗一个32位词。
+不能从这个空操作给它恢复一个未证实的正式属性名称；本实现不称它 RGBA、single buffer、accelerated 或 terminator。
+CGL 0x7ffb06169612 无条件追加4的已有证据因此可以安全落地：对 normalized stream 接受并跳过4；不能当原始公开 CGL 属性交给通用 parser。
+
+注意：真实 GPUSupport 在推进后检查偏移<=0xc0，下一次读取发生在检查之后。这不是 caller-owned 内存安全保证，更不能在不知道实际分配长度时直接扫描48/49词。新模块不复制这个读取方式。
+
+三、最小尺寸与候选选择
+已核验 low table：
+5 -> 0x7ff918355843：OR 8 到 buffer request，无后继值。
+8 -> 0x7ff9183557f5：读一个后继32位值，负数跳0x5db9错误，cmovg更新R13为最大 color 请求。
+11 -> 0x7ff91835588c：一个值，负数拒绝，最大 alpha 请求写 rbp-0x200。
+12 -> 0x7ff918355865：一个值，负数拒绝，最大 depth 请求写 rbp-0x1f4。
+13 -> 0x7ff9183558c2：一个值，负数拒绝，最大 stencil 请求写EDI。
+0x58de/58ef 将 stencil/depth 请求转为 >= 大小集合；0x591b..59c9生成 color/alpha 允许模式，0x5a34..5a41取交集。
+0x5c18 调用真实驱动 sanitize 回调，结果数量决定候选；不是通用 parser 可以凭空宣告硬件格式。
+Intel sanitize 0x7ffb020b6a3d/6a44分别生成0x400与0x8000颜色模式；0x6ac5写depth16/stencil0，0x6aed/6b16等写depth24/stencil8组合，随后0x6b98调用实际 validate。
+本模块只枚举调用者已经验证过的具体组合，不复制 Intel 的全套模板、sanitize 或硬件默认能力。
+
+真实 GPUSupport 初始 flags=0x500（0x7ff918355670），Intel sanitize 又 OR0x72001（0x7ffb020b6990）。这些是其驱动能力，不属于 vGPU 能力证据，新模块完全不添加这些位。
+
+实现格式子集：
+- RGB888 mode=0x4000：已核验 CGL Describe color=32，alpha=0。
+- ARGB8888 mode=0x8000：已核验 CGL Describe color=32，alpha=8。
+- depth/stencil bits=0/8/16/24/32分别编码1/0x80/0x400/0x800/0x1000。
+- monoscopic single=0x5，monoscopic double=0x9。token5要求double；未出现5时本模块不增加single约束，按表枚举两者。
+- 无accum时N+0x18=0x80000000，依据GPUSupport 0x59c9..59d9（accum最小值0），0x5b32..5b38写模板。该模式的公开Describe大小为0。
+- 每个能力元素是完整可用组合，不自动交叉组合color/depth/stencil/buffer。
+- 尺寸按已证最小值筛选，重复请求取最大值；所有匹配项按调用方表顺序输出，无排序评分。
+- 无匹配返回 GP_NO_MATCH；不自动生成或回退到虚构格式。
+这是可落地子集，不承诺完全复制 GPUSupport/Intel 的候选枚举或上层 CGL 策略。
+
+四、供主代理集成的 API
+头文件：kexts/gld-pixel/gld_pixel.h；实现：kexts/gld-pixel/gld_pixel.c。
+只依赖标准 C malloc/free/memcpy/memset，64位小端；本次只验证 x86_64 macOS，不能由布局断言外推 arm64 系统 ABI。
+
+gp_status gp_parse_normalized(const void *tokens, size_t byte_length, gp_request *out)
+- byte_length 是实际可读字节长度，不是token数量。只有调用方掌握分配范围才能传入。
+- 接受0终止，4/5无值，8/11/12/13各一个值；其余所有token直接GP_UNSUPPORTED_TOKEN，不尝试跳过参数。
+- 73 accelerated、83 compliant、99 profile均拒绝作为normalized输入。本版本CGL已在上层处理/删除相关请求，本模块不假装解析它们。
+- 即使已知真实驱动支持3/6/7/14/51..等，本实现未实现这些功能，也明确拒绝；不因知道其部分含义扩大功能范围。
+- byte_length非4倍数返回GP_BAD_ARGUMENT；长度超过PTRDIFF_MAX或地址加长度溢出返回GP_OVERFLOW。
+- 值token恰处于末尾返回GP_TRUNCATED_VALUE；值存在但无下一个0返回GP_UNTERMINATED。
+- value=0是值，不兼作终止符。大于INT32_MAX的位模式拒绝GP_BAD_VALUE，不窄化/截断。
+- 首个0停止；consumed_words包含0。其后内容不访问；不要求尾部全零。
+- 支持未对齐输入，用memcpy读词。失败不修改out；out不得与输入重叠。
+- 范围算术检查不能检验实际映射可读性，调用方不能伪报长度；不设一个臆造的“系统安全扫描长度”。
+
+gp_status gp_choose_normalized(tokens, byte_length, formats, format_count, allocator, out_list)
+- formats/format_count由backend拥有并保证全程不变、可读。没有默认表。
+- out_list用 gp_pixel_list list={0} 初始化，必须为空唯一owner。失败不改变owner。
+- 每条gp_format_cap包含renderer_id、flags、buffer_mode、color_mode、depth_bits、stencil_bits、display_mask。
+- flags只接受Window/FullScreen/OffScreen/Accelerated/Compliant/Core32/Core41这些已确认位；所有位均来自调用者，零输入保持零。调用方必须用真实backend行为负责这些声明；本模块无法验证硬件真实性。
+- 不隐式添加GLEngine对renderer_id的0x20000修饰；display_mask原样来自能力表。
+- 表中任何不支持的格式值均在分配前返回GP_UNSUPPORTED_FORMAT，不静默忽略。
+- 计数乘法按PTRDIFF_MAX约束，溢出在读取表/分配前拒绝。
+- allocator==NULL时malloc/free；可成对提供allocate/release用于宿主分配器或失败注入。分配失败GP_NO_MEMORY，不调用abort。
+- 返回gp_pixel_node链；每个节点前0x38为消费前缀，尾部backend_format_index映射到原能力表下标。返回后能力表可释放，但若还需要按下标获取backend信息，主代理须自行保证相应表/资源生命周期。
+
+void gp_pixel_list_destroy(gp_pixel_list *list)
+- 单次分配构造整个链，owner保存基址及分配器；释放基址一次后owner清零。
+- 不依赖next遍历，因此消费者改写next或形成环不会导致循环/重复free。
+- 同一个清零owner可以重复destroy，NULL也安全。
+- 不可按节点单独free、不可对复制的owner二次销毁、不可用它销毁系统GPUSupport/CGL对象。
+- 不允许外部改写owner的allocation/allocator。head/next可作为借用视图，但所有权始终在list。
+
+消费前缀：
++00 next指针；+08 renderer ID；+0c explicit flags；+10 buffer mode；
++14 color mode；+18无accum模式；+1c depth mode；+20 stencil mode；+34 display mask。
++24..+33全零，包括未知字节与未支持的aux/sample字段；未知字节不命名为padding。
+私有尾部从+0x38开始，静态断言保证；本模块总节点大小不是0x38。
+上层复制必须按链遍历、每节点复制前0x38，不能假设本模块节点以0x38连续排列。
+
+集成形态：
+    gp_pixel_list pixels = {0};
+    status = gp_choose_normalized(owned_tokens, actual_byte_length,
+                                  backend_formats, backend_format_count,
+                                  NULL, &pixels);
+    if (status == GP_OK) {
+        // 在owner有效期内读取pixels.head链与各节点的backend_format_index。
+        // 若复制前0x38字节，按消费者自身布局重建next。
+    }
+    gp_pixel_list_destroy(&pixels);
+这里没有提供任何可安装的系统GLD函数或CGL对象生命周期包装。
+
+五、系统适配明确未实现
+- gldChoosePixelFormat(head_output_slot, normalized_pointer)没有caller长度。现在不能安全连接该入口；不导出这个符号，不扫描直到0，不拿0xc0当所有指针的真实分配大小。
+- gp_status是独立模块状态，不是CGLError/GLD错误码；不能直接转交系统。
+- 系统destroy只传head时如何关联owner仍需适配设计；没有借未核验ABI直接调用GPUSupport。
+- 未实现CGL评分/MinimumPolicy/MaximumPolicy/ClosestPolicy、恢复、配置覆盖、离线或多屏策略；不宣称输出一定通过上层筛选。
+- 未实现backing store、MSAA、accum、aux、stereo、triple buffer、float color等；相关token即拒绝。
+- 未恢复N+0x31等未知字节正式语义，未证明全零能通过真实上下文创建。
+- 不提供backend，也未证明任何vGPU硬件能力或上下文/绘制/读取结果。
+- 本次没有调用公开CGLDescribePixelFormat。已有out/pixel-format-research.txt及pixel_format_contract_probe.c作为消费布局证据；若未来复用公开消费者测试，必须沿用OpenGL UUID EEBF4330-76CB-3E0E-AD13-BD031235E27F、x86_64、bounds指令及每次调用前NULL hook门控。不得绕过门控或调用未知私有ABI。
+
+六、验证结果
+严格参数：-std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fno-common。
+普通-O2：28154 checks / 0 failures。
+-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer：28154 checks / 0 failures；halt_on_error开启。
+clang --analyze -Xanalyzer -analyzer-output=text gld_pixel.c：退出0，无诊断。
+nm -gU：独立API仅gp_parse_normalized、gp_choose_normalized、gp_pixel_list_destroy，另有main/可执行文件头；无gldChoosePixelFormat或设备插件入口。
+
+覆盖：有效流；token4后立即接token5证明无值；重复尺寸最大值；每个字节长度截断；值0不冒充terminator；缺终止；全部1..102非白名单token和大整数未知token；负值位模式；INT32_MAX值；SIZE_MAX/PTRDIFF_MAX范围/节点数量溢出；未对齐流；空能力表；未知能力；能力位仅显式透传；不匹配；分配失败；非空owner拒绝覆盖；4096节点链遍历；owner重复释放；next自环释放。
+保护页测试：输入紧贴PROT_NONE下一页，包括最后一个词为值token、未知token、终止符、只有value0无终止等；不可读边界指针+长度0不读取；20000条确定性生成流验证有界访问。
+首次UBSan发现 fields + offset - 8 的左结合运算产生数组外中间指针；已改为 fields + (offset - 8)，最终普通/消毒器/静态分析全通过。未规避检查。
+未运行LeakSanitizer；分配器计数与重复销毁测试验证本模块的正常/失败释放行为；ASan覆盖释放后的非法内存行为。
+
+复现：python -B D:/Codes/vGPU-macOS/kexts/gld-pixel/verify.py
+只需现有tools/mssh.py配置和客体clang；不安装依赖。测试输出是结构/解析验收，不是硬件或系统GLD接入验收。
+
+driver-evidence.txt SHA256 caae0993e632097b62db756ae0e0bf89129c1c57255ebb260b8d6c6d6d7caf02
+最终gld_pixel.c SHA256 3efed4ac09e2be797c915577049a0789c0649b0daca61148967f1a2769f4c44e
+最终gld_pixel.h SHA256 8c5629f521377f5bc6177899ebabc6c2580f182cec0bd52c8849d10e55aa86f3
+最终test-results.txt SHA256 a7d6acd7380d8f6077f47544d3f0719b98554d574829663ee82192651cc5beb9

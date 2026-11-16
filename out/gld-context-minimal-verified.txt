@@ -1,0 +1,311 @@
+GLD 最小 context / clear / readback 契约：硬件交叉核验
+日期：2026-11-16
+目标：macOS 15.7.3 / 24G419；x86_64 / x86_64h；静态研究交付。
+
+0. 结论及实现边界
+已闭合 share -> context 六参 -> A/H/B 借用状态 -> FBO Q/D -> 当前 read handle -> pack 的关键链条。可以据此编写独立句柄生命周期与稀疏视图适配层；尚不足以宣称真实 GPU clear/readback 已可运行。
+本轮未调用 GLD 私有入口，未执行 GPU 提交、安装、重启，未修改内核、驱动代码、其他代理文件或已有研究文档。客体仅执行只读反汇编/检索和保存独立证据；宿主仅新增本报告及 gld-context-* 原始文本。没有运行绘制探针。
+关键修正：所查 Intel KBL/ICL、AMD X4000/X5000 的初始 Populate 全部将 render[0] 清零。KBL、X4000、X5000 的配置已实证 A+0x6e=1，采用显式三参 ClearFramebufferData；不能称 render[0] 为这些硬件已验证可用的 clear 路径。ICL本轮只检查 Populate，未独立闭合其配置。
+25槽的清单完整，签名恢复不完整：0/2/20/21/24具有较强调用形态证据；1有AMD实现及内部调用证据；3..12、17..19主要是GLEngine调用现场；13..16无可确认参数。缺失处明列为阻塞，不用统一无参/固定成功桩补齐。
+
+1. 来源、基址与符号
+GLEngine UUID FB994F78-34C6-39F3-857D-99F9B3013E8F。
+libGFXShared UUID CEB3FF13-179A-3AFD-AB07-31BE4C2073B9。
+libGPUSupportMercury UUID F206CE07-BCA7-3CC7-A494-112686CDE945。
+Intel KBL UUID 84D33620-0DE3-3032-877D-D0D21C75C4C1。
+Intel ICL UUID 92B06C89-66A9-35A4-8991-F451319C4C99。
+AMD X5000 UUID FB94CB01-F4EE-3367-AE56-3B50EAE49E03。
+AMD X4000 UUID 6C57AF6E-4735-3086-A81F-A19269B313F9。
+缓存映像地址是 unslid 地址；AMD 0x000... 为 __TEXT 从0开始的preferred文件VM地址，不是运行时地址。
+Mercury实际路径：/System/Library/PrivateFrameworks/GPUSupport.framework/Versions/A/Libraries/libGPUSupportMercury.dylib。
+Intel/AMD位于 /System/Library/Extensions/<驱动名>.bundle/Contents/MacOS/<驱动名>。
+GLEngine来自 /System/Library/Frameworks/OpenGL.framework/Versions/A/Resources/GLEngine.bundle/GLEngine。
+只用GLEngine/libGFXShared原始消费者和Intel/AMD/Mercury硬件实现作本报告核心依据；不复制Float context私有布局。既有framebuffer报告中的GLEngine生产者证据可以复用，硬件callee另由本轮验证。
+
+记号：
+ G = GLEngine GLIContext；S_i=G+0xc6b0+i*0xe20。
+ A=S_i+0x10；H=G+0x8e0；B=S_i+0x270。
+ C=独立驱动context不透明句柄；SG=share不透明句柄；Dev=设备句柄。
+ R=25槽render表；T=129项GLD导出表；T=plugin+0x420。
+ R通常为G+0xb320；G+0xb3e8为0xc8字节镜像。上层975槽API表不属于R/T。
+ 当前操作别名为G+0xb4c8(C)、+0xb4d8(A)、+0xb4e0(R)、+0xb4e8(T)，fallback/插件切换会改变别名。
+
+2. 可落实到独立入口的 ABI
+以下声明是本目标寄存器宽度的适配表示，不是Apple私有头文件；opaque参数不因写成void*就得到完整对象定义。
+
+ int32_t gldCreateShareGroup(void *Dev, void **out_SG, uintptr_t opaque_arg3);
+ int32_t gldCreateContext(void *SG, void **out_C, void *pixel_format,
+                          void *A, void *H, void *B);
+ int32_t gldDestroyContext(void *C);
+ int32_t gldDestroyShareGroup(void *SG);
+ Populate调用形态：gldPopulateContextDispatch(C, R_storage_25_pointers)。源语言返回类型未恢复。
+
+2.1 Share
+libGFXShared 0x7FFB06174A0F/4A19/4A1D/4A22：RSI=share输出槽、RDI=Dev、EDX=4，调用plugin+0x478(T+0x58)。因此本调用的RDX完整值为4。
+Mercury 0x7FF9183586CA保存完整RDX，0x7FF91835871E写SG+0x10；不能仅因调用者写EDX就把所有调用的第三参数定为uint32 flags，更不能称为指针。uintptr_t只用于保留实际机器值，正式语义和通用宽度契约未恢复。
+Create入口清*out_SG；调用IOAccelSharedCreate、按库配置大小分配SG、初始化锁/processor、调用Dev+0x10初始化回调；成功0x7FF918358789写输出并EAX=0。可见失败值0x271f/0x2724，不据此命名所有错误。
+Destroy由plugin+0x480(T+0x60)调用，首参SG。Mercury清共享纹理、调用Dev+0x18、释放IOAccelShared/processor/锁/SG，0x7FF918358823 EAX=0。
+独立实现自己拥有SG及资源，不得free Dev或调用者输出槽。共享资源和context引用必须在销毁前解除；完整并发/引用计数约定仍需补证。
+
+2.2 Context
+GLEngine 0x7FFB0637B27A调用plugin+0x488(T+0x68)：RDI=SG、RSI=S_i、RDX=pixel_format、RCX=A、R8=H、R9=B，EAX=0继续，否则走清理。
+Mercury入口0x7FF9183542C8保存六参并清*out_C。pixel_format先由Dev+0xf8校验，并检查pixel_format+0x34 mask属于Dev+0x23c。
+0x7FF9183545BC保存SG；45C7保存H；45D2保存B；478C调用Dev+0x100(C,A,pixel_format)填配置；4794保存A；479F写*out_C；47A2 EAX=0。
+Mercury自身布局：C+8=Dev，+0x10=SG，+0x18=H，+0x20=A，+0x28=B，+0x30=current_draw，+0x38=current_read，+0x40=IOAccelGLContext。
+此布局仅解释硬件证据。独立GLD可自行定义C，不必按这些偏移分配；一旦借用Mercury函数则不能省略其内部依赖。
+特别注意：Mercury Create自身调用IOAccelGLContextCreate/GetSidebandBuffer/GetFenceBuffer，0x7FF9183544DD调用gpusSubmitDataBuffers。它不是可在“禁止GPU提交”范围内安全试调的纯分配探针。
+A/H/B是调用者持有且后续会改变的借用视图。保存指针，不拷贝猜测大小的整个对象，不在create时永久缓存pack/FBO状态。
+GLEngine失败清理0x7FFB0637B4FE向plugin+0x498(T+0x78)传单参C。Mercury Destroy入口0x7FF9183549F7解除program关联、释放drawable、调用Dev+0x28、释放processor/IOAccelGLContext/私有内存；4AE3 EAX=0。
+上述Destroy使用int32返回是符合已查callee的可实现适配形态，不是由调用者未检查返回推导正式源语言类型。
+
+2.3 Populate
+GLEngine 0x7FFB06447500以RDI=C、RSI=G+0xb320调用T+0x88；不检查返回；随后gleUpdateDispatchJIT复制25指针。
+Intel KBL 0x7FFB020B40EB..4148将0..19、22..23清零，20=glrIntelBeginPrimitiveBuffer、21=glrIntelEndPrimitiveBuffer、24=glrIntelNoopRenderVertexArray。
+AMD X5000 0x630F8..631A2保存R到C+0x80；0=NULL、1=glrdATI_Hwl_DrawPixels、2=glrdATICopyPixels、20/21=Begin/EndPrimitiveBuffer、22/23=NULL、24=glrdAMD_RenderVertexArray；3..12、17..19初始指向glrAMD_GFX9_NoOp；13..16=NULL。
+X4000/ICL的初始槽0同样NULL。初始NULL/NoOp不证明执行任意API都安全，UpdateDispatch/能力/回退条件仍需要满足。
+GLEngine在fallback begin/end及gliUpdateDispatchState会重新Populate；不能把一次填表当整个生命周期不变。
+
+3. 25个render槽逐项规格与证据等级
+记号p=64位指针，u32=实际32位整数载体（不自动断言signedness），?=无足够证据；ret?=没有恢复可靠返回契约。
+“现场”只描述列出的调用边；不把未重新装载的寄存器自动认作额外形参。偏移为R内偏移。
+
+槽 偏移   已见调用形态                                      证据/边界
+00 0x00   (C,u32 public_GL_clear_mask) -> ret?                GLEngine别名call；四硬件初始NULL，未找到硬件callee。
+01 0x08   (C,p_xy,u32_w,u32_h,u32_format,u32_type,             AMD DrawPixels callee及CopyPixels内部调用；
+           p_pixels,u32_mode,opaque_arg9) -> EAX结果           第9实参在已见内部调用为0；本轮未确认callee消费宽度/语义。
+02 0x10   (C,p_xy,u32_x,u32_y,u32_w,u32_h,u32_kind)->ret?    GLEngine+AMD CopyPixels；第7参按32位消费。
+03 0x18   (C,p,u32,u32)->ret?                                GLEngine现场；AMD初始NoOp。
+04 0x20   (C,p,u32,u32)->ret?                                同上。
+05 0x28   (C,p,u32,u32)->ret?                                同上。
+06 0x30   (C,p,u32,u32)->ret?                                同上。
+07 0x38   (C,p,u32,u32)->ret?                                同上。
+08 0x40   (C,p,u32,u32)->ret?                                同上。
+09 0x48   (C,p,p,u32,u32)->ret?                              GLEngine两个指针实际分别进入RSI/RDX。
+10 0x50   (C,p,u32,u32)->ret?                                GLEngine现场。
+11 0x58   (C,p,u32,u32)->ret?                                GLEngine现场。
+12 0x60   (C,p,u32,u32)->ret?                                GLEngine现场。
+13 0x68   未恢复                                             已查初始表NULL；直接/镜像调用搜索无命中。
+14 0x70   未恢复                                             同上。
+15 0x78   未恢复                                             同上。
+16 0x80   未恢复                                             同上。
+17 0x88   (C,p,u32)->ret?                                    现场EDX有效；未证明还有ECX形参。
+18 0x90   (C,p,u32,u32)->ret?                                GLEngine现场。
+19 0x98   (C,p_pointer_array,u32,u32)->ret?                  现场构造3个间距0x280的顶点指针，再传数组。
+20 0xa0   (C,u32, uint32_t *count_inout)->p                  GLEngine+Intel/AMD；AMD先读后写该32位值，EAX不可替代RAX。
+21 0xa8   (C,u32,u32_primitive,u32_count)->ret?               GLEngine+Intel/AMD；AMD消费ESI而Intel此实现忽略它。
+22 0xb0   (C,u32,u32,u32,u32,u32)->p                         GLEngine现场NULL判断RAX；已查初始硬件表NULL。
+23 0xb8   (C,u32,u32,u32,u32,u32,p)->ret?                     GLEngine第7参栈指针；已查初始硬件表NULL。
+24 0xc0   (C,u32,u32,u32,u32,u32,p,u32,opaque64)->EAX结果    GLEngine+AMD；AMD第9栈参有movq读取，不能随意缩成u32。
+
+原始现场地址（不是依最近标签猜函数归属）：
+0: 0x7FFB063979C9 / 0x7FFB063C0362。
+1: AMD 0xD201内部调用；0x606BE入口，0x608D3读第7栈参pixels；0x60767读第8参mode32。
+2: 0x7FFB0645830F；AMD 0xD0B2入口、D0D6读第7参、D1DD调用ReadFramebufferData。
+3: 0x7FFB0639B62A；4:0x7FFB064BFBF6；5:0x7FFB064BFE0F；6:0x7FFB064BFB4A。
+7:0x7FFB064C49EA；8:0x7FFB064C2129；9:0x7FFB064C24EB；10:0x7FFB064C252B。
+11:0x7FFB0639C02A / 0x7FFB064C2510；12:0x7FFB064C23FA。
+17:0x7FFB064BEA5C / 0x7FFB064C35C7；18:0x7FFB064C094A；19:0x7FFB064C20D0。
+20:0x7FFB0639B0AA；Intel0x7FFB020AEEC2入口，0x7FFB020AF0F1写32位out_count，RAX返回可写缓冲指针。
+21:0x7FFB0639B07F；Intel0x7FFB020AF1D8；AMD0x22030保存ESI/EDX/ECX。
+22:0x7FFB064E0955；23:0x7FFB064E0E02；24:0x7FFB0639FC0B，AMD0x455DD/0x45E51/0x460F3。
+槽24的Intel初始Noop明确EAX=0；上层test EAX后走其他处理，不能称为完成绘制成功。
+R镜像已搜索：0/1/13..16无直接偏移call/jmp；0另有别名调用证据。搜索缺席不证明JIT生成代码或其他间接路径不会使用它们。
+AMD NoOp本体只有push rbp/mov rsp,rbp/pop rbp/ret；不消费参数不能反推其所占槽无参数。
+
+4. clear：实际硬件选择与数据契约
+4.1 A的写入责任
+Mercury通过Dev+0x100(C,A,pixel_format)调用配置填充。
+Intel glrPopulateContextConfig尾跳IntelSetConfigData，RSI=A。
+0x7FFB020B3E05 movl $0x1000001,0x6b(%rbx)：小端字节01 00 00 01，明确A+0x6e=1；+0x6f另外写1。
+机器字节0x7FFB020B3E03起含 C7 43 6B 01 00 00 01；已独立section_bytes确认。
+AMD X4000 0x575A0、X5000 0x1364C将word 0x101写A+0x6d，明确A+0x6e=1。
+这不是扩展名字推导；同一字节被GLEngine实际分支读取。
+
+4.2 A+0x6e==0
+GLEngine 0x7FFB0639792F检查A+0x6e；到0x7FFB063979C9以(C,过滤后的GL mask)调用R[0]。
+颜色0x4000、深度0x100、stencil0x400依据G+0x458e/+0x458f有效性过滤；没有清除值参数。
+clear setter可置dirty 0x8/0x10/0x20。上层可定位H+0x3bf0的16字节颜色、H+0x3bd8的double depth、H+0x3c04的stencil容器，但本轮没有硬件R[0]callee证明如何消费这些值。
+因此只验证了调用形态，不能将此分支当最少已验证硬件实现方案。
+
+4.3 A+0x6e!=0
+GLEngine 0x7FFB06397A42调用T+0xd0：gldClearFramebufferData(C,u32 internal_mask,void *clear_values_inout)。
+internal_mask不是GL mask：低8位是所选颜色目标位，bit8 depth，bit9 stencil；不能把低8位解释为RGBA通道掩码。
+数据块V至少覆盖0x1c字节：
+ V+0x00 16字节颜色；普通glClearColor为四float，整数Clear路径可用原始整数编码。
+ V+0x10 4字节float depth（上层double转换）。
+ V+0x14 4字节stencil容器。
+ V+0x18 4字节，此glClear路径写0，完整语义未恢复。
+未选字段由上层清零；V是栈临时内存，不能保留到返回后。
+Intel导出offset0x35ad，function_starts确认入口0x7FFB01EBD5AD、下一入口0x7FFB01EC060E；入口字节55 48 89 E5，线性输出从+1开始不是ABI异常。
+0x7FFB01EBD64F保存RDX=V，0x7FFB01EBDAFD读V+0x10，0x7FFB01EBDB17回写V+0x10。故V不能声明为const。
+Intel还读取当前draw framebuffer C+0x30、H+0x3d84及硬件资源/管线状态；显式传颜色不意味着只写四字节就完成clear。scissor、color write mask、附件格式/sRGB等完整消费尚未收敛。
+该函数返回类型/所有返回路径本轮未恢复；GLEngine上述调用不检查返回。
+
+5. Q/D/FBO 的硬件闭合关系
+P=framebuffer数据基址；命名FBO的P=F+0x28。
+Q=P+0x100；D_i=P+0x200+0x58*i；O_i=P+0xa0+8*i。
+GLEngine 0x7FFB06454F93 / 0x7FFB06454B11调用CreateFramebuffer(SG,O_i,Q,D_i)。
+可实现形态：int32_t gldCreateFramebuffer(void *SG, void **out_fb, void *Q, void *D)。
+Mercury 0x7FF918355FB7保存Q到fb+0；5FBA保存D到fb+8；5FD2写*out；5FD5 EAX=0。
+独立句柄布局可自定；Q、D均借用，不能释放或将D[0]当Q。
+D+8*j(j=0..9)是对应插件附件纹理句柄；GLEngine 0x7FFB06455914/55919为实际生产者。
+Q+0xb2/+0xb4是uint16宽高；命名FBO对应F+0x1da/+0x1dc。实际完整性生产者以P为基址写P+0x1b2/+0x1b4；不能只靠偏移算术推断。
+Q+0xc0为Mercury Load迭代的附件位图；Q完整格式/层/采样布局未恢复。
+Mercury Load(SG,fb)：先D+0x51=1，按Q+0xc0取D附件加载，再调用Dev+0x108；收尾sete D+0x51，清D+0x50，EAX=(D+0x51==0)。若前面附件加载失败可提前退出，不能把所有路径说成总会清pending。
+GLEngine实际以D+0x50决定是否Load，以D+0x51 bit0判定失败，并不依赖本调用EAX。固定返回1不能替代状态/资源协议。
+UpdateDraw(C,u32 dirty)在bit30时读取B+0x4a0；UpdateRead(C,u32 dirty)在bit31时读取B+0x4a8。第二参数是dirty，不是fb句柄。
+Mercury read写C+0x38，draw写C+0x30；bind回调为Dev+0x168/+0x160；draw状态更新回调为Dev+0x148。
+Mercury UpdateRead返回1；UpdateDraw依据C+0x944返回1或2。不同入口不能套用“统一0成功”。
+附件纹理自身backing/pitch/格式与资源同步仍是必要阻塞；创建一个保存Q/D的包装不是资源已可用。
+
+6. ReadFramebuffer：十参及pack
+寄存器/栈载体适配形态：
+ int32_t gldReadFramebufferData(void *C, int32_t x, int32_t y,
+   int32_t width, int32_t height, uint32_t format, uint32_t type,
+   void *pixels, uint32_t mode32, void *buffer_handle);
+返回类型int32只表示实际EAX分支载体；PBO路径的非0不是简单错误码。
+标准x86_64帧下第7..10参数在rbp+0x10/+0x18/+0x20/+0x28。
+GLEngine CPU分支0x7FFB063B6B02传mode32=0、buffer_handle=NULL；x/y/w/h已被裁剪，pixels已包含上层裁剪导致的地址修正。
+Mercury wrapper 0x7FF918358254在buffer非NULL时检查/加载驱动buffer，随后尾跳Dev+0x1b0，保留十参栈布局。
+Intel 0x7FFB01EDE200以movl读mode32，DE204以movq读pixels，DE208以movl读type；DE210从C+0x38取fb；DE225取Q=*fb；DE228/DE232读uint16宽高。
+默认fb为NULL时读取Intel私有C+0x120c/+0x1210；不能用这两个偏移替代独立驱动drawable契约。
+H=*(C+0x18)，pack=H+0x4ec8（DE258）；mode32==2时将pack置NULL（DE261/DE265）。AMD CopyPixels内部也用mode=2调用read，这交叉支持该模式绕开普通pack，并未恢复其全部语义。
+Intel调用gpusPixelSettings时的pack是第8参数；不要与Float同名辅助函数的第9参数混用。辅助函数并非GLD导出ABI。
+已证pack稀疏视图：
+ +0x00 u32 row_length
+ +0x04 u32 current_row_stride_bytes
+ +0x10 u32 skip_rows
+ +0x14 u32 skip_pixels
+ +0x1c u32 alignment
+ H+0x4ee8/+0x4ee9为swap-bytes/lsb-first，Intel分别读取；最小RGBA8路径仍不能缓存旧状态。
+gpusPixelSettings 0x7FF918357232先取pack+4，非0直接用；否则取row_length或width并按alignment向上取整；3572A0/2C2按skip_pixels/skip_rows计算目标偏移。
+仅限普通2D RGBA/UNSIGNED_BYTE、非bitmap模式的可独立实现公式：
+ row_bytes = current_stride != 0 ? current_stride : align_up((row_length > 0 ? row_length : width)*4, alignment)
+ pack_offset = skip_rows*row_bytes + skip_pixels*4
+ row_destination(j) = pixels + pack_offset + j*row_bytes
+不能再次重复加入上层已经计入pixels的裁剪offset。实现时用经检查的宽整数运算，保证目标内存容量；不要照搬原驱动32位乘法的溢出行为。
+GLEngine会在read调用前临时写H+0x4ecc，返回后恢复；必须每次读取当前pack。
+PBO路径、mode其他值、bitmap/整数/深度/多采样/IOSurface均不在该最小公式范围内。
+
+7. A配置：可证字段与缺口
+KBL IntelSetConfigData从pixel_format实际写A：
+ +0x28 <- pixel_format+0x14颜色位集合非零测试；+0x29/+0x2a来自+0x10位；+0x2c来自+0xc位。
+ +0x2e及+0x30..33由gpusColorSizes(pixel_format+0x14)输出。
+ +0x34..37由gpusColorSizes(pixel_format+0x18)输出。
+ +0x38/+0x39分别由gpusDepthSize(pixel_format+0x1c/+0x20)输出。
+ +0x2f/+0x3a/+0x3b取pixel_format+0x26/+0x28/+0x2a低字节。
+ +0x6e=1选择显式clear；不能照抄其余能力常量冒充独立vGPU能力。
+以上是硬件生产者，不等于“最小初始化仅需这些字段”。A+0x221 bit6有GLEngine完整性消费者：控制附件尺寸不同时取最小值或拒绝。A+0x38/+0x39被默认depth/stencil read检查。
+A的全量初始化消费者、版本/profile限制、允许NULL render槽的条件、A+0x6f及大量限值仍未恢复。不能因初始区域为0就保证GL初始化通过。
+A+0x258由上层预写pagesize并限制到0x4000；不要将A到B的0x260间距直接冒充正式结构大小。
+
+8. 最少可实现步骤与验收前置
+建议收窄的第一条真实路径：单插件、单采样、命名颜色FBO、普通float clear、RGBA8附件、GL_RGBA/GL_UNSIGNED_BYTE CPU read、mode=0、无PBO。这样可暂不实现窗口呈现，但仍必须实现纹理/FBO资源。
+(1) 独立SG/C拥有明确生命周期，成功时写输出句柄；保留A/H/B借用指针；失败清理自己已创建资源。只以已验证输入作限制，不调用未验证私有ABI。
+(2) 按实际支持能力填A，采用已有硬件交叉证据的A+0x6e=1和ClearFramebufferData形态；先补齐初始化必需A字段的消费者，不能仅写此byte后直接宣称可用。
+(3) 创建真实附件资源；用独立FBO句柄保存Q/D；Load验证附件并完成D状态握手；Update按B绑定当前draw/read。
+(4) clear同步读取所需当前状态，正确执行内部mask、颜色值、scissor/写掩码/格式转换。数据块只在调用内有效。
+(5) read按当前Q和pack确定源范围与目标步长，落实源资源可见性和像素转换。CPU单元测试只验证地址计算，不证明GPU读取。
+(6) 同步入口实现真实提交/完成：GLEngine glFinish普通路径实际调用FlushContext(C)，再对所有插件调用WaitForContext(C)，不是按名称猜FinishContext会被调用。本轮不执行这些入口。
+(7) 对Populate及UpdateDispatch补齐能力分支证明，逐槽正确适配；未经证明不可给NULL槽填任意成功函数。
+未来运行验收需证明实际目标插件/资源/回调命中、排除软件fallback和IOSurface旁路、验证非平凡颜色及区域clear、pack长度/skip/alignment、flush/wait完成后读取一致，并检查失败清理。此验收未执行，且GPU提交不在本次授权范围。
+
+9. 明确阻塞及下一项原始证据需求
+B1 A完整初始化/能力消费者未闭合：第12节已补gleInitializeContext/DerivedState/dispatch消费者和AMD动态描述符生产者；还需覆盖其调用子树、能力验证及profile选择，不能把已见字段当作充分的最小清单。
+B2 render[0]仅有调用者形态，所查硬件初始NULL；若坚持A+0x6e=0，必须找到真正硬件callee或继续证明更新路径会安装它。
+B3 13..16签名未知；1的第9参、24的第9参完整语义、3..12/17..19类型与返回值、22/23动态安装条件仍缺证据。不可交付声称完整的25槽C头文件。
+B4 clear全部状态消费未收敛：scissor/颜色写掩码/sRGB/整数格式以及V+0x18含义；不能把显式值块当完整clear命令。
+B5 texture/renderbuffer资源backing、pitch、格式及load/update/销毁并发仍需与其他资源研究对接；Q/D关系解决了指针层级，没有解决资源实现。
+B6 share第三参数仅证实当前值4和64位保留；正式语义不明。mode32全部取值/PBO返回与同步契约未恢复。
+B7 Flush/Wait的独立后端完成协议及实际clear/readback未验证；loader负向诊断成功不能跨越此阻塞。
+
+10. 证据索引及复现注意
+本轮新增原始证据（项目out目录）：
+ gld-context-hardware-raw.txt：AMD X5000 config/Populate/Update；Mercury Create/Destroy/Share/FBO/Read/PixelSettings。核心行1135、1424、1490、1529、1611、1645、1697、1795、1874、1936。
+ gld-context-intel-raw.txt：KBL read行3079、Begin行4678、End行4811、config wrapper行4940、Populate行4945、Noop行4969。
+ gld-context-more-hardware-raw.txt：X4000/ICL Populate与AMD配置。
+ gld-context-render-xrefs-raw.txt：GLEngine主表/别名附近引用，作完整补查材料，非每段均是已定名函数。
+ gld-context-render-first-raw.txt：每个命中槽首个调用现场。
+ gld-context-render-alias-raw.txt：两处R[0]别名调用。
+ gld-context-intel-clear-config-raw.txt：clear开头地址区间及完整IntelSetConfigData；行325..331可见V+0x10读写，行540为A+0x6e来源。
+ gld-context-render-mirror-raw.txt：25槽主表/镜像直接call/jmp数量及前两处现场；13..16无命中。
+ gld-context-amd-render-raw.txt：AMD CopyPixels/End/RenderVertexArray/DrawPixels/NoOp。Begin精确标签未命中，不声称该文件含Begin。
+ gld-context-final-check-raw.txt：未恢复槽的直接引用、clear导出/function_starts/入口与配置机器字节，行235起。
+引用已有文件：glengine-contract.txt及snippets、gfx-loader.txt、gld-clear-readback-research.txt、gld-framebuffer-verified-snippets.txt(E3/E5/E6/E7/E9/E11)、gld-device-contract-verified.txt。
+工具：tools/mssh.py经SSH执行客体dyld_info，仅输出精选静态内容；未展示凭据。下载前确认out存在。
+本轮续查第一次AMD提取误用x86_64，dyld_info返回1；核对已有映像标题后改为实际x86_64h成功，不是缺失实现。Intel clear按导出+function_starts+section_bytes闭合，避免最近标签误归属。
+线性反汇编可漏函数起点或将对齐/跳转表当代码；所有结论限于所引数据流。未确认的完整结构、返回类型和能力位不由名称补齐。地址/UUID不外推其他build或arm64。
+
+11. 原始证据SHA256与检查
+2536417b318d6d6e45dd52484518d4cceea8ad9ca966c4880c3d03392867009d  gld-context-hardware-raw.txt
+12f132276d8bd367b74531c2c8ba4efa35483379c6667044294bd7097fe39c0d  gld-context-intel-raw.txt
+53e11c7c16bf06c31fe794efd8aac1bbed51ef6060df1ee5ac09a0636310082e  gld-context-more-hardware-raw.txt
+f30da0a02559a8962711b6564922569429c1242c1e89c53b3fd33dbd08781714  gld-context-render-xrefs-raw.txt
+2594daae22d5b0955f3995f17c36484ff391c58e921a773f92b49ff0aebfaeeb  gld-context-render-first-raw.txt
+68e3a40ec8f5c8398d1015c3561188b6f125a68020534d8d8af2eca3d28501a7  gld-context-render-alias-raw.txt
+0d866516955391c0d8d96e87b8b18110f99f45c95e5a51e42702cce9764cfae1  gld-context-intel-clear-config-raw.txt
+b9792116b349675930bcb39d0e8133c7f8c843ca466ae90a9db3fd93be1b382c  gld-context-render-mirror-raw.txt
+7569ebe25aa56dc7793904dba23ad56f3fc1841059a8e728fb1fdc989a94c2d4  gld-context-amd-render-raw.txt
+f980d89c6f9036a1e5ba4b9d17f8fffeb910424c021b0b0f31a4d34c7686f9f8  gld-context-final-check-raw.txt
+报告检查：00..24共25槽各列一次；文中本轮证据文件均存在；机器字节独立复核Intel clear入口及A+0x6e写入。未进行动态GLD或GPU测试。
+
+12. 续查：初始化时序、A实际消费者与AMD primitive状态
+本节仍限同一build和静态证据。以下是已验证必经/分支消费，不是完整最小配置头文件。
+
+12.1 H默认状态晚于驱动CreateContext
+GLEngine先在0x7FFB0637B27A调用驱动CreateContext，再在B4CE调用gleInitializeContext；后者C4FF将G+0x8e0作为首参，在C51E调用gleInitGLDState。
+因此H内容在驱动Create返回后仍被上层初始化。Create中保存H指针即可；不能把当时的clear/pack值永久缓存成运行时状态。
+function_starts确认gleInitConstants范围[C9DC,CD18)，gleInitGLDState范围[CD18,D6DB)，gleInitGLIState范围[D703,DA69)，上述低地址均加0x7FFB06370000。
+线性反汇编漏掉GLD/GLI入口标签，并在入口前后出现跨界误解码；init-consumers原始文件中“gleInitConstants”标签后包含相邻GLD函数，不能把整段都归属Constants。实际归属由init-dispatch-bounded文件的function_starts边界限定，入口附近缺失指令不用于参数推导。
+在已限定GLD函数内，RBX=H：
+ 0x7FFB0637CE39 写H+0x3bf0的16字节颜色为0。
+ 0x7FFB0637CE51 写H+0x3bd8为double 1.0。
+ 0x7FFB0637CE5B 清H+0x3c00..07，覆盖stencil容器H+0x3c04。
+ 0x7FFB0637CF20/CF27 清pack+0..0x1b；CF2E写pack+0x1c=4。
+ 0x7FFB0637CF38 清H+0x4ee8起的swap/lsb相关字节。
+这些默认值与已验证硬件read消费者闭合；不表示驱动应自行覆盖上层当前状态。
+
+12.2 A的消费清单（稀疏、未穷尽）
+字段/机器类型      已验证消费者及作用                                      硬件生产者/边界
+A+0x1a u16         Initialize C4B5按每插件读取；并集&0x04ef与交集&0xfb10合并， Intel KBL 0x7FFB020B3D12写0x16。
+                   C4EA/C4F1写入*(G+0x5b00)+0x19a。正式位义未恢复。
+A+0x29 u8          Initialize C182 -> G+0xc693；C772再用于布尔状态。         Intel由pixel_format+0x10 bit3产生。
+A+0x2b u8          Derived DE65 -> G+0xc698/+0xc699；零测试写+0x44ea/eb。    Intel由pixel_format+0x14 &0x3f000000非零产生。
+A+0x38/+0x39 u8    Derived DE9E/DEB0构造G+0xb620的depth/stencil有效位；       Intel gpusDepthSize，详第7节。
+                   其默认/命名FBO分支最终写G+0x458e。
+A+0x40/+0x48 f32   Derived DE4A/DE4F取maxss并写G+0x4598。                   Intel向A+0x3c写32字节常量覆盖两字段；
+                                                                            本次未解出常量值，不按名称猜限值。
+A+0x65 u8          Initialize C4AD对插件OR -> G+0xc690；Derived DA7A复制     Intel B3DF7及AMD0x13629写word 0x101到+0x64，
+                   ->G+0xc691；并决定G+0xb614取4/5，DEEF决定H+4取0/1。      因此两硬件A+0x65=1，正式能力名未知。
+A+0x208/+0x210 p   UpdateDispatch DA904/DA912读到G+0xa550/+0xa558；非NULL    AMD配置0x136F1初始清两指针；随后实际更新，
+                   且p[2]==0时写p[2]=1；VertexSubmit 0x7FFB06380660/673     见12.3。不能把它们当常量能力整数。
+                   读取p[2]*4用于两个16位步长字段。
+A+0x6e u8          选显式clear与R[0]路径，已有双侧证据，详第4节。
+
+A+0x65还由G+0xc691参与gleSelectPrimitiveFunc在0x7FFB0648AE95的分支：当G+0xb636==0x1c00且该byte非0时，以16字节模式写G+0xac48共0x78字节；另一支安装15个gleBegin*Render入口。这是上层primitive表，不是25槽R；本次未解出该16字节模式内容，不能称为给R的NULL槽补函数。
+gleSelectVertexSubmitFunc同时检查G+0xa550和G+0xc691。仅有A+0x65=1不能证明整条primitive链安全。
+gliInitDispatchTable入口读G+0xc6a6并分支；本次保存完整边界内反汇编，尚未闭合该byte的所有生产者，不把它直接命名为某个GL profile枚举。
+
+12.3 AMD动态描述符链及槽20的实质修正
+GFX9_UpdatePrimitiveBufferState 0x4E529/4E564从C+0x20取A，RDX=C+0x2bb8，调用glrATI_UpdatePrimitiveBufferState；后者0x21920把*(C+0x2bb8)写A+0x208。
+当内部源对象及其+0x300字段允许时，0x21E42将另一描述符写A+0x210；否则0x21DA9清A+0x210。描述符+0x02由该生产者写入步长相关值，GLEngine随后还会将零值改成1。
+这闭合了“硬件填指针 -> 上层读取/调整描述符 -> 硬件Begin消费”的双向共享关系；A不是create后只读快照。此更新函数操作的是描述符，不等于安装render[13..16]或[22..23]，没有得到这些槽的新ABI证据。
+AMD BeginPrimitiveBuffer的实际入口由function_starts确认是0x21EA4，下一入口0x22030；之前标签提取漏掉它。
+关键数据流：
+ 0x21EAF 保存RDX；0x21EBC先读*(uint32_t*)RDX。
+ 若该输入非0且A+0x210非NULL，选第二描述符；否则0x21EDD选A+0x208。
+ 0x21F08读取所选描述符+2；0x21FFD将其作为32位除数。
+ 0x22022写回32位值；0x22024以RAX返回缓冲指针。
+所以槽20第三参必须按“输入选择值/输出容量共用的uint32_t指针”处理，不能标为纯out或传未初始化存储。GLEngine已见现场0x7FFB0639B089在调用前写0，支持这一修正。
+可适配声明仍为 pointer render20(C,u32,uint32_t *count_inout)，但输入完整语义/第二参数正式名称尚未恢复；AMD本实现没有消费原始ESI，不据此删除该调用者形参。
+所选描述符必须存在且+2非零才满足这个AMD路径的解引用/除法前置；初始A+0x208/+0x210都NULL不能直接进入Begin。这是具体硬件路径前置，不把AMD私有资源布局强加给独立驱动。
+
+12.4 槽1第9参的证据边界
+按function_starts限定AMD DrawPixels范围[0x606BE,0x612D3)。已见消费第7参pixels和第8参mode，未见直接访问rbp+0x20。此前九实参内部调用本身不证明callee需要第9形参；仍保留其正式ABI/语义未恢复，不将传0推断为buffer句柄或固定32位值。
+
+12.5 本次追加原始证据
+ gld-context-init-consumers-raw.txt：Initialize、Constants邻域、Derived、Populate、UpdateDispatch原始标签块；注意12.1所述缺失标签。
+ gld-context-init-dispatch-bounded-raw.txt：按function_starts限定GLD/GLI初始化、VertexSubmit/Primitive选择、gliInitDispatchTable；共5905个非末尾空行行记录。
+ gld-context-amd-dispatch-bounded-raw.txt：AMD Begin、GFX9 UpdatePrimitiveBufferState、DrawPixels实际函数边界与机器消费。
+ gld-context-amd-primitive-state-raw.txt：AMD描述符生产者glrATI_UpdatePrimitiveBufferState及函数边界记录。
+续查未闭合的阻塞仍是B1..B7；特别是完整25槽签名、A能力最小充分集、clear状态、资源和完成协议。没有新增运行成功结论。

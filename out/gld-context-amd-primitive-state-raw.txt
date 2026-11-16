@@ -1,0 +1,356 @@
+AMD X5000 x86_64h；UpdatePrimitiveBufferState；按function_starts边界截取。
+        0x000218F9  _glrATI_UpdatePrimitiveBufferState
+        0x00021EA4  _glrdAMD_BeginPrimitiveBuffer
+        0x00022030  _glrdAMD_EndPrimitiveBuffer
+        0x000606BE  _glrdATI_Hwl_DrawPixels
+0x0000218F9   pushq    %rbp                 
+0x0000218FA   movq     %rsp, %rbp           
+0x0000218FD   pushq    %r15                 
+0x0000218FF   pushq    %r14                 
+0x000021901   pushq    %r13                 
+0x000021903   pushq    %r12                 
+0x000021905   pushq    %rbx                 
+0x000021906   movq     %rcx, -0x38(%rbp)    
+0x00002190A   movq     (%rdx), %rax         
+0x00002190D   xorl     %r10d, %r10d         
+0x000021910   testq    %rsi, %rsi           
+0x000021913   je       0x2191a              
+0x000021915   movq     (%rsi), %rcx         
+0x000021918   jmp      0x2191c              
+0x00002191A   xorl     %ecx, %ecx           
+0x00002191C   movq     0x8(%rdx), %rsi      
+0x000021920   movq     %rax, 0x208(%rdi)    
+0x000021927   orb      $0x1, 0x10(%rdx)     
+0x00002192B   testl    %r9d, %r9d           
+0x00002192E   je       0x21a56              
+0x000021934   movq     %rdi, %r11           
+0x000021937   testl    %r8d, %r8d           
+0x00002193A   je       0x219df              
+0x000021940   movl     %r8d, %edi           
+0x000021943   shlq     $0x2, %rdi           
+0x000021947   xorl     %r9d, %r9d           
+0x00002194A   movl     $0x300, %r10d        
+0x000021950   movq     -0x38(%rbp), %rbx    
+0x000021954   movzwl   (%rbx), %r15d        
+0x000021958   movl     %r15d, %r14d         
+0x00002195B   andl     $0x3f, %r14d         
+0x00002195F   testb    %r15b, %r15b         
+0x000021962   js       0x2197b              
+0x000021964   andl     $0x40, %r15d         
+0x000021968   cmovnel  %r10d, %r15d         
+0x00002196C   shll     $0xe, %r14d          
+0x000021970   orl      %r15d, %r14d         
+0x000021973   movl     $0x1800, %r15d       
+0x000021979   jmp      0x219c3              
+0x00002197B   movl     0x14(%rdx,%r9,2), %r15d 
+0x000021980   andl     $-0x10, %r15d        
+0x000021984   orl      $0xa, %r15d          
+0x000021988   movl     %r15d, 0x14(%rdx,%r9,2) 
+0x00002198D   movzwl   (%rbx), %r12d        
+0x000021991   andl     $0x100, %r12d        
+0x000021998   andl     $0xfffffefa, %r15d   
+0x00002199F   orl      %r12d, %r15d         
+0x0000219A2   movl     %r15d, 0x14(%rdx,%r9,2) 
+0x0000219A7   movzwl   (%rbx), %r15d        
+0x0000219AB   shll     $0xc, %r15d          
+0x0000219AF   andl     $0xff00000, %r15d    
+0x0000219B6   shll     $0xe, %r14d          
+0x0000219BA   orl      %r15d, %r14d         
+0x0000219BD   movl     $0x1c00, %r15d       
+0x0000219C3   orl      %r9d, %r15d          
+0x0000219C6   orl      %r14d, %r15d         
+0x0000219C9   movl     %r15d, 0x4(%rax,%r9) 
+0x0000219CE   addq     $0x4, %r9            
+0x0000219D2   addq     $0x2, %rbx           
+0x0000219D6   cmpq     %r9, %rdi            
+0x0000219D9   jne      0x21954              
+0x0000219DF   movb     %r8b, (%rax)         
+0x0000219E2   leal     (,%r8,4), %edi       
+0x0000219EA   movb     %dil, 0x2(%rax)      
+0x0000219EE   movb     $0x0, 0x1(%rax)      
+0x0000219F2   cmpl     $0x0, 0x18(%rbp)     
+0x0000219F6   je       0x21a1d              
+0x0000219F8   movzbl   %dil, %r10d          
+0x0000219FC   orl      $0xbc300, %r10d      
+0x000021A03   leal     0x1(%r8), %r9d       
+0x000021A07   movb     %r9b, (%rax)         
+0x000021A0A   movzbl   %r8b, %ebx           
+0x000021A0E   movl     %r10d, 0x4(%rax,%rbx,4) 
+0x000021A13   orb      $0x1, %dil           
+0x000021A17   movb     %dil, 0x2(%rax)      
+0x000021A1B   jmp      0x21a20              
+0x000021A1D   movl     %r8d, %r9d           
+0x000021A20   movl     $0x1, %r10d          
+0x000021A26   cmpl     $0x0, 0x10(%rbp)     
+0x000021A2A   je       0x21a53              
+0x000021A2C   movzbl   %dil, %edi           
+0x000021A30   leal     0xb4300(%rdi), %r10d 
+0x000021A37   leal     0x1(%r9), %ebx       
+0x000021A3B   movb     %bl, (%rax)          
+0x000021A3D   movzbl   %r9b, %r9d           
+0x000021A41   movl     %r10d, 0x4(%rax,%r9,4) 
+0x000021A46   movl     $0x1, %r10d          
+0x000021A4C   incb     %dil                 
+0x000021A4F   movb     %dil, 0x2(%rax)      
+0x000021A53   movq     %r11, %rdi           
+0x000021A56   testq    %rcx, %rcx           
+0x000021A59   je       0x21d98              
+0x000021A5F   cmpq     $0x0, 0x300(%rcx)    
+0x000021A67   je       0x21d98              
+0x000021A6D   xorl     %r9d, %r9d           
+0x000021A70   cmpq     $0x0, 0x210(%rdi)    
+0x000021A78   sete     %r9b                 
+0x000021A7C   movb     (%rsi), %r11b        
+0x000021A7F   movb     $0x0, (%rsi)         
+0x000021A82   movl     $0x0, 0x94(%rdx)     
+0x000021A8C   testl    %r8d, %r8d           
+0x000021A8F   je       0x21dd8              
+0x000021A95   movb     %r11b, -0x29(%rbp)   
+0x000021A99   movl     %r9d, -0x30(%rbp)    
+0x000021A9D   movq     %r10, -0x40(%rbp)    
+0x000021AA1   movq     %rdi, -0x48(%rbp)    
+0x000021AA5   movl     %r8d, %eax           
+0x000021AA8   movq     %rax, -0x50(%rbp)    
+0x000021AAC   xorl     %eax, %eax           
+0x000021AAE   xorl     %r8d, %r8d           
+0x000021AB1   movq     -0x38(%rbp), %rdi    
+0x000021AB5   movzwl   (%rdi,%rax,2), %r14d 
+0x000021ABA   movl     %r14d, %ebx          
+0x000021ABD   movl     $0x1406, %r10d       
+0x000021AC3   andl     $0x40, %ebx          
+0x000021AC6   je       0x21ace              
+0x000021AC8   movl     $0x5405, %r10d       
+0x000021ACE   movl     %r14d, %edi          
+0x000021AD1   andl     $0x3f, %edi          
+0x000021AD4   movl     %ebx, %r9d           
+0x000021AD7   shrl     $0x6, %r9d           
+0x000021ADB   leal     (%r9,%r9,2), %r13d   
+0x000021ADF   testb    %r14b, %r14b         
+0x000021AE2   movl     $0x140a, %r9d        
+0x000021AE8   cmovsl   %r9d, %r10d          
+0x000021AEC   movl     $0x4, %r9d           
+0x000021AF2   cmovsl   %r9d, %r13d          
+0x000021AF6   movq     0x300(%rcx), %r15    
+0x000021AFD   cmpw     $0xf, %di            
+0x000021B01   ja       0x21b10              
+0x000021B03   movl     $0x10000, %r9d       
+0x000021B09   shlxl    %edi, %r9d, %r12d    
+0x000021B0E   jmp      0x21b31              
+0x000021B10   shrq     $0x20, %r15          
+0x000021B14   leal     -0x10(%rdi), %r9d    
+0x000021B18   cmpw     $0x20, %di           
+0x000021B1C   movl     $0x1, %r11d          
+0x000021B22   shlxl    %r9d, %r11d, %r12d   
+0x000021B27   movl     $0x0, %r9d           
+0x000021B2D   cmovael  %r9d, %r12d          
+0x000021B31   testl    %r15d, %r12d         
+0x000021B34   je       0x21b95              
+0x000021B36   leaq     (%rdi,%rdi,2), %r15  
+0x000021B3A   movzwl   0x14(%rcx,%r15,8), %r14d 
+0x000021B40   movl     %r14d, %r12d         
+0x000021B43   andl     $0x9fff, %r12d       
+0x000021B4A   movl     $0x3, %ebx           
+0x000021B4F   addl     $0xffffec00, %r12d   
+0x000021B56   cmpl     $0xc, %r12d          
+0x000021B5A   ja       0x21c69              
+0x000021B60   movsbl   0x16(%rcx,%r15,8), %r15d 
+0x000021B66   leaq     0x303(%rip), %r11    ; 
+0x000021B6D   movslq   (%r11,%r12,4), %r9   
+0x000021B71   addq     %r11, %r9            
+0x000021B74   jmpq     *%r9                 
+0x000021B77   xorl     %r9d, %r9d           
+0x000021B7A   cmpb     $0x3, %r15b          
+0x000021B7E   setae    %r9b                 
+0x000021B82   leal     0x1(,%r9,2), %ebx    
+0x000021B8A   movl     $0x2, %r13d          
+0x000021B90   jmp      0x21c66              
+0x000021B95   testb    %r14b, %r14b         
+0x000021B98   js       0x21ba5              
+0x000021B9A   xorl     %r10d, %r10d         
+0x000021B9D   movl     $0x36, %r14d         
+0x000021BA3   jmp      0x21bb9              
+0x000021BA5   movl     0x14(%rdx,%rax,8), %r10d 
+0x000021BAA   movl     $0x100, %r9d         
+0x000021BB0   andl     %r9d, %r10d          
+0x000021BB3   movl     $0x3a, %r14d         
+0x000021BB9   orl      %ebx, %r14d          
+0x000021BBC   movl     $0x0, 0x18(%rdx,%rax,8) 
+0x000021BC4   leal     (%r10,%r14), %r9d    
+0x000021BC8   addl     $0xa00, %r9d         
+0x000021BCF   movl     %r9d, 0x14(%rdx,%rax,8) 
+0x000021BD4   movzwl   %di, %edi            
+0x000021BD7   leaq     0xcf5e2(%rip), %r9   ; _vtxCode2Index
+0x000021BDE   movb     (%r9,%rdi), %r10b    
+0x000021BE2   movl     0x94(%rdx), %edi     
+0x000021BE8   movl     %edi, %ebx           
+0x000021BEA   shrl     $0x2, %ebx           
+0x000021BED   movb     %r10b, 0x98(%rdx,%rbx) 
+0x000021BF5   movq     -0x38(%rbp), %r9     
+0x000021BF9   movzwl   (%r9,%rax,2), %r9d   
+0x000021BFE   testb    %r9b, %r9b           
+0x000021C01   setns    %r11b                
+0x000021C05   cmpl     $0x100, %r9d         
+0x000021C0C   setb     %r9b                 
+0x000021C10   orb      %r11b, %r9b          
+0x000021C13   jne      0x21c21              
+0x000021C15   addb     $0x4, %r10b          
+0x000021C19   movb     %r10b, 0x98(%rdx,%rbx) 
+0x000021C21   addl     $0x4, %edi           
+0x000021C24   movl     %edi, 0x94(%rdx)     
+0x000021C2A   jmp      0x21d81              
+0x000021C2F   btl      $0xe, %r14d          
+0x000021C34   jae      0x21c69              
+0x000021C36   decl     %r15d                
+0x000021C39   movl     $0x3, %r13d          
+0x000021C3F   jmp      0x21c63              
+0x000021C41   xorl     %ebx, %ebx           
+0x000021C43   cmpb     $0x5, %r15b          
+0x000021C47   sete     %bl                  
+0x000021C4A   addl     $0x3, %ebx           
+0x000021C4D   movl     $0x1, %r13d          
+0x000021C53   jmp      0x21c66              
+0x000021C55   decl     %r15d                
+0x000021C58   movl     %r15d, %ebx          
+0x000021C5B   jmp      0x21c69              
+0x000021C5D   decl     %r15d                
+0x000021C60   xorl     %r13d, %r13d         
+0x000021C63   movl     %r15d, %ebx          
+0x000021C66   movl     %r14d, %r10d         
+0x000021C69   shll     $0xe, %edi           
+0x000021C6C   movl     %ebx, %r9d           
+0x000021C6F   shll     $0xb, %r9d           
+0x000021C73   movl     %r13d, %r14d         
+0x000021C76   shll     $0x8, %r14d          
+0x000021C7A   movl     %r8d, %r15d          
+0x000021C7D   shrl     $0x2, %r15d          
+0x000021C81   orl      %r9d, %r15d          
+0x000021C84   orl      %edi, %r15d          
+0x000021C87   movl     0x14(%rdx,%rax,8), %edi 
+0x000021C8B   shll     $0xc, %edi           
+0x000021C8E   andl     $0x100000, %edi      
+0x000021C94   orl      %r15d, %edi          
+0x000021C97   orl      %r14d, %edi          
+0x000021C9A   movzbl   (%rsi), %r9d         
+0x000021C9E   movl     0x4(%rsi,%r9,4), %r14d 
+0x000021CA3   xorl     %edi, %r14d          
+0x000021CA6   movl     %edi, 0x4(%rsi,%r9,4) 
+0x000021CAB   leal     0x1(%r9), %edi       
+0x000021CAF   movb     %dil, (%rsi)         
+0x000021CB2   incl     %ebx                 
+0x000021CB4   movl     %ebx, %r12d          
+0x000021CB7   cmpl     $0x4, %ebx           
+0x000021CBA   jb       0x21cc2              
+0x000021CBC   movl     $0x4, %r12d          
+0x000021CC2   movl     %r13d, %edi          
+0x000021CC5   leaq     0xcd094(%rip), %r9   ; _gldType2ByteSizeTable
+0x000021CCC   movzbl   (%rdi,%r9), %r15d    
+0x000021CD1   movl     %r10d, %r13d         
+0x000021CD4   andl     $0x9fff, %r13d       
+0x000021CDB   xorl     %edi, %edi           
+0x000021CDD   cmpl     $0x5, %ebx           
+0x000021CE0   sete     %r9b                 
+0x000021CE4   movzwl   %r10w, %r11d         
+0x000021CE8   cmpl     $0x140a, %r11d       
+0x000021CEF   jne      0x21cfd              
+0x000021CF1   movl     0x14(%rdx,%rax,8), %edi 
+0x000021CF5   shrl     $0x8, %edi           
+0x000021CF8   andl     $0x1, %edi           
+0x000021CFB   jmp      0x21d1e              
+0x000021CFD   movb     %r9b, %dil           
+0x000021D00   cmpl     $0x8d9f, %r13d       
+0x000021D07   je       0x21d90              
+0x000021D0D   cmpl     $0x8368, %r13d       
+0x000021D14   jne      0x21d1e              
+0x000021D16   movl     $0xe, %r13d          
+0x000021D1C   jmp      0x21d25              
+0x000021D1E   addl     $0xffffec00, %r13d   
+0x000021D25   orl      %r14d, -0x30(%rbp)   
+0x000021D29   imull    %r15d, %r12d         
+0x000021D2D   addl     %r12d, %r8d          
+0x000021D30   movl     %ebx, %r9d           
+0x000021D33   shll     $0x4, %r9d           
+0x000021D37   andl     $0xf, %r13d          
+0x000021D3B   addl     $0x30, %r9d          
+0x000021D3F   andl     $0x30, %r9d          
+0x000021D43   cmpl     $0x5, %ebx           
+0x000021D46   movl     $0x30, %r11d         
+0x000021D4C   cmovel   %r11d, %r9d          
+0x000021D50   movl     %r10d, %r11d         
+0x000021D53   shrl     $0x8, %r11d          
+0x000021D57   andl     $0x40, %r11d         
+0x000021D5B   orl      %r9d, %r11d          
+0x000021D5E   shrl     $0x6, %r10d          
+0x000021D62   andl     $0x80, %r10d         
+0x000021D69   orl      %r11d, %r10d         
+0x000021D6C   shll     $0x8, %edi           
+0x000021D6F   orl      %r10d, %edi          
+0x000021D72   orl      %r13d, %edi          
+0x000021D75   movl     %edi, 0x14(%rdx,%rax,8) 
+0x000021D79   movl     $0x0, 0x18(%rdx,%rax,8) 
+0x000021D81   incq     %rax                 
+0x000021D84   cmpq     %rax, -0x50(%rbp)    
+0x000021D88   jne      0x21ab1              
+0x000021D8E   jmp      0x21dbe              
+0x000021D90   movl     $0xd, %r13d          
+0x000021D96   jmp      0x21d25              
+0x000021D98   cmpq     $0x0, 0x210(%rdi)    
+0x000021DA0   movl     %r10d, %eax          
+0x000021DA3   je       0x21e65              
+0x000021DA9   movq     $0x0, 0x210(%rdi)    
+0x000021DB4   movl     $0x1, %eax           
+0x000021DB9   jmp      0x21e65              
+0x000021DBE   addl     $0x3, %r8d           
+0x000021DC2   shrl     $0x2, %r8d           
+0x000021DC6   movq     -0x48(%rbp), %rdi    
+0x000021DCA   movq     -0x40(%rbp), %r10    
+0x000021DCE   movl     -0x30(%rbp), %r9d    
+0x000021DD2   movb     -0x29(%rbp), %r11b   
+0x000021DD6   jmp      0x21ddb              
+0x000021DD8   xorl     %r8d, %r8d           
+0x000021DDB   movb     %r8b, 0x2(%rsi)      
+0x000021DDF   movb     $0x0, 0x1(%rsi)      
+0x000021DE3   movb     (%rsi), %cl          
+0x000021DE5   cmpl     $0x0, 0x18(%rbp)     
+0x000021DE9   je       0x21e09              
+0x000021DEB   movzbl   %cl, %eax            
+0x000021DEE   movzbl   %r8b, %edx           
+0x000021DF2   orl      $0xbc300, %edx       
+0x000021DF8   movl     %eax, %ecx           
+0x000021DFA   incb     %cl                  
+0x000021DFC   movb     %cl, (%rsi)          
+0x000021DFE   movl     %edx, 0x4(%rsi,%rax,4) 
+0x000021E02   incl     %r8d                 
+0x000021E05   movb     %r8b, 0x2(%rsi)      
+0x000021E09   cmpl     $0x0, 0x10(%rbp)     
+0x000021E0D   je       0x21e2b              
+0x000021E0F   movzbl   %r8b, %eax           
+0x000021E13   leal     0xb4300(%rax), %edx  
+0x000021E19   movzbl   %cl, %r8d            
+0x000021E1D   incl     %ecx                 
+0x000021E1F   movb     %cl, (%rsi)          
+0x000021E21   movl     %edx, 0x4(%rsi,%r8,4) 
+0x000021E26   incb     %al                  
+0x000021E28   movb     %al, 0x2(%rsi)       
+0x000021E2B   movq     0x210(%rdi), %rax    
+0x000021E32   testb    %cl, %cl             
+0x000021E34   je       0x21e50              
+0x000021E36   testq    %rax, %rax           
+0x000021E39   movl     $0x1, %eax           
+0x000021E3E   cmovel   %eax, %r9d           
+0x000021E42   movq     %rsi, 0x210(%rdi)    
+0x000021E49   cmpb     %cl, %r11b           
+0x000021E4C   je       0x21e59              
+0x000021E4E   jmp      0x21e65              
+0x000021E50   testq    %rax, %rax           
+0x000021E53   jne      0x21da9              
+0x000021E59   testl    %r9d, %r9d           
+0x000021E5C   movl     $0x1, %eax           
+0x000021E61   cmovel   %r10d, %eax          
+0x000021E65   popq     %rbx                 
+0x000021E66   popq     %r12                 
+0x000021E68   popq     %r13                 
+0x000021E6A   popq     %r14                 
+0x000021E6C   popq     %r15                 
+0x000021E6E   popq     %rbp                 
+0x000021E6F   retq                          
+0x000021E70   sarl     %ebp                 
