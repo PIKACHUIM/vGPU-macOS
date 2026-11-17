@@ -1,0 +1,207 @@
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-integration\integration.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\integration-strict.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-integration\context_exports.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\context_exports-strict.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-integration\render_exports.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\render_exports-strict.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-integration\tcl_exports.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\tcl_exports-strict.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-integration\dispatch_exports.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\dispatch_exports-strict.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-context\vgpu_context.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_context-strict.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-objects\vgpu_objects.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_objects-strict.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-texture\vgpu_texture.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_texture-strict.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-texture\vgpu_texture_bgra.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_texture_bgra-strict.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-framebuffer\vgpu_framebuffer.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_framebuffer-strict.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-state\vgpu_clear_state.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_clear_state-strict.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-state\vgpu_triangle_state.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_triangle_state-strict.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-pixel\gld_pixel.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\gld_pixel-strict.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-integration\integration_metadata_test.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\integration_metadata_test-strict.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -c D:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture\surface_fixture.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\surface_fixture-strict.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\integration-metadata-local\integration-strict.o D:\Codes\vGPU-macOS\out\integration-metadata-local\context_exports-strict.o D:\Codes\vGPU-macOS\out\integration-metadata-local\render_exports-strict.o D:\Codes\vGPU-macOS\out\integration-metadata-local\tcl_exports-strict.o D:\Codes\vGPU-macOS\out\integration-metadata-local\dispatch_exports-strict.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_context-strict.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_objects-strict.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_texture-strict.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_texture_bgra-strict.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_framebuffer-strict.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_clear_state-strict.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_triangle_state-strict.o D:\Codes\vGPU-macOS\out\integration-metadata-local\gld_pixel-strict.o D:\Codes\vGPU-macOS\out\integration-metadata-local\integration_metadata_test-strict.o D:\Codes\vGPU-macOS\out\integration-metadata-local\surface_fixture-strict.o -lpthread -o D:\Codes\vGPU-macOS\out\integration-metadata-local\metadata-strict.exe
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\integration-metadata-local\metadata-strict.exe
+PASS integration metadata checks=398; 真实元数据模块，平台 CPU fixture；非系统 GL/GPU 验收
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -DNDEBUG -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-integration\integration.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\integration-ndebug.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -DNDEBUG -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-integration\context_exports.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\context_exports-ndebug.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -DNDEBUG -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-integration\render_exports.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\render_exports-ndebug.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -DNDEBUG -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-integration\tcl_exports.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\tcl_exports-ndebug.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -DNDEBUG -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-integration\dispatch_exports.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\dispatch_exports-ndebug.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -DNDEBUG -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-context\vgpu_context.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_context-ndebug.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -DNDEBUG -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-objects\vgpu_objects.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_objects-ndebug.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -DNDEBUG -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-texture\vgpu_texture.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_texture-ndebug.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -DNDEBUG -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-texture\vgpu_texture_bgra.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_texture_bgra-ndebug.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -DNDEBUG -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-framebuffer\vgpu_framebuffer.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_framebuffer-ndebug.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -DNDEBUG -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-state\vgpu_clear_state.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_clear_state-ndebug.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -DNDEBUG -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-state\vgpu_triangle_state.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_triangle_state-ndebug.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -DNDEBUG -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-pixel\gld_pixel.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\gld_pixel-ndebug.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -DNDEBUG -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-integration\integration_metadata_test.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\integration_metadata_test-ndebug.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -DNDEBUG -c D:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture\surface_fixture.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\surface_fixture-ndebug.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -DNDEBUG D:\Codes\vGPU-macOS\out\integration-metadata-local\integration-ndebug.o D:\Codes\vGPU-macOS\out\integration-metadata-local\context_exports-ndebug.o D:\Codes\vGPU-macOS\out\integration-metadata-local\render_exports-ndebug.o D:\Codes\vGPU-macOS\out\integration-metadata-local\tcl_exports-ndebug.o D:\Codes\vGPU-macOS\out\integration-metadata-local\dispatch_exports-ndebug.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_context-ndebug.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_objects-ndebug.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_texture-ndebug.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_texture_bgra-ndebug.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_framebuffer-ndebug.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_clear_state-ndebug.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_triangle_state-ndebug.o D:\Codes\vGPU-macOS\out\integration-metadata-local\gld_pixel-ndebug.o D:\Codes\vGPU-macOS\out\integration-metadata-local\integration_metadata_test-ndebug.o D:\Codes\vGPU-macOS\out\integration-metadata-local\surface_fixture-ndebug.o -lpthread -o D:\Codes\vGPU-macOS\out\integration-metadata-local\metadata-ndebug.exe
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\integration-metadata-local\metadata-ndebug.exe
+PASS integration metadata checks=398; 真实元数据模块，平台 CPU fixture；非系统 GL/GPU 验收
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-integration\integration.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\integration-ubsan.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-integration\context_exports.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\context_exports-ubsan.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-integration\render_exports.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\render_exports-ubsan.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-integration\tcl_exports.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\tcl_exports-ubsan.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-integration\dispatch_exports.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\dispatch_exports-ubsan.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-context\vgpu_context.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_context-ubsan.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-objects\vgpu_objects.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_objects-ubsan.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-texture\vgpu_texture.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_texture-ubsan.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-texture\vgpu_texture_bgra.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_texture_bgra-ubsan.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-framebuffer\vgpu_framebuffer.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_framebuffer-ubsan.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-state\vgpu_clear_state.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_clear_state-ubsan.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-state\vgpu_triangle_state.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_triangle_state-ubsan.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-pixel\gld_pixel.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\gld_pixel-ubsan.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all -Wstrict-prototypes -Wmissing-prototypes -c D:\Codes\vGPU-macOS\kexts\gld-integration\integration_metadata_test.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\integration_metadata_test-ubsan.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all -c D:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture\surface_fixture.c -o D:\Codes\vGPU-macOS\out\integration-metadata-local\surface_fixture-ubsan.o
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\.ziglang\ziglang\zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -D__APPLE__=1 -DkIOReturnBusy=((int32_t)0xe00002d5) -ID:\Codes\vGPU-macOS\kexts\gld-integration\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all D:\Codes\vGPU-macOS\out\integration-metadata-local\integration-ubsan.o D:\Codes\vGPU-macOS\out\integration-metadata-local\context_exports-ubsan.o D:\Codes\vGPU-macOS\out\integration-metadata-local\render_exports-ubsan.o D:\Codes\vGPU-macOS\out\integration-metadata-local\tcl_exports-ubsan.o D:\Codes\vGPU-macOS\out\integration-metadata-local\dispatch_exports-ubsan.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_context-ubsan.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_objects-ubsan.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_texture-ubsan.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_texture_bgra-ubsan.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_framebuffer-ubsan.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_clear_state-ubsan.o D:\Codes\vGPU-macOS\out\integration-metadata-local\vgpu_triangle_state-ubsan.o D:\Codes\vGPU-macOS\out\integration-metadata-local\gld_pixel-ubsan.o D:\Codes\vGPU-macOS\out\integration-metadata-local\integration_metadata_test-ubsan.o D:\Codes\vGPU-macOS\out\integration-metadata-local\surface_fixture-ubsan.o -lpthread -o D:\Codes\vGPU-macOS\out\integration-metadata-local\metadata-ubsan.exe
+
+
+EXIT 0
+D:\Codes\vGPU-macOS\out\integration-metadata-local\metadata-ubsan.exe
+PASS integration metadata checks=398; 真实元数据模块，平台 CPU fixture；非系统 GL/GPU 验收
+
+
+EXIT 0

@@ -102,6 +102,12 @@ int main(void) {
     CHECK(vgpuIntegrationPublishCandidate(device) == 0);
     const uint32_t tokens[] = {8, 32, 11, 8, 0};
     CHECK(gldChoosePixelFormat(&pixel, tokens) == 0 && pixel);
+    CHECK(configured.buffer_mode == 5 && get32(pixel, 0x10) == 0);
+    CHECK((get32(pixel, 0x0c) & GP_FLAG_WINDOW) == 0);
+    unsigned char renderer[0x88];
+    CHECK(gldPopulateRendererInfo(device, renderer) == 0);
+    CHECK(get32(renderer, 0x10) == 5 && configured.buffer_mode == 5);
+    CHECK((get32(renderer, 0x0c) & GP_FLAG_WINDOW) == 0);
     CHECK(gldCreateShareGroup(device, &share, 5) == kCGLBadMatch && !share);
     CHECK(gldCreateShareGroup(device, &share, 4) == 0 && share);
     CHECK(gldCreateShareGroup(device, &other, 4) == 0 && other != share);
@@ -109,6 +115,13 @@ int main(void) {
     unsigned char bad_pixel[0x38]; memcpy(bad_pixel, pixel, sizeof(bad_pixel)); bad_pixel[0x1c] = 0x80;
     CHECK(gldCreateContext(share, &context, bad_pixel, a, h, b) == kCGLBadPixelFormat && !context);
     CHECK(a[0x65] == 0xa7 && h[0] == 0x39 && b[0] == 0x82);
+    const uint32_t rejected_buffers[] = {5, 9, 8};
+    for (size_t i = 0; i < sizeof(rejected_buffers) / sizeof(rejected_buffers[0]); ++i) {
+        memcpy(bad_pixel, pixel, sizeof(bad_pixel));
+        memcpy(bad_pixel + 0x10, &rejected_buffers[i], sizeof(rejected_buffers[i]));
+        CHECK(gldCreateContext(share, &context, bad_pixel, a, h, b) == kCGLBadPixelFormat && !context);
+        CHECK(a[0x65] == 0xa7 && h[0] == 0x39 && b[0] == 0x82);
+    }
     CHECK(gldCreateContext(share, &context, pixel, a, h, b) == 0 && context);
     CHECK(a[0x65] == 0 && a[0x6e] == 1 && a[0x6f] == 0xa7 && a[0x258] == 0xa7);
     CHECK(get32(a, 4) == 256 && get32(a, 8) == 256 && h[0] == 0x39 && b[0] == 0x82);

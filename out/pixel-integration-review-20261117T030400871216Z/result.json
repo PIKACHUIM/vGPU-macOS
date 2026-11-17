@@ -1,0 +1,25 @@
+{
+  "results": [
+    {
+      "name": "pixel",
+      "status": 0
+    },
+    {
+      "name": "metadata-local",
+      "status": 0
+    },
+    {
+      "name": "integration-read",
+      "status": 0
+    },
+    {
+      "name": "controlled",
+      "status": 0
+    },
+    {
+      "name": "triangle",
+      "status": 0
+    }
+  ],
+  "workspace_changed": []
+}

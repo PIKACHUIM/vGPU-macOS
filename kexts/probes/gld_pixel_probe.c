@@ -146,7 +146,7 @@ static void selection_tests(void)
     if (list.head != NULL) {
         CHECK(list.head->next == NULL && list.head->backend_format_index == 1);
         CHECK(get32(list.head, 0x08) == 0x2345 && get32(list.head, 0x0c) == GP_FLAG_OFFSCREEN);
-        CHECK(get32(list.head, 0x10) == 9 && get32(list.head, 0x14) == 0x8000);
+        CHECK(get32(list.head, 0x10) == 8 && get32(list.head, 0x14) == 0x8000);
         CHECK(get32(list.head, 0x18) == UINT32_C(0x80000000));
         CHECK(get32(list.head, 0x1c) == 0x800 && get32(list.head, 0x20) == 0x80);
         CHECK(get32(list.head, 0x34) == 2);
@@ -173,6 +173,8 @@ static void selection_tests(void)
             CHECK(node != NULL);
             if (node == NULL) break;
             CHECK(node->backend_format_index == i);
+            CHECK(get32(node, 0x10) == (i == 1 ? 8U : 0U));
+            CHECK(fixture[i].buffer_mode == (i == 1 ? 9U : 5U));
             CHECK((get32(node, 0x0c) & (GP_FLAG_ACCELERATED | GP_FLAG_COMPLIANT |
                    GP_FLAG_CORE32 | GP_FLAG_CORE41)) == 0);
             node = node->next;
@@ -252,6 +254,18 @@ static void selection_tests(void)
         size_t count = state.allocations;
         CHECK(gp_choose_normalized(empty, sizeof(empty), invalid, 2, &allocator, &list) == GP_UNSUPPORTED_FORMAT);
         CHECK(state.allocations == count && list.head == NULL);
+    }
+    const uint32_t invalid_buffers[] = {0, 1, 4, 8, 0xd, 0x15, 0x19, UINT32_MAX};
+    for (size_t i = 0; i < WORDS(invalid_buffers); ++i) {
+        invalid[1] = fixture[1];
+        invalid[1].buffer_mode = invalid_buffers[i];
+        size_t count = state.allocations;
+        CHECK(gp_choose_normalized(empty, sizeof(empty), invalid, 2, &allocator, &list) == GP_UNSUPPORTED_FORMAT);
+        CHECK(state.allocations == count && list.head == NULL &&
+              list.allocation == NULL && list.count == 0);
+        CHECK(gp_choose_normalized(doubles, sizeof(doubles), invalid, 2, &allocator, &list) == GP_UNSUPPORTED_FORMAT);
+        CHECK(state.allocations == count && list.head == NULL &&
+              list.allocation == NULL && list.count == 0);
     }
     CHECK(gp_choose_normalized(empty, sizeof(empty), fixture, SIZE_MAX, NULL, &list) == GP_OVERFLOW);
     CHECK(gp_choose_normalized(empty, sizeof(empty), fixture,

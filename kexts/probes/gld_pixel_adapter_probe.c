@@ -118,6 +118,9 @@ static void test_offscreen(void)
             memcpy(&flags, node->fields + 4, sizeof(flags));
             CHECK(node->next == NULL && node->backend_format_index == 1);
             CHECK(flags == caps[1].flags);
+            uint32_t buffer;
+            memcpy(&buffer, node->fields + 8, sizeof(buffer));
+            CHECK(buffer == 8 && caps[1].buffer_mode == 9);
             CHECK(gpa_destroy(head, generation) == GP_OK);
         }
     }
@@ -223,7 +226,14 @@ static void test_owners(void)
     uint32_t flags = UINT32_MAX;
     memcpy(&flags, node->fields + 4, sizeof(flags));
     CHECK(flags == 0);
+    uint32_t buffer;
+    memcpy(&buffer, node->fields + 8, sizeof(buffer));
+    CHECK(buffer == 0 && fixture[0].buffer_mode == 5);
     CHECK(node->next != NULL);
+    if (node->next != NULL) {
+        memcpy(&buffer, node->next->fields + 8, sizeof(buffer));
+        CHECK(buffer == 8 && fixture[1].buffer_mode == 9);
+    }
     CHECK(gpa_destroy(node->next, generation) == GPA_INVALID_HANDLE);
     CHECK(gpa_destroy((void *)(uintptr_t)1, generation) == GPA_INVALID_HANDLE);
     CHECK(gpa_destroy(NULL, generation) == GPA_INVALID_HANDLE);

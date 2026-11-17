@@ -158,7 +158,9 @@ gp_status gp_choose_normalized(const void *tokens, size_t byte_length,
         node->next = index < result.count ? &result.head[index] : NULL;
         put32(node, 0x08, cap->renderer_id);
         put32(node, 0x0c, cap->flags);
-        put32(node, 0x10, cap->buffer_mode);
+        /* 系统评分比较 (N.buffer ^ Q.buffer) & ~0x10；支持位图须转为节点选择。 */
+        put32(node, 0x10, cap->buffer_mode == GP_BUFFER_MONO_DOUBLE ?
+              GP_NODE_BUFFER_MONO_DOUBLE : GP_NODE_BUFFER_MONO_SINGLE);
         put32(node, 0x14, cap->color_mode);
         put32(node, 0x18, 0x80000000U); /* GPUSupport 无 accum 的模式位。 */
         put32(node, 0x1c, bits_mode(cap->depth_bits));

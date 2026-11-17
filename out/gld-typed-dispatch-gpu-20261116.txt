@@ -47,3 +47,16 @@ Continuation CPU regression: out/controlled-integration-20261117T023030481647Z/v
 Added normalized53 integration-wrapper coverage for default and controlled builds.
 SDK default/candidate build, empty1123, 12 strict/ASan/UBSan CPU regressions passed.
 Current source hash audit matched the build snapshot. No public CGL or GPU was run in this CPU regression.
+
+PF buffer encoding fix candidate /var/tmp/controlled-integration-20261117T030434042281Z/candidate/
+Bundle SHA256 dba7f5d7329c6cc5fcdaf5a17b6b717f94d21e8c0f435353b16cee1189a8669e
+Independent probe snapshot /var/tmp/vgpu-controlled-draw-probe-20261117T031042219404Z-c41ad85e/
+Normal probe SHA256 a4fa8d4a9900116b099ef6dd8b2f2ddff41fa68e41714165026b0aa6bb019f9c
+ASan+UBSan probe SHA256 e941b652536410cbe568224d061f0d040d4672b1715cd77e19865749b8269f50
+Normal GPU task FN2bDU: exit 0; ASan+UBSan GPU task i5wqit: exit 0.
+Both report two-round 379-check GPU PASS: typed R20/R21, two targets, accumulation,
+red/green/red rejection isolation, completion/error recovery, complete release and re-rental.
+Only PF node +0x10 encoding/context validation changed from 5 to 0; renderer cap remains 5.
+No Window capability was added. This remains direct GLD/typed dispatch, not public CGL/JIT.
+Sanitizers cover the probe only, not the copied candidate; leak detection disabled.
+No installation/replacement or reboot in these two GPU runs.

@@ -1,0 +1,33 @@
+{
+  "results": [
+    {
+      "name": "integration-read",
+      "files_verified": 76,
+      "remote": "/var/tmp/integration-read-sdk-20261117T030416080754Z"
+    },
+    {
+      "name": "controlled",
+      "files_verified": 49,
+      "remote": "/var/tmp/controlled-integration-20261117T030434042281Z"
+    },
+    {
+      "name": "pixel",
+      "files_verified": 9,
+      "remote": "/var/tmp/vgpu-fb/kexts/gld-pixel-exports"
+    },
+    {
+      "name": "triangle",
+      "files_verified": 2,
+      "remote": "/var/tmp/vgpu-public-triangle-20261117T030507009800Z"
+    }
+  ],
+  "baseline_count": 99,
+  "mismatches": [],
+  "workspace_changed": [],
+  "extra_packaged_not_compiled": [
+    "kexts/gld-integration/.test-deps/cffi/_cffi_errors.h",
+    "kexts/gld-integration/.test-deps/cffi/_cffi_include.h",
+    "kexts/gld-integration/.test-deps/cffi/_embedding.h",
+    "kexts/gld-integration/.test-deps/cffi/parse_c_type.h"
+  ]
+}

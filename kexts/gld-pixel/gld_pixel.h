@@ -42,8 +42,12 @@ enum {
     GP_FLAG_COMPLIANT = 0x400,
     GP_FLAG_CORE32 = 0x20000,
     GP_FLAG_CORE41 = 0x40000,
+    /* renderer/cap 支持位图，不能直接写入 PF 节点。 */
     GP_BUFFER_MONO_SINGLE = 0x5,
-    GP_BUFFER_MONO_DOUBLE = 0x9
+    GP_BUFFER_MONO_DOUBLE = 0x9,
+    /* PF 节点 +0x10 的选择编码；Q 的 DoubleBuffer 属性仅 OR 0x8。 */
+    GP_NODE_BUFFER_MONO_SINGLE = 0,
+    GP_NODE_BUFFER_MONO_DOUBLE = 0x8
 };
 
 /* 每条记录是一种已由 backend 证实可用的完整组合，不能传 capability 笛卡尔积。

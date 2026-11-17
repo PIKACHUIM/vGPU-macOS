@@ -114,6 +114,11 @@ static void test_inputs(void)
     void *continued = NULL;
     CHECK(choose_pixel(&continued, valid) == kCGLNoError);
     CHECK(continued != NULL); /* 空结果后仍可继续选择真实夹具候选。 */
+    if (continued != NULL) {
+        uint32_t buffer;
+        memcpy(&buffer, (const unsigned char *)continued + 0x10, sizeof(buffer));
+        CHECK(buffer == 8);
+    }
     CHECK(destroy_pixel(continued) == kCGLNoError);
     for (uint32_t token = 1; token < 104; ++token) {
         if (token == 4 || token == 5 || token == 8 || token == 11 ||
@@ -219,6 +224,13 @@ static void test_owners(void)
     memcpy(&flags, node->fields + 4, sizeof(flags));
     memcpy(&id, node->fields, sizeof(id));
     CHECK(flags == 0 && id == fixture[0].renderer_id);
+    uint32_t buffer;
+    memcpy(&buffer, node->fields + 8, sizeof(buffer));
+    CHECK(buffer == 0 && fixture[0].buffer_mode == 5);
+    if (node->next != NULL) {
+        memcpy(&buffer, node->next->fields + 8, sizeof(buffer));
+        CHECK(buffer == 8 && fixture[1].buffer_mode == 9);
+    }
     node->next = node;
     CHECK(destroy_pixel(head) == 0);
     CHECK(destroy_pixel(head) == kCGLBadPixelFormat);

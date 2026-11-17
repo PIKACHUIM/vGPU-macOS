@@ -180,3 +180,23 @@ describe attr99  cell0x7FFB0616A954 bytes69feffff ->0x7FFB0616A799
 - 不同macOS版本/arm64同ABI。
 
 相对于glengine-contract.txt第七节的增量：已经把choose第二参数从未知opaque指针收紧为“本版本CGL重建的32位token流”；已经恢复节点被上层复制的0x38字节范围和上述关键输出映射。原契约文件未改动。
+
+八、2026-11-17续验更正：renderer能力位图不等于PF节点缓冲选择
+
+公开choose-only已进入候选CreateDevice与ChoosePixelFormat，内部返回非空节点但公开报10002。证据out/public-cgl-cycle-o4qkugw0/public.stderr，插件恢复验证通过。
+
+定点重读系统代码确认：0x7FFB0616C523..C530在Q.flags&0x2007为0时加Window位1；评分C784..C793先做Q.flags&~N.flags，C795..C7A4随后比较(N.buffer ^ Q.buffer)&0xffffffef。
+
+主代理经SSH在隔离Python进程加载系统OpenGL，以CGLChoosePixelFormat导出地址减0x7FFB06168DE4求slide。直接调用模板函数0x7FFB0616C174（A,policy0,Q,V,config=false），Q/V各分配256B，未调用公开Choose、未安装或访问GPU。原始参数为[73,72,99,0x1000,70,0x27e00,8,32,11,8,0]。实际输出：
+ single: status0 renderer27e00 flags101 buffer0
+ double（前加5）: status0 renderer27e00 flags101 buffer8
+ offscreen（前加53，仅模板，不经过公开SDK门控）: status0 renderer27e00 flags104 buffer0
+ pbuffer（前加90）: status0 renderer27e00 flags2100 buffer0
+
+同进程另调用真实评分函数0x7FFB0616C69A(Q,V,N,32,0)，N为合成节点，renderer27e00、color8000、accum80000000、depth/stencil1、displayMask1：
+ flags104/buffer5 => score0
+ flags105/buffer5 => score0
+ flags105/buffer0 => score1530
+这里只更改测试进程自己的合成节点，不更改生产驱动能力；非零评分不等于公开CGL通过。
+
+因此第五节列出的SDK kCGLMonoscopicBit=1、SingleBuffer=4等是renderer支持集合语义，不能直接把5写为PF节点单缓冲。节点单缓冲为0，双缓冲为8；生产cap/renderer仍应保留5/9支持集合。此前pixel实现与配套fixture均复制了这个错误，内部测试无法揭示上层严格比较。Window能力缺口仍独立存在，不应为过筛选直接虚报。

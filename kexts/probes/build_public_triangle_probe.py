@@ -72,7 +72,7 @@ def main():
         run(prefix + "./triangle_oracle --oracle-only")
         run(prefix + "ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 "
             "./triangle_oracle_sanitized --oracle-only")
-        for args in ("", "--context-only", "--clear-read", "--gpu", "--reject-color", "--invalid", "--oracle-only --gpu"):
+        for args in ("", "--choose-only", "--context-only", "--clear-read", "--gpu", "--reject-color", "--invalid", "--oracle-only --gpu"):
             run(prefix + "./triangle_oracle " + args + '; result=$?; test "$result" -eq 2')
         artifacts = ("gl_triangle_cgl_probe", "triangle_oracle", "triangle_oracle_sanitized")
         run(prefix + "shasum -a 256 " + " ".join(names + artifacts))
@@ -86,6 +86,7 @@ def main():
         if changed:
             raise RuntimeError("源文件在编译期间变动，需重新隔离构建")
         record("PUBLIC_CGL_NOT_EXECUTED：公开验收尚未运行；编译/CPU 通过不是 GPU 通过。")
+        record("格式选择（本脚本未执行）：" + remote + "/gl_triangle_cgl_probe --choose-only")
         record("初始化阶段（本脚本未执行）：" + remote + "/gl_triangle_cgl_probe --context-only")
         record("清屏读回阶段（本脚本未执行）：" + remote + "/gl_triangle_cgl_probe --clear-read")
         record("待主代理串行运行（本脚本未执行）：" + remote + "/gl_triangle_cgl_probe --gpu")

@@ -6578,4 +6578,24 @@ out/gld-initial-update-wiring.txt通过function_starts确认gleUpdateState真实
 
 沿用已验收候选4222a040执行一次可恢复公开选择，记录 `out/public-cgl-cycle-o4qkugw0/`。实际stderr依次显示gldCreateDevice enter/publish/enable/return全部0，gldChoosePixelFormat enter/return=0、has-pixel=1，随后公开CGLChoosePixelFormat返回10002 invalid pixel format。这首次证明当前受控候选真实进入公开驱动创建与格式选择，并返回了节点；不是公开context成功。删除53确实消除了10000前置拒绝，尚需定位后置格式筛选，默认Window为已知不匹配候选。
 
-trust_before/replaced/restored均exit0且退出已确认，原二进制与plist哈希、权限、flags、xattrs及本轮新增ACL清单恢复一致，restore_verified=true。本轮五个路径的ACL均为空，不能把此结果扩展为带ACL恢复已验收。没有内核安装、重启或新GPU绘制。已验证集成阶段此前以edee2c0提交并推送。
+trust_before/replaced/restored均exit0且退出已确认，原二进制与plist哈希、权限、flags、xattrs及本轮新增ACL清单恢复一致，restore_verified=true。本轮五个路径的ACL均为空，不能把此结果扩展为带ACL恢复已验收。没有内核安装、重启或新GPU绘制。已验证集成阶段此前以edee2c0提交并推送，choose-only实验以c45827e提交推送。
+
+### 86.9 上层节点缓冲字段不是renderer能力位图
+
+续轮直接调用目标系统的模板解析函数（基于CGL导出计算当前slide、独立临时进程、没有公开Choose/设备/GPU）核实：相同请求的Q renderer=0x27e00、flags=0x101、buffer(+0x10)=0；显式DoubleBuffer请求的buffer=8；显式OffScreen仅在模板层得到flags104，不能据此绕过公开SDK门控；PBuffer模板flags2100。默认Window写点为0x7FFB0616C523..C530：flags&0x2007为0时OR1。
+
+系统评分函数0x7FFB0616C69A在C784..C793比较Q.flags & ~N.flags，在C795..C7A4比较(N.buffer ^ Q.buffer)&0xffffffef。现gld_pixel.c把cap的GP_BUFFER_MONO_SINGLE=5直接写N+0x10，与上层实际单缓冲编码0不符。隔离合成节点调用真实评分器：Nflags104/buffer5得0；仅加Window为105/buffer5仍0；105/buffer0得1530。仅为系统评分诊断，没有修改驱动能力或证明公开选择成功。根因之一是把renderer支持集合位图5/9混为具体PF节点选择值0/8；生产修复已将node单/双缓冲编码显式分离为0/8；cap和renderer支持集合保留5/9，context校验同步为node0。valid_cap在分配前仅接受5/9；新增0/1/4/8/0xd/0x15/0x19/UINT32_MAX拒绝测试，含零分配/零输出约束。Window能力仍单独开放，不因该修复自动添加。
+
+本轮五个runner全部exit0（`out/pixel-integration-review-20261117T030400871216Z/result.json`）。Pixel普通及ASan+UBSan每模式parser27769、adapter357、exports347、fault356，总57658项零失败；三生产单元静态分析通过。本地metadata strict/NDEBUG/UBSan各398项。SDK read四模式和controlled三模式×四组CPU回归通过，默认空表1123项；public triangle三个目标构建、两次CPU oracle及八项参数拒绝通过，含CPU-only的--choose-only返回2。源码审计本地99项无漂移、远端read76/controlled49/pixel9/triangle2项SHA一致。受控候选SHA256=dba7f5d7329c6cc5fcdaf5a17b6b717f94d21e8c0f435353b16cee1189a8669e，远端`/var/tmp/controlled-integration-20261117T030434042281Z/candidate/`。这些CPU/SDK结果不代表公开CGL或GPU验收。
+
+随后主代理串行运行该固定候选的独立真实GPU探针：`/var/tmp/vgpu-controlled-draw-probe-20261117T031042219404Z-c41ad85e/`，普通FN2bDU、ASan+UBSan探针i5wqit均exit0，各379项，两轮双目标、累积、红绿红拒绝、错误/完成恢复及完整释放重租通过。仅探针插桩，bundle未插桩、detect_leaks=0。没有安装/替换正式插件或重启；依旧是dlopen/GLD及typed dispatch验收，非公开CGL/GLEngine/JIT。摘录追加到`out/gld-typed-dispatch-gpu-20261116.txt`。
+
+### 86.10 Window drawable调用链与资源协议缺口
+
+只读恢复的GLD attach形态为`int32_t(context, uint32_t kind, void *drawable, uint32_t options, uint32_t *size2)`。GLEngine 0x7FFB0638EBF3..EC0F传五参、调用plugin+0x4a0；size2指向G+0xb570，输出默认目标宽高。返回0..3是上层接受的状态类别，不能全部解释为errno；0x2720还有换插件重试分支。CGLUpdateContext重新走attach并置默认读/写目标dirty。
+
+CGLSetSurface在0x7FFB06167BBB..7C02分配0x24节点：+8引用计数、+c kind50、+10 payload指向+18，payload三个u32为connection/window/surface。GLD收到payload而非节点或IOSurfaceRef，surface_id也不是已证IOSurfaceID。Mercury gldAttachDrawable 0x7FF91835BE06的Window分支在BED3..BEF7调用device callback+8，最终OpenGL包装于0x7FFB06162DA3调用CGSBindSurface；BF98..BFB2随后调用IOAccelGLContextSetDrawable，输入0x30、输出0x28，输出+8/+c提供尺寸，+1c bit0参与成功条件，其余资源语义仍需恢复。
+
+系统GL context open type1使用clear/set selectors100/101；独立drawable type9另有clear0/set1、lookup5，lookup返回Mach port再交IOSurfaceLookupFromMachPort。不能把这些selector与自有0x56475055通道的0–8编号混用。当前内核仅接受自有管理员通道、固定两槽256×256 BGRA，无CGS surface import；GLD attach/present仍为ud2，render缺默认window target，flush仅完成现有资源。必须实现真实backing、绑定/更新/解绑、默认目标、GPU完成同步与present后才能声明Window。
+
+基础context创建可以不绑定drawable，和真正Window接入分阶段实施；这不改变公开默认Q.flags101对Window的筛选。现有离线脚本`tools/cgl_drawable_contract_audit.py`复核28指令锚点通过，依赖本地未跟踪的原始opengl-loader/gfx-loader反汇编，暂不作为干净检出的独立验收入口。研究结论不等于公开context、窗口显示或Core Profile通过。

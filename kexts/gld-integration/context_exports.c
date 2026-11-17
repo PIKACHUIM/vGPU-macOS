@@ -139,7 +139,7 @@ int32_t gi_destroy_share_group(void *handle) {
 static int pixel_valid(const void *pf, const struct gld_device_status *s) {
     const unsigned char *p = pf;
     if (get32(p, 8) != s->renderer_id || get32(p, 0xc) != GI_PIXEL_FLAGS ||
-        get32(p, 0x10) != GP_BUFFER_MONO_SINGLE || get32(p, 0x14) != GP_COLOR_ARGB8888 ||
+        get32(p, 0x10) != GP_NODE_BUFFER_MONO_SINGLE || get32(p, 0x14) != GP_COLOR_ARGB8888 ||
         get32(p, 0x18) != UINT32_C(0x80000000) || get32(p, 0x1c) != 1 ||
         get32(p, 0x20) != 1 || get32(p, 0x34) != s->display_mask) return 0;
     /* 当前唯一受支持的实际 gp chooser 组合不含 aux/MSAA/额外模式。 */
