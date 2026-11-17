@@ -101,6 +101,7 @@ static void cpu_oracle(void)
 #include "../gld-integration/integration.h"
 #include "../gld-integration/dispatch_exports.h"
 #include "../gld-integration/tcl_exports.h"
+#include "../gld-integration/context_exports.h"
 #include "../gld-context/vgpu_context.h"
 #include "../gld-texture/vgpu_texture.h"
 #include "../gld-framebuffer/vgpu_framebuffer.h"
@@ -109,8 +110,13 @@ static void cpu_oracle(void)
 #include <sys/stat.h>
 #include <unistd.h>
 
+static unsigned device_string_checks, detach_checks;
+#define STRING_CHECK(x) do { ++device_string_checks; CHECK(x); } while (0)
+#define DETACH_CHECK(x) do { ++detach_checks; CHECK(x); } while (0)
 struct api {
     void *base;
+    const char *(*device_string)(void *, uint32_t);
+    const char *vendor, *renderer;
     void (*initialize)(const uint32_t *, const uint8_t *, uint32_t, uintptr_t, uintptr_t, uint32_t);
     void (*terminate)(void);
     int32_t (*device_create)(void **, uint32_t, void *);
@@ -120,6 +126,7 @@ struct api {
     int32_t (*share_create)(void *, void **, uintptr_t), (*share_destroy)(void *);
     int32_t (*context_create)(void *, void **, void *, void *, void *, void *);
     int32_t (*context_destroy)(void *);
+    int32_t (*attach)(void *, uint32_t, void *, uint32_t, uint32_t *);
     int32_t (*texture_create)(void *, void **, void *, void *), (*texture_destroy)(void *, void *);
     int32_t (*fb_create)(void *, void **, void *, void *), (*fb_destroy)(void *, void *);
     int32_t (*fb_load)(void *, void *);
@@ -154,10 +161,12 @@ static int load_api(void *lib, const char *path, struct api *a)
 #define LOAD(field, name) do { if (!symbol(lib,a->base,#name,&a->field,sizeof(a->field))) return 0; } while (0)
     LOAD(initialize,gldInitializeLibrary); LOAD(terminate,gldTerminateLibrary);
     LOAD(device_create,gldCreateDevice); LOAD(device_destroy,gldDestroyDevice);
+    LOAD(device_string,gldGetDeviceString); ++device_string_checks;
     LOAD(enable,vgpuIntegrationEnableControlledDraw); LOAD(publish,vgpuIntegrationPublishCandidate);
     LOAD(pixel_choose,gldChoosePixelFormat); LOAD(pixel_destroy,gldDestroyPixelFormat);
     LOAD(share_create,gldCreateShareGroup); LOAD(share_destroy,gldDestroyShareGroup);
     LOAD(context_create,gldCreateContext); LOAD(context_destroy,gldDestroyContext);
+    LOAD(attach,gldAttachDrawable); ++detach_checks;
     LOAD(texture_create,gldCreateTexture); LOAD(texture_destroy,gldDestroyTexture);
     LOAD(fb_create,gldCreateFramebuffer); LOAD(fb_destroy,gldDestroyFramebuffer); LOAD(fb_load,gldLoadFramebuffer);
     LOAD(pipeline_create,gldCreatePipelineProgram); LOAD(pipeline_destroy,gldDestroyPipelineProgram);
@@ -167,6 +176,38 @@ static int load_api(void *lib, const char *path, struct api *a)
     LOAD(read,gldReadFramebufferData); LOAD(bounded_read,vgpuIntegrationRead); LOAD(status,vgpuIntegrationStatus);
 #undef LOAD
     printf("BUNDLE %s；全部导出归属同一映像\n",info.dli_fname); return 1;
+}
+static void device_strings(struct api *a, void *device, int valid, const char *phase)
+{
+    struct gi_status before = {0}, after = {0};
+    a->status(&before);
+    for (unsigned repeat = 0; repeat < 3; ++repeat) {
+        const char *vendor = a->device_string(device,UINT32_C(0x1f00));
+        const char *renderer = a->device_string(device,UINT32_C(0x1f01));
+        if (valid) {
+            STRING_CHECK(vendor && !strcmp(vendor,"vGPU-macOS"));
+            STRING_CHECK(renderer && !strcmp(renderer,"vGPU restricted SVGA3D"));
+            if (!a->vendor) { a->vendor = vendor; a->renderer = renderer; }
+            STRING_CHECK(vendor == a->vendor && renderer == a->renderer);
+        } else {
+            /* 无效 token 只透传到待测 API；探针不解引用 token 或返回指针。 */
+            STRING_CHECK(vendor == NULL && renderer == NULL);
+        }
+        const uint32_t rejected[] = {0, UINT32_C(0x1f02), UINT32_C(0x1f03),
+                                     UINT32_C(0x1f04), UINT32_MAX};
+        for (size_t i = 0; i < sizeof(rejected)/sizeof(rejected[0]); ++i)
+            STRING_CHECK(a->device_string(device,rejected[i]) == NULL);
+    }
+    a->status(&after);
+    STRING_CHECK(!memcmp(&before,&after,sizeof(before)));
+    printf("PASS device-string phase=%s valid=%d 重复值/指针稳定、拒绝selector、状态不变\n",phase,valid);
+}
+static void invalid_device_strings(struct api *a)
+{
+    unsigned char forged = 0;
+    device_strings(a,NULL,0,"null");
+    device_strings(a,(void *)(uintptr_t)1,0,"forged-address");
+    device_strings(a,&forged,0,"foreign-object");
 }
 static void put16(void *p, size_t offset, uint16_t v) { memcpy((unsigned char *)p+offset,&v,sizeof(v)); }
 static void put32(void *p, size_t offset, uint32_t v) { memcpy((unsigned char *)p+offset,&v,sizeof(v)); }
@@ -273,10 +314,65 @@ static void image(struct api *a, struct context *c, unsigned target, unsigned ma
                           IMAGE_BYTES,0,NULL) == 0);
     CHECK(verify(out,target,mask,1));
 }
+static void detach_case(struct api *a, struct context *c, void *handle, uint32_t kind,
+                        void *drawable, uint32_t options, int32_t want)
+{
+    struct gi_status before = {0}, after = {0};
+    struct context saved = {0};
+    if (c) saved = *c;
+    uint32_t size[4] = {UINT32_C(0x12345678), UINT32_C(0x89abcdef),
+                        UINT32_C(0xfedcba98), UINT32_C(0x76543210)};
+    uint32_t expected_size[4]; memcpy(expected_size,size,sizeof(size));
+    if (want == 1) expected_size[1] = expected_size[2] = 0;
+    a->status(&before);
+    DETACH_CHECK(a->attach(handle,kind,drawable,options,size+1) == want);
+    DETACH_CHECK(!memcmp(size,expected_size,sizeof(size)));
+    DETACH_CHECK(a->attach(handle,kind,drawable,options,NULL) == want);
+    a->status(&after);
+    DETACH_CHECK(!memcmp(&before,&after,sizeof(before)));
+    if (c) DETACH_CHECK(!memcmp(c->a,saved.a,sizeof(c->a)) &&
+                       !memcmp(c->h,saved.h,sizeof(c->h)) &&
+                       !memcmp(c->b,saved.b,sizeof(c->b)));
+}
+static void detach_matrix(struct api *a, struct context *c, const char *phase)
+{
+    unsigned char foreign = 0;
+    void *invalid[] = {NULL, (void *)(uintptr_t)1, &foreign};
+    for (size_t i = 0; i < sizeof(invalid)/sizeof(invalid[0]); ++i) {
+        detach_case(a,NULL,invalid[i],0,NULL,0,0x2714);
+        detach_case(a,NULL,invalid[i],UINT32_MAX,&foreign,UINT32_MAX,0x2714);
+    }
+    detach_case(a,c,c->handle,0,NULL,0,1);
+    detach_case(a,c,c->handle,0,NULL,1,0x2718);
+    detach_case(a,c,c->handle,0,NULL,UINT32_MAX,0x2718);
+    detach_case(a,c,c->handle,1,NULL,0,0x2715);
+    detach_case(a,c,c->handle,UINT32_MAX,NULL,0,0x2715);
+    detach_case(a,c,c->handle,0,&foreign,0,0x2715);
+    detach_case(a,c,c->handle,1,&foreign,0,0x2715);
+    detach_case(a,c,c->handle,1,&foreign,1,0x2718);
+    printf("PASS detach phase=%s size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持\n",phase);
+}
+static void detach_image(struct api *a, struct context *c, unsigned target, unsigned mask,
+                         uint64_t generation, unsigned char *out, const char *phase)
+{
+    unsigned char saved[BYTES]; memcpy(saved,out,sizeof(saved));
+    detach_matrix(a,c,phase);
+    unsigned before = checks;
+    image(a,c,target,mask,generation,out);
+    detach_checks += checks - before;
+    DETACH_CHECK(!memcmp(saved,out,sizeof(saved)));
+    printf("PASS detach-image phase=%s target=%u mask=%u generation=%" PRIu64 " 全图及边界保持\n",
+           phase,target,mask,generation);
+}
 static void cleanup(struct api *a, void *device, void *pixel, void *share,
                     struct context *c, struct target t[2], void *pipeline[2])
 {
-    if (c->handle) CHECK(a->context_destroy(c->handle) == 0);
+    if (c->handle) {
+        uintptr_t destroyed_context = (uintptr_t)c->handle;
+        CHECK(a->context_destroy(c->handle) == 0);
+        detach_case(a,NULL,(void *)destroyed_context,0,NULL,0,0x2714);
+        puts("PASS detach phase=destroyed-context 拒绝且输出保持");
+    }
     for (size_t i = 0; i < 2; ++i) {
         if (t[i].fb) CHECK(a->fb_destroy(share,t[i].fb) == 0);
         if (t[i].texture) CHECK(a->texture_destroy(share,t[i].texture) == 0);
@@ -284,8 +380,14 @@ static void cleanup(struct api *a, void *device, void *pixel, void *share,
     }
     if (share) CHECK(a->share_destroy(share) == 0);
     if (pixel) CHECK(a->pixel_destroy(pixel) == 0);
-    if (device) CHECK(a->device_destroy(device) == 0);
+    uintptr_t destroyed_token = (uintptr_t)device;
+    if (device) {
+        CHECK(a->device_destroy(device) == 0);
+        device_strings(a,(void *)destroyed_token,0,"destroyed-before-terminate");
+    }
     a->terminate(); struct gi_status s; a->status(&s);
+    device_strings(a,(void *)destroyed_token,0,"after-terminate");
+    invalid_device_strings(a);
     CHECK(!s.devices && !s.pixel_lists && !s.share_groups && !s.render_shares && !s.render_contexts);
     CHECK(!s.pending_cleanup && !s.native_registered && !s.lifecycle_status);
     CHECK(!s.backend.connections && !s.backend.service_refs && !s.backend.devices);
@@ -304,13 +406,18 @@ static int gpu_round(struct api *a, io_service_t service)
 #define NEED(x) do { if (!(x)) { struct gi_status s; a->status(&s); \
     fprintf(stderr,"BLOCKED 前提 line=%d %s lifecycle=%08" PRIx32 " render=%08" PRIx32 "；非PASS\n", \
             __LINE__,#x,(uint32_t)s.lifecycle_status,(uint32_t)s.render_status); goto done; } } while (0)
+    invalid_device_strings(a);
     NEED(a->device_create(&device,1,config) == 0 && device);
+    device_strings(a,device,1,"created");
+    invalid_device_strings(a);
     NEED(a->publish(device) == 0); NEED(a->enable(device) == 0);
+    device_strings(a,device,1,"enabled");
     NEED(a->pixel_choose(&pixel,attrs) == 0 && pixel);
     NEED(a->share_create(device,&share,4) == 0 && share);
     valid_state(&c);
     NEED(a->context_create(share,&c.handle,pixel,c.a,c.h,c.b) == 0 && c.handle);
     CHECK(!a->error(c.handle));
+    detach_matrix(a,&c,"created-unbound");
     for (size_t i = 0; i < 2; ++i) {
         NEED(a->pipeline_create(share,&pipeline[i],pd[i],pu[i]) == 0 && pipeline[i]);
         describe_target(&t[i]);
@@ -329,11 +436,14 @@ static int gpu_round(struct api *a, io_service_t service)
         memcpy(values,rgba,sizeof(rgba)); a->clear(c.handle,1,values);
         generation[i] = status(a,0).render_generation; CHECK(generation[i] && !a->error(c.handle));
         image(a,&c,i,0,generation[i],out);
+        detach_image(a,&c,i,0,generation[i],out,"before-draw");
     }
     bind_target(a,&c,&t[0]); generation[0] = draw(a,&c,0,0,generation[0]);
     image(a,&c,0,1,generation[0],out); memcpy(saved,out,BYTES);
+    detach_image(a,&c,0,1,generation[0],out,"after-draw");
     CHECK(draw(a,&c,1,1,generation[0]) == generation[0]);
     a->finish(c.handle); CHECK(status(a,kIOReturnNotReady).render_generation == generation[0]);
+    detach_matrix(a,&c,"pending-first-error");
     CHECK(a->error(c.handle) == 0x502 && !a->error(c.handle));
     a->flush(c.handle); CHECK(status(a,kIOReturnNotReady).render_generation == generation[0]);
     CHECK(a->error(c.handle) == 0x502 && !a->error(c.handle));
@@ -341,7 +451,10 @@ static int gpu_round(struct api *a, io_service_t service)
     generation[0] = draw(a,&c,1,0,generation[0]); image(a,&c,0,3,generation[0],out);
     bind_target(a,&c,&t[1]); image(a,&c,1,0,generation[1],out);
     generation[1] = draw(a,&c,1,0,generation[1]); image(a,&c,1,2,generation[1],out);
+    detach_image(a,&c,1,2,generation[1],out,"after-draw");
     bind_target(a,&c,&t[0]); image(a,&c,0,3,generation[0],out);
+    detach_image(a,&c,0,3,generation[0],out,"before-release");
+    device_strings(a,device,1,"after-draw");
     puts("PASS GPU typed R20/R21、双目标、累积、红绿红不变、GetError/Finish/Flush拒绝及健康恢复");
     result = 0;
 done:
@@ -351,6 +464,7 @@ done:
 static void empty(struct api *a)
 {
     a->initialize(NULL,NULL,0,0,0,0);
+    invalid_device_strings(a);
     unsigned char storage[GI_DISPATCH_TABLE_BYTES+32]; memset(storage,0xa7,sizeof(storage));
     a->populate(NULL,storage+16);
     for (size_t i = 0; i < sizeof(storage); ++i) CHECK(storage[i] == 0xa7);
@@ -392,7 +506,13 @@ int main(int argc, char **argv)
         }
     }
     CHECK(dlclose(lib) == 0);
-    printf("%s controlled-draw checks=%u mode=%s；不代表公开CGL/JIT验收\n",result ? "BLOCKED" : "PASS",checks,argv[1]);
+    if (gpu && !result && (checks - device_string_checks - detach_checks != 379 ||
+                           device_string_checks != 569 || detach_checks != 975)) {
+        fputs("FAIL 原有379项、身份569项或detach975项检查计数不符\n",stderr); result = 1;
+    }
+    printf("%s controlled-draw checks=%u mode=%s baseline_checks=%u device_string_checks=%u detach_checks=%u；不代表公开CGL/JIT验收\n",
+           result ? "BLOCKED" : "PASS",checks,argv[1],checks-device_string_checks-detach_checks,
+           device_string_checks,detach_checks);
     return result;
 #else
     fputs("用法：--cpu-only；本构建无GPU入口\n",stderr); return 2;

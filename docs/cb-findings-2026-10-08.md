@@ -6637,3 +6637,17 @@ accelerator新开type0/20可独立于私有0x56475055，但必须新建surface c
 拟采用设备级surface注册表：可信内核task身份+surfaceID对应真实backing，surface创建引用与draw连接导入lease分离。撤销surface ID后禁止新导入，已有lease保活；最后引用且在途操作完成后才归还slot。当前revoke会直接清owner/handle/generation，增加共享后必须替换此规则。首版跨task拒绝，连接port转交后的调用task验证也须明确；PID/UID或用户传入ID不能当授权。两槽GPU池仍可复用，不能顺便释放尚无destroy/fence闭环的deviceVisible allocation。
 
 首步实现并CPU验证独立注册表/lease核心；它尚未连接内核、IOKit userclient或GPU，不作为PBuffer支持。并行补齐shape/config wire contract。后续硬件最小验收为surface创建/shape/config→自有连接导入→同backing交叉读写→两种关闭顺序→最终释放重租，成功后才进入公开CGL。
+
+### 86.15 空解绑真实GPU回归及独立探针归档
+
+固定候选 `4922c09fde3b20325b4a8e8c4d81f608cf0899e7ff17b7aeb8988f51cebdd4f4` 经独立普通及ASan+UBSan探针各完成两轮设备生命周期，各1923检查通过（原绘制379、身份569、detach975）。证据 `out/controlled-draw-probe-20261117T034454301735Z-60e7aecd/`；result.json记载源码清单、探针及bundle哈希。主代理复核源码清单与工作区逐项一致。
+
+覆盖创建后、绘制前后、首错待取、释放前、销毁后的空解绑；size2/canary、NULL输出、拒绝输出不改、A/H/B及diagnostic状态保持。每轮五次解绑后全图读回保持，双命名FBO、累计颜色、完成代次、首错及错误恢复未退化。builder新增显式`--gpu`，对固定源码与bundle快照执行普通/插桩串行验收，严格检查各阶段和计数；默认仍不执行GPU。
+
+ASan/UBSan只覆盖探针，bundle插桩未作声明，detect_leaks=0。未安装、替换正式插件或重启；这是直接GLD/typed GPU验收，不代表公开CGL、JIT、PBuffer或Metal可用。同期补归档§86.11身份948检查的文本证据，均不纳入二进制及tar。
+
+### 86.16 GL_VERSION后缀消费契约修正
+
+目标GLEngine在`0x7FFB0638F7D4`先调用`gleDeriveVersion`，`0x7FFB0638F803`再以device和pname=0x1f02调用GLD slot+0xb0；随后直接把返回值传给`snprintf_l`的第三个%s，没有NULL拒绝或fallback。格式串位于`0x7FFB064E51B4`，为`%s%s %s`；第一项为空，第二项为engine生成的数字版本，第三项为驱动后缀，输出容量60字节。
+
+因此先前“返回NULL以拒绝GL版本查询”的解释不成立；NULL的libc具体表现尚未验证，不能声称必崩或必显示(null)。数字版本来自profile、扩展位及limits，legacy分支甚至有1.4默认结果；后缀不参与版本推导。计划返回稳定、可追溯且不虚构GL版本的`vGPU-macOS restricted (GL unverified)`身份后缀，并更新拒绝矩阵、稳定性与边界测试。此修正不增加能力、不证明GL一致性或公开context成功。

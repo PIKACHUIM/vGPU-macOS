@@ -1,4 +1,4 @@
-"""受控绘制探针隔离构建：仅 CPU oracle/空表验证，绝不执行 GPU、安装或提权。"""
+"""受控绘制探针隔离构建；--gpu 显式串行验收真实设备，不安装或替换驱动。"""
 import argparse
 import contextlib
 from datetime import datetime, timezone
@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path, PurePosixPath
 import re
 import shlex
@@ -23,6 +24,7 @@ def arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle-executable", required=True, help="明确的远端 bundle executable 绝对路径")
     parser.add_argument("--bundle-sha256", required=True, help="该远端映像的预期 SHA256")
+    parser.add_argument("--gpu", action="store_true", help="CPU/SDK验证后，独占串行运行普通及ASan+UBSan真实GPU探针")
     args = parser.parse_args()
     if not PurePosixPath(args.bundle_executable).is_absolute() or any(
             ord(c) < 32 or ord(c) == 127 for c in args.bundle_executable):
@@ -63,6 +65,9 @@ def main():
     remote = "/var/tmp/vgpu-controlled-draw-probe-" + identity
     bundle = remote + "/VGPUDriverIntegration"
     result, client, manifest, hashes = 1, None, {}, {}
+    gpu_results = []
+    gpu_executed = False
+    cpu_verified = False
     q = shlex.quote
     with (local / "build.log").open("w", encoding="utf-8", buffering=1) as log:
         def record(text):
@@ -94,8 +99,9 @@ def main():
             for name, digest in manifest.items():
                 if remote_hash(remote + "/" + name) != digest:
                     raise RuntimeError("远端源码与固定快照不一致")
-            if remote_hash(bundle) != args.bundle_sha256:
-                raise RuntimeError("快照 bundle 已改变")
+            if (remote_hash(bundle) != args.bundle_sha256 or
+                    remote_hash(args.bundle_executable) != args.bundle_sha256):
+                raise RuntimeError("快照或原始 bundle 已改变")
             record("SOURCE_AND_BUNDLE_HASHES_PASS")
 
         try:
@@ -151,10 +157,60 @@ def main():
                     raise RuntimeError("下载探针哈希不一致")
             unchanged()
             record("BINARY_SHA256 " + json.dumps(hashes, sort_keys=True))
-            record("PASS BUILD_CPU_ONLY；ASan/UBSan只覆盖探针，复用bundle未宣称已插桩；GPU未执行")
-            record("主代理独占串行 GPU 命令（本 runner 不执行）：")
-            record("python tools/mssh.py --sudo -- " + q(remote + "/gld_controlled_draw_probe") +
-                   " --gpu --bundle " + q(bundle))
+            cpu_verified = True
+            record("PASS BUILD_CPU_SDK；ASan/UBSan只覆盖探针，复用bundle未宣称已插桩")
+            if args.gpu:
+                for name in ("gld_controlled_draw_probe", "gld_controlled_draw_probe_sanitized"):
+                    unchanged()
+                    binary = remote + "/" + name
+                    if remote_hash(binary) != hashes[name]:
+                        raise RuntimeError("GPU探针映像哈希改变")
+                    command = environment + q(binary) + " --gpu --bundle " + q(bundle)
+                    record("GPU_COMMAND " + command)
+                    capture = io.StringIO()
+                    gpu_executed = True
+                    try:
+                        with contextlib.redirect_stdout(capture), contextlib.redirect_stderr(capture):
+                            rc = mssh.run(client, command, 240, use_sudo=True,
+                                          password=os.environ.get("VG_PASS"))
+                    finally:
+                        (local / (name + "-gpu.log")).write_text(capture.getvalue(), encoding="utf-8")
+                    output = capture.getvalue()
+                    record(output)
+                    record("GPU_EXIT " + str(rc))
+                    summaries = re.findall(
+                        r"^PASS controlled-draw checks=(\d+) mode=--gpu baseline_checks=(\d+) "
+                        r"device_string_checks=(\d+) detach_checks=(\d+)；不代表公开CGL/JIT验收$",
+                        output, re.MULTILINE)
+                    phases = {"created-unbound": 2, "before-draw": 4, "after-draw": 4,
+                              "pending-first-error": 2, "before-release": 2,
+                              "destroyed-context": 2}
+                    images = (("before-draw", 0, 0), ("before-draw", 1, 0),
+                              ("after-draw", 0, 1), ("after-draw", 1, 2),
+                              ("before-release", 0, 3))
+                    passed = (rc == 0 and summaries == [("1923", "379", "569", "975")] and
+                              all(len(re.findall(r"^PASS detach phase=" + phase + r" ",
+                                                 output, re.MULTILINE)) == count
+                                  for phase, count in phases.items()) and
+                              all(len(re.findall(r"^PASS detach-image phase=" + phase +
+                                                 rf" target={target} mask={mask} generation=[1-9]\d* 全图及边界保持$",
+                                                 output, re.MULTILINE)) == 2
+                                  for phase, target, mask in images) and
+                              all(output.count(f"PASS GPU round={round_number} 完整销毁释放") == 1
+                                  for round_number in (1, 2)) and
+                              not any(marker in output for marker in
+                                      ("FAIL", "BLOCKED", "ERROR: AddressSanitizer", "runtime error:")))
+                    gpu_results.append({"binary": name, "sha256": hashes[name],
+                                        "exit_code": rc, "passed": passed,
+                                        "log": str(local / (name + "-gpu.log"))})
+                    if not passed:
+                        raise RuntimeError("真实GPU验收失败或证据不完整；停止后续运行")
+                    unchanged()
+                    if remote_hash(binary) != hashes[name]:
+                        raise RuntimeError("GPU验收后探针映像哈希改变")
+                record("PASS GPU_SERIAL 普通与ASan+UBSan均完成两轮，原379项、身份569项及detach975项通过")
+            else:
+                record("GPU未执行；可用 --gpu 显式启用同一快照的串行验收")
             result = 0
         except (Exception, SystemExit) as exc:
             record("BLOCKED " + type(exc).__name__)
@@ -164,7 +220,14 @@ def main():
             (local / "result.json").write_text(json.dumps({
                 "status": result, "remote": remote, "bundle": bundle,
                 "source_sha256": manifest, "binary_sha256": hashes,
-                "gpu_executed": False, "gpu_acceptance": "NOT_RUN；缺前提必须BLOCKED非PASS",
+                "cpu_sdk_verified": cpu_verified,
+                "gpu_executed": gpu_executed, "gpu_results": gpu_results,
+                "gpu_acceptance": ("PASS" if args.gpu and result == 0 else
+                                   "BLOCKED" if args.gpu else "NOT_RUN"),
+                "gpu_expected_checks": {"baseline": 379, "device_string": 569,
+                                        "detach": 975, "total": 1923},
+                "source_archive_sha256": (hashlib.sha256((local / "source.tar").read_bytes()).hexdigest()
+                                          if (local / "source.tar").is_file() else None),
                 "fixture_linked": False, "bundle_instrumented": "未作声明",
                 "original_bundle": args.bundle_executable,
             }, indent=2, ensure_ascii=False), encoding="utf-8")

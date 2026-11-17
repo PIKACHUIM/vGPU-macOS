@@ -1,0 +1,407 @@
+LOCAL D:\Codes\vGPU-macOS\out\controlled-draw-probe-20261117T034454301735Z-60e7aecd
+REMOTE /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd
+COMMAND sw_vers && uname -m && xcrun --show-sdk-version && xcrun clang --version
+ProductName:		macOS
+ProductVersion:		15.7.3
+BuildVersion:		24G419
+x86_64
+15.5
+Apple clang version 17.0.0 (clang-1700.0.13.5)
+Target: x86_64-apple-darwin24.6.0
+Thread model: posix
+InstalledDir: /Library/Developer/CommandLineTools/usr/bin
+
+EXIT 0
+COMMAND test -d /var/tmp && mkdir /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd
+
+EXIT 0
+COMMAND tar -xf /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/source.tar -C /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd
+
+EXIT 0
+COMMAND cp /var/tmp/controlled-integration-20261117T033551123048Z/candidate/VGPUDriverControlledCandidate.bundle/Contents/MacOS/VGPUDriverIntegration /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/VGPUDriverIntegration
+
+EXIT 0
+SOURCE_AND_BUNDLE_HASHES_PASS
+COMMAND xcrun clang -arch x86_64 -mmacosx-version-min=15.0 -std=c11 -O1 -g -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes  /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/kexts/probes/gld_controlled_draw_probe.c -framework IOKit -framework CoreFoundation -o /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe
+
+EXIT 0
+COMMAND ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe --cpu-only
+PASS CPU oracle triangle=6400,12800 overlap=754；未打开 bundle、未访问 GPU
+
+EXIT 0
+COMMAND ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe --empty --bundle /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/VGPUDriverIntegration
+BUNDLE /private/var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/VGPUDriverIntegration；全部导出归属同一映像
+PASS device-string phase=null valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=forged-address valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=foreign-object valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS CPU empty：空服务表、空context dispatch、来源核验；未访问 GPU
+PASS controlled-draw checks=327 mode=--empty baseline_checks=268 device_string_checks=58 detach_checks=1；不代表公开CGL/JIT验收
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch enter status=0
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch return status=10004
+
+EXIT 0
+COMMAND /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe ; rc=$?; test "$rc" -eq 2
+用法：/var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe --cpu-only | (--empty|--gpu) --bundle /绝对路径/映像
+
+EXIT 0
+COMMAND /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe --invalid; rc=$?; test "$rc" -eq 2
+用法：/var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe --cpu-only | (--empty|--gpu) --bundle /绝对路径/映像
+
+EXIT 0
+COMMAND /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe --empty --bundle relative; rc=$?; test "$rc" -eq 2
+用法：/var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe --cpu-only | (--empty|--gpu) --bundle /绝对路径/映像
+
+EXIT 0
+COMMAND otool -L /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe && xcrun nm -u /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe
+/var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe:
+	/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit (compatibility version 1.0.0, current version 275.0.0)
+	/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation (compatibility version 150.0.0, current version 3502.1.255)
+	/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1351.0.0)
+_IOObjectRelease
+_IOServiceGetMatchingService
+_IOServiceMatching
+____chkstk_darwin
+___bzero
+___stack_chk_fail
+___stack_chk_guard
+___stderrp
+_dladdr
+_dlclose
+_dlerror
+_dlopen
+_dlsym
+_exit
+_fprintf
+_fputs
+_free
+_geteuid
+_malloc
+_memcmp
+_memcpy
+_memset
+_printf
+_puts
+_stat$INODE64
+_strcmp
+
+EXIT 0
+COMMAND xcrun clang -arch x86_64 -mmacosx-version-min=15.0 -std=c11 -O1 -g -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -Wstrict-prototypes -Wmissing-prototypes -fsanitize=address,undefined -fno-omit-frame-pointer /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/kexts/probes/gld_controlled_draw_probe.c -framework IOKit -framework CoreFoundation -o /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe_sanitized
+
+EXIT 0
+COMMAND ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe_sanitized --cpu-only
+PASS CPU oracle triangle=6400,12800 overlap=754；未打开 bundle、未访问 GPU
+
+EXIT 0
+COMMAND ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe_sanitized --empty --bundle /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/VGPUDriverIntegration
+BUNDLE /private/var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/VGPUDriverIntegration；全部导出归属同一映像
+PASS device-string phase=null valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=forged-address valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=foreign-object valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS CPU empty：空服务表、空context dispatch、来源核验；未访问 GPU
+PASS controlled-draw checks=327 mode=--empty baseline_checks=268 device_string_checks=58 detach_checks=1；不代表公开CGL/JIT验收
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch enter status=0
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch return status=10004
+
+EXIT 0
+COMMAND /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe_sanitized ; rc=$?; test "$rc" -eq 2
+用法：/var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe_sanitized --cpu-only | (--empty|--gpu) --bundle /绝对路径/映像
+
+EXIT 0
+COMMAND /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe_sanitized --invalid; rc=$?; test "$rc" -eq 2
+用法：/var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe_sanitized --cpu-only | (--empty|--gpu) --bundle /绝对路径/映像
+
+EXIT 0
+COMMAND /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe_sanitized --empty --bundle relative; rc=$?; test "$rc" -eq 2
+用法：/var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe_sanitized --cpu-only | (--empty|--gpu) --bundle /绝对路径/映像
+
+EXIT 0
+COMMAND otool -L /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe_sanitized && xcrun nm -u /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe_sanitized
+/var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe_sanitized:
+	/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit (compatibility version 1.0.0, current version 275.0.0)
+	/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation (compatibility version 150.0.0, current version 3502.1.255)
+	@rpath/libclang_rt.asan_osx_dynamic.dylib (compatibility version 0.0.0, current version 0.0.0)
+	/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1351.0.0)
+_IOObjectRelease
+_IOServiceGetMatchingService
+_IOServiceMatching
+___asan_handle_no_return
+___asan_init
+___asan_memcpy
+___asan_memset
+___asan_option_detect_stack_use_after_return
+___asan_register_image_globals
+___asan_report_load1
+___asan_report_load4
+___asan_report_load8
+___asan_report_store1
+___asan_report_store4
+___asan_report_store8
+___asan_report_store_n
+___asan_set_shadow_00
+___asan_set_shadow_f5
+___asan_set_shadow_f8
+___asan_stack_free_5
+___asan_stack_free_9
+___asan_stack_malloc_0
+___asan_stack_malloc_1
+___asan_stack_malloc_2
+___asan_stack_malloc_3
+___asan_stack_malloc_4
+___asan_stack_malloc_5
+___asan_stack_malloc_9
+___asan_unregister_image_globals
+___asan_version_mismatch_check_apple_clang_1700
+___stack_chk_fail
+___stack_chk_guard
+___stderrp
+___ubsan_handle_builtin_unreachable
+___ubsan_handle_function_type_mismatch
+___ubsan_handle_mul_overflow
+___ubsan_handle_pointer_overflow
+___ubsan_handle_sub_overflow
+___ubsan_handle_type_mismatch_v1
+_dladdr
+_dlclose
+_dlerror
+_dlopen
+_dlsym
+_exit
+_fprintf
+_fputs
+_free
+_geteuid
+_malloc
+_memcmp
+_printf
+_puts
+_stat$INODE64
+_strcmp
+
+EXIT 0
+SOURCE_AND_BUNDLE_HASHES_PASS
+BINARY_SHA256 {"bundle": "4922c09fde3b20325b4a8e8c4d81f608cf0899e7ff17b7aeb8988f51cebdd4f4", "gld_controlled_draw_probe": "6e556738e694d4c51fb0582a26763b5cd0a8f3f7d17390dacf983e731bd8bb2b", "gld_controlled_draw_probe_sanitized": "235c4ad3c78961af92ec03ba18f9fbc1886a72773e989badbb900a5bdb225bfc"}
+PASS BUILD_CPU_SDK；ASan/UBSan只覆盖探针，复用bundle未宣称已插桩
+SOURCE_AND_BUNDLE_HASHES_PASS
+GPU_COMMAND ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe --gpu --bundle /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/VGPUDriverIntegration
+BUNDLE /private/var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/VGPUDriverIntegration；全部导出归属同一映像
+PASS device-string phase=null valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=forged-address valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=foreign-object valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=created valid=1 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=null valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=forged-address valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=foreign-object valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=enabled valid=1 重复值/指针稳定、拒绝selector、状态不变
+PASS detach phase=created-unbound size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach phase=before-draw size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=before-draw target=0 mask=0 generation=2 全图及边界保持
+PASS detach phase=before-draw size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=before-draw target=1 mask=0 generation=2 全图及边界保持
+PASS detach phase=after-draw size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=after-draw target=0 mask=1 generation=3 全图及边界保持
+PASS detach phase=pending-first-error size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach phase=after-draw size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=after-draw target=1 mask=2 generation=3 全图及边界保持
+PASS detach phase=before-release size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=before-release target=0 mask=3 generation=4 全图及边界保持
+PASS device-string phase=after-draw valid=1 重复值/指针稳定、拒绝selector、状态不变
+PASS GPU typed R20/R21、双目标、累积、红绿红不变、GetError/Finish/Flush拒绝及健康恢复
+PASS detach phase=destroyed-context 拒绝且输出保持
+PASS device-string phase=destroyed-before-terminate valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=after-terminate valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=null valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=forged-address valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=foreign-object valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS GPU round=1 完整销毁释放；下一轮重新租用
+PASS device-string phase=null valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=forged-address valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=foreign-object valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=created valid=1 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=null valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=forged-address valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=foreign-object valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=enabled valid=1 重复值/指针稳定、拒绝selector、状态不变
+PASS detach phase=created-unbound size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach phase=before-draw size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=before-draw target=0 mask=0 generation=2 全图及边界保持
+PASS detach phase=before-draw size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=before-draw target=1 mask=0 generation=2 全图及边界保持
+PASS detach phase=after-draw size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=after-draw target=0 mask=1 generation=3 全图及边界保持
+PASS detach phase=pending-first-error size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach phase=after-draw size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=after-draw target=1 mask=2 generation=3 全图及边界保持
+PASS detach phase=before-release size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=before-release target=0 mask=3 generation=4 全图及边界保持
+PASS device-string phase=after-draw valid=1 重复值/指针稳定、拒绝selector、状态不变
+PASS GPU typed R20/R21、双目标、累积、红绿红不变、GetError/Finish/Flush拒绝及健康恢复
+PASS detach phase=destroyed-context 拒绝且输出保持
+PASS device-string phase=destroyed-before-terminate valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=after-terminate valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=null valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=forged-address valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=foreign-object valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS GPU round=2 完整销毁释放；下一轮重新租用
+PASS controlled-draw checks=1923 mode=--gpu baseline_checks=379 device_string_checks=569 detach_checks=975；不代表公开CGL/JIT验收
+[VGPU-GLD-CONTROLLED] gldCreateDevice enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateDevice publish status=0
+[VGPU-GLD-CONTROLLED] gldCreateDevice enable status=0
+[VGPU-GLD-CONTROLLED] gldCreateDevice return status=0
+[VGPU-GLD-CONTROLLED] gldChoosePixelFormat enter status=0
+[VGPU-GLD-CONTROLLED] gldChoosePixelFormat return status=0
+[VGPU-GLD-CONTROLLED] gldChoosePixelFormat has-pixel status=1
+[VGPU-GLD-CONTROLLED] gldCreateShareGroup enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateShareGroup return status=0
+[VGPU-GLD-CONTROLLED] gldCreateContext enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateContext return status=0
+[VGPU-GLD-CONTROLLED] gldCreatePipelineProgram enter status=0
+[VGPU-GLD-CONTROLLED] gldCreatePipelineProgram return status=0
+[VGPU-GLD-CONTROLLED] gldCreateTexture enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateTexture return status=0
+[VGPU-GLD-CONTROLLED] gldCreatePipelineProgram enter status=0
+[VGPU-GLD-CONTROLLED] gldCreatePipelineProgram return status=0
+[VGPU-GLD-CONTROLLED] gldCreateTexture enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateTexture return status=0
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch enter status=0
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch return status=0
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch enter status=0
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch return status=0
+[VGPU-GLD-CONTROLLED] gldCreateDevice enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateDevice publish status=0
+[VGPU-GLD-CONTROLLED] gldCreateDevice enable status=0
+[VGPU-GLD-CONTROLLED] gldCreateDevice return status=0
+[VGPU-GLD-CONTROLLED] gldChoosePixelFormat enter status=0
+[VGPU-GLD-CONTROLLED] gldChoosePixelFormat return status=0
+[VGPU-GLD-CONTROLLED] gldChoosePixelFormat has-pixel status=1
+[VGPU-GLD-CONTROLLED] gldCreateShareGroup enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateShareGroup return status=0
+[VGPU-GLD-CONTROLLED] gldCreateContext enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateContext return status=0
+[VGPU-GLD-CONTROLLED] gldCreatePipelineProgram enter status=0
+[VGPU-GLD-CONTROLLED] gldCreatePipelineProgram return status=0
+[VGPU-GLD-CONTROLLED] gldCreateTexture enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateTexture return status=0
+[VGPU-GLD-CONTROLLED] gldCreatePipelineProgram enter status=0
+[VGPU-GLD-CONTROLLED] gldCreatePipelineProgram return status=0
+[VGPU-GLD-CONTROLLED] gldCreateTexture enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateTexture return status=0
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch enter status=0
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch return status=0
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch enter status=0
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch return status=0
+
+GPU_EXIT 0
+SOURCE_AND_BUNDLE_HASHES_PASS
+SOURCE_AND_BUNDLE_HASHES_PASS
+GPU_COMMAND ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/gld_controlled_draw_probe_sanitized --gpu --bundle /var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/VGPUDriverIntegration
+BUNDLE /private/var/tmp/vgpu-controlled-draw-probe-20261117T034454301735Z-60e7aecd/VGPUDriverIntegration；全部导出归属同一映像
+PASS device-string phase=null valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=forged-address valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=foreign-object valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=created valid=1 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=null valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=forged-address valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=foreign-object valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=enabled valid=1 重复值/指针稳定、拒绝selector、状态不变
+PASS detach phase=created-unbound size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach phase=before-draw size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=before-draw target=0 mask=0 generation=2 全图及边界保持
+PASS detach phase=before-draw size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=before-draw target=1 mask=0 generation=2 全图及边界保持
+PASS detach phase=after-draw size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=after-draw target=0 mask=1 generation=3 全图及边界保持
+PASS detach phase=pending-first-error size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach phase=after-draw size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=after-draw target=1 mask=2 generation=3 全图及边界保持
+PASS detach phase=before-release size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=before-release target=0 mask=3 generation=4 全图及边界保持
+PASS device-string phase=after-draw valid=1 重复值/指针稳定、拒绝selector、状态不变
+PASS GPU typed R20/R21、双目标、累积、红绿红不变、GetError/Finish/Flush拒绝及健康恢复
+PASS detach phase=destroyed-context 拒绝且输出保持
+PASS device-string phase=destroyed-before-terminate valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=after-terminate valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=null valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=forged-address valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=foreign-object valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS GPU round=1 完整销毁释放；下一轮重新租用
+PASS device-string phase=null valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=forged-address valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=foreign-object valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=created valid=1 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=null valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=forged-address valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=foreign-object valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=enabled valid=1 重复值/指针稳定、拒绝selector、状态不变
+PASS detach phase=created-unbound size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach phase=before-draw size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=before-draw target=0 mask=0 generation=2 全图及边界保持
+PASS detach phase=before-draw size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=before-draw target=1 mask=0 generation=2 全图及边界保持
+PASS detach phase=after-draw size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=after-draw target=0 mask=1 generation=3 全图及边界保持
+PASS detach phase=pending-first-error size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach phase=after-draw size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=after-draw target=1 mask=2 generation=3 全图及边界保持
+PASS detach phase=before-release size2/canary、NULL输出、2714/2718/2715拒绝、状态及A/H/B保持
+PASS detach-image phase=before-release target=0 mask=3 generation=4 全图及边界保持
+PASS device-string phase=after-draw valid=1 重复值/指针稳定、拒绝selector、状态不变
+PASS GPU typed R20/R21、双目标、累积、红绿红不变、GetError/Finish/Flush拒绝及健康恢复
+PASS detach phase=destroyed-context 拒绝且输出保持
+PASS device-string phase=destroyed-before-terminate valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=after-terminate valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=null valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=forged-address valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS device-string phase=foreign-object valid=0 重复值/指针稳定、拒绝selector、状态不变
+PASS GPU round=2 完整销毁释放；下一轮重新租用
+PASS controlled-draw checks=1923 mode=--gpu baseline_checks=379 device_string_checks=569 detach_checks=975；不代表公开CGL/JIT验收
+[VGPU-GLD-CONTROLLED] gldCreateDevice enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateDevice publish status=0
+[VGPU-GLD-CONTROLLED] gldCreateDevice enable status=0
+[VGPU-GLD-CONTROLLED] gldCreateDevice return status=0
+[VGPU-GLD-CONTROLLED] gldChoosePixelFormat enter status=0
+[VGPU-GLD-CONTROLLED] gldChoosePixelFormat return status=0
+[VGPU-GLD-CONTROLLED] gldChoosePixelFormat has-pixel status=1
+[VGPU-GLD-CONTROLLED] gldCreateShareGroup enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateShareGroup return status=0
+[VGPU-GLD-CONTROLLED] gldCreateContext enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateContext return status=0
+[VGPU-GLD-CONTROLLED] gldCreatePipelineProgram enter status=0
+[VGPU-GLD-CONTROLLED] gldCreatePipelineProgram return status=0
+[VGPU-GLD-CONTROLLED] gldCreateTexture enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateTexture return status=0
+[VGPU-GLD-CONTROLLED] gldCreatePipelineProgram enter status=0
+[VGPU-GLD-CONTROLLED] gldCreatePipelineProgram return status=0
+[VGPU-GLD-CONTROLLED] gldCreateTexture enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateTexture return status=0
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch enter status=0
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch return status=0
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch enter status=0
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch return status=0
+[VGPU-GLD-CONTROLLED] gldCreateDevice enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateDevice publish status=0
+[VGPU-GLD-CONTROLLED] gldCreateDevice enable status=0
+[VGPU-GLD-CONTROLLED] gldCreateDevice return status=0
+[VGPU-GLD-CONTROLLED] gldChoosePixelFormat enter status=0
+[VGPU-GLD-CONTROLLED] gldChoosePixelFormat return status=0
+[VGPU-GLD-CONTROLLED] gldChoosePixelFormat has-pixel status=1
+[VGPU-GLD-CONTROLLED] gldCreateShareGroup enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateShareGroup return status=0
+[VGPU-GLD-CONTROLLED] gldCreateContext enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateContext return status=0
+[VGPU-GLD-CONTROLLED] gldCreatePipelineProgram enter status=0
+[VGPU-GLD-CONTROLLED] gldCreatePipelineProgram return status=0
+[VGPU-GLD-CONTROLLED] gldCreateTexture enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateTexture return status=0
+[VGPU-GLD-CONTROLLED] gldCreatePipelineProgram enter status=0
+[VGPU-GLD-CONTROLLED] gldCreatePipelineProgram return status=0
+[VGPU-GLD-CONTROLLED] gldCreateTexture enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateTexture return status=0
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch enter status=0
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch return status=0
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch enter status=0
+[VGPU-GLD-CONTROLLED] gldPopulateContextDispatch return status=0
+
+GPU_EXIT 0
+SOURCE_AND_BUNDLE_HASHES_PASS
+PASS GPU_SERIAL 普通与ASan+UBSan均完成两轮，原379项、身份569项及detach975项通过
+FINAL 0 D:\Codes\vGPU-macOS\out\controlled-draw-probe-20261117T034454301735Z-60e7aecd
