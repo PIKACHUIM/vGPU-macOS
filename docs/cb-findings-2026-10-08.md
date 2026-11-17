@@ -6651,3 +6651,27 @@ ASan/UBSan只覆盖探针，bundle插桩未作声明，detect_leaks=0。未安�
 目标GLEngine在`0x7FFB0638F7D4`先调用`gleDeriveVersion`，`0x7FFB0638F803`再以device和pname=0x1f02调用GLD slot+0xb0；随后直接把返回值传给`snprintf_l`的第三个%s，没有NULL拒绝或fallback。格式串位于`0x7FFB064E51B4`，为`%s%s %s`；第一项为空，第二项为engine生成的数字版本，第三项为驱动后缀，输出容量60字节。
 
 因此先前“返回NULL以拒绝GL版本查询”的解释不成立；NULL的libc具体表现尚未验证，不能声称必崩或必显示(null)。数字版本来自profile、扩展位及limits，legacy分支甚至有1.4默认结果；后缀不参与版本推导。计划返回稳定、可追溯且不虚构GL版本的`vGPU-macOS restricted (GL unverified)`身份后缀，并更新拒绝矩阵、稳定性与边界测试。此修正不增加能力、不证明GL一致性或公开context成功。
+
+### 86.17 PBuffer surface线协议与共享核心阶段证据
+
+静态证据 `out/pbuffer-surface-wire-research.txt` 固定IOKit UUID=66D3BCA5-2B39-372E-917A-1B7D7534AB2C、OpenGL UUID=EEBF4330-76CB-3E0E-AD13-BD031235E27F。CreateSurface以type=(mode>>9)&0x20打开连接，再发selector7、两个uint64 scalar{id,mode}；返回opaque surface实际上是connection port。DestroySurface关闭该连接。
+
+首次2D/无mip的32位PBuffer模式为0x00100024，不等于BGRA32枚举0xa；颜色布局需另证。selector9接收两个uint64 scalar{flags=0x81,fbindex=0}和20字节region：N=1、bounds=(0,0,256,256)、rect[0]全0，无输出。不可擅改空rect，也不能把wrapper缺少校验当内核无需校验。首次无迁移路径在Create/shape后直接attach，未直接调用SurfaceControl；下游driver调用仍需单独闭合。Control为selector16 SI2/SO1，wrapper无条件回写低32位；未实现时拒绝，不能成功漏填输出。WaitForSurface的目标系统wrapper本地直接返回0，不代表自研后端可省略真实同步。
+
+新增纯C共享核心 `kexts/gld-surface-registry/`：creator引用与每连接lease分离，撤销后拒绝新导入、已有lease保活，分配中取消等待complete，清理确认前不复用槽。首轮真实SDK strict/ASan+UBSan/C++各310638检查通过，freestanding对象无外部依赖；尚未连接kernel/GPU。其严格递增surface_id是可信内核内部ID，不能直接使用系统外部32位AccelID；适配层须建立单独映射并验证真实task身份。接口前提及所有权隔离仍须由内核实现，CPU结果不代表PBuffer支持。
+
+续轮独立审查未发现核心生命周期漏洞，补充三槽六种完成顺序、混合状态关闭、清理停滞、action篡改及旧凭据重放、输出canary后，strict/ASan+UBSan/C++各311971检查通过。生产核心未改变；具体源码SHA及命令见本目录cpu-test-results.txt。新纯C线协议解析器 `kexts/gld-surface-wire/` 三组各502检查通过，freestanding无未定义符号；只解析已证消息，返回PARSED不代表surface操作成功。内核共享backing/task身份接入尚在进行，未安装或重启。
+
+### 86.18 GL_VERSION真实后缀与2067项GPU验收
+
+有效设备0x1f02现返回稳定static `vGPU-macOS restricted (GL unverified)`，保留active-device、connected、NotReady及registry校验；无效/销毁/故障设备继续返回NULL。没有添加数字版本或扩展能力。CPU及GPU探针复现engine的60字节snprintf_l格式，检查输出长38/44/59/60、完整内容、截断、NUL、双侧canary及未写区域。
+
+默认/候选真实SDK构建、12组CPU回归及empty1119通过。候选SHA256 `4878aa6beab60265f17f54d143faf656299b3ea4c059b8618ef34082dcdfa3dc` 的普通与ASan+UBSan真实GPU探针各2067检查通过（379绘制+713身份/格式+975解绑），均完成两轮。新增144项=6个阶段×4种边界×6检查。GPU证据 `out/controlled-draw-probe-20261117T035850344810Z-fc2dca6d/`；SDK/CPU证据 `out/controlled-integration-20261117T035744791749Z/`。主代理核对两份manifest共65条源码哈希无不匹配。sanitizer仅覆盖GPU探针，未声明bundle已插桩；未安装/替换/重启，仍不是公开CGL/JIT或GL一致性验收。
+
+### 86.19 PBuffer默认目标与visible region的实现边界
+
+目标SDK IOAccelSurfaceConnect.h明确region是visible region，bounds是unclipped surface rectangle；仅N=0才用bounds作visible rectangle。因此N=1且rect全零可以与256×256存储同时存在，不能将其解释为零尺寸。自研实现可在shape成功前完成backing分配，但尚未声称复刻原生分配/同步全部语义。
+
+GLEngine在0x7FFB0638EBFB–EC0F把G+0xb570的两个uint32作为size2传给GLD。返回1进入普通成功路径，返回2触发配置更新；保持单缓冲配置不变且导入真实完成时可返回1并输出真实尺寸。A+0x29控制默认FRONT_LEFT/BACK_LEFT初始化，H+0x3c08为read、H+0x3c0c起8项uint16为draw选择。B+0x4a0/4a8为空时需解析context局部默认drawable；命名FBO保持独立。实现不得把所有FRONT/BACK/NONE映射到color0，也不得越界改写engine数据。
+
+mode0x00100024的depth4到原生BGRA字节序仍缺端到端证据；现有BGRA backing可作为自研内部格式设计，但不能声称mode4与0xa全部等价。公开PBuffer三阶段探针已构建并通过CPU oracle，尚未运行CGL/GL；surface、默认目标与恢复runner接通前不增加生产PF能力。

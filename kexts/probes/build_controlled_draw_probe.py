@@ -188,7 +188,10 @@ def main():
                     images = (("before-draw", 0, 0), ("before-draw", 1, 0),
                               ("after-draw", 0, 1), ("after-draw", 1, 2),
                               ("before-release", 0, 3))
-                    passed = (rc == 0 and summaries == [("1923", "379", "569", "975")] and
+                    # 身份569项保持等价覆盖；6次有效设备阶段各新增4组×6项格式边界。
+                    passed = (rc == 0 and summaries == [("2067", "379", "713", "975")] and
+                              output.count("PASS version-format capacity=60 lengths=38,44,59,60 "
+                                           "完整/恰好容纳/截断/终止符/双侧哨兵/未写区域") == 6 and
                               all(len(re.findall(r"^PASS detach phase=" + phase + r" ",
                                                  output, re.MULTILINE)) == count
                                   for phase, count in phases.items()) and
@@ -208,7 +211,7 @@ def main():
                     unchanged()
                     if remote_hash(binary) != hashes[name]:
                         raise RuntimeError("GPU验收后探针映像哈希改变")
-                record("PASS GPU_SERIAL 普通与ASan+UBSan均完成两轮，原379项、身份569项及detach975项通过")
+                record("PASS GPU_SERIAL 普通与ASan+UBSan均完成两轮，原379项、身份及版本边界713项及detach975项通过")
             else:
                 record("GPU未执行；可用 --gpu 显式启用同一快照的串行验收")
             result = 0
@@ -224,8 +227,8 @@ def main():
                 "gpu_executed": gpu_executed, "gpu_results": gpu_results,
                 "gpu_acceptance": ("PASS" if args.gpu and result == 0 else
                                    "BLOCKED" if args.gpu else "NOT_RUN"),
-                "gpu_expected_checks": {"baseline": 379, "device_string": 569,
-                                        "detach": 975, "total": 1923},
+                "gpu_expected_checks": {"baseline": 379, "device_string": 713,
+                                        "version_format_subset": 144, "detach": 975, "total": 2067},
                 "source_archive_sha256": (hashlib.sha256((local / "source.tar").read_bytes()).hexdigest()
                                           if (local / "source.tar").is_file() else None),
                 "fixture_linked": False, "bundle_instrumented": "未作声明",

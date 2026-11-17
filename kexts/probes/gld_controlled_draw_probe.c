@@ -109,6 +109,7 @@ static void cpu_oracle(void)
 #include <dlfcn.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <xlocale.h>
 
 static unsigned device_string_checks, detach_checks;
 #define STRING_CHECK(x) do { ++device_string_checks; CHECK(x); } while (0)
@@ -116,7 +117,7 @@ static unsigned device_string_checks, detach_checks;
 struct api {
     void *base;
     const char *(*device_string)(void *, uint32_t);
-    const char *vendor, *renderer;
+    const char *vendor, *renderer, *version_suffix;
     void (*initialize)(const uint32_t *, const uint8_t *, uint32_t, uintptr_t, uintptr_t, uint32_t);
     void (*terminate)(void);
     int32_t (*device_create)(void **, uint32_t, void *);
@@ -177,6 +178,32 @@ static int load_api(void *lib, const char *path, struct api *a)
 #undef LOAD
     printf("BUNDLE %s；全部导出归属同一映像\n",info.dli_fname); return 1;
 }
+static void version_format(const char *suffix)
+{
+    /* engine/边界串仅为格式化输入，不声明任何数字 GL 版本。 */
+    const char *engines[] = {"", "engine", "EEEEEEEEEEEEEEEEEEEEE", "EEEEEEEEEEEEEEEEEEEEEE"};
+    for (size_t i = 0; i < sizeof(engines) / sizeof(engines[0]); ++i) {
+        unsigned char storage[16 + 60 + 16], guard[16];
+        char expected[96];
+        size_t prefix = strlen(engines[i]), length = prefix + 1 + strlen(suffix);
+        size_t written = length < 60 ? length : 59;
+        memcpy(expected, engines[i], prefix); expected[prefix] = ' ';
+        memcpy(expected + prefix + 1, suffix, strlen(suffix));
+        memset(storage, 0xa7, sizeof(storage)); memset(guard, 0xa7, sizeof(guard));
+        char *out = (char *)storage + 16;
+        int result = snprintf_l(out, 60, NULL, "%s%s %s", "", engines[i], suffix);
+        STRING_CHECK(result == (int)length);
+        STRING_CHECK(!memcmp(out, expected, written));
+        STRING_CHECK(out[written] == '\0');
+        STRING_CHECK(!memcmp(storage, guard, sizeof(guard)));
+        STRING_CHECK(!memcmp(storage + 76, guard, sizeof(guard)));
+        int untouched = 1;
+        for (size_t j = written + 1; j < 60; ++j)
+            if (storage[16 + j] != 0xa7) untouched = 0;
+        STRING_CHECK(untouched);
+    }
+    puts("PASS version-format capacity=60 lengths=38,44,59,60 完整/恰好容纳/截断/终止符/双侧哨兵/未写区域");
+}
 static void device_strings(struct api *a, void *device, int valid, const char *phase)
 {
     struct gi_status before = {0}, after = {0};
@@ -184,16 +211,22 @@ static void device_strings(struct api *a, void *device, int valid, const char *p
     for (unsigned repeat = 0; repeat < 3; ++repeat) {
         const char *vendor = a->device_string(device,UINT32_C(0x1f00));
         const char *renderer = a->device_string(device,UINT32_C(0x1f01));
+        const char *suffix = a->device_string(device,UINT32_C(0x1f02));
         if (valid) {
             STRING_CHECK(vendor && !strcmp(vendor,"vGPU-macOS"));
             STRING_CHECK(renderer && !strcmp(renderer,"vGPU restricted SVGA3D"));
-            if (!a->vendor) { a->vendor = vendor; a->renderer = renderer; }
-            STRING_CHECK(vendor == a->vendor && renderer == a->renderer);
+            STRING_CHECK(suffix && !strcmp(suffix,"vGPU-macOS restricted (GL unverified)"));
+            if (!a->vendor) {
+                a->vendor = vendor; a->renderer = renderer; a->version_suffix = suffix;
+            }
+            STRING_CHECK(vendor == a->vendor && renderer == a->renderer && suffix == a->version_suffix);
+            if (repeat == 0) version_format(suffix);
         } else {
             /* 无效 token 只透传到待测 API；探针不解引用 token 或返回指针。 */
             STRING_CHECK(vendor == NULL && renderer == NULL);
+            STRING_CHECK(suffix == NULL);
         }
-        const uint32_t rejected[] = {0, UINT32_C(0x1f02), UINT32_C(0x1f03),
+        const uint32_t rejected[] = {0, UINT32_C(0x1f03),
                                      UINT32_C(0x1f04), UINT32_MAX};
         for (size_t i = 0; i < sizeof(rejected)/sizeof(rejected[0]); ++i)
             STRING_CHECK(a->device_string(device,rejected[i]) == NULL);
@@ -507,8 +540,8 @@ int main(int argc, char **argv)
     }
     CHECK(dlclose(lib) == 0);
     if (gpu && !result && (checks - device_string_checks - detach_checks != 379 ||
-                           device_string_checks != 569 || detach_checks != 975)) {
-        fputs("FAIL 原有379项、身份569项或detach975项检查计数不符\n",stderr); result = 1;
+                           device_string_checks != 713 || detach_checks != 975)) {
+        fputs("FAIL 原有379项、身份及版本边界713项或detach975项检查计数不符\n",stderr); result = 1;
     }
     printf("%s controlled-draw checks=%u mode=%s baseline_checks=%u device_string_checks=%u detach_checks=%u；不代表公开CGL/JIT验收\n",
            result ? "BLOCKED" : "PASS",checks,argv[1],checks-device_string_checks-detach_checks,

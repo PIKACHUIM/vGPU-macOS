@@ -357,16 +357,19 @@ const char *gldGetDeviceString(void *device, uint32_t pname)
 {
     static const char vendor[] = "vGPU-macOS";
     static const char renderer[] = "vGPU restricted SVGA3D";
+    static const char version_suffix[] = "vGPU-macOS restricted (GL unverified)";
     const char *result = NULL;
     struct gld_device_status status = {0};
     pthread_mutex_lock(&integration_lock);
     if (!device || device != active_device) goto done;
     if (vgpuGLDDeviceGetStatus(device, &status) != 0 || !status.connected ||
         status.liveness_status != kIOReturnNotReady || !status.registry_id) goto done;
-    /* 只报告身份。NULL 是本项目拒绝策略，不虚构 GL 版本或扩展支持。 */
+    /* GLEngine 先派生版本，再将 0x1f02 作为 %s 后缀拼接且不检查 NULL。
+     * 此处只报告受限身份，不提供数字 GL 版本或扩展能力。 */
     switch (pname) {
     case UINT32_C(0x1f00): result = vendor; break;
     case UINT32_C(0x1f01): result = renderer; break;
+    case UINT32_C(0x1f02): result = version_suffix; break;
     default: break;
     }
 done:

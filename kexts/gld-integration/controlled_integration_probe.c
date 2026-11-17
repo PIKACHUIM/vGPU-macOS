@@ -2,6 +2,7 @@
 #include "dispatch_exports.h"
 #include "tcl_exports.h"
 #include <OpenGL/CGLTypes.h>
+#include <xlocale.h>
 
 /* 仅复用已有 CPU surface 模型，不改旧探针，不链接真实 GPU surface。 */
 int controlled_render_baseline(void);
@@ -29,7 +30,35 @@ int32_t vgpuGLDDeviceGetStatus(void *token, struct gld_device_status *out)
     return 0;
 }
 
-static void expect_device_strings(void *token, const char *vendor, const char *renderer)
+static void expect_version_format(const char *suffix)
+{
+    /* engine/边界串仅为格式化输入，不声明任何数字 GL 版本。 */
+    const char *engines[] = {"", "engine", "EEEEEEEEEEEEEEEEEEEEE", "EEEEEEEEEEEEEEEEEEEEEE"};
+    for (size_t i = 0; i < sizeof(engines) / sizeof(engines[0]); ++i) {
+        unsigned char storage[16 + 60 + 16], guard[16];
+        char expected[96];
+        size_t prefix = strlen(engines[i]), length = prefix + 1 + strlen(suffix);
+        size_t written = length < 60 ? length : 59;
+        memcpy(expected, engines[i], prefix); expected[prefix] = ' ';
+        memcpy(expected + prefix + 1, suffix, strlen(suffix));
+        memset(storage, 0xa7, sizeof(storage)); memset(guard, 0xa7, sizeof(guard));
+        char *out = (char *)storage + 16;
+        int result = snprintf_l(out, 60, NULL, "%s%s %s", "", engines[i], suffix);
+        CHECK(result == (int)length);
+        CHECK(!memcmp(out, expected, written));
+        CHECK(out[written] == '\0');
+        CHECK(!memcmp(storage, guard, sizeof(guard)));
+        CHECK(!memcmp(storage + 76, guard, sizeof(guard)));
+        int untouched = 1;
+        for (size_t j = written + 1; j < 60; ++j)
+            if (storage[16 + j] != 0xa7) untouched = 0;
+        CHECK(untouched);
+    }
+    puts("PASS version-format capacity=60 lengths=38,44,59,60 完整/恰好容纳/截断/终止符/双侧哨兵/未写区域");
+}
+
+static void expect_device_strings(void *token, const char *vendor, const char *renderer,
+    const char *suffix)
 {
     struct gi_status before = {0}, after = {0};
     const unsigned counts[] = {owners, images, clears, reads, triangles, device};
@@ -37,7 +66,8 @@ static void expect_device_strings(void *token, const char *vendor, const char *r
     for (unsigned i = 0; i < 3; ++i) {
         CHECK(gldGetDeviceString(token, UINT32_C(0x1f00)) == vendor);
         CHECK(gldGetDeviceString(token, UINT32_C(0x1f01)) == renderer);
-        const uint32_t rejected[] = {0, UINT32_C(0x1f02), UINT32_C(0x1f03),
+        CHECK(gldGetDeviceString(token, UINT32_C(0x1f02)) == suffix);
+        const uint32_t rejected[] = {0, UINT32_C(0x1f03),
             UINT32_C(0x1f04), UINT32_MAX};
         for (size_t j = 0; j < sizeof(rejected) / sizeof(rejected[0]); ++j)
             CHECK(gldGetDeviceString(token, rejected[j]) == NULL);
@@ -188,27 +218,30 @@ int main(void)
     expect_attach_cases((void *)(uintptr_t)1, 0, NULL, NULL, NULL);
     expect_attach_cases(a, 0, NULL, NULL, NULL);
     unsigned calls = device_status_calls;
-    expect_device_strings(NULL, NULL, NULL);
-    expect_device_strings((void *)(uintptr_t)1, NULL, NULL);
-    expect_device_strings(&device, NULL, NULL);
+    expect_device_strings(NULL, NULL, NULL, NULL);
+    expect_device_strings((void *)(uintptr_t)1, NULL, NULL, NULL);
+    expect_device_strings(&device, NULL, NULL, NULL);
     CHECK(device_status_calls == calls);
     OK(gldCreateDevice(&dev, 1, NULL));
     const char *vendor = gldGetDeviceString(dev, UINT32_C(0x1f00));
     const char *renderer_string = gldGetDeviceString(dev, UINT32_C(0x1f01));
     CHECK(vendor && !strcmp(vendor, "vGPU-macOS"));
     CHECK(renderer_string && !strcmp(renderer_string, "vGPU restricted SVGA3D"));
-    expect_device_strings(dev, vendor, renderer_string);
+    const char *suffix = gldGetDeviceString(dev, UINT32_C(0x1f02));
+    CHECK(suffix && !strcmp(suffix, "vGPU-macOS restricted (GL unverified)"));
+    expect_version_format(suffix);
+    expect_device_strings(dev, vendor, renderer_string, suffix);
     calls = device_status_calls;
-    expect_device_strings(NULL, NULL, NULL);
-    expect_device_strings((void *)(uintptr_t)1, NULL, NULL);
+    expect_device_strings(NULL, NULL, NULL, NULL);
+    expect_device_strings((void *)(uintptr_t)1, NULL, NULL, NULL);
     CHECK(device_status_calls == calls);
     for (device_status_fault = 1; device_status_fault <= 4; ++device_status_fault) {
         calls = device_status_calls;
-        expect_device_strings(dev, NULL, NULL);
+        expect_device_strings(dev, NULL, NULL, NULL);
         CHECK(device_status_calls > calls);
     }
     device_status_fault = 0;
-    expect_device_strings(dev, vendor, renderer_string);
+    expect_device_strings(dev, vendor, renderer_string, suffix);
     vgpuIntegrationStatus(&status);
 #if defined(GI_CONTROLLED_PUBLIC_EXPERIMENT)
     CHECK(status.metadata_enabled && status.candidate_count == 1);
@@ -296,10 +329,10 @@ int main(void)
     /* 新 context 没有完成代次，沿用真实 render 的 NotReady，不伪造 fence。 */
     gldWaitForContext(context); expect_render(kIOReturnNotReady);
     expect_attach_cases(context, 1, a, h, b);
-    expect_device_strings(dev, vendor, renderer_string);
+    expect_device_strings(dev, vendor, renderer_string, suffix);
     calls = device_status_calls;
-    expect_device_strings(context, NULL, NULL);
-    expect_device_strings(share, NULL, NULL);
+    expect_device_strings(context, NULL, NULL, NULL);
+    expect_device_strings(share, NULL, NULL, NULL);
     CHECK(device_status_calls == calls);
     CHECK(gldGetError(context) == 0x502 && gldGetError(context) == 0);
     for (size_t i = 0; i < 2; ++i) OK(gldCreatePipelineProgram(share, &pipeline[i], pd[i], pu[i]));
@@ -388,16 +421,18 @@ int main(void)
     for (size_t i = 0; i < 2; ++i) OK(gldDestroyPipelineProgram(share, pipeline[i]));
     OK(gldDestroyShareGroup(share)); OK(gldDestroyPixelFormat(pixel));
     fail_owner = 1; CHECK(gldDestroyDevice(dev) != 0); fail_owner = 0;
-    expect_device_strings(dev, vendor, renderer_string);
+    expect_device_strings(dev, vendor, renderer_string, suffix);
     OK(gldDestroyDevice(dev));
     calls = device_status_calls;
-    expect_device_strings(dev, NULL, NULL);
+    expect_device_strings(dev, NULL, NULL, NULL);
     CHECK(device_status_calls == calls);
     CHECK(!strcmp(vendor, "vGPU-macOS") && !strcmp(renderer_string, "vGPU restricted SVGA3D"));
+    CHECK(!strcmp(suffix, "vGPU-macOS restricted (GL unverified)"));
     gldTerminateLibrary(); CHECK(!owners && !images);
-    expect_device_strings(dev, NULL, NULL);
+    expect_device_strings(dev, NULL, NULL, NULL);
     CHECK(device_status_calls == calls);
     CHECK(!strcmp(vendor, "vGPU-macOS") && !strcmp(renderer_string, "vGPU restricted SVGA3D"));
+    CHECK(!strcmp(suffix, "vGPU-macOS restricted (GL unverified)"));
     puts("PASS controlled integration: unbound detach/无效与销毁token/参数拒绝/NULL与canary/命名FBO与首错与pending与代次保留/device身份/状态故障/稳定字符串/selector拒绝/状态不变/稀疏A/回滚/typed dispatch/真实门控/失效/完成与永久故障/销毁重试；仅CPU模型");
     return 0;
 }

@@ -1,0 +1,58 @@
+{
+  "status": 0,
+  "remote": "/var/tmp/vgpu-controlled-draw-probe-20261117T035850344810Z-fc2dca6d",
+  "bundle": "/var/tmp/vgpu-controlled-draw-probe-20261117T035850344810Z-fc2dca6d/VGPUDriverIntegration",
+  "source_sha256": {
+    "tools/mssh.py": "608501ddb57de9b681959fc8698dd6d2d5e864486197ba514fe5487eb33ce254",
+    "kexts/probes/build_controlled_draw_probe.py": "9f73cde5f7a76c313d0edba6547ea5ed58b0c976dc19eb3e7718691fb5fdcae6",
+    "kexts/probes/gld_controlled_draw_probe.c": "45811eba6e4ca6bbc94e898637fcaa1010a127b8ce6fb3a6b8e0f69eae93538e",
+    "kexts/gld-framebuffer/vgpu_framebuffer.h": "e07ec72fd6b47ecd9638532b7befa17858d02e223bab7edafda29e4877275d1c",
+    "kexts/gld-context/vgpu_context.h": "1083f5396774ee3b3b9ed0d07a14baf0ecd50eb4a9397d7d938672fb256f40b2",
+    "kexts/gld-surface/vgpu_surface.h": "0ac277d868176204007016acfe44eca7e2e178b9bd645bf162dbf4d786995d60",
+    "kexts/gld-texture/vgpu_texture.h": "04c1b846d6f75ac95a8ba21ccc9b2492d3cb49537a8843b5716320814fb9e84c",
+    "kexts/gld-integration/context_exports.h": "f9db60308251fc6e9881db6acf697538e5fc71c21f0fe9c1ad72f83bc24b7d95",
+    "kexts/gld-pixel/gld_pixel.h": "41239788e8b97e1053ebb641584aaea7c8df156ceb61cc047ea108f52eedcf5c",
+    "kexts/gld-texture/vgpu_texture_bgra.h": "756958f10b41c58eb4148432a7769c8140b9ee3279a05b63ebe59d0c66132ec3",
+    "kexts/gld-objects/vgpu_objects.h": "5333a089220333a6eb04913bef2728fb721ebdebfb76c5e2b467ef0c55b1583c",
+    "kexts/gld-integration/tcl_exports.h": "bc4247488274e4e9929ee439955fb43a769439bd369b0328df7438acaa10c0ba",
+    "kexts/gld-integration/dispatch_exports.h": "e48629722248a607c113b105b1c053295e4f7a1fe15ce5c7e06525d1750c721d",
+    "kexts/gld-integration/integration.h": "6f0233a816714d585b9b6d8f05656d4564022fc8c0aece1f6c6129bec55a9106",
+    "kexts/gld-pixel/gld_pixel_exports.h": "eba7fc8d4f163b502204da72c4e513dd359c3ea6bcfd141e8e3fa6fb70a516ba",
+    "kexts/gld-device/gld_device.h": "1fd3979ed64a5c0b14ce3f7c89e1178ba87546f5bac1e8f181dc37d4f2fe5563"
+  },
+  "binary_sha256": {
+    "bundle": "4878aa6beab60265f17f54d143faf656299b3ea4c059b8618ef34082dcdfa3dc",
+    "gld_controlled_draw_probe": "dd2b156dacf5bd3347a158440e1ef6ce9d17e9531b58e31eff5dca77e86154ec",
+    "gld_controlled_draw_probe_sanitized": "2e8ce06113fd544ba5c3945d3fcb24d40ff124ffad78608955bb96ab1a007039"
+  },
+  "cpu_sdk_verified": true,
+  "gpu_executed": true,
+  "gpu_results": [
+    {
+      "binary": "gld_controlled_draw_probe",
+      "sha256": "dd2b156dacf5bd3347a158440e1ef6ce9d17e9531b58e31eff5dca77e86154ec",
+      "exit_code": 0,
+      "passed": true,
+      "log": "D:\\Codes\\vGPU-macOS\\out\\controlled-draw-probe-20261117T035850344810Z-fc2dca6d\\gld_controlled_draw_probe-gpu.log"
+    },
+    {
+      "binary": "gld_controlled_draw_probe_sanitized",
+      "sha256": "2e8ce06113fd544ba5c3945d3fcb24d40ff124ffad78608955bb96ab1a007039",
+      "exit_code": 0,
+      "passed": true,
+      "log": "D:\\Codes\\vGPU-macOS\\out\\controlled-draw-probe-20261117T035850344810Z-fc2dca6d\\gld_controlled_draw_probe_sanitized-gpu.log"
+    }
+  ],
+  "gpu_acceptance": "PASS",
+  "gpu_expected_checks": {
+    "baseline": 379,
+    "device_string": 713,
+    "version_format_subset": 144,
+    "detach": 975,
+    "total": 2067
+  },
+  "source_archive_sha256": "666ac3034d8bb3cd5c2d6f37aba2a2d57eea3f3cc772c522960c6e5a5aaa79b5",
+  "fixture_linked": false,
+  "bundle_instrumented": "未作声明",
+  "original_bundle": "/var/tmp/controlled-integration-20261117T035744791749Z/candidate/VGPUDriverControlledCandidate.bundle/Contents/MacOS/VGPUDriverIntegration"
+}

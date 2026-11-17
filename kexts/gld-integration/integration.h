@@ -22,9 +22,10 @@ GI_EXPORT void vgpuIntegrationStatus(struct gi_status *out);
  * 仍由外部核验后端，不将连接成功或 accelerated 标志作为通用驱动能力证明。 */
 GI_EXPORT int32_t vgpuIntegrationPublishCandidate(void *device);
 GI_EXPORT int32_t gldGetVersion(uint32_t *, uint32_t *, uint32_t *, uint32_t *);
-/* default-object 契约第7节：首参为 device，返回模块存活期内稳定的自有字符串。
- * 本项目仅提供 vendor/renderer 身份；无效设备、未知 selector，以及尚未
- * 完整支持的 GL_VERSION/GL_EXTENSIONS 均返回 NULL，不表示系统错误协议。 */
+/* 首参为 device，返回模块存活期内稳定的自有字符串。
+ * 0x1f02 是 GLEngine 派生版本后的驱动后缀，不是数字 GL 版本；固定为
+ * "vGPU-macOS restricted (GL unverified)"，不声明 GL 能力。
+ * 无效/断连/状态故障设备、未知 selector 和 GL_EXTENSIONS 均返回 NULL。 */
 GI_EXPORT const char *gldGetDeviceString(void *device, uint32_t pname);
 GI_EXPORT int32_t gldCreateShareGroup(void *, void **, uintptr_t);
 GI_EXPORT int32_t gldDestroyShareGroup(void *);
