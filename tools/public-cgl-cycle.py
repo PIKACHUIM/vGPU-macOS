@@ -17,7 +17,7 @@ import uuid
 BINARY_SHA = "2b6706eba22815dd3c4b359ad30f9c87728d3435ae6295ffd7f1bf64d9322247"
 PLIST_SHA = "148f813929040c7ad06f9d7b9f2da0217d36fe0fd307fee1a4cc6e3279a5f737"
 TARGET = "/Library/GPUBundles/VGPUDriverDiagnostic.bundle/Contents/MacOS/VGPUDriverDiagnostic"
-STAGES = ("context-only", "clear-read", "gpu", "reject-color")
+STAGES = ("choose-only", "context-only", "clear-read", "gpu", "reject-color")
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 # 此程序由远端系统 Python 执行；所有外部程序均使用参数数组，禁止 shell 插值。

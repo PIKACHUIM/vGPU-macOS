@@ -1,0 +1,8 @@
+[VGPU-GLD-CONTROLLED] gldCreateDevice enter status=0
+[VGPU-GLD-CONTROLLED] gldCreateDevice publish status=0
+[VGPU-GLD-CONTROLLED] gldCreateDevice enable status=0
+[VGPU-GLD-CONTROLLED] gldCreateDevice return status=0
+[VGPU-GLD-CONTROLLED] gldChoosePixelFormat enter status=0
+[VGPU-GLD-CONTROLLED] gldChoosePixelFormat return status=0
+[VGPU-GLD-CONTROLLED] gldChoosePixelFormat has-pixel status=1
+FAIL 选择格式 CGL error=10002 (invalid pixel format)

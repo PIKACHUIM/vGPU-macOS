@@ -6571,3 +6571,11 @@ out/gld-initial-update-wiring.txt通过function_starts确认gleUpdateState真实
 公开runner已补probe PID与退出确认记录、二次超时输出快照、恢复重入及ACL清单校验。`tools/test_public_cgl_cycle.py` 的14项本地故障注入测试通过，涵盖超时/kill失败/中断、恢复失败重试/成功重入、备份损坏/inode丢失/ACL检查；硬链接与rename为真实本地操作，macOS命令和异常wait使用mock。客体普通无ACL的五个bundle路径已只读核对ls输出格式；带ACL备份/恢复仍未实测，SIGKILL或SSH断连后的恢复与证据回传仍无保证。
 
 旧 `kexts/gld-integration/run_tests.py` 改为编排维护中的read与controlled两个SDK CPU入口，去除固定时间戳历史结果依赖；设备生命周期另需显式--device和证据文件，保留原有后端tag门槛（不是本轮v3设备验收入口）。无out/.test-deps/历史目录的独立源码快照通过默认/候选构建、empty1123、read四配置、metadata387与controlled三配置；汇总为 `C:/Users/Pika/AppData/Local/Temp/vgpu-run-tests-clean-n_d6ftqs/out/integration-suite-20261117T023232139588Z/results.json`，scope=CPU、device=not_requested。首轮并行源码变化曾被manifest正确拒绝，独立快照重跑后才报告通过。
+
+### 86.8 公开choose-only到达候选，失败移至后置格式筛选
+
+新增 `gl_triangle_cgl_probe --choose-only`：仅该诊断模式省略公开OffScreen53，保留accelerated/NoRecovery/Legacy/指定renderer/RGBA8请求；只选择和描述格式，不创建context。其余context/clear/triangle模式保留原验收要求。真实SDK严格编译及普通/ASan+UBSan CPU oracle通过，探针SHA256 `f98ff79cbec55637521dae6113c6ab1be4d38d73067b030dbedebe8b346bc314`，远端 `/var/tmp/vgpu-public-triangle-20261117T024340919144Z/`。恢复脚本增加该stage，14项故障测试再次通过。
+
+沿用已验收候选4222a040执行一次可恢复公开选择，记录 `out/public-cgl-cycle-o4qkugw0/`。实际stderr依次显示gldCreateDevice enter/publish/enable/return全部0，gldChoosePixelFormat enter/return=0、has-pixel=1，随后公开CGLChoosePixelFormat返回10002 invalid pixel format。这首次证明当前受控候选真实进入公开驱动创建与格式选择，并返回了节点；不是公开context成功。删除53确实消除了10000前置拒绝，尚需定位后置格式筛选，默认Window为已知不匹配候选。
+
+trust_before/replaced/restored均exit0且退出已确认，原二进制与plist哈希、权限、flags、xattrs及本轮新增ACL清单恢复一致，restore_verified=true。本轮五个路径的ACL均为空，不能把此结果扩展为带ACL恢复已验收。没有内核安装、重启或新GPU绘制。已验证集成阶段此前以edee2c0提交并推送。

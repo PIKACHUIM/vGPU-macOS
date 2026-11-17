@@ -182,7 +182,7 @@ static bool draw(GLuint fb, unsigned shape, bool reject_color)
     return gl_ok("绘图 finish");
 }
 #define REQUIRE(x) do { if (!(x)) goto cleanup; } while (0)
-enum public_stage { STAGE_CONTEXT, STAGE_CLEAR_READ, STAGE_TRIANGLE };
+enum public_stage { STAGE_CHOOSE, STAGE_CONTEXT, STAGE_CLEAR_READ, STAGE_TRIANGLE };
 static int public_probe(enum public_stage stage, bool reject_color)
 {
     CGLPixelFormatObj pf=NULL; CGLContextObj ctx=NULL;
@@ -196,12 +196,24 @@ static int public_probe(enum public_stage stage, bool reject_color)
         kCGLPFAColorSize,(CGLPixelFormatAttribute)32,
         kCGLPFAAlphaSize,(CGLPixelFormatAttribute)8,(CGLPixelFormatAttribute)0
     };
-    REQUIRE(cgl_ok(CGLChoosePixelFormat(attrs,&pf,&count),"选择格式"));
+    /* Modern SDKs reject legacy OffScreen before driver selection. The
+     * choose-only diagnostic omits it but never claims Window support or
+     * creates a context; the other acceptance stages retain their contract. */
+    REQUIRE(cgl_ok(CGLChoosePixelFormat(stage == STAGE_CHOOSE ? attrs + 1 : attrs,
+                                       &pf,&count),"选择格式"));
     REQUIRE(check(pf && count>0,"选择格式非空"));
     REQUIRE(cgl_ok(CGLDescribePixelFormat(pf,0,kCGLPFAOffScreen,&offscreen),"离屏属性"));
     REQUIRE(cgl_ok(CGLDescribePixelFormat(pf,0,kCGLPFAAccelerated,&accelerated),"加速属性"));
     REQUIRE(cgl_ok(CGLDescribePixelFormat(pf,0,kCGLPFANoRecovery,&recovery),"禁止恢复属性"));
     REQUIRE(cgl_ok(CGLDescribePixelFormat(pf,0,kCGLPFARendererID,&renderer),"renderer ID"));
+    if (stage == STAGE_CHOOSE) {
+        REQUIRE(check(accelerated && recovery &&
+                      ((unsigned)renderer & 0x00ffff00u)==0x00027e00u,
+                      "格式必须属于自有 accelerated/no-recovery renderer"));
+        printf("CHOOSE_ONLY renderer=0x%08x offscreen=%d accelerated=%d noRecovery=%d; no context created\n",
+               (unsigned)renderer,offscreen,accelerated,recovery);
+        ok=true; goto cleanup;
+    }
     REQUIRE(check(offscreen && accelerated && recovery && ((unsigned)renderer & 0x00ffff00u)==0x00027e00u,
                   "必须自有 offscreen/accelerated/no-recovery renderer"));
     REQUIRE(cgl_ok(CGLCreateContext(pf,NULL,&ctx),"创建 context"));
@@ -295,7 +307,8 @@ cleanup:
     if (ctx && !cgl_ok(CGLDestroyContext(ctx),"销毁 context")) ok=false;
     if (pf && !cgl_ok(CGLDestroyPixelFormat(pf),"销毁格式")) ok=false;
     free(data);
-    const char *stage_name = stage == STAGE_CONTEXT ? "CONTEXT" :
+    const char *stage_name = stage == STAGE_CHOOSE ? "CHOOSE" :
+                             stage == STAGE_CONTEXT ? "CONTEXT" :
                              stage == STAGE_CLEAR_READ ? "CLEAR_READ" : "TRIANGLE";
     printf("PUBLIC_CGL_%s %s mode=%s\n",stage_name,ok ? "PASS" : "FAIL",
            stage != STAGE_TRIANGLE ? "no-draw" :
@@ -311,11 +324,12 @@ int main(int argc, char **argv)
     bool reject=argc==2 && !strcmp(argv[1],"--reject-color");
     bool context=argc==2 && !strcmp(argv[1],"--context-only");
     bool clear=argc==2 && !strcmp(argv[1],"--clear-read");
-    if (!cpu && !gpu && !reject && !context && !clear) {
-        fprintf(stderr,"用法：%s --oracle-only | --context-only | --clear-read | --gpu | --reject-color\n",argv[0]); return 2;
+    bool choose=argc==2 && !strcmp(argv[1],"--choose-only");
+    if (!cpu && !gpu && !reject && !context && !clear && !choose) {
+        fprintf(stderr,"用法：%s --oracle-only | --choose-only | --context-only | --clear-read | --gpu | --reject-color\n",argv[0]); return 2;
     }
     if (!oracle_selftest()) return 1;
-    return cpu ? 0 : public_probe(context ? STAGE_CONTEXT :
+    return cpu ? 0 : public_probe(choose ? STAGE_CHOOSE : context ? STAGE_CONTEXT :
                                   clear ? STAGE_CLEAR_READ : STAGE_TRIANGLE,reject);
 #else
     if (!cpu) { fprintf(stderr,"CPU 构建只接受 --oracle-only\n"); return 2; }
