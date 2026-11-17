@@ -1,0 +1,178 @@
+IOKit legacy surface / CGLSetPBuffer 静态 wire ABI 研究
+日期：2026-11-17；只读分析 x86_64 客体现有系统映像。
+IOKit UUID：66D3BCA5-2B39-372E-917A-1B7D7534AB2C
+OpenGL UUID：EEBF4330-76CB-3E0E-AD13-BD031235E27F
+地址均为 dyld_info 输出的 unslid 地址，不外推其它 UUID 或架构。
+
+0. 范围和证据方法
+只读 SSH 经现有 tools/mssh.py 连接；读过其 connect/run/main 的实现及 kexts/gld-pixel/research.py 的 dyld_info 用法。
+远端使用 subprocess 调 dyld_info -uuid/-disassemble；只在内存筛选 IOAccel*Surface 函数，不调用任何目标 IOAccel/CGL 函数。
+另读取客体现有 SDK graphics/IOAccelSurfaceConnect.h、IOAccelTypes.h、IOAccelClientConnect.h。
+OpenGL 格式分支跳转表用 dyld_info -section_bytes __TEXT __text 静态原始字节独立核对。
+本次唯一写入是本报告；未安装、重启、执行 GPU/目标函数、修改源码或其它 docs，未触及 Metal；未下载二进制或保存大 dump。
+out/ioaccel-code.txt 不是这里的 IOKit wrappers，不能作为这些 selector 的出处。
+
+1. 最关键结论
+A. CreateSurface 返回的 opaque surface 实际是 IOServiceOpen 得到的 connection port，零扩展保存在 8 字节槽；不是内核返回的新 surface 指针。
+B. SetSurfaceFramebufferShape 是 selector 9：2 个 uint64 scalar 输入 {uint32(flags), uint32(framebufferIndex)}，struct 输入 12+8*num_rects 字节，无任何输出。
+C. SurfaceControl 是 selector 16：2 个 uint64 scalar 输入 {uint32(selector/command),uint32(arg)}，1 个 uint64 scalar 输出；wrapper 无条件取输出低32位写回 caller uint32 槽，再返回原 IOReturn。
+D. 当前 IOKit 的 WaitForSurface 是真实的本地 return 0；没有 externalMethod，也没有等待。这是系统原实现的事实，不是允许自研设备假成功的理由。
+E. DestroySurface 是 IOServiceClose，不是某个 destroy selector；NULL 返回 0xe00002bc。
+F. CGLSetPBuffer 的首次硬件 surface 创建、无迁移路径直接 Create -> shape(0x81,framebuffer=0) -> drawable attach；没有直接 SurfaceControl/config，也不走迁移的 lock/unlock。
+G. 后续仍通过 engine 表 +0x40 attach drawable；未闭合所有实际 driver 回调，不声称该调用的整个传递调用图没有额外 config。
+H. CGL 常规32位颜色路径生成的 create mode 是 0x00100024（2D、无 mip、无 Surface2），不是简单的 BGRA32 枚举0x0a。0x24 的低 nibble 是 ColorDepth8888=4；不能把它未加证明地替换成 BGRA32=0x0a。
+
+2. 完整已见 wrapper 参数表
+记 SI=scalar 输入个数，BI=struct 输入字节数，SO=scalar 输出个数，BO=struct 输出容量字节数。
+所有 scalar wire 元素为 uint64_t；这些 wrapper 中原32位参数均零扩展，不能把它们当紧排 uint32 数组。
+
+函数                              selector SI BI                 SO BO
+CreateSurface / SetIDMode           7        2  0                  0  0
+SetSurfaceScale                    8        1  caller uint32 size 0  0
+SetSurfaceFramebufferShape          9        2  12+8*N             0  0
+ShapeWithBacking[AndLength]        17        5  12+8*N             0  0
+SurfaceControl                    16        2  0                  1  0
+ReadLockSurfaceWithOptions          0        1  0                  0  caller uint32 size
+ReadUnlockSurfaceWithOptions        1        1  0                  0  0
+WriteLockSurfaceWithOptions         3        1  0                  0  caller uint32 size
+WriteUnlockSurfaceWithOptions       4        1  0                  0  0
+QueryLockSurface                   11        0  0                  0  0
+ReadLockSurface                    12        0  0                  0  caller uint32 size
+ReadUnlockSurface                  13        0  0                  0  0
+WriteLockSurface                   14        0  0                  0  caller uint32 size
+WriteUnlockSurface                 15        0  0                  0  0
+WaitForSurface                    无        无消息，本地返回0
+DestroySurface                    无        IOServiceClose(connection)
+
+补充已见：FlushSurfaceOnFramebuffers selector10，SI=2、其它0，scalar顺序为原第三参数、原第二参数；ReadSurface selector5，SI=0，BI=0x20，无输出。
+SDK enum 中 selector2=GetState、6=SetShapeBacking；本次没有对应 wrapper 证据，不推断其 counts/长度。
+
+3. IOKit 精确指令证据
+3.1 Create：入口0x7FF8058D3F9E。
+3FCE shrl $9,edx；3FD1 andl $0x20,edx：IOServiceOpen type=(mode>>9)&0x20，等价 mode bit0x4000 决定 type0/type0x20。
+3FD4 先清 *outSurface=0；3FE4 IOServiceOpen(service,mach_task_self(),type,&connection)。
+3FF7 将零扩展 id 写 scalar[0]，3FFD 将零扩展 mode 写 scalar[1]；4004 selector7，4009 count2，4014 CallScalarMethod。
+401F 检查 method IOReturn；失败4023 Close，返回 method错误；成功402A 将 connection零扩展写8字节*outSurface。Open错误原样返回。
+
+3.2 Shape：入口40A0；40BF/40C4存 flags/framebufferIndex；40C8读取region+0的UInt32 N；40CA构造size=12+8*N；40DE selector9；40E3 count2；40E8 CallMethod。
+调用的四个栈输出参数全部0；返回EAX不变。wrapper 本身不验证 region 长度或尺寸，内核实现必须验证 wire 输入。
+
+3.3 Control：入口4209；422B/4230存原ESI/EDX；4238 scalarOutputCount=1；4243 selector0x10；424B inputCount2；4253 CallScalarMethod。
+4258/425B 无条件将临时64位输出的低32位写*(uint32_t*)原RCX；没有先test IOReturn，也没有检查返回count。
+所以调用者只有在IOReturn=0且实现实际提供输出时才能信任结果；自研实现不能成功却不填输出。该临时输出槽在调用前未初始化。
+
+3.4 Locks：WithOptions Read入口42A3，selector0在42CE，count1在42D3；Write入口4311，selector3在433C，count1在4344。
+输出容量由原ECX零扩展成size_t临时变量；输出指针为原RDX；无scalar输出、无struct输入；返回的是CallMethod的IOReturn，不向调用者另返最终长度。
+无Options Read入口427B、selector12在428F；Write入口42E9、selector14在42FD；调用CallStructMethod，无输入struct，caller size放本地size_t再传指针。
+无Options unlock：Read435A..4387 selector13；Write43C0..43ED selector15；没有任何输入/输出payload。
+Options unlock：Read4388..43BF selector1；Write43EE..4425 selector4；SI=1，零扩展options，其它全0。
+QueryLock入口442E，4442 selector11，4451 CallMethod；所有count/struct/outputs为0。
+Wait入口4426..442D：push rbp;mov rsp,rbp;xor eax,eax;pop rbp;ret。
+Destroy4052..4067：surface非0就tail-call IOServiceClose；0则EAX=0xe00002bc。
+
+3.5 其它 shape / scale（只记录wire，不纳入最小实现）
+SetScale 4068..409F：原ESI零扩展作为一个scalar，原RDX是struct，原ECX是输入字节数；selector8。SDK IOAccelSurfaceScaling为44字节，但wrapper允许caller给长度，不能声称所有caller恒传44。
+WithBacking入口4108，SI={flags,fbIndex,backingAddress,rowBytes,uint32(int16(region+0xa)*rowBytes)}，selector17。
+WithBackingAndLength入口418B，同selector17/SI5，最后一个元素改为原第七参数的低32位零扩展。
+两者struct均为12+8*N，无输出。不要误记成selector6。
+
+4. region及lock输出精确布局
+SDK根目录：/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/IOKit.framework/Versions/A/Headers/graphics/
+IOAccelBounds={SInt16 x,y,w,h}，8字节。IOAccelDeviceRegion固定头12字节，尾部N个bounds。
+region+0x00 UInt32 num_rects
+region+0x04 SInt16 bounds.x
+region+0x06 SInt16 bounds.y
+region+0x08 SInt16 bounds.w
+region+0x0a SInt16 bounds.h
+region+0x0c rect[0].x, +0x0e y, +0x10 w, +0x12 h；之后每rect步长8。
+SDK关于N=0表示bounds作为visible rect的语义存在，但CGL首次PBuffer确实写N=1且rect[0]全0，不可擅自修成N=0或把rect改成256x256。
+
+x86_64 IOAccelSurfaceInformation，sizeof=0x58（88），对齐8：
++0x00,+0x08,+0x10,+0x18 mach_vm_address_t address[4]，每项8字节
++0x20 UInt32 rowBytes
++0x24 UInt32 width
++0x28 UInt32 height
++0x2c UInt32 pixelFormat
++0x30 IOOptionBits flags（32位）
++0x34,+0x38,+0x3c,+0x40 IOFixed colorTemperature[4]（每项32位）
++0x44,+0x48,+0x4c,+0x50 UInt32 typeDependent[4]
++0x54..0x57 尾部对齐padding；不是新的已证字段。
+结构总长由SDK布局与CGL传0x58互证。wrapper本身只转发caller容量；不是所有调用强制88的证据。
+CGL迁移实际消费address[0]、rowBytes、height；见opengl-loader.txt:6953/6957/6963/6964/6965/6966。
+它以min(src.rowBytes,dst.rowBytes)逐行memcpy，行数min(src.height,dst.height)。因此非NULL地址、正确pitch/height和真实可访问backing是成功lock的必要结果；不能仅填尺寸返回0。
+SDK lock option：0=InBacking，1=InAccel，2=InDontCare，mask=3；3没有已命名支持值。
+
+5. CGLSetPBuffer首次无迁移路径
+主证据：out/opengl-loader.txt:6416..7105；入口0x7FFB06166D5A。
+输入RDI=context、RSI=pbuffer、EDX=face、ECX=level、R8D=virtualScreen。
+非cube target要求face=0（66EB3..66EBB）；level必须0<=level<=pbuffer+0x14（66EC2..66EC9）。cube将face减0x8515并要求<6。
+pbuffer+0x08=id，+0x0c=target，+0x14=maxLevel，+0x18/+0x1c=32位width/height；+0x24=深度派生量，+0x28=create mode，+0x2c=accelerator service，+0x30=surface connection槽。
+
+5.1 mode生成
+helper62F71对pixel format掩码返回2/4/8/16字节颜色量。CGL66F7D..66F95用ror32((value-2),1)索引跳转表，实际表基址0x7FFB06167824。
+本次-section_bytes原始32字节：73f7ffff8ff7ffffe1f7ffff7af7ffffe1f7ffffe1f7ffffe1f7ffff96f7ffff。
+8个目标：66F97、66FB3、67005、66F9E、67005、67005、67005、66FBA（均前缀0x7FFB061）。
+因此value4 -> index1 ->66FB3 ->mode基值0x24，已由原始表证明，不是按附近标签猜测。
+2D/1D target 0xde0/0xde1加0x100000；rectangle0x84f5加0x200000；cube0x8513加0x300000。
+maxLevel字段min(maxLevel,15)&15再<<16；mode另从pixel-format关联flags右移6取0x4000。
+最窄2D、maxLevel0、无Surface2、32位8888产生0x00100024。
+SDK的BGRA32常量0xa与CGL此处8888常量4不是同一编码；BGRA内存字节顺序还需驱动端格式映射证明，不能只靠名称混为一谈。
+
+5.2 Create/shape实际输入
+67187读取pbuffer.id，6718B传mode，6718E传&pbuffer.surface，67191调用CreateSurface。
+67196检查IOReturn；失败将pbuffer+0x2c清0并返回CGL错误0x2720。
+成功672D3..672E2 malloc20；672ED写uint64(region+0)=1，即N=1、bounds.x/y=0。
+672F4从pbuffer+0x18读width/height两个uint32；672FA pshuflw 0xe8抽取各自低16位；672FF写region+8的4字节。
+67304将region+0xc起8字节清0；rect[0]因此全零。
+6730C传surface；67310传region；67313 flags=0x81；67318 framebufferIndex=0；6731A调用Shape。
+256x256精确20字节：01 00 00 00 00 00 00 00 00 01 00 01 00 00 00 00 00 00 00 00。
+wire scalars={0x81,0}，structSize=20，无返回payload。
+6731F保存IOReturn，free region后6732D检查；非0跳6750F，最终CGL错误0x2715。
+
+5.3 为何首次不走locks
+创建前旧surface为空时，本地-0x48保存NULL（6716F）；shape成功跳67419；6741D测试旧surface，空则67420直接跳676C4。
+所以67470..676BF的Query/Wait/ReadLock/WriteLock/Unlock/迁移copy整段在该路径跳过。
+迁移路径中Query和Wait返回值被忽略；ReadLock先option0，失败再option2，并实际检查成功；目标WriteLock option1及随后的WriteUnlock返回值被忽略，然后ReadLock0/2并检查。
+read-unlock、wait、destroy的返回值在迁移清理中均未消费。
+“caller不检查”不等于实现可假成功；它可能立即用后续读锁结果和backing进行拷贝。
+
+5.4 shape之后有没有config
+676C4取得全局mutex并查/创drawable记录；硬件pbuffer记录tag=0x5a，+0x10=pbuffer指针，size24。
+67794将归一化face存context-private+0x10，67797存level到+0x14；677AA调用helper67844。
+helper67844调用63259，后者636DF..63715装配engine attach：ESI=0x5a，RDX=pbuffer指针，ECX=virtualScreen相关索引，R8D=(face<<8)|level，RDI=engine context，call engine table+0x40。
+因此face0/level0时attach options=0。
+在这段OpenGL主体及所追的helper中没有调用IOAccelSurfaceControl；整个OpenGL dump仅一个直接SurfaceControl call，在独立_CGLSetPBufferVolatileState（11147..11190）。
+该volatile API传Control(surface,4,*state,state)，只接受输入state<2；IOKit错误映射CGL0x2715。它不是首次CGLSetPBuffer自动config。
+engine/具体驱动attach回调仍可能发自己的消息，本研究未对完整传递调用图作否定性证明；不可把“没有直接Control”扩写成“所有驱动都没有后续配置”。
+helper67844成功返回首次attach状态1/已有状态2；CGL将1/2映射成0，1还触发context dispatch+0x7e0及+0xa80，以pbuffer宽高设置状态。其它错误原样返回。
+
+6. 可实现的最小subset及拒绝边界
+以下为建议的窄实现边界，不是宣称现有驱动已经完成，也不是宣称只实现两条消息就能绘制。
+
+最小首次绑定surface侧：
+- 仅type0；每connection拥有独立、可清理的surface状态，selector7严格SI2/SO0/无struct，记录有效id与精确允许mode。
+- 先限2D、face0、level0、maxLevel0、256x256、单份32位颜色backing；type0x20/Surface2不支持就拒绝，不能悄悄当type0。
+- CGL实际mode的候选白名单为0x00100024；必须先闭合其颜色编码到BGRA的映射，才可声称BGRA支持。若直接API额外支持0x0a，只能作为独立已定义模式，不可误认为CGL必然发送它。
+- selector9严格SI2、SO0、BI20、无输出；flags恰0x81，framebufferIndex0；region恰上述单一bounds及空rect形状。长度与N一致，使用防溢出检查，不信任wrapper或caller。
+- 真正分配并维护所支持的颜色backing、所有权和错误回滚；256*4=1024字节行距、256行、262144字节是紧排BGRA方案，可采用，但不是由shape ABI强制的硬件pitch。
+- 在id关联/内存分配/尺寸配置真实成功后才返回0；连接关闭必须释放资源并使引用失效。
+- 后续GLD attach需按同一id找到同一surface/backing；两消息成功不证明render/readback/同步已实现。
+
+严格拒绝而不是掩掉的请求：
+- create mode不等于已证明白名单：包括非8888颜色、stereo0x10、BeamSync0x8000、Surface2 0x4000、非零mip字段0x000f0000、rectangle/cube目标、未知高位。0x20 Windowed是实际0x24的一部分，不能粗暴拒绝所有Windowed bit。
+- shape flags不等于0x81；特别NonSimple0x2、IdentityScale0x4、FrameSync0x8、BeamSync0x10、StaleBacking0x20、Assembly0x40，未知bit。最小subset不自动声称支持flag0或0x80等其它组合。
+- 0x81本身含NonBlocking0x1+WaitEnabled0x80，不能仅因名字含wait/nonblocking就错误拒绝；若实现不能满足其实际请求语义，则该首次路径应失败，不能去掉bits假成功。
+- 非零framebufferIndex、其它尺寸/坐标、多rect、错误长度、非零face/level、maxLevel>0、外部backing、scale、flush/read、未实现control command等均拒绝，后续按证据逐项扩展。
+- selector16若未实现volatile/control，返回真实不支持；不可成功但漏填SO1，或把调用者原state原样充作“已配置”。
+- 最小首次无迁移路径不要求locks；如扩展迁移/CPU访问，需要实现真实读写锁与映射，按0/1/2位置语义处理，仅允许已支持options；未知位与值3拒绝。
+- lock成功必须填完整有效88字节结果（含真实映射地址、pitch、尺寸、实际pixelFormat/flags），容量不足失败；仅已证宽度/高度不足以伪造成功。pixelFormat具体值和address[1..3]语义尚未恢复，不编造。
+- Wait wrapper本地返回0不替代设备同步；不能据此在有未完成工作的driver端伪造idle/fence成功。
+
+7. 未证事项与实现阻塞
+- 原生内核surface dispatch对所有selectors的输入校验、内部对象结构、锁状态机、映射内存类型、device-side同步尚未恢复；上表是用户态wrapper请求ABI，不是所有kernel允许长度集合。
+- 8888 mode4与BGRA32 mode0xa在此目标实际驱动中的像素字节序、lock pixelFormat编码未闭合。256x256 BGRA仍需这一步才能称完整支持。
+- SurfaceControl command4的底层状态/旧值/新值语义未由kernel实现验证；只证实CGL volatile调用与wire低32位回写。
+- shape0x81下N1且空rect的实际kernel解释未静态闭合；已证它就是CGL发出的请求，不能随意改payload或宣称空rect无效。
+- engine +0x40到具体GLD attach及其所有下游调用未在本报告闭合；无法证明没有间接config/额外device消息。
+- 不把公共SDK旧枚举覆盖范围当作完整私有mode定义；未证明其它format、target、mips、Surface2或特殊flags可工作。
+- 无动态成功案例、GPU执行或绘制验证；本报告不构成运行成功结论。

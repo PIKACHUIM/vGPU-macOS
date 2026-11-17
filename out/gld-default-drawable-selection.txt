@@ -1,0 +1,162 @@
+GLEngine 默认 drawable 的 draw/read 选择：只读静态证据
+日期：2026-11-17
+目标：macOS 15.7.3 /24G419 x86_64；地址为 unslid。
+GLEngine UUID 沿用已核验记录 FB994F78-34C6-39F3-857D-99F9B3013E8F。
+
+1. 结论
+
+在本报告限定的正常默认目标路径（无 named/辅助 FBO、无 fallback，attach 成功）中，B+0x4a0 与 B+0x4a8 仍为 NULL。没有“attach 后应生成非 NULL 默认 FBO token”的依据；相反，GLEngine 绑定 framebuffer name=0 的生产者显式清零这些槽，Float 消费者明确以 NULL 转向另行保存的 drawable。
+
+必须修正 out/gld-initial-update-wiring.txt:42..45 的过宽表述：“零 token 只解除绑定”适用于当前项目未接默认 drawable 的内部后端，不足以描述真实 GLD 默认路径。系统中 NULL 表示未选择 named/辅助 framebuffer，实际默认目标由已 attach 的 drawable、尺寸和 H buffer selection 决定。NULL 本身不证明有 surface、可绘制或提交成功。
+
+mono single-buffer 默认 front 的规范化共享选择为：
+  uint16(H+0x3c08) = 0x0400（GL_FRONT_LEFT），read。
+  uint16(H+0x3c0c) = 0x0400（GL_FRONT_LEFT），draw 第一项；其余有效 draw 项须符合受支持域，不能仅检查首项后忽略其他项。
+  0x0404（GL_FRONT）是公开/逻辑选择值，不应误当此已规范化 H 字段的默认值。
+  0x0402 是 GL_BACK_LEFT，不是单缓冲默认 front。
+
+2. 指针关系及来源
+
+G = GLEngine GLIContext。
+S_i = G+0xc6b0+i*0xe20；A_i=S_i+0x10；H=G+0x8e0；B_i=S_i+0x270。
+故 B_i+0x4a0 = G+0xcdc0+i*0xe20；B_i+0x4a8 = G+0xcdc8+i*0xe20。
+H+0x3c08=G+0x44e8，H+0x3c0c=G+0x44ec。
+创建参数保存证据见 out/gld-shared-state-research.txt:41..54；本次重新核查客体 Float 的更新消费者。
+B 是 GLEngine 持有的逐插件句柄视图，不是 drawable 本体；B 本身有效和 B 内两个槽为 NULL 是不同条件。
+当前操作 C=*(G+b4c8)、A=*(G+b4d8)、T=*(G+b4e8)、R=*(G+b4e0)，不能忽略插件切换/fallback 别名。
+
+3. B 槽的直接生产者：default 与 named 的正反证据
+
+客体 /var/tmp/vgpu-fb/glengine-code.txt，行1348..1364：
+  0637C2D2 movaps xmm0,G+b2b0；C2D9 movq 0,G+b2c0。
+  C2EC lea G+cdc0,rcx；C2F5 movaps 零,(rcx+rdx)；C2F9 rdx+=e20。
+这是初始化全部插件 draw/read 槽为零，不是根据驱动 NULL 分支倒推。
+
+_gleBindFramebuffer 真入口 0x7FFB06454E96，行217393起：
+  454EAA test edx,edx；454EAC name==0 跳455063；455063 xor ebx,ebx，F=NULL。
+  name!=0 才查询/创建上层 FBO；F+0xc8+8*i 是该插件的 GLD framebuffer token。
+  45508C、4550A6 分别更新 G+b2c0（read）与 G+b2b8（draw）；按 target 0x8d40/0x8ca9/0x8ca8 分流。
+  named 双向：455231 读取 F+c8+8*i；455239/45523D 分别写 G+cdc0+i*e20、G+cdc8+i*e20。
+  named draw-only：455339 读 F+c8+8*i；455341 写 draw 槽。
+  named read-only：455397 读 F+c8+8*i；45539F 写 read 槽。
+  default 双向：455293 写 c695/c696=1；4552AE lea G+cdc0；4552BE pxor；4552C2 每插件写16字节零。
+  default draw-only：4554E3 写 G+cdc0=0，4554FE 写下一插件 G+dbe0=0（成对展开循环）。
+  default read-only：4555A6 写 G+cdc8=0，4555C1 写下一插件 G+dbe8=0。
+这直接证明默认 framebuffer name=0 的系统协议是 NULL 槽，且 draw/read 可独立选择。
+
+辅助 FBO 也可产生非 NULL：0644037C 写临时 F 到 G+b2b8；06440390..03B1 复制 F+c8 各插件 token 到 draw 槽。此处使用 r13=F+28，因此读 r13+a0；不能把它当 attach 的默认对象。
+_gleDCPixRestoreStateBlitPath 064522EF：从保存状态恢复 G+b2c0；非 NULL 在0645231B..2333复制 F+c8 到read槽，NULL在064523B1/23CC清零。说明复制/恢复辅助状态必须同样保留 default NULL 语义。
+本次没有声称穷举所有间接成块写入；以上生产链足以正面区分正常 default、named 与辅助 FBO。
+
+4. attach 的真实入口和参数、后续状态
+
+当前映像可见入口是 _gliAttachDrawable，不是本次实际找到的 _gleAttachDrawable 标签：
+  064DA7FF 起；064DA803 xor r8d,r8d；064DA807 尾跳 _gliAttachDrawableWithOptions。
+_gliAttachDrawableWithOptions 真入口0638EB22，行15112..15307：
+  输入机器参数 G、type(ESI)、drawable(RDX)、插件索引(ECX)、options(R8D)。
+  0638EBE4 按插件索引乘 e20；EBEB 取 plugin；EBF3 取该插件 C。
+  EBFB R8=&G+b570（两个 int32 尺寸输出）；EC02 ESI=type；EC05 RDX=drawable；EC08 ECX=options。
+  EC0F call *(plugin+4a0)，即 T+80=gldAttachDrawable。
+因此此 GLD 边显式准备五参：gldAttachDrawable(C,type,drawable,options,&width_height)。R9 是表所在 plugin 临时寄存器，不据此宣称第六参数。
+  EC19..ED37 分类 EAX=0..3，按是否换插件、是否需 config 更新决定后续；不是简单“非零都失败”。0x2720 还可能尝试另一个插件。
+  ED41 对 G+b61b OR c0，置 dirty bit30/31。
+  条件换插件 ED A5 调 gleSwitchPlugin，并可 OR de3c0478。
+  条件配置更新 EDBA 调 gleUpdatePluginConfig。
+  EDE4 写 G+b300=传入 drawable；错误支 EDED 清 G+b300，EDF8 清 type。
+  EE04 写 G+b634=type；EE11 调 gliUpdateDispatchState。
+attach 主体没有把 drawable 写进 B draw/read 槽、没有调用 gldCreateFramebuffer。
+现有 named 绑定不因 attach 自动消失；“attach 后仍 NULL”前提是先前就在 default 路径，而不是任意 context attach 都清零。
+
+_gliUpdateDispatchState 064DA80C..A965：根据 G+c68d、G+b300 和 G+b2b8/b2c0 决定置 draw bit29/read bit27；条件分支重建 dispatch/视口状态。它没有把 drawable 改造成默认 FBO token。
+
+Float attach 064EFB70：调用 glsAssignDrawable；独立 drawable 状态在 C+3078，type在C+3080。064EFD29..FD59 从该 drawable 的+8/+c输出width/height，NULL输出0，上限4000。这里只用来证明默认资源与B槽分离，不要求本项目复制Float布局或分配策略。
+
+5. mono single front 选择值的生产与消费
+
+_gleUpdatePluginConfig 0647247B，行245181..245205：
+  47248F 比较当前 A+29是否0；ecx=(A+29!=0)，edx=(A+29==0)。
+  472499 edx ^= 0x405；47249F eax=0x400+2*ecx。
+  4724A6 写 G+b644=dx；4724AD 写 G+44e8=ax。
+  4724B4 写 G+44ec=ax；4724BB 写 G+b63c=dx。
+所以 A+29==0 时：公开/逻辑 read/draw保存值为404，实际H read/draw首项为400；A+29!=0时为405/402（back）。
+A+2a参与stereo展开；mono front受控域要求无right额外buffer，不把stereo的多项当单front。
+
+默认 draw setter局部063A6B37..6CA8：
+  输入选择先存G+b63c和G+44ec；聚合枚举分支会改写规范化序列。
+  6B9A/6BC1/6C20写400，6C52写402，相关分支按 A+2a及G+c693展开right/back。
+  6C83..6C95清后续序列（总16字节），6CA1置dirty bit30。
+  G+b620低位记录有效颜色draw项；G+458e由它与G+b61c求交得到。
+本次未单独解码该setter所有跳转表，故不按最近标签猜全部聚合枚举分支；mono初始400由上面的直线代码独立证明。
+默认 read setter 063A852C..855C：原选择存G+b644；404..407通过常量表规范化，然后写G+44e8，变化时置bit31。本次不把未取出的整个映射表写成已验证结果。
+
+Float 消费者的独立证明：
+  UpdateDraw 064EEC88/EC8F 从 C+1040=B 取 B+4a0；ECBB 调 glrLoadCurrentDrawFramebuffer(C,token)，即使token=NULL也调用。
+  LoadDraw 064F0E94缓存token；0EA5 NULL跳0F55，复制默认像素配置并在有drawable时调用ClipDrawableRect；不会解引用NULL的named描述。
+  SetDraw 064EABF5 NULL跳EAD12；要求C+3080非0；普通路径另在EAD2C要求B+4a0==0（type5c有专门旁路，不外推）。
+  EAD54 取H+3c0c，EAD67逐个uint16读八项；400在EAD7A..AD90选drawable+20的front槽；402在EAD92..ADA4选drawable+28的back槽。
+  EAF41..AF4B front backing尚无时调用有明确名称的_gldAllocateFrontColorBuffer。这是“400=front”的正面消费者证据，不只依赖GL常量名。
+  UpdateRead 064EEB62/EB69取B+4a8；EB83调用LoadRead(C,token)；EB92调用SetRead(C,H)。
+  LoadRead 064F10E4 NULL跳11CE，复制默认配置，有drawable时尾调ClipReadableRect。
+  SetRead 064EB0D5 NULL跳B1D5；先要求C+3080非0；B1E2读H+3c08。
+  B1F5比较400，B201/B208读drawable+20；若空则B218调用AllocateFrontColorBuffer。
+这条NULL->drawable->front链直接排除“默认必须非NULL FBO token”假设，同时证明NULL而未attach不是可用目标。
+
+Mercury交叉证据（out/gld-context-hardware-raw.txt:1611..1696）：
+  0x7FF9183561A0从B+4a8读token；NULL在61D6清缓存代次、61E7置ESI=0、61E9调用内部read bind(C,NULL)，61EF缓存NULL。
+  0x7FF9183562A2从B+4a0读token；NULL在62D8清代次、62E9置ESI=0、62EB调用内部draw bind(C,NULL)，62F1缓存NULL。
+该片段独立证实硬件公共层也接受NULL绑定分支，但没有恢复内部vtable绑定函数的默认surface选择；不能用它单独证明硬件NULL提交成功。完整default选择正证据来自GLEngine生产者与Float消费者，非复制Float布局。
+
+6. attach 到默认 clear/read 的真实 GLD 边
+
+D=uint32(G+b618)。本节调用点结合本次重读的state函数与已有 out/gld-clear-readback-research.txt。
+Draw状态函数0644AFD4：
+  bit28触发completeness/性质更新。G+b2b8为NULL在B018跳B102，取默认A性质，不走named LoadFramebuffer。
+  bit29校验：c696必须有效；通常要求G+b300或draw FBO存在；另有c68d与profile旁支。无目标可返回ff0000，非一律GL错误。
+  B1BB ESI=D&443c0478；B1C3 RDI=当前C；B1D1 call T+a0=gldUpdateDrawFramebuffer(C,dirty_value)。不显式传token；token从借用B取。
+  EAX==2只触发额外dirty；随后engine清本次dirty。不能返回错误码后期待engine自动停止后续clear。
+Read状态函数0644B27A：
+  bit25触发性质/完整性；G+b2c0为NULL在B2C8跳B35D取默认A。
+  bit27校验c695及G+b300/read FBO，缺目标有ff0000退出分支。
+  B3C6 ESI=D&80000000；B3CE RDI=C；B3DC call T+98=gldUpdateReadFramebuffer(C,dirty_value)，返回未检查，随后清bit31。
+
+默认 glClear_Exec 06397822：
+  978E8条件调用DrawFramebufferState，非零可退出。
+  若A+6e==0：979C9 call R[0](C,过滤后的公开GL clear mask)，颜色位4000；clear色经H+3bf0等共享状态。
+  若A+6e!=0：97A42 call T+d0=gldClearFramebufferData(C,内部附件mask,&Dclear)。
+  Dclear至少28字节：+0颜色16B，+10 float depth，+14 uint32 stencil，+18明确0。
+  对仅默认单front颜色且有效存在掩码低位为1的受控状态，公开4000最终对应内部颜色附件bit0，即M=1；不能把所有颜色clear一概硬编码为1。
+  没有显式FB参数；C及先前B/drawable/H选择共同确定目标。
+
+glReadPixels_Exec 063B6754：
+  3B6808附近条件调用ReadFramebufferState；再gleCheckReadPixelsNeeds。
+  默认颜色read要求G+44e8!=0、非整数请求等；NULL read FBO时从G+b570/b574取int32尺寸裁剪，非NULL改取F+1da/1dc uint16。
+  裁剪宽高<=0不发GLD调用。默认宽高为0不能靠返回无错误证明read成功。
+  无PBO/无IOSurface旁路普通CPU分支3B6B02：
+    gldReadFramebufferData(C,x',y',w',h',标准化format,type,修正pixels,0,0)。
+  前六参为SysV寄存器，第7..10为四个8字节栈槽；不含FB参数。当前pack stride临时写在H+4ecc，驱动需在调用期读取。
+  该分支不检查EAX；成功返回不替代真实像素、同步与故障检查。
+
+7. 给PBuffer接入的实施边界（仅建议，本轮未改代码）
+
+选择优先级必须分别对draw/read计算：
+  B对应槽非NULL -> 使用已登记且有效的named/辅助FBO，保持原资源验证。
+  B对应槽NULL -> 尝试本context已attach的默认drawable；mono single受控域要求front选择400、真实尺寸、有效且同代的backing。
+  NULL且无有效drawable -> 无可用目标；不得伪造clear/read/submit成功。
+不能在attach时向engine的B槽塞一个自造默认token；若后端需要非NULL的自有surface句柄，应放在自有context drawable状态中，在上述default分支解析，不能改变外部B协议。
+也不能把NULL更新总是映射成“解除所有render目标”，否则attach后的默认front会丢失；named解绑和默认drawable选择需要在内部目标解析中区分。
+有效drawable是生命周期/资源契约，不是仅G+b300或自有指针非零；需要attach成功、尺寸匹配、backing就绪、支持的格式/采样/缓冲选择、正确owner和销毁/重attach代次。
+实际clear还受有效颜色附件mask、scissor、color mask等约束；read还受格式/范围/pack/同步约束。零面积或GL_NONE可以合法不操作，但不能据此宣称像素链成功。
+
+8. 范围、复现索引与未证事项
+
+本轮只读现有本地报告、tools/mssh.py及客体已有静态文本；通过mssh运行Python局部文本筛选。未调用任何GL/GLD目标入口、未GPU提交、未安装、未reboot、未Metal；唯一交付写入本文件。没有复制缓存、没有创建远端文件。
+主要原始证据：
+  /var/tmp/vgpu-fb/glengine-code.txt：15112..15307 attach；1348..1364初始零槽；217393..217810 bind/default生产；245181..245205默认front生产；208555..208796更新门控；335376..335460 attach包装/dispatch更新。
+  /var/tmp/vgpu-fb/gld-shared-state-float-extra.txt：1..145 attach；409..724 draw选择；725..915 read选择；916..1106 LoadCurrent NULL分支。
+  /var/tmp/vgpu-fb/gld-shared-state-float-disassembly.txt：456..551更新读取B及调用。
+  out/gld-context-hardware-raw.txt:1611..1696 Mercury公共层。
+  out/gld-clear-readback-research.txt:68..173 clear/read显式参数及完整性。
+  out/gld-shared-state-research.txt:41..73 A/H/B保存关系和稀疏字段。
+
+未宣称：公开CGL/PBuffer端到端运行成功；已恢复PBuffer payload完整ABI；已恢复Mercury内部默认surface绑定实现；所有profile/fallback/辅助路径均保持NULL；NULL等于成功；Float布局是本项目必需ABI。
+本报告解决的是默认对象选择和B/H生产消费闭合，PBuffer的实际资源创建/attach payload/同步仍须由各自契约与后续授权验证承担。

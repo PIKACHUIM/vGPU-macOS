@@ -1,0 +1,74 @@
+UTC 2026-11-17T03:59:19.104761+00:00
+COMMAND test -d /var/tmp && mkdir /var/tmp/vgpu-surface-registry-cpu-1377c43d64c541a0bc7e5eafc84455ef
+EXIT 0
+SHA256 8428420b49e61012af12db774083ad56d865822f006104e87bd0843aa67b244b vgpu_surface_registry.h
+SHA256 671dcfab538b9582447574cf6751bd9faf2e02ff15e18bfca826fe1cc892582b vgpu_surface_registry.c
+SHA256 a84fbab788fe4d106665039ded7b76653dab6d650f484f29c00dc87bbbb58b1c registry_test.c
+SHA256 7ec80cfcbd56ffa2fb18ab665e80692dea62cda06d68fdcc06f5859a3efd2097 run_cpu_tests.py
+COMMAND clang --version && xcrun --show-sdk-path
+Apple clang version 17.0.0 (clang-1700.0.13.5)
+Target: x86_64-apple-darwin24.6.0
+Thread model: posix
+InstalledDir: /Library/Developer/CommandLineTools/usr/bin
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-registry-cpu-1377c43d64c541a0bc7e5eafc84455ef && shasum -a 256 vgpu_surface_registry.h vgpu_surface_registry.c registry_test.c
+8428420b49e61012af12db774083ad56d865822f006104e87bd0843aa67b244b  vgpu_surface_registry.h
+671dcfab538b9582447574cf6751bd9faf2e02ff15e18bfca826fe1cc892582b  vgpu_surface_registry.c
+a84fbab788fe4d106665039ded7b76653dab6d650f484f29c00dc87bbbb58b1c  registry_test.c
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-registry-cpu-1377c43d64c541a0bc7e5eafc84455ef && clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -Wstrict-prototypes -pedantic -g -O1 vgpu_surface_registry.c registry_test.c -o registry-test
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-registry-cpu-1377c43d64c541a0bc7e5eafc84455ef && ./registry-test
+PASS two connections share backing, both close orders, revoke, final reuse, stale
+PASS disconnect creator or one draw owner preserves other leases
+PASS creator reference independently retains backing, lease tokens do not ABA
+PASS scope, identity, owner, action-kind isolation and unchanged failure state
+PASS allocation/partial allocation failures, cancel-before-completion, release retry
+PASS exact capacity, output/state rollback, token/refcount overflow fail-closed
+PASS all six completion orders, ready=0/1 replay preserves READY/RETIRED leases
+PASS mixed RESERVED/READY/self/foreign leases close, blocked cleanup isolation
+PASS early cleanup refusal, tampered action fields, old cleanup after reuse
+PASS open/reserve/resolve/next_cleanup failure output and registry canaries
+PASS 10000 production-core lifetimes with reference/owner invariants
+ALL PASS: 311971 checks
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-registry-cpu-1377c43d64c541a0bc7e5eafc84455ef && clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -Wstrict-prototypes -pedantic -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer vgpu_surface_registry.c registry_test.c -o registry-sanitized
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-registry-cpu-1377c43d64c541a0bc7e5eafc84455ef && ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./registry-sanitized
+PASS two connections share backing, both close orders, revoke, final reuse, stale
+PASS disconnect creator or one draw owner preserves other leases
+PASS creator reference independently retains backing, lease tokens do not ABA
+PASS scope, identity, owner, action-kind isolation and unchanged failure state
+PASS allocation/partial allocation failures, cancel-before-completion, release retry
+PASS exact capacity, output/state rollback, token/refcount overflow fail-closed
+PASS all six completion orders, ready=0/1 replay preserves READY/RETIRED leases
+PASS mixed RESERVED/READY/self/foreign leases close, blocked cleanup isolation
+PASS early cleanup refusal, tampered action fields, old cleanup after reuse
+PASS open/reserve/resolve/next_cleanup failure output and registry canaries
+PASS 10000 production-core lifetimes with reference/owner invariants
+ALL PASS: 311971 checks
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-registry-cpu-1377c43d64c541a0bc7e5eafc84455ef && clang++ -x c++ -std=c++11 -Wall -Wextra -Werror -Wconversion -Wshadow -pedantic -O1 -c vgpu_surface_registry.c -o registry-cxx.o
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-registry-cpu-1377c43d64c541a0bc7e5eafc84455ef && clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -Wstrict-prototypes -pedantic -g -O1 -c registry_test.c -o test-c.o
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-registry-cpu-1377c43d64c541a0bc7e5eafc84455ef && clang++ registry-cxx.o test-c.o -o registry-cxx-test && ./registry-cxx-test
+PASS two connections share backing, both close orders, revoke, final reuse, stale
+PASS disconnect creator or one draw owner preserves other leases
+PASS creator reference independently retains backing, lease tokens do not ABA
+PASS scope, identity, owner, action-kind isolation and unchanged failure state
+PASS allocation/partial allocation failures, cancel-before-completion, release retry
+PASS exact capacity, output/state rollback, token/refcount overflow fail-closed
+PASS all six completion orders, ready=0/1 replay preserves READY/RETIRED leases
+PASS mixed RESERVED/READY/self/foreign leases close, blocked cleanup isolation
+PASS early cleanup refusal, tampered action fields, old cleanup after reuse
+PASS open/reserve/resolve/next_cleanup failure output and registry canaries
+PASS 10000 production-core lifetimes with reference/owner invariants
+ALL PASS: 311971 checks
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-registry-cpu-1377c43d64c541a0bc7e5eafc84455ef && clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -Wstrict-prototypes -pedantic -g -O1 -ffreestanding -fno-builtin -fno-stack-protector -c vgpu_surface_registry.c -o registry-freestanding.o
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-registry-cpu-1377c43d64c541a0bc7e5eafc84455ef && nm -u registry-freestanding.o
+EXIT 0
+ALL CPU RUNS PASSED; no undefined symbols in freestanding core
