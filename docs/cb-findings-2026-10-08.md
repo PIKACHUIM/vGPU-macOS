@@ -6599,3 +6599,41 @@ CGLSetSurface在0x7FFB06167BBB..7C02分配0x24节点：+8引用计数、+c kind5
 系统GL context open type1使用clear/set selectors100/101；独立drawable type9另有clear0/set1、lookup5，lookup返回Mach port再交IOSurfaceLookupFromMachPort。不能把这些selector与自有0x56475055通道的0–8编号混用。当前内核仅接受自有管理员通道、固定两槽256×256 BGRA，无CGS surface import；GLD attach/present仍为ud2，render缺默认window target，flush仅完成现有资源。必须实现真实backing、绑定/更新/解绑、默认目标、GPU完成同步与present后才能声明Window。
 
 基础context创建可以不绑定drawable，和真正Window接入分阶段实施；这不改变公开默认Q.flags101对Window的筛选。现有离线脚本`tools/cgl_drawable_contract_audit.py`复核28指令锚点通过，依赖本地未跟踪的原始opengl-loader/gfx-loader反汇编，暂不作为干净检出的独立验收入口。研究结论不等于公开context、窗口显示或Core Profile通过。
+
+续查把CGS两端资源链闭合：SkyLight SLSBindSurface(0x7FF807C236E2)的type2走Mach消息0x726d；服务端WSBindSurface(0x7FF807E6CC67)按CGXSurface+18查surface ID，在0x7FF807E6D115调用IOAccelCreateSurface。IOKit 0x7FF8058D3FCE..4014打开type0或0x20并以selector7提交{surfaceID,flags}；应用type1 context再通过selector101绑定同一ID。surface通道另有shape selector9与WithBackingAndLength selector11，后者传backing/rowBytes/length，但尚未证明当前Window配置必经这个分支。不能把Mercury的0x30块理解成直接导入backing。
+
+Mercury SetDrawable input0x30字段：+0 qword=C+60&0x3ff803fc0；+8 u32=D+8(surfaceID)；+c为C+60低4位，首次失败后可能改ffffffff并重试一次；+10/+14在Window为0，PBuffer来自options的bits8..15/0..7；+18来自C+123f volatile；+1c来自C+123d backing设置标记；+20/+24/+28来自setter12a的三个u32，非指针；+2c由IOAccel包装强制清0。output0x28：+0配置位保存到C+1250，+8/+c尺寸，+10/+14缓存到C+1214/+1218，+18到C+50，+1c bit0有效，+20 qword到C+58；后四字段正式资源含义未全部闭合，禁止命名成backing或fence。
+
+IOAccelSharedCreate先open type6；type1 GLContext通过IOConnectAddClient关联shared，失败返回NULL。Mercury CreateContext还请求sideband/fence并提交数据，不能作为纯分配探针试调。现有自有通道不能只返回尺寸/有效位就替代上述资源注册和所有权协议。PF节点修复与GPU回归已提交推送88ebe15。
+
+### 86.11 设备身份查询与独立真实设备验收
+
+补齐`const char *gldGetDeviceString(void *device, uint32_t pname)`：在integration锁内核验active_device和后端connected/liveness/registry，vendor返回静态`vGPU-macOS`、renderer返回`vGPU restricted SVGA3D`。未知selector、无效device及尚未支持的GL_VERSION/GL_EXTENSIONS返回NULL；这是本项目拒绝策略，不把loader版本冒充GL版本。字符串存活期为模块装载期，不随device释放而失效。
+
+真实macOS SDK默认/候选构建及strict/ASan/UBSan×4组CPU回归通过，metadata各398；本轮controlled runner的empty为1121（采用其实际日志计数，不与另一read runner的1123混用）。CPU覆盖状态查询失败、断连、liveness错误、registry为空、伪造/context/share/销毁后token拒绝，以及状态、首错与资源计数不变。证据`out/controlled-integration-20261117T031506855142Z/validation.log`与source-sha256.json；候选SHA256=`f0350e2a3afa159fecd96dc477ccfecf26cebd0168f614276f7946e8349f32f6`。
+
+独立draw探针新增dlsym/dladdr同映像核验、真实device字符串值/指针稳定、非法selector和token拒绝；builder增加显式`--gpu`，CPU/SDK验证后串行运行普通及ASan+UBSan探针，前后复核源码/候选/探针哈希。两版各948检查=原绘制379+身份569，均两轮完整释放重租。证据`out/controlled-draw-probe-20261117T032653980973Z-d11ec589/result.json`及两个GPU日志；普通探针SHA256=`2c1f9ffe75af8e95e1e46b4022abaa0dcc5c92c377071e0911f2f14591f1de49`，插桩探针=`1459c44f89ecd0d6e7b05dea1182d3428956d39240a64a3d84fc7700396a22f9`。插桩仅覆盖探针，detect_leaks=0；未替换正式插件或重启，仍不表示公开CGL/context/JIT或Metal成功。
+
+### 86.12 无drawable解绑与PBuffer资源链复核
+
+新增`gldAttachDrawable(context,kind,drawable,options,size2)`仅支持已有自有活context的kind0/NULL/options0，使用现有集成锁，返回1，size2非空时清零两个u32。命名FBO、A/H/B、首错、pending、完成代次和资源引用不变；不访问GPU。失败先校验context，再options，再kind/payload，分别2714/2718/2715，失败不写输出。完整映射/优先级为项目受限策略。Mercury C091..C0A3已证kind0/NULL返回1、非NULL返回2715，C3BF..C3CB释放drawable并清内核绑定；其解绑分支没有显式清size2，清零证据来自Float 0x7FFB064EFD29..FD50。Mercury未知kind实际返回271a；GLI EB98..EBB1的2718检查的是插件索引，不是GLD options，不能混同。
+
+默认/候选SDK构建及strict/ASan/UBSan四类共12组CPU通过，empty1119、metadata各398，源码一致；证据`out/controlled-integration-20261117T033551123048Z/`。候选SHA256=`4922c09fde3b20325b4a8e8c4d81f608cf0899e7ff17b7aeb8988f51cebdd4f4`。测试覆盖无效/伪造/销毁token、参数矩阵、NULL输出/前后canary、命名FBO、活跃primitive lease、错误消费前后、pending及完成代次保持。SDK验收后头文件仅补充上述证据边界注释，不改变代码。未来真实绑定成功后，必须补引用释放，不能把当前无资源解绑扩大为完整Window/PBuffer支持。
+
+PBuffer路径复核：CGLCreatePBuffer(0x7FFB0616AF25)分配0xa8对象PB，IOAccelCreateAccelID结果在PB+8；+c target、+10 internalformat、+14 maxlevel、+18/+1c宽高，创建函数本体尚不建立surface。CGLSetPBuffer在0x7FFB06166F59取得accelerator service，非零时67191调用IOAccelCreateSurface、6731A调用IOAccelSetSurfaceFramebufferShape(flags81)；硬件节点kind5a、payload=PB本体。service为零的软件分支为kind5d/payload=PB+38，不是当前硬件替代路径。options=(faceIndex<<8)|level，Mercury kind5a绕过Window专用CGS回调，但仍按payload+8 ID绑定资源。
+
+公开PBuffer在进入GLD attach前就要求type0/20的surface userclient，selector7注册{ID,flags}；当前accelerator只接受0x56475055，所以纯用户态自有256×256 image不足以通过该公开链。下一步需实现真实AccelID到GPU backing的关联、shape/config、同task所有权、生命周期与默认读/写目标；当前render将零FBO理解为无目标，没有默认PBuffer解析。未增加PBuffer/Window能力。
+
+### 86.13 旧SDK OffScreen兼容边界
+
+_gfxLinkedOSVersion在0x7FFB061739B2读取主程序dyld SDK版本，39FF..3A08比较0xa07ff；真实链接SDK<10.8.0时分类<8，CGL OffScreen53在0x7FFB06169255..69299接受，不追加默认Window。仅降低deployment target不够。明确非零RendererID会清Q默认Compliant位、NoRecovery清80要求、Legacy不加Core；完整原始请求可得到Q.flags104/buffer0，仍须公开实验验证。现有choose-only省略53，不能直接用于此兼容实验。尚未确认可用真实旧SDK，不伪造SDK身份、环境分类或X11/xcb映像。
+
+旧SDK兼容PF/context/FBO验收必须与现代SDK路径分开；即使未来无drawable context/FBO通过，也不代表CGLSetOffScreen的客户端内存drawable(kind53)实现。当前context-only还要求GL_VERSION非空，后续应分别记录context创建与字符串阶段，不能为探针通过而虚构版本。
+
+### 86.14 PBuffer内核接入的所有权与复用边界
+
+accelerator新开type0/20可独立于私有0x56475055，但必须新建surface client，不能转发到framebuffer的type0（后者会进入IOFramebuffer基类协议）。现有资源通过每连接ownerToken+handle隔离，即使同task也不能跨连接读写；禁止仅删除owner检查或把surface handle填进另一个GLD image。
+
+拟采用设备级surface注册表：可信内核task身份+surfaceID对应真实backing，surface创建引用与draw连接导入lease分离。撤销surface ID后禁止新导入，已有lease保活；最后引用且在途操作完成后才归还slot。当前revoke会直接清owner/handle/generation，增加共享后必须替换此规则。首版跨task拒绝，连接port转交后的调用task验证也须明确；PID/UID或用户传入ID不能当授权。两槽GPU池仍可复用，不能顺便释放尚无destroy/fence闭环的deviceVisible allocation。
+
+首步实现并CPU验证独立注册表/lease核心；它尚未连接内核、IOKit userclient或GPU，不作为PBuffer支持。并行补齐shape/config wire contract。后续硬件最小验收为surface创建/shape/config→自有连接导入→同backing交叉读写→两种关闭顺序→最终释放重租，成功后才进入公开CGL。

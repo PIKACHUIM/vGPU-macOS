@@ -47,6 +47,17 @@ int32_t gi_create_share_group(void *device, void **out, uintptr_t opaque);
 int32_t gi_destroy_share_group(void *share);
 int32_t gi_create_context(void *share, void **out, void *pixel, void *a, void *h, void *b);
 int32_t gi_destroy_context(void *context);
+/* 已证五参系统 ABI；本导出自行取得集成锁，调用者不得持锁重入。
+ * 当前没有成功的 drawable attach，所有自有活 context 始终 unbound。
+ * 仅 kind=0/drawable=NULL/options=0 成功返回1；size2 可空，否则写两个0。
+ * 非空 size2 须指向独占、可写且不重叠借用视图的两个 uint32_t。
+ * 以下映射和优先级均为项目受限策略：无效 context 返回0x2714，
+ * 非零 options 返回0x2718，其余组合返回0x2715；失败不改输出或状态，
+ * 不解除命名 FBO。size2 清零有 Float 路径依据，不宣称 Mercury 同样写零。
+ * 未来真实 drawable 必须另行保证 GLI 释放旧 payload 时的引用生命周期。 */
+__attribute__((visibility("default")))
+int32_t gldAttachDrawable(void *context, uint32_t kind, void *drawable,
+                          uint32_t options, uint32_t *size2);
 /* 失败不改 render 存储；未恢复完整表时绝不填成功桩或任意函数。 */
 int32_t gi_populate_context_dispatch(void *context, void *render_storage);
 int32_t gi_create_texture(void *share, void **out, void *td, void *tu);

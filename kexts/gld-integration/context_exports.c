@@ -1,4 +1,5 @@
 #include "context_exports.h"
+#include "integration.h"
 #include "../gld-device/gld_device.h"
 #include "../gld-pixel/gld_pixel.h"
 #include <stdlib.h>
@@ -190,6 +191,22 @@ int32_t gi_destroy_context(void *handle) {
     if (!c) return GI_CONTEXT_INVALID;
     if (vgc_release(c->native)) return GI_CONTEXT_BACKEND;
     remove_entry(c); return GI_CONTEXT_OK;
+}
+int32_t gldAttachDrawable(void *context, uint32_t drawable_kind, void *drawable,
+                          uint32_t options, uint32_t *size2) {
+    gi_integration_lock();
+    int32_t result;
+    /* 先查自有注册表；不解引用外来 context 或 drawable token。 */
+    if (!find(context, CONTEXT)) result = INT32_C(0x2714);
+    else if (options) result = INT32_C(0x2718);
+    else if (drawable_kind || drawable) result = INT32_C(0x2715);
+    else {
+        /* 仅 unbound detach；不触碰 render/TCL/FBO 或后端生命周期。 */
+        if (size2) { size2[0] = 0; size2[1] = 0; }
+        result = 1;
+    }
+    gi_integration_unlock();
+    return result;
 }
 int32_t gi_populate_context_dispatch(void *handle, void *storage) {
     if (!find(handle, CONTEXT) || !storage) return GI_CONTEXT_INVALID;

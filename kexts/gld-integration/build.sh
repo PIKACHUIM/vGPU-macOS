@@ -28,7 +28,7 @@ plutil -lint "$bundle/Contents/Info.plist"
 awk '
 /^GLD_(IMPLEMENTED|TRAP)\(/ {
   name=$0; sub(/^[^(]*\(/,"",name); sub(/\).*/,"",name);
-  implemented=(name ~ /^gld(GetVersion|CreateDevice|DestroyDevice|PopulateRendererInfo|ChoosePixelFormat|DestroyPixelFormat|CreateShareGroup|DestroyShareGroup|CreateContext|DestroyContext|PopulateContextDispatch|UpdateDispatch|UpdateDrawFramebuffer|UpdateReadFramebuffer|UpdateTransformFeedbackState|CreateTexture|ModifyTexture|DestroyTexture|CreateSampler|DestroySampler|CreatePipelineProgram|ModifyPipelineProgram|UnbindPipelineProgram|DestroyPipelineProgram|CreateProgram|DestroyProgram|CreateFramebuffer|DestroyFramebuffer|LoadFramebuffer|ClearFramebufferData|ReadFramebufferData|GetError|FlushContext|WaitForContext)$/);
+  implemented=(name ~ /^gld(GetVersion|GetDeviceString|CreateDevice|DestroyDevice|PopulateRendererInfo|ChoosePixelFormat|DestroyPixelFormat|CreateShareGroup|DestroyShareGroup|CreateContext|DestroyContext|AttachDrawable|PopulateContextDispatch|UpdateDispatch|UpdateDrawFramebuffer|UpdateReadFramebuffer|UpdateTransformFeedbackState|CreateTexture|ModifyTexture|DestroyTexture|CreateSampler|DestroySampler|CreatePipelineProgram|ModifyPipelineProgram|UnbindPipelineProgram|DestroyPipelineProgram|CreateProgram|DestroyProgram|CreateFramebuffer|DestroyFramebuffer|LoadFramebuffer|ClearFramebufferData|ReadFramebufferData|GetError|FlushContext|WaitForContext)$/);
   print (implemented ? "GLD_IMPLEMENTED(" : "GLD_TRAP(") name ")";
 }' "$src/../gld-diagnostic/required_entries.inc" > "$out/integration_entries.inc"
 [[ $(wc -l < "$out/integration_entries.inc") -eq 129 ]]
