@@ -1,0 +1,142 @@
+B4 最终门控证据：受控 legacy 默认 state-program 与 TF 稳定策略
+日期：2026-11-17；macOS 15.7.3 /24G419 x86_64。
+GLEngine UUID FB994F78-34C6-39F3-857D-99F9B3013E8F；GLEngine 地址均 unslid。
+
+1. 结论：可以停止扩大静态恢复范围，准备最小受控动态验证
+
+B4 不要求独立驱动重新验证 GLEngine 已负责的全部 OpenGL 合法性。已直接找到公开 UseProgram 路径对未成功链接 program 的前置拒绝；B 中不发布该无效新绑定是正常行为，不构成必须越界读取 G 的理由。
+最小实验的充分条件由“明确受控的 API 历史 + 默认 state-program 身份/绑定 + 已核验 H 支持域 + 从初始化起稳定的 A+0x65=1/策略5”联合构成。该结论适用于新建无共享、从未创建/绑定用户 program、从未启用 TF 的 legacy context；不扩展为任意历史 context 的通用证明。
+PD 前4字节可以承担 tag/kind/flags 分类；在这条受控路径中，语义由已知默认来源和已核验 GL 状态限定，不需要先恢复完整 state-program IR、全部 PU bit 或各厂商编译器。没有证据要求为了本实验扩大 PD 借用长度。
+当前集成源码仍未满足动态执行条件：context_exports.c:162 的 A+65=0，:163 的两个 descriptor 为 NULL，:193 起 populate dispatch 返回 UNIMPLEMENTED。因此本报告允许推进窄范围实现及随后验证，不声称当前二进制已经可以画图。
+
+2. 本轮操作与边界
+
+只读既有本地报告/源码/AMD及Intel反汇编，使用 tools/mssh.py 的 connect/run 对客体现有 /var/tmp/vgpu-fb/glengine-code.txt 流式筛选。没有执行 GPU、OpenGL/CGL、私有函数、新反汇编、构建、安装、系统配置更改或源码编辑。主动交付仅本报告。
+前期 Python 导入未加 -B，可能产生或更新 tools/__pycache__，未核验该副作用，故不声称文件系统绝对零额外写入；后续设置 dont_write_bytecode 并用 -B。没有输出连接凭据。
+一次大范围输出被工具截断；结论采用后续窄区间完整读回的指令，不引用被截断内容。
+静态研究允许识别 G 内字段，但生产代码只使用正式借用的 A/H/B/PD/PU 和自有对象。禁止由 H-0x8e0 反算 G、读取 G+9498 等超 H 区域或修改 engine 私有状态。
+
+3. 最小受控实验条件（先满足这些，不等待全 API 恢复）
+
+3.1 API 历史与对象
+- 新建 legacy CGL context，不与已有用户 program/context 共享；只用公开 CGL/GL 驱动正常初始化。
+- 不调用 shader/program 创建、链接、使用、ARB program 装载/启用、separate pipeline、TF、selection/feedback render mode 或 display-list 等改变本实验执行模型的 API。
+- 默认普通 pipeline kind0/4 与默认 state-program 必须各自拥有真实元数据句柄，不能使用固定非空 sentinel；不把“创建成功”解释为编译或提交成功。
+- 通过自有注册表验证 B 外部句柄的类别、share、存活性和代次。首轮正常初始化回调日志核对默认 state-program 来源及后续 Modify；不得仅凭创建次序永久硬编码身份。
+
+3.2 A 与执行策略
+- 在正常 Create/配置阶段设置并保持当前插件 A+65=1，使 gleInitDerivedState 与 gleReconfigurePipelineProgramState 自然选择该模式和创建默认 VP state-program。
+- 预先发布经 B1/B2 验证的 descriptor、primitive/输入支持分组以及本测试所有可达 render 槽；不能先返回5再期待 NULL descriptor 自动变为有效。
+- UpdateDispatch 对支持域采用策略5。若确实需要 descriptor 重选，用已证 bit1 机制（候选7）；不将5/7当成功/错误码。
+- 一旦发生模式/插件切换或进入未支持路径，该实验的“稳定模式”前提失效；实际提交前重新核验或停止，不靠返回5追认之前的镜像。
+
+3.3 B 默认绑定快照
+- B+0x400：当前 VP 必须解析为本 share 的已登记默认 vertex state-program；PD u16 tag=0x8620、PD+2 kind=0。
+- B+0x420：当前 FP 必须解析为已登记默认 fragment state-program；PD u16 tag=0x8804、PD+2 kind=4。
+- PD+3 bit0 在已证默认 state-program 构造中为1，但该位或 tag 均不单独作为全部来源的唯一标识；身份、受控历史与绑定必须联合检查。
+- B+0x408/+0x410/+0x418 的 CP/EP/GP 槽要求 NULL；B+0x448+8*s（s=0..4）普通 PROGRAM 槽全 NULL。
+- B+0x428..440 辅助区、B+0x470 未恢复语义，不作为默认 shader 证明。
+- B+0x478..498 TF buffer 五槽不要求全 NULL；默认 TF 对象可以拥有内部第五 buffer。
+- 重新 Modify 或绑定变化使自有验证/后端缓存失效，实际 draw 前验证当前代次；不清未知 PU bit、不将 PU=0 作为本实验准入前提。
+
+3.4 H 和实际 draw
+- 使用 gld-triangle-state-contract.txt 第2节已核验 H 表：modelview/projection 各自单位矩阵，viewport/depth-range正确，固定功能纹理/lighting/fog/alpha/depth/stencil/blend/logic/clip/sample等处于受限关闭状态，颜色mask、sRGB、dither符合支持域。
+- 补用 gld-vertex-color-contract.txt 已证 polygon mode 两面 FILL；实际资源必须为本 context 当前 B+4a0 的已 materialized 256x256 单目标线性 RGBA8、无 depth/stencil/MSAA。
+- H+4978 u8=0，H+4979 u8=0，H+497a u16=0xffff，分别为 discard、paused镜像、primitive镜像。
+- 最小正例可用明确 glVertex4f(...,1) 的三个顶点及固定红色；position-only仅限调用历史明确保证Begin内不改色的测试。若验收驱动的逐顶点拒绝能力，使用已恢复 position+color descriptor并逐顶点验证；不再把历史颜色缺口描述为字段完全未知。
+- 先验证真实初始化/UpdateDispatch/Begin/End回调序列和 staging 输出，再进行目标提交及读回验收；glGetError==0、元数据绑定或End返回均不能替代实际图像/完成证据。
+- 上述为 B4 的实验准入条件。实现上仍需 B1/B2 的可达 ABI、有效有界 staging、资源与失败锁存；无需为三点受控正例提前穷尽整个 OpenGL API。
+
+4. 未链接 program：已证 engine 前置拒绝
+
+4.1 非零 monolithic program 的 UseProgram 路径
+_glUseProgramObjectARB_Exec：
+  0x7FFB063EB6D3 call _gleLookupHashObject
+  0x7FFB063EB6D8 test rax,rax；不存在走错误分支
+  0x7FFB063EB6DD cmpl $9,0x18(rax)；对象类别不符走B738
+  0x7FFB063EB6E3 cmpb $1,0x1c98(rax)
+  0x7FFB063EB6EA jne B738
+  0x7FFB063EB71E call _gleUseProgramObject（仅通过上述检查的路径）
+  B738..B749 解锁并跳B693；B69D 在已有engine error为0时写 G+b638=0x502，随后返回。
+因此未成功链接对象不进入 gleUseProgramObject、不替换当前绑定；之前默认绑定保持合法。之后合法 draw 可以继续使用原状态；不能误要求“只要曾尝试无效 UseProgram，驱动以后都拒绝画图”。
+
+4.2 0x1c98 确为链接结果，而非按名字猜测
+_glLinkProgramARB_Exec 0x7FFB063EC0E2 将上层对象 O 加0x28，EC0EC调用 gleLinkProgram。
+gleLinkProgram 内 r15=O+0x28：
+  0x7FFB0646F6C7 清 byte [r15+1c70]。
+  0x7FFB0646FB97 call _ShLink；FB9C 将 AL 写[r15+1c70]。
+  另一分支 FCF0 call _ShLink；FCF5 同样写[r15+1c70]。
+地址 O+0x28+0x1c70=O+0x1c98，恰与 UseProgram 比较字段重合。gleGetObjectParameter ECE7 亦读取该字节，但本轮不依赖未恢复跳表来猜其 selector。
+
+4.3 separate program stage 的对应前置检查
+_glUseProgramStages_Exec：0x7FFB063E4F52 比较 program+1c98==1；4F5E 不等跳4FB9；4F60还检查+1c9d非零；错误分支4FC7写engine 0x502。只有通过后才到4FDB开始绑定状态操作。
+这足以反驳“无效program必然被静默绑定、必须让driver读取原始G才能拒绝”的前提，但不宣称已恢复任意relink、跨context共享、全部separate-stage组合的合法性。
+
+4.4 Begin 与 driver UpdateDispatch 的顺序
+_glBegin_Exec 0x7FFB06394622 调 gleDoDrawDispatchCore；9462A检查返回EAX，0则走94665错误/noop路径，不调用实际 primitive Begin；非0在9465E跳选定 primitive函数。
+Core：0x7FFB0644C329调用 gleUpdateDeferredState，C32E检查返回；非0在C330跳C248，保存错误并于C840返回。仅后续C470调用driver T+90 UpdateDispatch。
+本轮没有把所有 DeferredState 错误归因于 link；直接前置拒绝证据来自4.1/4.2/4.3。已绑定后 relink失败仍需其自身语义，不能从UseProgram入口检查无限推广。最小实验禁止创建/链接用户program，因此该扩展不阻塞本次验证。
+
+5. 默认 state-program：四字节 PD 与已核验 H 的正确职责
+
+沿用 gld-default-object-contract.txt 的明示 producer：
+- 普通默认 pipeline：PD=O+1d0，PD+0 u16=0、+2 kind=0/4。
+- state-program：PD=O+1a8；0x7FFB06462A77写tag，A80写kind，A88 OR bit0；kind0为8620，kind4为8804；B6B用四参Create提交PD/独立PU。
+- gleReconfigurePipelineProgramState 0x7FFB064627AF..27FC 根据当前A+65或G+c6aa创建默认VP；gleVP选择BE55取G+9378，BE77/BE7B向每插件B+400发布。
+- FP选择0x7FFB063A329E先测用户GLSL bit4，32A7检查ARB FP，3321选择G+9398默认state-program；3343/3347发布B+420。
+- 默认state-program随后会被正常 GL 状态更新和 Modify，不能只检查第一次Create的静态字节；绑定可能切换至新的state-program，自有代次应随之更新。
+
+在“没有用户program API历史 + 上述默认绑定来源 + 已核验H支持域”下，固定VS/PS是该受限语义的独立实现，不必假装消费 Apple shader IR或复制AMD/Intel编译器。
+PD tag只证明类型/阶段，单独并不证明单位矩阵、无纹理、无雾等；这些条件由H和顶点数据提供。反过来，H全通过但绑定未知program也不能放行。
+本实验不需要扩展PD前4字节。将来确需shader stream/元数据时，已有producer明确写PD+8、+10、+18等（默认对象契约第5.2节），可逐字段论证所需范围；不能凭厂商consumer一次更远读取就无条件扩大借用，更不能把这些初始NULL/-1字段要求永久不变。
+
+6. TF：稳定 A+65=1 / 策略5 的同步顺序已闭合
+
+6.1 初始化决定 c691，不需要等待第一次UpdateDispatch修复
+_gleInitializeContext 0x7FFB0637C6C1调用 gleInitDerivedState；C6E1初始化pipeline；C705初始化TF。
+_gleInitDerivedState：
+  0x7FFB0637DA73 mov G+b318,rax
+  0x7FFB0637DA7A mov byte [rax+65],al
+  0x7FFB0637DA7D mov al,G+c691
+  DA85比较1；DA87/DA8C/DA8F生成并保存G+b614：A+65=1时为5。
+因此从初始化起正确配置A+65=1，就有c691=1/旧策略5，并非“第一次UpdateDispatch返回5之后才开始生效”。
+TF默认对象由gleInitTransformFeedback创建，0x7FFB064898E6向object+28写ffff0000，object+29=0、+2a=ffff。该指令是object初值，不冒充H初值写入；H初始值仍须在首轮回调按准入条件读取验证。
+
+6.2 运行中的API更新在后续draw前直接维护H
+c691=1时，Begin TF 0x7FFB06402A71/2A7A写H+497a，再2A81写object primitive。
+Pause 0x7FFB064035E2/35EB/35F2写H paused=1、primitive=ffff，再35FB写object paused。
+Resume 0x7FFB06402E64/2E6D/2E78清H paused并恢复object primitive，再2E7F清object paused。
+End TF 0x7FFB06402BFA检查c691后2C03写H primitive=ffff；旧报告对2C03未注明条件，应补上。
+所以保持c691=1且没有跨模式历史时，H paused=0/primitive=ffff可作为当前不捕获的执行镜像检查。暂停必须拒绝，不能只读primitive。测试明确不调用TF，默认object又为inactive，故不存在仅靠空镜像掩盖已启用TF的未约束历史。
+
+6.3 driver回调之后才处理策略差异：不能倒置顺序
+Core 0x7FFB0644C470调用driver UpdateDispatch；C47C调用UpdateDispatchJIT；C499..C4AA计算(new XOR old)&0x47；其中&0x45非0才在C4C1调用CodeChange。
+旧5、新5时差异0，跳C53D，根本不走TF模式切换分支。旧5、新7只有bit1差异，亦不满足&0x45，不更改c691。
+CodeChange 0x7FFB0638EF24保留策略bit0；EF28比较c691。若仍为1且A+65=1，EF3E直接返回F2A0，不制造暂停镜像。
+真0->1切换时：EFB5先写c691=1；F018进入硬件侧；F03F..F053把object+29/+2a复制到H。若旧H已呈paused=0/primitive=ffff，F039跳F2AD读取真实object；F2BC/F2C6回F03F或先做绑定更新，仍会汇入同步。不是看到旧H默认就永久跳过object。
+真1->0时：F157/F15E可写H paused=1、primitive=ffff，暂时关闭driver侧捕获。
+因此跨模式时UpdateDispatch入口可能看见旧镜像；Begin/End在同步之后。生产方案若将来支持切换，应在真正提交前重验或通过自有TF回调失效门控；本受控实验直接保持稳定模式，避免扩大任务。
+
+6.4 TF更新回调并非可随意省略
+已见T+a8调用(C,0)，包括0x7FFB0638F112；返回值未作为统一成功码检查。实现应有可达的正确ABI适配和真实状态处理/拒绝，不能固定成功掩盖活跃TF。无TF测试不要求恢复全部stream-out编译器、buffer-range语义或计数器。
+
+7. 现有 AMD/Intel consumer 证据及其限度
+
+out/gld-context-hardware-raw.txt：AMD UpdateDispatch 内0x63908及0x63B68调用_gpusLoadCurrentPipelinePrograms(C,Q)。6390D立即测试context自有状态而不是通用load返回；63B6D继续处理自有dirty。它们支持“消费位于实际dispatch路径”，不证明新的engine导出或统一bool协议。
+out/gld-context-intel-raw.txt:4700..4718：GenContext派生地址由C+12b0得到，0x7FFB020AEF61调用ProgramPipeline；附近还有UpdatePSKernelForBackgroundCompile及自有dirty。不能把厂商C内偏移当A/H/B布局，也不能把该内部函数冒充engine必须调用的ABI。
+这些现成片段未覆盖gpusLoadCurrentPipelinePrograms/ProgramPipeline内部完整PD解析；本轮不声称已恢复其全部选择/PU清除协议。它们不构成阻止受控固定pipeline独立实现的前置条件。
+
+8. 验收分层与对旧B4结论的修订
+
+可关闭的静态问题：
+- 未链接program的UseProgram前置拒绝已证，无需为此新增越界原始绑定读取。
+- A+65=1从初始化建立c691=1/策略5，TF稳定模式镜像顺序已证。
+- 默认state-program来源/绑定加H和受控历史足以定义最小固定shader实验；不要求额外PD扩读或全部IR解析。
+
+仍应在最小动态验证中观测，而非继续要求全API静态恢复：
+- 正常公开CGL初始化是否实际产生并发布预期VP/FP句柄、Modify和B快照。
+- 首个UpdateDispatch/Begin/End的H TF镜像、descriptor输出、flags/count/staging及当前目标。
+- 固定后端绘制与读回的实际像素/完成，以及失败是否锁存且不继续提交。
+
+独立工程门槛：配置/dispatch未接入、外部句柄映射、生命周期、支持域拒绝及错误通道必须真实实现。测试条件不解除这些要求；也不要求这些实现先支持任意program/relink/TF/multicontext历史。
+报告交付完成；本轮没有执行动态验证，没有宣称GPU绘制成功。

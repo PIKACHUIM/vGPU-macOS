@@ -1,0 +1,167 @@
+vertex submit 最终静态补证：跳表、float4 store 与 helper 真入口
+日期：2026-11-17
+目标：macOS 15.7.3 /24G419 x86_64，GLEngine UUID FB994F78-34C6-39F3-857D-99F9B3013E8F。
+下列虚拟地址均 unslid；只适用于这个映像。
+
+1. 结论及范围
+已闭合 gld-vertex-color-contract.txt 的 J2：
+(a) gleRunVertexSubmitImmediate 的 0x7FFB06490970..97E 跳表索引6明确落到0x7FFB06490BA2，随后movaps一次写16字节；源分量4时不会覆盖w。
+(b) gleLLVMStoreDataToOutFloatInFloat真入口为0x7FFB06492730；function_starts、直接call目标和原始入口字节三方一致。源4/目标4直接顺序拷贝四float，不走反向分量分支。
+(c) position走索引0的helper，primary color走索引6的vector store；二者在候选D下写成position[4]+RGBA[4]，stride32。
+J3按本次任务给定的前序已证结论继承：G+0x124初始化为1.0f，不重复提取常量或重新恢复初始化。旧vertex-color报告将J3仍列未决已过时。
+J1仍未闭合：本次没有取得模块8 JIT IR、构建回调或实际生成机器码。不能把解释器控制流闭合提升为JIT或端到端成功。
+未修改primitive、源码、系统或客体文件；未安装依赖、执行GL/GPU私有函数、运行公开GL测试、启动/附加/暂停客体进程、重启或commit。
+
+2. 已读材料与取证方法
+先读 out/gld-vertex-color-contract.txt、out/gld-context-r1-r4-state-evidence.txt；再核对 out/gld-context-minimal-verified.txt 与 out/gld-context-init-consumers-raw.txt 的相关锚点。
+R1/R4报告本身没有G+0x124常量值的段落，不能伪称该文件独立证明了1.0f。本轮继承的是任务明确提供的前序结论。
+本地既有初始化指令锚点：
+  0x7FFB0637CB00 movaps 0x166ee9(%rip),xmm0
+  0x7FFB0637CB07 movaps xmm0,G+0x120
+  常量地址=0x7FFB0637CB07+0x166ee9=0x7FFB064E39F0；G+124对应第二DWORD。
+  gleInitConstants边界由已有minimal-verified报告确认为[0x7FFB0637C9DC,0x7FFB0637CD18)。
+这些锚点仅交代继承结论的写点；本轮不把未重读的常量内容声称为新证据。
+
+连接：既有tools/mssh.py，从stdin接收远端命令，使用现有load_env_file/connect/run，不显示凭据。
+本地解释器：C:/Users/Pika/WorkBuddy/2026-09-27-20-30-43/.venv/Scripts/python.exe -B。
+客体只读操作：
+  Python流式按地址筛选 /var/tmp/vgpu-fb/glengine-code.txt 的小片段；
+  /usr/bin/dyld_info -arch x86_64 -function_starts [-uuid] IMAGE；
+  Python标准库读取dyld cache头部mapping表，按虚拟地址seek提取7段共350字节。
+IMAGE=/System/Library/Frameworks/OpenGL.framework/Versions/A/Resources/GLEngine.bundle/GLEngine。
+没有重新全量反汇编，也没有导出整个缓存或安装反汇编库。
+原始字节来源：/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64h.03。
+该文件mapping记录(address,size,fileOffset,maxProt,initProt)：
+  0x7ffb00000000 0x1f2dc000 0x00000000 5 5
+  0x7ffb40000000 0x03198000 0x1f2dc000 3 1
+  0x7ffb43198000 0x01564000 0x22474000 3 3
+  0x7ffb80000000 0x08f2c000 0x239d8000 1 1
+本轮所有代码与跳表均落在第一mapping，fileOffset=VA-0x7ffb00000000；不涉及链式数据指针或运行时slide解码。
+
+3. function_starts与入口纠错
+实时dyld_info返回0，UUID与既有报告一致。
+相关连续起点：
+  0x7FFB0648FCB0 _gleRunVertexSubmitImmediate
+  0x7FFB064924C0 _gleLLVMLoadDataFromAryIntegerInULong
+  0x7FFB06492620 _gleLLVMStoreDataToOutFloatInDouble
+  0x7FFB06492730 _gleLLVMStoreDataToOutFloatInFloat
+  0x7FFB064928F0 _gleCPThread
+因此submit所属函数区间为[48FCB0,4924C0)，包含其跳表；float helper所属函数区间为[492730,4928F0)，后部含自己的跳表/对齐。
+helper实际ret在4928D7，跳表在4928D8；不能将整个function_starts区间都视为可执行指令。
+
+0x7FFB064909AC原始call字节：e8 7f 1d 00 00。
+nextIP=0x7FFB064909B1，rel32=0x1d7f，目标=0x7FFB06492730。
+入口原始字节及精确解码：
+  492730 41 89 d1             mov r9d,edx
+  492733 41 c1 e9 14          shr r9d,20
+  492737 41 83 e1 07          and r9d,7
+  49273B 41 ff c9             dec r9d
+  49273E 41 83 f9 04          cmp r9d,4
+  492742 0f 87 8f 01 00 00    ja 4928D7
+  492748 55                   push rbp
+  492749 48 89 e5             mov rbp,rsp
+这里用Intel目的在前记法；报告其余引用既有反汇编时用AT&T源在前。
+旧文本从492731解成mov edx,ecx，漏掉492730的REX前缀41；正确目的寄存器是r9d。函数并不必须以55 48 89 e5起始，边界前的跳表不能当入口。
+
+4. submit跳表到float4 store的字节级闭合
+已读指令与原始字节一致：
+  490925 41 0f 28 24 00       movaps (r8,rax),xmm4
+  49092A 41 be 06 00 00 00    mov $6,r14d
+  490930 bf 06 00 00 00       mov $6,edi
+  490960 89 fe                mov edi,esi
+  490962 a9 00 00 40 00       test $0x400000,eax
+  490967 0f 85 6f 02 00 00    jne 490BDC
+  490970 48 8d 15 35 1a 00 00 lea 0x1a35(rip),rdx
+  490977 48 63 0c b2          movslq (rdx,rsi,4),rcx
+  49097B 48 01 d1             add rdx,rcx
+  49097E ff e1                jmp *rcx
+表基址T=0x7FFB06490977+0x1a35=0x7FFB064923AC。
+T处7个little-endian有符号int32相对表基址偏移：
+  index  原始4字节      signed delta  T+delta
+  0      d4 e5 ff ff    -0x1a2c      0x7FFB06490980
+  1      fa e6 ff ff    -0x1906      0x7FFB06490AA6
+  2      33 e6 ff ff    -0x19cd      0x7FFB064909DF
+  3      83 e6 ff ff    -0x197d      0x7FFB06490A2F
+  4      30 e8 ff ff    -0x17d0      0x7FFB06490BDC
+  5      a8 e7 ff ff    -0x1858      0x7FFB06490B54
+  6      f6 e7 ff ff    -0x180a      0x7FFB06490BA2
+索引6表项地址为T+24=0x7FFB064923C4；绝不能把表项当绝对指针。
+
+490BA2原始字节：48 8b 45 98 42 0f 29 24 28 41 83 fb 03 75 2b。
+  490BA2 movq -0x68(rbp),rax
+  490BA6 movaps xmm4,(rax,r13)
+  490BAB cmp $3,r11d
+  490BAF jne 490BDC
+源4分量意味着r11d=4，跳过490BB1..490BD9对第四分量的特殊处理；float4完整保留，不触发三补四或清w。
+分量数直接消费者：4900F5 mov r12,r11；4900F8 shr $32,r11；4900FC and $7,r11d。
+输出base：即时mode6在48FE1E/22判别，48FE24把输入RSI存到栈-0x68。
+输出offset：49006C movzbl r12b,r13d；490070 shl $2,r13d。
+
+候选primary entry=0x9804；key构建额外置对齐bit23，但不置bit22(0x400000)。因此490967不跳过store。
+源4分量且bit23=1使4907AB..7C3选择vector读取；header mode6在4907C5/7CB进入490925。
+沿用前序已闭合G+20f0+16*2=G+2110，r8=G，源RGBA每次submit现场读取；r13=4*4=16。
+链路：G+2110四float -> xmm4 -> [当前输出base+16]，无shuffle，无通道交换。
+尾部490BE3测试key entry byte+2的0x20（entry bit21）；本候选该位为0，直接回490050推进属性循环。
+
+5. helper源4/目标4分支及position路径
+helper格式字F低32位：output byte offset=F&0xfffff；源分量=(F>>20)&7；目标分量=(F>>28)&7。
+49274C..753提取offset，492753..75A提取目标分量r8d；49275E取[参数块+8]作为输出base。
+492762 lea 0x16f(rip),rdi，nextIP=492769，所以helper跳表U=0x7FFB064928D8。
+492769 movslq (rdi,r9,4),r9；49276D add rdi,r9；492770 jmp *r9。
+索引为源分量数减1；U处字节/目标：
+  index  原始4字节      signed delta  U+delta
+  0      9b fe ff ff    -0x165       0x7FFB06492773
+  1      40 ff ff ff    -0x0c0       0x7FFB06492818
+  2      06 ff ff ff    -0x0fa       0x7FFB064927DE
+  3      d7 fe ff ff    -0x129       0x7FFB064927AF
+  4      cd fe ff ff    -0x133       0x7FFB064927A5
+源分量4 => index3 => 4927AF，直接顺序执行：
+  4927AF/7B3 读[RSI+0]，写[base+offset+0]
+  4927B8/7BD 读[RSI+4]，写[base+offset+4]
+  4927C3/7C8 读[RSI+8]，写[base+offset+8]
+  4927CE/7D3 读[RSI+c]，写[base+offset+c]
+  4927D9 jmp 4928D6；pop rbp；ret。
+全部为movss，无换序；该入口源4时不再比较目标分量，本报告仅证明目标4的合法候选，不向不一致格式字外推。
+旧报告担心的492855反向三分量拷贝来自index4 -> 4927A5再判断目标，不是源4路径；不能用邻接代码推断RGBA交换。
+
+position的兼容即时分支490324..343取入口保存的XMM0..3到栈-0x80..-0x74；490375把EDI清0，490377设R14D=6。
+因此同一submit跳表索引0 -> 490980，而非primary的索引6。
+490940..958组装F：源4写入bits20..22；entry=0x1800的目标编码3经shift/add得到0x40000000；输出offset0在49096D合并。
+490980..98E另由header合并F的bit31，不改变源/目标分量字段。源4直拷贝分支不依赖该位。
+490994 RDI=&栈[-0x70]；49099B RSI=&栈[-0x80]；49099F RDX=F；4909AC调用helper。
+RDI+8即栈[-0x68]，它在即时mode6保存当前输出base。
+故position进入helper的index3，x/y/z/w按顺序写到输出+0/+4/+8/+c。
+glVertex3f此前已证从G+124加载XMM3；结合继承的1.0f初始化，w=1.0f缺口关闭，无需借用helper的缺w补1分支。
+
+6. 提取范围指纹与关键原始字节
+七段的地址、长度和SHA256（对缓存原始字节计算）：
+  0x7ffb06490925 len0x60 276ab718942376813b0fa20f148009512fb432f7fbafd630a858ad21e0646f38
+  0x7ffb064909ac len0x05 163f73d47282c4e93dbbef23b4fe91f81292ebc686784e6b2c33fe0213e958a3
+  0x7ffb06490ba2 len0x3a 54d2d6398a1e9687c0e2b3f2706ad049c43d23bc45ab81bf7ec5cdad1d47fe6f
+  0x7ffb064923ac len0x1c cb0f7de0a28d6b167640c237e52237757923d259b9350d61a3cc62cee312b165
+  0x7ffb06492720 len0x60 774f3b80c10030ca23ba51e977bb68ad120c1bc8b74500da0eac9f0015ba8e5e
+  0x7ffb064927af len0x2f 1cb0588d0a68c29597db35c19edd0e64075f8c6430d14a2c1c16442de84568db
+  0x7ffb064928d8 len0x14 8ebe8a0ae5e4ce85ccc1955e4f38832e1104f55ec24e970a4511ffde0da331e1f
+4927AF起47字节顺序拷贝全文：
+  f3 0f 10 06 f3 0f 11 04 01 f3 0f 10 46 04 f3 0f
+  11 44 01 04 f3 0f 10 46 08 f3 0f 11 44 01 08 f3
+  0f 10 46 0c f3 0f 11 44 01 0c e9 f8 00 00 00
+本报告给出的地址尾部简写均保留完整地址低六位，例如4927AF=0x7FFB064927AF。
+
+7. 未决点与停止静态恢复的边界
+J2已闭合；J3继承已证；J1仍待生成端或动态证据；J4（一般D[3]非零语义）保持未恢复，本候选显式D[3]=0。
+候选D仍为02 00 08 00 00 18 00 00 04 98 00 00；Dalt=NULL，仅适用前序限定的即时模式。
+对齐、capacity*32溢出检查、生命周期、真实错误传播、primitive分段/提交契约仍须满足；本轮不侵入其他代理的primitive研究。
+本轮并未证明“JIT理论上只能动态验证”。能精确声称的是：既有材料只有共享key/cache/request-patch链，缺少生成端实体，继续无边界静态反汇编不构成本轮必要动作。
+公开GL结果可以验收可见语义，但单凭正确像素无法证明调用过JIT：可能仍在解释器。若要标记JIT已验收，必须有不修改私有状态的生成函数/dispatch指针只读观测证据，并确认warm阶段实际使用了生成函数；没有它就将结果标记为公开GL端到端通过、JIT覆盖未确认。
+
+8. 最小公开GL验收前置与用例（仅设计，未运行）
+前置：用户授权运行公开GL测试；可成功创建兼容profile context；真实资源/完成/readback路径已实现；使用命名RGBA8单色附件FBO，完整性通过，尺寸及viewport已设定，无MSAA、无PBO。
+通过公开API显式固定identity模型视图/投影、双面FILL，关闭光照/纹理/雾/混合/深度/stencil/scissor/cull/sRGB/dither等超出窄域的状态，RGBA全写；所有状态与错误检查在Begin/End外进行。
+驱动自有staging提供至少16-byte对齐、stride32、受检容量；可在自有回调记录不可变的32-byte顶点快照及提交结果，不调用或补丁修改GLEngine/CVM私有入口。
+第一组：glColor4f(1,0,0,1)，glBegin(GL_TRIANGLES)，三次glVertex3f，glEnd；预期每个记录position.w=1、RGBA=(1,0,0,1)，以及实际readback出现受控红色三角形。
+第二组：red; Begin; v0; green; v1; red; v2; End。要求自有staging记录red/green/red，不能用Begin/End两次当前颜色检查替代。
+若后端仅支持固定红PS，则第二组应在该次真实提交前拒绝；错误必须经已证通道可见，不能吞掉或假装成功。若支持逐顶点颜色，则验收对应插值结果并检查通道顺序。
+第三组：重复相同descriptor、跨draw改变颜色而不改变layout；覆盖首次调用及预热后调用，核对快照和readback仍反映新颜色。无需规定“运行N次一定发生JIT”的虚假阈值。
+可用自有驱动观测加只读dispatch/生成码记录区分解释器与JIT；仅预热、耗时变化或符号名称不算JIT覆盖证据。若没有这样的观测条件，保留J1未决并结束本轮恢复。
+本轮没有实施上述验收，也不宣布系统GL直TCL、GPU或3D已可用。

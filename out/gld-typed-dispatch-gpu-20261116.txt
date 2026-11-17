@@ -1,0 +1,49 @@
+Target: macOS 15.7.3 / 24G419 / x86_64; kern.boottime Tue Nov 17 01:28:21 2026.
+Evidence recorded from completed SSH tool outputs; this is a curated transcript, not an unmodified stdout capture.
+
+Baseline bundle SHA256 d21a6a092bc01e47bf9003f2262d9e91985abe24dedbce41d5787e88d63c92f8
+Probe snapshot /var/tmp/vgpu-controlled-draw-probe-20261116T183802047884Z-c518ad0f/
+First original probe task CJkBE7: exit 1, target=0 mask=1 byte=57520 got=0 expected=255.
+Diagnostic task gW9nXF: exit 1, same mismatch; red_pixels=6400 flipped_mismatches=0.
+The diagnostic only reports vertical-reflection mismatch; it does not weaken the acceptance oracle.
+
+Single-variable corrected tree: /var/tmp/vgpu-tcl-yfix-XHsICF6j/kexts
+Remote diff -rq against original fixed source tree: only gld-integration/tcl_exports.c differs.
+Change: after copying each GL vertex, set position.y=-position.y; retain existing z=(z+1)/2.
+TCL source SHA256 1b967ace6489e949d9e212ce59dbbc5aae4cc7a1ff53eb5664fc1f136526eb45
+Corrected bundle /var/tmp/vgpu-tcl-yfix-XHsICF6j/build/VGPUDriverIntegration.bundle/Contents/MacOS/VGPUDriverIntegration
+Bundle SHA256 71ea9d3f8b8dd795ec5aa61931dfaf032d94e15010d35e14a57d3362ae50ed80
+SDK build task 5RUSJF: exit 0, exports comparison and plist validation pass.
+GPU normal task SqVMKm: exit 0.
+GPU ASan+UBSan probe task M0RYqz: exit 0.
+Both GPU outputs:
+PASS GPU typed R20/R21、双目标、累积、红绿红不变、GetError/Finish/Flush拒绝及健康恢复
+PASS GPU round=1 完整销毁释放；下一轮重新租用
+PASS GPU typed R20/R21、双目标、累积、红绿红不变、GetError/Finish/Flush拒绝及健康恢复
+PASS GPU round=2 完整销毁释放；下一轮重新租用
+PASS controlled-draw checks=379 mode=--gpu；不代表公开CGL/JIT验收
+Sanitizer instrumentation covers the probe only; bundle is not instrumented; detect_leaks=0.
+
+Accelerated candidate snapshot /var/tmp/controlled-integration-20261116T184053023528Z/
+Candidate executable candidate/VGPUDriverControlledCandidate.bundle/Contents/MacOS/VGPUDriverIntegration
+SHA256 c9d2cb4ef34104d8157241ca69b6b386d12ded2e23a0aeb9bac76c18f8ac7864
+Task tLVdvT: exit 0, same two-round 379-check GPU pass.
+Candidate diagnostics: CreateDevice publish/enable/return 0; ChoosePixelFormat 0, has-pixel 1; CreateShareGroup/CreateContext/default pipelines/textures/PopulateContextDispatch all 0.
+This candidate predates normalized offscreen token53 support. GPU direct probe attributes do not include53.
+
+All above use direct dlopen/GLD entry calls, not public CGL/GLEngine, not actual JIT execution. No kernel installation or reboot in these runs.
+
+Normalized offscreen candidate snapshot /var/tmp/controlled-integration-20261116T185053437769Z/
+Candidate SHA256 4222a040b3c532e56ca3f037c2f9945946499faffea52484e0bb0fb3df8e808b
+Task ZGBl54: exit 0, ASan+UBSan probe, same two-round 379-check GPU pass.
+The direct GPU probe still does not request public CGL OffScreen53.
+
+Public context-only experiment: out/public-cgl-cycle-k9kde8tx/result.json
+Trust before/replaced/restored: exit 0. Public probe: exit 1, CGLChoosePixelFormat=10000.
+No controlled candidate entry log. restore_verified=true; binary and plist hashes match originals.
+The rejection precedes candidate context creation; it is not a GPU triangle result.
+
+Continuation CPU regression: out/controlled-integration-20261117T023030481647Z/validation.log
+Added normalized53 integration-wrapper coverage for default and controlled builds.
+SDK default/candidate build, empty1123, 12 strict/ASan/UBSan CPU regressions passed.
+Current source hash audit matched the build snapshot. No public CGL or GPU was run in this CPU regression.

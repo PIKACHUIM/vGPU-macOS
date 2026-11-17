@@ -1,0 +1,36 @@
+真实 FBO/context 源码；双槽 CPU surface 替身；不是系统 GLD 或 GPU 验证。
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture D:\Codes\vGPU-macOS\kexts\gld-framebuffer\vgpu_framebuffer.c D:\Codes\vGPU-macOS\kexts\gld-context\vgpu_context.c D:\Codes\vGPU-macOS\kexts\gld-framebuffer\test_surface.c D:\Codes\vGPU-macOS\kexts\gld-framebuffer\test_framebuffer.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-framebuffer-strict.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-framebuffer-strict.exe
+PASS 88 checks; actual context + isolated two-slot CPU surface; no GPU
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -DNDEBUG D:\Codes\vGPU-macOS\kexts\gld-framebuffer\vgpu_framebuffer.c D:\Codes\vGPU-macOS\kexts\gld-context\vgpu_context.c D:\Codes\vGPU-macOS\kexts\gld-framebuffer\test_surface.c D:\Codes\vGPU-macOS\kexts\gld-framebuffer\test_framebuffer.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-framebuffer-ndebug.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-framebuffer-ndebug.exe
+PASS 88 checks; actual context + isolated two-slot CPU surface; no GPU
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -target x86_64-windows-gnu -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -fsanitize=undefined -fno-sanitize-recover=all D:\Codes\vGPU-macOS\kexts\gld-framebuffer\vgpu_framebuffer.c D:\Codes\vGPU-macOS\kexts\gld-context\vgpu_context.c D:\Codes\vGPU-macOS\kexts\gld-framebuffer\test_surface.c D:\Codes\vGPU-macOS\kexts\gld-framebuffer\test_framebuffer.c -lpthread -o D:\Codes\vGPU-macOS\out\gld-framebuffer-ubsan.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-framebuffer-ubsan.exe
+PASS 88 checks; actual context + isolated two-slot CPU surface; no GPU
+
+
+EXIT 0
+SHA256 bb406bb66ef508f0345394063a83fa138ca35834bb9e3dfb60b11ae462d49e98 kexts/gld-framebuffer/vgpu_framebuffer.c
+SHA256 c99464538601b1bc013332cd44e1c90843bd0efc216d7c3fd7675f3a6e6fb658 kexts/gld-context/vgpu_context.c
+SHA256 995034cdfa114a94a977c46e55145d7b8370c8ad014ecbdcc95f39923bca760b kexts/gld-framebuffer/test_surface.c
+SHA256 abee24bfccee33bb7fb40039649d1acd5b5a74824b39a1d0decaf507f4daa6dd kexts/gld-framebuffer/test_framebuffer.c
+SHA256 e07ec72fd6b47ecd9638532b7befa17858d02e223bab7edafda29e4877275d1c kexts/gld-framebuffer/vgpu_framebuffer.h
+SHA256 a90acd80dcb715bbc7b2e136efff6437ec53c04a5a45493fbf7a4373b5cab88b kexts/gld-framebuffer/verify_cpu.py
+SHA256 90fd5212988e99e441ba70b398f6994e32c7781e5ef0ba3d1f8880cdd3e843fb kexts/gld-context/vgpu_context.h
+RESULT PASS failed=0

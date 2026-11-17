@@ -1,0 +1,8 @@
+{
+  "metal_failclosed_lifecycle_probe.m": "68ca22c8a30874c068dfc56f32bad54f097092702fd4ff149bd91591edf42fe1",
+  "build_metal_failclosed_lifecycle_probe.py": "8e811b2909c3bb820fb807b14395870ce81368cd8f3a799c278a9d95cba894c5",
+  "metal-failclosed-candidate.m": "83eabdcfe91bf20d98165cb9578fc1c99e6d38c4b4c7bff0e8026b89d30305fb",
+  "metal-failclosed-contract.txt": "c293ad084bea5641c83b94c79113213dea89ca2703a335321fcfe74b31f269a1",
+  "metal-base-evidence-v2.txt": "651b5b86fdfd4ebcd4e005a77063e4a8438156e7d9a3097c1cf9ffcd98eacdf1",
+  "metal-base-runtime.txt": "2ebbe3c2143d6fbb78f912e7509667f7c182fe206f3f99c11e2c7413043d3356"
+}

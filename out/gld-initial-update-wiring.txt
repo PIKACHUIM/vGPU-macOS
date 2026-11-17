@@ -1,0 +1,163 @@
+公开 legacy context：初始 gleUpdateState 与后续 GLD 更新桥接
+日期：2026-11-17；目标 macOS 15.7.3 /24G419 x86_64。
+GLEngine UUID：FB994F78-34C6-39F3-857D-99F9B3013E8F。
+范围：只读源码、已有 out 小片段、客体已有 /var/tmp/vgpu-fb/glengine-code.txt；唯一写入本报告。未运行 GL/GPU、未装系统、未修改源码、未读历史 jsonl。另只读执行 dyld_info -exports/-function_starts 定位缺失标签；没有重新全量反汇编。
+
+1. 首要修正：initial UpdateState 不等于绘制前 dispatch 更新
+
+已用 function_starts 核实：
+  0x7FFB0637EA08 _gleUpdateState
+  0x7FFB064630CF _gleUpdateContextStateBuffers
+已有 glengine-code.txt 在 EA07 从 padding 失步，EA08 标签没有输出，EA0A 头部解码亦失步；EA0F 后正文一致。不能因精确标签检索失败而认定函数不存在。
+
+gleInitializeContext 于 0x7FFB0637C725 无条件调用 _gleUpdateState(G)，随后 C72A 继续初始化，不检查 EAX。
+真正 gleUpdateState 范围 EA08..EFF2：
+- EA12 清 G+aebc；EA1C..EA3F 将常量 mask OR 到 G+5f0..60f。
+- EA46 对 G+b618 OR 0xde3c0478。
+- EA88 ViewScissorData；EA90 LightColorChangeFunc；EABA/EAC5/EAD0/EADB 循环8个 light 派生量。
+- EAEC LightModel；EAF4 ClipPlane；EAFC MatrixMode；EB04 DepthRangeData；EB0C TextureCoordGen；EB1A TextureParams循环8次；EB2B EvalData。
+- EB33 AnyDrawBuffersFloat；EB95 BufferColorClamping；EB9D FragmentColorClamping；EC3A PointSmooth。
+- 按缺省程序/enable状态选择 VPEnable/Disable、GPDisable、FPChanged；主要更新状态和 dirty。
+- EEB2..EF40 按当前 FBO/完整性更新 draw/read completeness dirty；EF4A 返回，EF4B..EFED为同函数旁支。
+该函数没有直接 GLD 表调用，也没有调用 gleUpdateDeferredState、gleUpdateDrawFramebufferState、gleUpdateReadFramebufferState、gleUpdateDispatchCodeChange。
+
+按 function_starts 为已有文本归属函数，追踪命名 gle/gli/gfx call/jmp 得33个辅助函数闭包。间接边只有：
+(a) LightColorChangeFunc EA90 -> F163/F178，及 SetColorMaterialEnable -> F1C0：目标为 engine 的 LightMaterialRGBAChange_* 函数，不是 GLD 表。
+(b) AnyDrawBuffersFloat -> FramebufferCompleteness，后者含内部跳转表；初始无命名 FBO 路径不会进入，见第2节。
+在本任务的正常新建 legacy、无用户程序、无命名 FBO、未激活 TF 前提下，关注的四类 GLD 更新入口均不是 C725 初始调用必达。
+不得继续把 0x7FFB064482C3 deferred、0x7FFB0644C470 dispatch 当作 C725 的函数主体。此前报告称这些为“gleUpdateState相关片段”，应理解为后续状态消费链，不能据此断言 create 内必经。
+此结论不否认 create 之前/其他初始化步骤的默认 texture、sampler、pipeline 生命周期，也不宣称整个公开 CGLCreateContext 已验收成功。
+
+2. 初始无 FBO 的实际处理
+
+_gleUpdateAnyDrawBuffersFloat 0x7FFB06470FFE..1063：
+  471008 movq G+b2b8,r14
+  47100F test r14；471012 je 47103A
+  非空且 object+1e0==ffff：471028 调 gleUpdateFramebufferCompleteness
+  47103A movq G+b318,rax
+  471041 movb A+2b,al
+  后续仅比较/写 G+c698，必要时尾调 gleUpdateDrawColorClamping。
+所以初始 NULL draw FBO 走 A 的默认 pixel-format颜色性质，不要求创建虚构 FBO、不触发 LoadFramebuffer，不应在 context 创建时要求命名附件 ready。
+
+后续 gleUpdateDrawFramebufferState/read 的默认目标还检查 G+b300 与默认 drawable 状态。这与驱动 B+4a0/+4a8==0 的句柄解绑语义是不同层次：
+- 无 target 的新 context 合法存在；零 token 只解除驱动 draw/read 绑定。
+- 零 token 不表示存在默认可渲染 surface，更不表示完成 clear/draw/read。
+- 当前独立后端没有默认 drawable 契约时，真实 clear/read/draw 必须继续因无有效目标而拒绝；不得把解绑成功转成提交成功。
+
+3. 可编码机器 ABI 与调用方返回消费
+
+以下是 x86_64 SysV 适配声明，不冒称 Apple 私有头文件。
+T=plugin+420；C=真实公开驱动 context；R为25个pointer64共c8字节。
+
+uint32_t gldUpdateDispatch(void *C, void *R, void *Q);
+  T+90；RDI=C，RSI=R，RDX=Q=G+5f0。
+  0644C457 取 G+b308；C465 lea G+b320；C46C载Q；C470 call T+90。
+  EAX为策略位；C476保存，C47C立即调用 gleUpdateDispatchJIT。
+  C499..C4AC：(new XOR old)&47决定进入改变处理；&45非零调用 gleUpdateDispatchCodeChange。
+  bit1涉及descriptor刷新；C4E8/C4F6从 A+208/+210读指针，必要时置descriptor+2=1，随后重选primitive/submit。
+  正常直接TCL old=5时 new=5稳定；new=7触发descriptor分支而不改变&45策略。
+  0/1/5/7不是 status；IOReturn、GL error或-2007不能直接作为返回值。
+  Q头20B会由engine清理，失败须锁存在自有C；固定表/descriptor/支持组由主代理的dispatch方案负责。
+  该槽在后续绘制/派生状态 dirty 消费时有条件调用，不在C725初始函数内。
+
+uint32_t gldUpdateDrawFramebuffer(void *C, uint32_t dirty);
+  T+a0，RDI=C，ESI=按值dirty，不是FB指针，也不是uint32_t*。
+  0644B1BB and $443c0478,esi；为0不调用；B1C3取C；B1D1 call T+a0。
+  B1D7 cmp eax,2；仅等于2时B1E6置 Q首byte bit7；随后B1ED无条件清 G+b618 的443c0478位。
+  即本调用边的返回值消费是“2触发额外更新”，不存在非0报错/中止协议。
+  Mercury 835628F检查dirty bit30；置位时取 B+4a0。
+  NULL路径83562D8清缓存代次，62E9令ESI=0，62EB调用内部bind(C,NULL)，62F1保存NULL当前draw。
+  其他draw状态筛选mask=043c0478（62F5），非零调用内部更新；返回1或2（6322..632E）。
+  推荐受控适配：完成真实元数据绑定/状态失效记录后返回1；只有确实需要已证bit7重算时返回2。
+  失败可返回普通非2载体但必须记录sticky fault并关闭后续提交；不要把该载体宣传为engine认可的错误返回。
+
+uint32_t gldUpdateReadFramebuffer(void *C, uint32_t dirty);
+  T+98；RDI=C，ESI=按值dirty。
+  0644B3C6 and $80000000,esi；非零B3DC调用；B3E2清engine bit31，不检查EAX。
+  Mercury 835618E检查ESI符号位；置位取B+4a8；NULL时61D6清代次，61E7 ESI=0，61E9内部bind(C,NULL)，61EF保存NULL当前read。
+  Mercury所有所见返回路径EAX=1（61F7）。本边忽略返回，不能用IOReturn让caller保留dirty/重试。
+
+void_adapter gldUpdateTransformFeedbackState(void *C, uint32_t arg1);
+  T+a8；已证形态为RDI=C、ESI=0；void_adapter表示本项目按忽略返回值适配，不断言源语言void。
+  End 06402D43、Pause 0640363E、Resume 06402EC2和模式切换0638F112；均未见返回值拒绝协议。
+  初始gleUpdateState不调用此槽；后续TF状态操作/特定策略切换条件可达。
+  策略切换0638F018：c691非零时先检查H+497a是否ffff、H+4979是否0；两者默认满足则F039跳F2AD，跳过F112。
+  若需同步，F03F取实际TF对象；F049写paused、F053写primitive；只有primitive!=ffff且object.paused==0的分支继续到F112。
+  c691==0且旧primitive==ffff时F121直接跳F207，亦不调用F112。
+  所以“执行模式切换一定触发TF回调”也不成立。保留完整活动/暂停TF拒绝门控，不将(C,0)理解为无条件合法no-op。
+  第二参非零的完整契约未恢复，应拒绝/锁存，不猜测为handle、dirty指针或通用flags。
+
+4. 初始必达与条件可达清单
+
+正常创建前置条件：成功建立真实context和默认对象；legacy；无用户程序、命名FBO、TF活动。
+- 必达：gleInitializeContext -> C725 gleUpdateState；dirty与派生状态更新，初始无FBO按A+2b处理。
+- 在这次gleUpdateState内不达：gldUpdateDispatch、gldUpdateDrawFramebuffer、gldUpdateReadFramebuffer、gldUpdateTransformFeedbackState、LoadFramebuffer。
+- 默认texture/sampler/pipeline的create是此前初始化链依赖，与以上“不达”不冲突。
+- Populate由初始化dispatch/切换相关路径独立安排，不可从这次函数推导出“已填R”；必须按主代理dispatch方案接通。
+- 后续draw相关状态消费：b618&743c0478 -> engine DrawFramebufferState，再依443c0478决定T+a0；若无drawable/FBO且校验位要求检查，可先返回ff0000跳过GLD调用。
+- 后续read相关消费：b618&8a000000 -> engine ReadFramebufferState，再依bit31决定T+98；同样可能先被默认目标校验截断。
+- 非空命名FBO且pending：engine T+210 LoadFramebuffer(SG,FB)，依FD+50/+51握手；初始NULL路径不触发。
+- 后续dispatch dirty：T+90；deferred state-program更新/Create/Modify由具体dirty分支控制，不据此升级为C725必经。
+- TF：公开TF操作或满足活动条件的策略变更；初始inactive并不要求做任何TF提交。
+
+5. 到现有 gi_render_context_update 的最小受控桥接
+
+源码快照：kexts/gld-integration/render_exports.c:240 binding；:255 update；:299公开内部更新。
+现有行为：
+- binding:244 token==NULL直接得到fb=NULL/native=0；不调用fb resolver。
+- update:257只接受VGC_DRAW_DIRTY|VGC_READ_DIRTY（bit30/31）。
+- :269跳过NULL target materialization；:280/:281分别解析draw/read。
+- :284/:285仅写自有native_b；:286调用vgc_context_update；失败:287回滚native_b。
+- :288..294更新强引用计数；:296仅成功后回写内部dirty。
+所以初始解绑无需新增虚假FBO，无需后端image，也无需GL/GPU。
+
+外部适配逻辑（设计示意，不是代码已实现）：
+UpdateRead(C, dirty):
+  owner = 已注册公开context -> 同一render owner；不能把GI metadata context指针直接当render token。
+  local = dirty & VGC_READ_DIRTY。
+  调 gi_render_context_update(owner.render, &local)，成功才标记本侧绑定已同步。
+  失败锁存owner fault和待处理read位；返回采用已证忽略消费的载体1。
+UpdateDraw(C, dirty):
+  验证本入口观察域dirty；调用方已筛成443c0478，不能把所有位原样传内部函数。
+  local = dirty & VGC_DRAW_DIRTY；仅local交gi_render_context_update。
+  其余dirty &043c0478记录为自有draw状态失效代次/待消费掩码，并由真正clear/draw每次从借用H解码和支持域门控。
+  这是延迟真实消费，不等于丢弃位后宣布所有状态已执行；不能清除既有fault或把尚未支持状态标记为compiled/ready。
+  成功完成元数据操作返回1；失败锁存fault。返回2只能用于已证额外dispatch重算需求。
+  对未恢复的输入位/状态拒绝并锁存；不能统一无参no-op。
+UpdateDispatch：
+  保存/检查同一C、R、descriptor、策略；不是将Q强转uint32_t*调用render_context_update。
+  可调用自有绑定同步辅助，但只处理已明确属于绑定的bit30/31，Q的完整布局不是b618的替身。
+  缺FBO只能标记“无绑定”；不能因没有可绘制目标而破坏正常context/descriptor安装。
+  实际提交前检查fault、有效目标及所有H/B/pipeline gates。
+TF：
+  可实现严格受限的元数据同步/失效入口，对受控inactive状态登记不提交；活动/暂停、未知arg必须锁存拒绝。
+  H镜像充分性仍依主代理的执行策略前置条件；不能仅靠五个buffer为NULL或primitive==ffff宣称TF不活跃。
+
+要点：外部ESI是值，内部第二参是栈上局部uint32_t地址；外部返回是策略/ignored载体，内部返回才是IOReturn。两层禁止直接别名/强转。
+不建议借此在create时主动调用UpdateDraw/Read/Dispatch“模拟engine初始化”；本轮已证C725没有这些调用。接导出是为后续真实到达的正确ABI。
+
+6. 可交实现者的CPU验证项目（本轮未运行）
+
+- 新context、B draw/read为0：分别通过两参GLD适配进入内部update，绑定为0、无image generation、无submit、可销毁。
+- 已绑定目标后dirty bit30且token=0：仅解除draw引用；read保持；反之亦然。
+- Draw dirty包含043c0478中的位：不原样误传内部导致Unsupported；记录状态失效，实际提交前重新decode。
+- 错share/未知/已销毁/未ready的非零token：绑定事务不发布，fault可观察，实际clear/draw/read拒绝。
+- engine清dirty不应丢失自有失败；后续成功解绑不能无条件清除无关fault。
+- UpdateDispatch返回5/7的行为由真实策略/descriptor代次决定；不把IOReturn误装进EAX。
+- TF默认inactive不提交；非默认和未知arg路径拒绝；回调无可传播错误返回不等于可继续绘制。
+
+7. 精确局限与证据索引
+
+本轮闭合了初始函数定位、无FBO分支、四类更新的机器形态/返回消费、初始与后续可达性的区分，以及现有render层的桥接边界。
+没有证明整个公开CGLCreateContext端到端成功；未穷尽所有profile、用户program、shader IR、所有TF调用的第二参；未恢复Draw其他dirty每个位的全部状态语义。因此建议记录失效并延后经已实现decoder/gates处理，而非复制硬件状态或万能no-op。
+正常初始“无四类更新GLD调用”限于已查新context默认状态闭包，不外推为任意gleUpdateState调用或整个CGL调用树无GLD。
+
+本地来源：
+- out/gld-public-context-wiring-review.txt，特别136..159行（区分旧推断和本轮纠正）。
+- out/gld-context-init-consumers-raw.txt:255..293（C725调用与返回消费）。
+- out/gld-context-hardware-raw.txt:1611..1696（Mercury Read/Draw NULL绑定与返回）。
+- out/gld-context-minimal-verified.txt:144..158。
+- out/gld-pipeline-draw-contract.txt:110..135（TF/dispatch已见形态）。
+- out/gld-default-object-contract.txt（默认对象先前创建，不能被本轮结论省略）。
+- kexts/gld-integration/render_exports.c:240..303（同一render owner、零token、事务与dirty范围）。
+客体新增只读摘录地址均写在正文，可从已有glengine-code.txt按地址重现；function_starts用于归属修正，不依赖历史会话或重新反汇编。

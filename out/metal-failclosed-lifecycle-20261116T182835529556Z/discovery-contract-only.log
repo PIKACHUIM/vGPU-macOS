@@ -1,0 +1,10 @@
+DISCOVERY_CONTRACT_ONLY OS=Version 15.7.3 (Build 24G419) build=24G419 arch=x86_64
+trust=NOT_EXECUTED/UNKNOWN class_resolution=NOT_EXECUTED/UNKNOWN inheritance=NOT_EXECUTED/UNKNOWN init=NOT_EXECUTED/UNKNOWN type5=NOT_EXECUTED/UNKNOWN GPU=NOT_EXECUTED/UNKNOWN
+candidate=1 class=vgpuAccelerator class_status=0x0 registryID=0x100000468 id_status=0x0 path=IOService:/AppleACPIPlatformExpert/PCI0@0/AppleACPIPCI/display@F/vgpuFramebuffer/vgpuAccelerator path_status=0x0
+  IOServiceCompatibility=false
+  MetalPluginName present=false
+  MetalPluginClassName present=false
+  Removable present=false
+  SafeEjectRequested present=false
+  stage=G1_NO_METAL_PLUGIN_NAME
+DISCOVERY_COMPLETE candidates=1; diagnostic completion is not Metal availability

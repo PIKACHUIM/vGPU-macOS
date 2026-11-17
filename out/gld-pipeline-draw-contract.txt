@@ -1,0 +1,170 @@
+B4：默认 pipeline 绘制消费/绑定契约与初始化缺口
+2026-11-17；只读恢复；macOS 15.7.3 /24G419 x86_64。
+GLEngine UUID FB994F78-34C6-39F3-857D-99F9B3013E8F；以下地址 unslid。
+
+0. 结论和可编码边界
+本轮恢复了 B 内两组不同类型的五 stage 绑定、默认 VP/FP state-program 的发布来源、TF 的 H 镜像/五个 buffer 绑定及其更新回调的已见调用形态。当前导出表没有 gldLoadPipelineProgram、gldUpdatePipelineProgram 或 gldBindPipelineProgram；不能虚构这三个系统入口。绘制消费接点是已保存 H/B/descriptor/state 的驱动 context 和 gldUpdateDispatch，默认 state-program 还会由 engine 自身更新并触发 Modify。
+可以编码：B 稀疏读取、PIPELINE/PROGRAM/BUFFER 类型与 share 验证、默认 state-program 身份登记及每 stage 引用、TF 镜像的保守拒绝、UpdateDispatch 自有缓存/代次失效、GetPipelineProgramInfo 已证四参适配框架。
+尚不能宣称 B4 完全闭合：只有 B 的空 program 槽不足以证明所有用户 program 未绑定；原始 GLSL/ARB 绑定状态在当前 H 可读契约之外。TF H 镜像存在执行模式切换同步条件。默认 PD 四字节不足以证明 state-program 的实际语义等价于固定 VS/PS。驱动端真实 pipeline 消费、PU 清除与失败结果尚未恢复；本报告不将元数据 bind 当成编译或 GPU 完成。
+
+本轮先读 out/gld-default-object-contract.txt、out/gld-triangle-state-contract.txt、kexts/gld-objects/vgpu_objects.{h,c}、kexts/gld-integration/context_exports.{h,c}。再核对本地 gld-loader-memory-v3.txt 及源码符号，以 tools/mssh.py 的 connect/run 只读筛选客体既有 /var/tmp/vgpu-fb/glengine-code.txt。未下载全文、未执行新反汇编、GL/GPU/私有入口、构建、安装或系统变更。唯一主动写入文件为本报告。
+一次 Bash 嵌套引号命令在本机语法解析阶段失败，改用 PowerShell here-string 向 Python stdin 传递同一只读筛选；没有绕过权限拒绝。一次按符号标签筛选因原文件标签稀疏而返回过长输出，后续全部以地址区间重新核对；不以截断部分作证据。
+
+1. 基址及重要的可读范围约束
+G=GLEngine context；H=G+0x8e0。
+S_i=G+0xc6b0+i*0xe20；A_i=S_i+0x10；B_i=S_i+0x270=G+0xc920+i*0xe20。
+C_i=*(S_i+0)，SG_i=*(S_i+8)。P=插件；T=P+0x420 函数表。
+当前项目 VGC_H_LENGTH=0x4eea、VGC_B_LENGTH=0x4b0；这些是已声明的借用覆盖范围，非完整 Apple sizeof。
+本报告 B 新增字段最高端点为0x4a0，已在现有 B 长度内；TF H 最高端点0x497c，也在现有 H 内。
+G+0x9498 等虽然数学上可写成 H+0x8bb8，但已超 H 长度且属于 engine 私有对象区。禁止通过 H-0x8e0 反算 G 再偷偷读取/修改这些字段，禁止无证扩充 H 长度。
+所有自有 decoder 使用 memcpy 到固定宽度值；不得整体清零 H/B、借用 PD/PU，或将外部 pointer handle 直接当 vgo 数字句柄。
+
+2. B 内已证绑定表
+B偏移/宽度                  来源与类型                         解释/限制
++0x400+8*s，s=0..4 /8       stage pipeline driver handle       VP/CP/EP/GP/FP 五 stage；默认/ARB来源与GLSL程序组分离。
++0x428+8*k，k=0..3 /8       初始化清零的辅助绑定区域             本轮只证初始化位置，不赋予具体消费语义。
++0x448+8*s，s=0..4 /8       普通 PROGRAM driver handle         不是 PIPELINE；同一monolithic program可在多个stage重复。
++0x478+8*k，k=0..4 /8       TF buffer driver handle            不是TF object handle；第4索引可能是engine自有辅助buffer。
++0x4a0 /8                  draw framebuffer                    沿用B3。
++0x4a8 /8                  read framebuffer                    沿用B3。
+B+0x470..477 本轮没有恢复，不当空槽/哨兵。
+
+2.1 默认 pipeline 生产及 stage 发布
+_gleInitPipelineProgramState：
+0x7FFB0637E219 leaq G+0xd4b8,...；E2B1 call P+0x658 创建 kind=0、4 普通默认pipeline对象；
+E30F 写 G+0x9350+8*kind，E317 写 G+0x9328+8*kind；E31F 清 G+0x948c+kind；
+E328 清 G+0x9378+8*kind；E330/E338 清两组 state-program相关槽。
+E224 初始 r9=G+0xdb40；E3AC 写 [r9-0xe20]=G+0xcd20，E3C8 写下一插件，循环每stage r9+=8；所以 B+0x400 五槽初始NULL，不能因Create有非空handle就宣称已绑定。
+E403 初始rcx=G+0xdb68；E478/E495按插件清 G+0xcd48，四项= B+0x428..440。
+E58F 创建默认 kind=4 state-program，E598存 G+0x9398；E5B0尾跳 gleFPChanged。
+
+FP默认发布完整选择链：
+0x7FFB063A329E testb $0x10,G+0x94f8；存在用户GLSL FP时走32D8。
+0x7FFB063A32A7 cmpb $0,G+0x9490；ARB FP启用时取G+0x9348的对象+0x28输出数组。
+0x7FFB063A3321 movq G+0x9398,rax：无上述用户stage时取默认state-program。
+0x7FFB063A333A lea G+0xcd40,rsi；3343 movq (rax,rdi,8),r8；3347 movq r8,(rsi)；每插件rsi+=0xe20。
+所以默认FP输出handle发布到B+0x420；它是kind=4 state-program的GLD handle，不是kind=4普通默认对象的句柄。
+
+VP默认发布链：
+_gleReconfigurePipelineProgramState 0x7FFB064627AF取A_current=*(G+0xb318)，27B6查A+0x65，27BC查G+c6aa。
+至少一者非零且G+9378为空时，27FC创建kind=0 state-program，2805写G+9378。
+280C测用户GLSL stage bit0；2815查ARB VP enable；二者无时2825尾跳gleVPEnable。
+VP选择函数片段0x7FFB0648BDC5先查G+94f8 bit0，BDCE查G+948c；BDE2用ARB对象+28，BE55用G+9378。
+BE6E lea G+cd20,rsi；BE77读取每插件输出；BE7B写B+400；每插件步长e20。
+_gleUpdateVertexStateProgram亦在0x7FFB0643E166..183把当前state-program输出发布至G+cd20+i*e20。
+当前config(A)将A+65=0；不能靠以后仅改UpdateDispatch返回bit0来假定默认VP必然已创建且正确发布。应在受支持的初始化策略下由engine正常创建/重配置，不能私调reconfigure或强写G。
+
+2.2 普通program的五stage发布与分离式pipeline
+_gleUseProgramObject 0x7FFB0646DAA3读取旧G+9498；DB2B写入新对象。
+解除monolithic program时DAFA..DB29清G+cd68..cd88，每插件步长e20。
+DC34调用gleUpdateCurrentProgramState；若新program为空且G+94a0非空，DC4A调用gleBindProgramPipelineObject以恢复分离式stage选择。
+_gleBindProgramPipelineObject 0x7FFB0646A929取旧G+94a0，A930存新对象；A944检查G+9498，非空时monolithic优先。
+_gleUpdateCurrentProgramState片段：
+D0FE读取G+9498；非空则r14=programObject+0x28输出数组。
+D152目标G+cd68；D17B按stage*0x530；D182测试stage有效字节；D18A测试link相关标记，D195测试状态。
+有效分支D25D/D260置program+1ab8中的stage bit；D282读取(*r10)，D285写目标，r10+=8，目标按每插件e20前进。
+无效分支D212/D22B把对应B program槽置NULL；D247..252共五stage。
+D2A2读取G+94a0；D2C5从pipelineObject+0x28+8*s取各stage program；D35E/D361同样写普通program GLD句柄到B+448+8*s。
+因此B+448非空可明确拒绝用户program，但五槽全空只证明该镜像没有有效program句柄，不证明API层从未绑定不完整/未链接program。
+
+3. 用户program门控：精确定位与不可越界的证据
+engine内部定位（仅研究证据，不是当前GLD借用字段授权）：
+G+9498 /8 当前monolithic GLSL program object（gleUseProgramObject写入）。
+G+94a0 /8 当前separate program pipeline object（gleBindProgramPipelineObject写入）。
+G+94f8 /4 有效GLSL stage bitmap；bit0 VP、bit4 FP，本轮其他bit按stage索引保持，不扩展语义。
+G+948c+s /1 旧式pipeline/ARB stage启用；VP的setter在0x7FFB063A2ABD写G+948c；FP setter在0x7FFB063A3273写G+9490。
+这些位置减0x8e0后分别为H+8bb8、8bc0、8c18、8bac+s，均超VGC_H_LENGTH。
+
+可立即实现的保守判定：
+- 任一B+448+8*s非空即拒绝用户PROGRAM。
+- B+400/+420只能解析为本share、本类别且存活的PIPELINE；对未知句柄拒绝。
+- 可登记create时PD tag/kind并随modify代次重验，区分普通默认对象(tag=0)和state-program(tag=8620/8804)。
+- 不能凭tag/kind判定“此后永远是固定pipeline”：state-program描述符会随GL状态改变，四字节前缀不编码完整语义。
+- B+400五槽全空不代表“用户shader关闭且默认pipeline已就绪”；可能是初始化阶段、执行模式或无效program分支。
+严格证明“用户program未绑定”的现有H/B内通道尚未闭合。需要恢复driver实际消费者对B各stage与PD的组合选择，或者找到有正式借用证据的额外状态镜像。不能以扩大H长度掩盖。
+
+4. TF 状态/回调契约
+H+4978=u8 rasterizer discard（沿用B3），不是TF active。
+H+4979=u8 暂停/执行暂停镜像。
+H+497a=u16 driver侧当前TF primitive，0xffff表示该执行镜像不捕获；实际primitive可为0、1、4。
+H+4980+8*k /8 与H+49a0+8*k /8（k=0..3）是由gleTransferBufferBindingToGLD写入的两组TF buffer range相关输出；本轮未恢复其单位/精确offset-size语义，只记录生产地址，不纳入decoder字段定义。
+B+478+8*k（k=0..4）是五个TF buffer句柄。默认也可能有内部辅助buffer，故不能要求五槽全NULL作为“TF关闭”的充分必要条件。
+
+4.1 生产者及初始化证据
+_gleInitTransformFeedback 0x7FFB06489669创建name=0 TF object；9683/968A分别存G+a5d8/G+a5e0。
+对象构造0x7FFB064898E6在object+28写u32=ffff0000：+29暂停byte=0，+2a primitive=ffff。
+98FB调用gleCreateTransformFeedbackBuffer；成功分支9905存object+a0（第五buffer），991F置object+a8 bit4。只证明有条件产生内部buffer，不假定该调用总返回NULL或总成功。
+初始化绑定发布969C..97EC：从object+80+8*k取buffer；非空取buffer+28的每插件GLD输出，写G+cd98+i*e20+8*k，即B+478+8*k。空项逐插件置NULL。k=0..4。
+
+4.2 active/paused/end及同步范围
+Begin 0x7FFB06402A20检查TF object+2a==ffff；2A2B/2A34接受枚举位图0x13即0/1/4。
+2A71检查G+c691；仅非零时2A7A写G+525a（H+497a）。2A81始终写object+2a。
+Pause 0x7FFB064035E2同样查c691；非零时35EB写H+4979=1，35F2写H+497a=ffff；35FB始终写object+29=1。
+Resume 0x7FFB06402E64查c691；非零时2E6D写H+4979=0、2E78从object+2a恢复H+497a；2E7F始终清object+29。
+End 0x7FFB06402C03写H+497a=ffff；进入End时若暂停，2BF5先走Resume。
+gleBindTransformFeedback 0x7FFB06489BF5检查c691，非零时9BFE..9C02复制object+29到H+4979，再更新五buffer/range绑定。
+执行策略切换gleUpdateDispatchCodeChange 0x7FFB0638F018..F068检查c691及旧H镜像，再从G+a5d8的+29/+2a同步；其他分支还会为CPU路径暂时置paused=1/primitive=ffff（F157/F15E）。
+所以在未证明镜像同步的任意UpdateDispatch入口，H“paused=0、primitive=ffff”不足以证明原始TF object inactive。可以将非默认H镜像全部拒绝，但反向放行仍需执行策略前置条件或额外证据。
+当前严格不支持TF的候选检查：H+4979==0 && H+497a==ffff && H+4978==0；这是必要门控候选，不声称单独充分。暂停状态必须拒绝，不能只检查primitive=ffff。
+
+4.3 gldUpdateTransformFeedbackState 已见机器形态
+槽 P+4c8=T+a8，非pipeline load槽。
+0x7FFB06402D33 movq G+b4c8,rdi；D3A movq G+b4e8,rax；D41 xor esi,esi；D43 call *(rax+a8)；D49直接跳后续。
+Pause 0x7FFB06403621..363E、Resume 0x7FFB06402EA5..2EC2：同样取C/T，ESI=0，尾跳T+a8。
+策略切换0x7FFB0638F102..F118同样(C,0)，调用后直接跳转，不检查EAX。
+因此已见使用可适配为 ignore_return gldUpdateTransformFeedbackState(void *C, uint32_t arg1)，arg1在上述调用均0。不把第二参猜成object handle、dirty指针或统一flags语义；未穷尽所有调用及驱动实现在本轮不宣称完整原型/源语言void。没有已证“非零return中止draw”的协议。
+不要因TF测试程序不调用Begin就漏掉策略切换可到达的这个槽。未实现时须保持系统入口受控关闭，不能返回固定成功掩盖活跃TF。
+
+5. pipeline load/update消费者：实际存在与不存在
+5.1 表中存在
+Create P+658、Info+660、Modify+668、Unbind+670、Destroy+678；普通Program Create+680/Destroy+688；UpdateDispatch+4b0。
+本地完整loader表的Load入口为Texture+568、Buffer+5d0、Framebuffer+630；本轮未找到名为gldLoadPipelineProgram或gldUpdatePipelineProgram的槽。驱动内部同类名字不能据名称升级成engine ABI。
+
+5.2 engine绘制前状态更新
+gleUpdateState相关片段0x7FFB064482C3检查deferred bit17，482EA调用gleUpdateFragmentStateProgram(G,mode)；4848D检查bit16，48497调用gleUpdateVertexStateProgram(G)；484B0检查bit18，484BA调用gleUpdateRasterStateProgram(G)。
+484EB FragmentFallback(G,3)、48513 VertexFallback(G,1)、48538 VertexFallback(G,0)还受上层dirty分支控制；不是每次draw无条件执行全部。
+VP state-program更新尾段0x7FFB0643E0BF调用gleModifyPluginPipelineProgram，E0D2调用glePPUpdateProgram，E166..183发布B+400句柄。
+这些是engine内部更新/编译元数据的调用，不是可以由本项目主动执行的私有函数，也不要求本轮重建完整shader编译器。
+Modify的恢复ABI仍为(SG,handle,uint32 flags&5)->EAX状态，调用者先OR PU；不清PU，沿用默认对象契约。真实缓存内容与PU各bit消费尚未闭合。
+
+5.3 驱动可见消费入口
+0x7FFB0644C457 RDI=*(G+b308)=当前C；C465 RSI=G+b320=render table存储；C46C RDX=Q；C470 call T+90。
+EAX在C476保存；C47C立即gleUpdateDispatchJIT；返回值是策略位，不是pipeline编译成功码。0/1/5/7不能被解释成通用失败/成功。
+H/B已在Create借用保存在C，调用中没有单独pipeline参数；B中的绑定和PD/PU必须由driver持有关系自行消费。
+这证明可以把自有pipeline解析/受限状态验证接在UpdateDispatch/实际draw之前；未证明其他厂商的具体内部load routine、机器签名或返回0/1。禁止凭sampler load的1成功规则推导pipeline load。
+调用后engine会清Q头20字节（B3有原始指令）；失败必须在C中保留故障与拒绝状态，不依赖PU/Q不清来保证重试，不把输出旧dispatch继续可提交。
+
+5.4 本轮新闭合的GetPipelineProgramInfo调用形态
+0x7FFB0638FB48 RDI=当前C；FB56取插件索引；FB61 RSI=上层pipelineObject+28中对应GLD句柄；FB66 RCX=&栈上u32；FB6A EDX=selector；FB6D call T+240。
+另有0x7FFB0638FF05 EDX=88a2、FF0A RCX=&栈u32、FF0D调用；FF13读取输出eax，忽略回调return。FF49 selector=88aa，FF51调用同槽。
+已证适配输入：(C,pipeline,uint32 selector,uint32 *out)，上述selector输出至少4字节；无已证统一返回状态，调用方不检查。不是(SG,...)。
+FB43先gleUpdateDeferredState；FED6先gleDoDispatchForProgramInfo，再查询。不能把Info视作任何时刻的零成本空metadata查询，更不能全部写0假装编译结果已知。
+此处只补全已见形态，不枚举全部selector、上限含义或失败协议。默认context初始化必经仍未证。
+注意0x7FFB06493038的*0x238(r14)、9314B的*0x240(r14)中r14是G而非T；这些是engine自身dispatch，不能据同偏移误认CreatePipeline/Info。
+
+6. 对当前代码的具体影响与公开CGL后的必要缺口
+(1) kexts/gld-integration/context_exports.c:166 创建context只创建vgc对象，未创建/关联VGO_CONTEXT；177只保存A/H/B；183调用config，且config:162设置A+65=0、163发布两个NULL descriptor。不能直接拿gi context指针或vgc handle传vgo_pipeline_bind。
+(2) 同文件:230元数据create仅借用PD前4字节、PU4字节，足够生命周期，不足够受限shader语义识别；需要有证据的描述符前缀/版本边界后再增加decoder。不可从借用长度4直接读PD+8等。
+(3) 同文件:268 unbind当前没有context引用，仅验证share后返回。真正接入多stage绑定后，必须清匹配的所有自有引用；现有“没有引用可解除”前提随集成变化而失效。
+(4) kexts/gld-objects/vgpu_objects.h:82、vgpu_objects.c:297明确只有一个自有绑定槽；B4至少有五stage PIPELINE和五stage PROGRAM。不能把单槽当系统完整绑定表；可另建集成层五槽强引用映射并复用对象生命周期，而不冒充Apple内部布局。
+(5) 默认创建 != 已消费：A配置决定VP默认state-program是否存在；FP state-program在初始化尾部已发布；first UpdateState可修改/生成默认程序描述符再走Modify。受限固定VS/PS必须证明当前最终GL状态和PD语义在支持域内，绝不能只认PD tag=8620/8804就放行。
+(6) 公开CGL创建成功后，仍要正常dispatch初始化、支持分组/descriptor就绪、B句柄解析、默认pipeline状态转换、自有错误/拒绝机制和真实draw目标验证。context_exports.c:193仍明确返回UNIMPLEMENTED，报告不将其他会话可能改动的集成文件视作已验收。
+(7) TF update槽在执行模式切换可达；严格拒绝TF必须证明H镜像同步时机，不能只看B buffer是否NULL。用户program gate亦不能只看普通program五槽为空。
+
+7. 建议的最小自有实现范围（设计，不是系统ABI）
+- 外部handle->已注册gi对象->vgo对象映射，先验类别/share/liveness再读取借用descriptor，绝不直接解引用外来handle。
+- 每context五个pipeline引用及五个program引用的快照/代次；同一program多stage可重复，但引用计数政策一致。发布新快照成功后再释放旧引用。
+- 默认state-program只登记已创建身份和PD前缀，Modify仅推进自有失效；“默认”不自动设置compiled/consumed标记。
+- 逐字段读B+400..420、B+448..468与H+4978..497b，遇未知/非支持对象拒绝；保留原始原因与GL error，实际draw仍检查REJECTED/FAULTED。
+- 独立验证C持有的pipeline选择与资源代次；成功的元数据绑定不得推进目标image generation或GPU completion。
+这些纯CPU局部工作无需先恢复通用shader编译器，但公开draw放行必须等待下面证据。
+
+8. 精确阻塞证据和下一轮最小任务
+B4-1 用户program充分拒绝：B+448镜像由D182/D18A/D195有效性分支决定；无效stage会写NULL。原始G+9498/G+94a0/ARB enable超现有H视图。下一步找驱动实际读取B+400/448与PD tag/flags的选择规则，或已授权H内等价镜像；不扩大到完整GLSL链接器。
+B4-2 TF充分拒绝：Begin/Pause/Resume对H写入受c691控制；模式切换又临时置paused/ffff。下一步证明所采用0x5/0x7策略下从Create、UpdateDispatch到End的镜像同步顺序，或恢复可读原始active镜像。未证明前仅做拒绝检查不宣称充分放行。
+B4-3 默认pipeline真实消费：当前PD借用4字节、自有单绑定槽；缺已验证的state-program语义摘要、实际消费者及PU dirty成功清除协议。下一步只跟默认kind0/4路径及既定固定VS/PS支持域，不恢复完整shader编译器。
+B4-4 TF update完整返回协议：本轮调用方均忽略return，已见第二参0；驱动端完整实现尚未读取，不能赋予bool/status含义。
+B4-5 pipeline Info：已恢复四参及两个selector的u32输出，但其他selector和错误/返回尚不完整；不以固定0替代。
+B4-6 B3的逐顶点颜色历史、所有拒绝dispatch槽、多段Begin/End等限制仍独立存在，本报告不覆盖或解除。
+
+验收结论：本轮仅完成静态消费路径和可编码/阻塞边界恢复，未运行GPU、未修改源代码，未证明公开CGL到triangle端到端成功。没有证据支持新增gldLoad/UpdatePipeline系统导出或把现有元数据对象宣称为已编译pipeline。

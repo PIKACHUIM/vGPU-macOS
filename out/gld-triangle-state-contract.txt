@@ -1,0 +1,196 @@
+B3：受限 triangle 状态读取、拒绝与错误报告契约
+2026-11-17；只读静态研究；macOS 15.7.3 /24G419 x86_64。
+GLEngine UUID FB994F78-34C6-39F3-857D-99F9B3013E8F；地址均 unslid。
+
+0. 交付结论
+已闭合本轮要求的 modelview/projection、当前颜色、viewport0、depth range0、主要 enable 的 H 偏移与读取宽度；已闭合 glGetError 原样消费 gldGetError 的非零 u32；已确认 End 返回值不被 glEnd 检查；已恢复 UpdateDispatch 的策略位消费、A 支持分组表、20-byte dirty 头由 engine 清零的行为。
+可以编码稀疏 decoder、内部验证结果、错误锁存、后端故障锁存、descriptor/dispatch 的自有代次管理。
+B3 不能标为端到端全部闭合：UpdateDispatch 无已证的直接 abort 返回码；position-only 输出无法检测 Begin/End 内逐顶点颜色历史；替代拒绝 dispatch 的所有可达槽仍须按正确 ABI 兑现。见第5/6节。禁止把这些缺口掩盖为“返回0失败即可”。
+
+本轮先读既有本地 out 反汇编/报告；缺失的 GLEngine 函数随后经 tools/mssh.py 的连接与 run，只读筛选客体既有 /var/tmp/vgpu-fb/glengine-code.txt。未运行新反汇编、GL/CGL测试、GPU/私有入口、构建/安装/重启或写客体。第一次 SFTP 全文读取被执行器 SIGTERM，后改为远端 Python 文本筛选；这是传输方式调整，不是 GPU 或探针重试。源码未修改；本报告为唯一主动新增文件。
+上一轮证据来自 out/gld-triangle-next-contract.txt、gld-context-r1-r4-state-evidence.txt、gld-context-init-required-verified.txt、gld-default-object-contract.txt。本报告将可编码部分和本轮新增指令一起保存，避免只留在消息。
+
+1. 基址、长度和所有权
+G=GLEngine context；H=G+0x8e0，是 Create 第5参。
+S_i=G+0xc6b0+i*0xe20；A=S_i+0x10，是 Create 第4参；B=S_i+0x270，是第6参。
+C=驱动自有 context；R=25槽 render dispatch；T=plugin+0x420。
+所有读取采用 memcpy 到本地固定宽度值，不能把未对齐 bytes 强转成带对齐要求的 C 结构。
+下列 span 是 decoder 的最小覆盖要求，不是 Apple struct sizeof；不能按 span 整块复制/清零借用对象。
+H 本文核心字段的最小覆盖端点为 +0x4979（rasterizer discard 的末字节之后，包含 float4 颜色和八纹理单元、sample、clip状态）；若读取其他段另行扩展。一般场景的 H 实际 ABI 远大于此，本报告不定义其整体尺寸。
+
+2. 精确 H 读取表（均为内嵌数据，不是额外指针）
+字段                             偏移/单次长度                受限放行条件
+modelview 当前矩阵                H+0x2520 /64                 16个 float32，为单位矩阵
+projection 当前矩阵               H+0x24e0 /64                 同上，两个矩阵各自检查
+当前 primary RGBA                 H+0x1830 /16                 float32[4]==(1,0,0,1)
+viewport0 x/y/width/height         H+0x1b80 /16                 float32[4]==(0,0,256,256)
+depth range0 near/far              H+0x1b60 /16                 float64[2]==(0,1)
+multi-viewport 模式               H+0x3e8c /1                  ==0
+LIGHTING                          H+0x39ba /1                  ==0
+COLOR_MATERIAL                    H+0x39bb /1                  首轮要求0
+FOG                               H+0x3c72 /1                  ==0
+ALPHA_TEST                        H+0x3b5e /1                  ==0
+BLEND 目标位图                    H+0x3bd0 /1                  bit0==0；仅目标0时不误读其他位
+DEPTH_TEST                        H+0x3c24 /1                  ==0
+DEPTH_CLAMP                       H+0x3c25 /1                  ==0
+DEPTH_BOUNDS_TEST_EXT              H+0x3c26 /1                  ==0
+STENCIL_TEST 控制字低byte          H+0x3ecc /1                  bit0==0；可保守要求全byte0
+CULL_FACE                         H+0x3d6e /1                  ==0
+POLYGON_SMOOTH                    H+0x3d6d /1                  ==0
+POLYGON_STIPPLE                   H+0x3d6c /1                  ==0
+POLYGON_OFFSET_POINT/LINE/FILL    H+0x3d6f/+3d70/+3d71 各1     全0
+COLOR_LOGIC_OP                    H+0x3c97 /1                  ==0
+INDEX_LOGIC_OP                    H+0x3c96 /1                  保守要求0
+SCISSOR_TEST 索引0镜像            H+0x3d84 /1                  ==0
+scissor 主enable位图             H+0x3e88 /4                  bit0==0，和镜像一致
+FRAMEBUFFER_SRGB                  H+0x3c1c /1                  ==0（首轮只支持线性RGBA8）
+DITHER                            H+0x3c38 /1                  ==0，默认是1而非0
+RGBA各通道目标位图                H+0x3ca8 /4                  四个byte各自 bit0均1
+clip plane/distance enable        H+0x47d4 /4                  保守要求整字0
+MULTISAMPLE                       H+0x4840 /1                  首轮要求0
+SAMPLE_ALPHA_TO_COVERAGE           H+0x4841 /1                  ==0
+SAMPLE_ALPHA_TO_ONE                H+0x4842 /1                  ==0
+SAMPLE_COVERAGE                    H+0x4843 /1                  ==0
+SAMPLE_MASK                       H+0x4845 /1                  ==0
+SAMPLE_SHADING                    H+0x4847 /1                  ==0
+RASTERIZER_DISCARD_EXT             H+0x4978 /1                  ==0
+八个固定功能纹理单元enable字      H+0x3ef4+0x4c*i /4，i=0..7   每个低5位==0；保守可要求全word0
+
+矩阵/颜色/viewport 使用数值比较并检查 finite；允许数值零的正负零，不用 memcmp 把-0误当非单位。不同于通用 GL 规范，这是自有受限实现的支持域，不将合法非默认状态宣布为非法GL参数。
+纹理低5位已确定：bit0 cube，bit1 3D，bit2 rectangle，bit3 2D，bit4 1D。检查所有8单元，不只当前 active unit；最高单元 word 为 H+0x4108，结束+0x410c。绑定非空默认texture对象并不等于采样启用，不以 B 的texture句柄是否NULL代替enable。
+这里的 H+0x47d4 是 clip enable，H+0x3ef4 是 texture enable；原始 G+0x47d4 正好又是 texture enable，特别防止忘减0x8e0。
+H 核心表最高实际端点是 rasterizer discard +0x4979；这不要求读取其中空洞。实现逐字段读取时，用各字段 off+len 校验即可。
+
+2.1 矩阵精确生产链：本轮新增
+_glMatrixMode_Exec 0x7FFB06394156/15C：0x1700→941AB，把mode设4；9415E/164：0x1701→941A4，设3；94142写G+0x5fac。
+_gleUpdateMatrixMode：
+  0x7FFB0637FD10 movslq 0x5fac(%rdi),%rcx
+  0x7FFB0637FD20 shlq $0x6,%rax
+  0x7FFB0637FD24 lea (%rdi,%rax),%rdx
+  0x7FFB0637FD28 addq $0x2d00,%rdx
+  0x7FFB0637FD2F movq %rdx,0x5db0(%rdi)
+所以 modelview=G+0x2e00=H+0x2520；projection=G+0x2dc0=H+0x24e0。
+_glLoadIdentity_Exec 0x7FFB06394211/218/21B 取该指针调用gleMakeIdentityMatrix。
+_gleMakeIdentityMatrix 0x7FFB0637D6DF..D6FB 在+0/+14/+28/+3c写0x3f800000，其余12个float清零；精确64字节。
+乘积不够：modelview和projection可相互抵消而各自非单位，因此验证两个独立64-byte实体。当前matrix mode不是判断两个矩阵内容的替代物。
+
+2.2 颜色和 viewport/depth range：本轮新增
+_glColor4f_Exec：
+  0x7FFB063C2F52 movss %xmm0,0x2110(%rdi)
+  0x7FFB063C2F5A movss %xmm1,0x2114(%rdi)
+  0x7FFB063C2F62 movss %xmm2,0x2118(%rdi)
+  0x7FFB063C2F6A movss %xmm3,0x211c(%rdi)
+此函数没有dirty写入，且glColor允许在Begin/End之间改变。详见第6节，不能只在UpdateDispatch读一次。
+_glViewport_Exec 0x7FFB0638F47B..F492 将整数四参转float4，F4C3调用glViewportArrayv_Core。
+_glViewportArrayv_Core.cold.1：0x7FFB064E109B base=G+0x2400，10AB index*0x90；10FA movups xmm0,0x60(base+index*0x90)。故索引i为H+0x1b80+0x90*i，单项16字节。
+_glDepthRangeArrayv_Core：0x7FFB063C6F53 base=G+0x2400；6FBE/6FC2 index*0x90；7006/700B写base+0x40/+0x48两个double。索引i为H+0x1b60+0x90*i，共16字节。
+这两组都是用户请求经相应限制后的主状态，不把Intel私有 viewport transform 当公共输入。256×256还须和实际绑定资源尺寸一致；仅H中的viewport不足以证明目标资源尺寸。
+
+2.3 enable 的查询/生产锚点：本轮新增
+_gleGetEnabled(ESI=GL enum,G=RDI)：
+  0xB44→0x7FFB063A0058 G+464e byte；0xB71→0035 G+4504 byte。
+  0xB90→0x7FFB0639FF8C G+47ac byte，A0046 and1。
+  0xBE2→0x7FFB063A0040 G+44b0 byte，A0046 and1。
+  0xB50→0x7FFB063A0714 G+429a byte；0xB57→04C4 G+429b byte。
+  0xB60→071F G+4552 byte；0xBC0→0897 G+443e byte。
+  0x864F→016F G+4505 byte；0x8890→0356 G+4506 byte。
+  0xB41→0595 G+464d；0xB42→058A G+464c；0x2A01→0225 G+464f；0x2A02→04F3 G+4650；0x8037→004D G+4651。
+  0xBF2→007E G+4577；0xBF1→056B G+4576。
+  0x809D→0089 G+5120；0x809E→002A G+5121；0x809F→0094 G+5122；0x80A0→FFB3 G+5123。
+  0x8E51→02E5 G+5125；0x8C36→00EA G+5127；0x8C89→001F G+5258。
+  0x3000..0x3005→0x7FFB0639FF53 读G+50b4 u32后btl；其他profile还容纳3006/3007。
+  0xDE1→0x7FFB063A069F..06BB 读G+47d4+0x4c*active byte，09E1 shr3后and1。
+  0xDE0→06E3..06FF 同一byte，shr4后and1；0x8513→07C6..07E2同一byte bit0；rectangle→0761..077D同一byte bit2。
+  TEXTURE_3D setter 0x7FFB063B7E55..7E75读写同一u32，清bit1后按输入置bit1；TEXTURE_1D setter 7E01..7E22清bit4后写。
+生产交叉：ALPHA_TEST 0x7FFB0639E40C写G+443e；CULL_FACE 0x7FFB0639E5DC写G+464e；STENCIL_TEST 0x7FFB063A55E5..55F6读改写G+47ac u32的bit0。
+scissor、sRGB、dither及颜色mask沿用上一轮双侧证据：out/gld-context-r1-r4-state-evidence.txt:18起；没有把clear的全表面条件误套为triangle的viewport条件。
+
+3. A/B 的精确可读范围及角色
+A+0x65 /1：默认ACC/IMM策略，非draw成功标志；已证初始化G+b614=4或5。
+A+0x208 /8、A+0x210 /8：两个descriptor指针。先各读8字节，再独立验证指向对象。不是函数指针。
+D头读取4字节；D[0]为entry数，D[2]为DWORD stride；条目各4字节，总至少4+4*D[0]。position-only候选D为01 00 04 00 00 18 00 00，见上一轮；尚不宣称JIT最终输出动态验证。
+A+0x230 /32：8个u32 primitive支持分组；A+0x250 /4：4个u8第二输入分组；A+0x254 /4：4个u8第三输入分组。
+gleDoDrawDispatchCore 0x7FFB0644C568..582 按请求primitive bitmap查A+230；C5B5..5D2查A+250；C606..623查A+254。
+缺组时仍读取索引8或4：前者地址A+250，第二表越界读A+254，第三表越界读A+258。故这是必须匹配至少一组的调用前置条件，不能靠全0表示“不支持”并指望engine干净返回。A+258还含调用者pagesize，尤其不能把它当安全sentinel。
+最小triangle请求H+8 /4 应包含1<<4=0x10；H+0xc /1、H+0xd /1为另两个请求类别。写入锚点C402/409/410，初始glBegin现场分别为0x10/1/1。
+对受限单primitive实现，可设计A第一组0x10、第二/第三组首元素1，但其他primitive拒绝路径必须另行兑现；这不是整个API可支持的证明。A读取覆盖至0x258（不包含pagesize）。
+B+0x4a0 /8 当前draw framebuffer句柄；B+0x4a8 /8 read句柄。UpdateDraw第二实参为dirty flags，并非FB。沿用gld-context-init-required-verified.txt:94..98及minimal报告。triangle gate必须用真实draw句柄验证share/owner、已materialized、单目标0、RGBA8、256x256、无depth/stencil、多采样0。
+B最小覆盖0x4b0；不通过B+纹理NULL判断enable，不给未知pipeline绑定字段编造偏移。无用户shader/transform feedback等条件还需接B4对象和绑定契约，不能因矩阵/enable全通过就当一般GL状态全部受支持。
+
+4. UpdateDispatch 返回位与dirty协议：本轮新闭合
+ABI：uint32_t UpdateDispatch(C, void **R, uint8_t *Q)，Q=G+0x5f0。
+0x7FFB0644C457/465/46C准备C/R/Q，C470 call T+90，C476保存EAX；C47C立即gleUpdateDispatchJIT，故所有发布到R的可达槽此时必须有效。
+不是状态码：返回0不等于拒绝，返回1不等于成功，GL_INVALID_OPERATION(0x502)也不能从这里返回作错误。
+位的精确机械效果：
+ bit0 0x1：ACC侧执行选择；经gleUpdateDispatchCodeChange写G+c691；会决定CPU/直接TCL及若干program状态同步。
+ bit1 0x2：descriptor更新请求；C4D1测试，C4E8/C4F6重读A+208/+210，重选submit/primitive。该分支还受(new XOR G+b614)&0x47外层门控，不能把bit1任意解释为“error”。
+ bit2 0x4：在CodeChange内绕过FallbackBegin分支的门控。不是GPU完成标志。
+ bit5 0x20：强制重新选择A+230 primitive支持分组。
+ bit6 0x40：当前执行策略与A+65不一致的状态位，CodeChange按实际比较重算。
+ bit7 0x80：强制重新选择A+250第二输入分组。
+ bit8 0x100：强制重新选择A+254第三输入分组。
+未解位不赋予名称或支持含义。
+
+拒绝回退门控精确条件：
+ gleUpdateDispatchCodeChange 0x7FFB0638EE94 test4；置位直接EF24。
+ 不置位时，EEA5先清r15d；若G+c6a2==0xff或等于G+c6a4则不找其他设备；否则调用另一设备EvaluateContext(selector=0x5c)，返回<=3才EF1C调用gleFallbackBegin；EF24只留结果bit0。
+因此清bit2是“可能换设备/退到另一执行策略”，不是可靠失败通知；即使无候选设备也继续选择bit0=0。
+候选受限直TCL策略在A+65=1且所有必要入口/描述符有效时为0x5，需刷新D则0x7。它们是按上述消费者构造的候选策略值，不能当不支持时的通用成功/失败码；本轮没有运行验证。不要为阻止fallback盲目对任意状态返回5。
+
+重大更正：dirty重试不是驱动可单靠保留Q实现。
+ 0x7FFB0644C7FA pxor xmm0,xmm0
+ 0x7FFB0644C7FE movq -0x38(%rbp),rax  ; Q
+ 0x7FFB0644C802 movdqa xmm0,(rax)      ; 清16字节
+ 0x7FFB0644C806 movl $0,0x10(rax)     ; 再清4字节
+即已跟踪legacy调用尾段由engine清Q[0..19]。Q的头部读取长度可定20字节，不能据此宣称整个dirty结构只有20字节：Q+20起还有deferred状态，Q+0x20起有多组program mask，caller也按返回bit0/bit2条件清相应128-byte块。
+AMD 0x631C7 OR Q+8 byte、0x631D7 OR Q+0 u32，只说明可以追加dirty；并不能推出失败时保留Q就能阻止engine清理。
+实现必须在调用内复制自己需要的20-byte头以及独立状态快照/代次；实际失败保留在C，不依赖Q重试，不主动memset整个Q。没有实际提交成功不得推进image generation/completion。
+
+5. End/UpdateDispatch失败不假成功：已证错误通道与可编码协议
+5.1 End 返回值被丢弃，必须锁存错误
+上一轮直接triangle End实参(C,0x8002,4,count)，三点时count=3。gleRenderPrimitiveTCLFunc 0x7FFB0646A634尾跳R[21]。
+_glEnd_Exec：0x7FFB06394804 call *G+acc0；紧接9480A取G+5b00，94811用另一个load覆盖EAX，没有测试回调返回值。故End返回非零不能替代错误锁存。
+End在任何提交前验证primitive、flags、容量/count、坐标有限/范围、当前draw资源与状态。失败时不提交、不宣称完成、不修改目标代次，记录自有 failure_reason 和 GL error；backend device-lost/未知完成保持持久故障状态，禁止后续draw/重放。
+
+5.2 gldGetError 的非零u32会原样到公开 glGetError
+_glGetError_Exec：
+ 0x7FFB06397748 检查Begin/End状态；inside Begin时按API路径处理，不调用driver getter。
+ 0x7FFB06397750 读取G+b638 u16 engine error；776A先清该engine error；7773非零直接返回。
+ 0x7FFB06397777..779B 遍历plugin；779E RDI=该plugin的C。
+ 0x7FFB063977A5 call *plugin+0x4d8 （导出表index23，T+0xb8）
+ 0x7FFB063977AE testl eax,eax；77B0为零才查下一插件；非零直接77B2返回，没有翻译。
+这关闭了上一轮“返回码能否被GL看见”的缺口。driver的gldGetError(C)->u32可原样返回真实GL错误，不返回CGL 100xx或私有errno。
+自有实现协议：pending_gl_error 初始0；首次失败时若当前0则锁存；gldGetError在同一同步域取值并清该槽；独立backend_fault/reject_reason不随GetError清除。实际OOM用0x505；受限适配拒绝可选择0x502并保存具体内部reason。后者是自有受限实现的行为，不声称合法OpenGL状态按规范天然必须502；不要把device lost无依据硬编码成某个robustness扩展码。
+已有Mercury 0x7FF918354C99..4CC1也证明context/share取并清模型，但本实现不用复制其内部偏移或share错误优先级。
+
+5.3 UpdateDispatch拒绝不能只锁存后继续真实render
+这个入口没有已证的直接abort返回约定。engine会继续更新dispatch、descriptor、支持分组并清dirty；仅锁存error不足以阻止继续画错。
+可编码的自有状态机：
+  READY：已验证当前支持域、descriptor和draw target；允许End提交。
+  REJECTED：状态/ABI不支持；所有后续draw入口先检查此状态并拒绝，锁存错误，保持资源不变。
+  FAULTED：backend提交/完成失败；持久阻止GPU使用，GetError清错误不解除故障。
+UpdateDispatch必须先验证全部已映射状态/对象，再发布完整可达dispatch；失败转REJECTED并发布已实现的拒绝路径，绝不能继续保留可提交的旧路径。
+直接TCL Begin的返回buffer无NULL检查（A111/A118保存后按count*stride计算），不能以NULL/容量0拒绝并让engine继续写。拒绝路径若仍走20/21，必须提供自有有界、正容量且可循环flush的CPU sink，End负责锁存错误并丢弃本次未提交数据；sink是明确错误消费，不是成功绘制。分段/重入/不支持primitive及所有其他可达槽未兑现前，禁止将此候选拒绝方案接进公开驱动。
+不能从driver计算G=H-0x8e0后写G+b638、修改c691或私调FallbackBegin来强迫拒绝；这些是反汇编定位关系，不是授权写engine私有内存的协议。
+
+6. 限制当前红色的关键缺口：不能只看首尾快照
+例：glColor4f(1,0,0,1); glBegin(TRIANGLES); vertex0; glColor4f(0,1,0,1); vertex1; glColor4f(1,0,0,1); vertex2; glEnd();
+UpdateDispatch/Begin/End都可能读到红色，但第二顶点是绿的。setter没有dirty写入；position-only descriptor不包含颜色。因此“每次End再检查红色”仍不足以拒绝该合法调用。
+若目标是驱动保证受限路径正确而不仅靠测试程序约定，必须让GLEngine在输出中包含每顶点primary color，End逐顶点验证(1,0,0,1)，随后后端仍可使用常量红PS；或者找到已证、可靠的每顶点颜色历史机制。当前attr索引和含color descriptor的完整输出契约未在本轮闭合，不臆造第二条entry。
+单纯要求调用方“Begin内不改色”可以作为受控测试前置条件，但不能声称驱动已检测并拒绝所有越界状态。这个缺口单独阻止B3完全闭合。
+矩阵/viewport等API在Begin内调用会由GLEngine拒绝，不存在同样的合法逐顶点改变语义；仍需End重验资源/故障以及驱动自有状态代次。
+
+7. 上一轮保留并纳入本报告的约束
+- Begin R20(C,primitive32,count_inout32*)返回持续存活的可写CPU staging；count是顶点容量，不是字节。stride取D[2]*4；正数、乘法有界；不是必须GPU映射页。
+- End R21(C,flags32,primitive32,count32)不能偷换成统一status32接口；三点未分段triangle为(0x8002,4,3)。不要把flags当primitive。
+- 支持位A+65=1/返回bit0=1不能替代B1入口pattern和B2输出格式证据；不能改GLEngine私有上下文强迫直TCL。
+- 默认pipeline Create四参元数据对象存在，即使固定VS/PS仍需B4生命周期和绑定状态。
+- 真实目标draw不得隐式clear；必须绑定B当前draw的已materialized资源，跟踪真实完成；单位矩阵/w=1下GL z映射到后端(z+1)/2；Y方向需独立验证。
+- 本轮没有动态验证，也没有GPU成功结论。可先实现decoder/错误锁存/拒绝状态机的纯CPU部分；公开GL直通的启用条件仍包括第5.3/6节及B1/B2/B4。
+
+8. 精确后续读取任务（不是要求恢复全部shader compiler）
+(1) 从当前属性消费者确认primary color源属性索引，构造position+color输出descriptor并证明每顶点snapshot；保留position-only仅供明确受控实验。
+(2) 确认受限策略0x5/0x7和支持分组表下所有可达reject槽，证明拒绝时不会NULL调用、越界写或切入未实现CPU primitive路径。
+(3) 对多段Begin/End的flags、count==0、容量边界恢复全部必要生命周期；不能只支持单次三点恰好放下。
+(4) 结合B4获取用户program/transform-feedback等未支持状态的精确H/B输入；检查polygon mode为FILL（已有初始化H+3d64两个u16=1b02，但本轮未恢复完整setter消费链，不将初始化常量当最终门控证据）。
+(5) 将已证gldGetError协议接自有错误锁存后再验收；不把glGetError=0或提交调用返回本身当GPU完成。

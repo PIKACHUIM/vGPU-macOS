@@ -1,0 +1,244 @@
+GLD UpdateDispatch / 25槽拒绝路径：最小可执行契约与公开CGL分阶段方案
+日期：2026-11-17；目标 macOS 15.7.3 /24G419 x86_64。
+GLEngine UUID FB994F78-34C6-39F3-857D-99F9B3013E8F；GLEngine地址均unslid。
+
+0. 结论
+可以实施独立系统ABI桥接层：稳定直TCL候选策略0x5/0x7、覆盖拒绝请求的A分组、预分配正容量CPU sink、按槽机器签名分别实现拒绝、driver错误锁存。不可把现有gi_primitive_begin/end直接转型为R20/21。
+本轮新闭合的关键事实：
+(1) 初始G+aec8确实为0；R20输入0不是空操作。系统立即保存RAX并以返回count计算可写区，没有NULL保护。
+(2) 输入count!=0还参与选择另一个descriptor/stride；不能只把它理解为请求容量，更不能先改count再决定布局。
+(3) Intel/AMD两家Begin均把输出容量向下取整到12的倍数；自有64容量不能直接作为通用系统分段容量，现有64记录的存储可只暴露48记录。
+(4) triangle首段R21 flags=0x8002、后续=0x2；中途flush调用相同render函数。0x8000是“尚未flush”条件生成的位，0x2不是“整个glEnd最终结束”。不能用这两位完成整个GL Begin/End事务判定。
+(5) 首次/每次flush均回调R20，flush会先备份续接顶点、调用R21、再R20、再把续接顶点复制到新buffer；返回同一长期存活CPU buffer可行，零容量/NULL不可行。
+(6) 支持分组不是拒绝表。未命中会读取A+250/+254/+258，不能只放triangle bit然后期待其他primitive干净失败。
+(7) R24返回0会回退，返回非零只表示该分支已处理。选定已验证调用边可“锁存错误+返回1+不提交”消费拒绝；不能只有return1却不给公开GL错误。
+
+没有证明所有25槽的完整Apple源语言原型：13..16仍无调用形态，R1第9参数仍只保留64位载体。本文给出已证可达槽的精确机器参数形状与未证边界，不以万能函数填表。
+本轮不执行GPU、公开GL测试或私有函数，不改系统、源码、配置，不构建/安装/commit。唯一主动新增项目文件为本报告。公开测试方案只是后续实施/授权后的计划。
+
+1. 资料与只读方法
+既有资料：
+- out/gld-triangle-state-contract.txt §3/4/5：A支持组、策略位、dirty、错误锁存。
+- out/gld-triangle-next-contract.txt：即时TCL、25槽现场、descriptor。
+- out/gld-context-r1-r4-state-evidence.txt：A+65初始化与clear门控。
+- out/gld-context-render-first-raw.txt、render-mirror-raw.txt、render-alias-raw.txt、render-xrefs-raw.txt。
+- out/gld-context-intel-raw.txt:4678..4906；gld-context-amd-dispatch-bounded-raw.txt中21ea4..2202f。
+- out/gld-context-amd-render-raw.txt；gld-context-minimal-verified.txt:68..113。
+- out/gld-vertex-color-contract.txt；out/gld-pipeline-draw-contract.txt。
+源码只读核对：kexts/gld-integration/primitive_exports.{h,c}；其可能由其他任务同步编辑，本文行号仅对应本次读取快照。
+新增证据仅通过tools/mssh.py load_env_file/connect/run，用远端python3流式筛选既有/var/tmp/vgpu-fb/glengine-code.txt。未重新反汇编、下载全文、写客体或打印凭据。宿主python使用-B避免pycache。
+
+记号：G=engine context；H=G+8e0；A为Create第4参；B为第6参；C为自有context；R为25项表（G+b320），T=plugin+420；Q=G+5f0。
+G偏移只用于证据定位，不授权从H反算G读取/修改私有对象。适配层只读已借用A/H/B及自有句柄。
+
+2. UpdateDispatch与A分组：可编码机械契约
+uint32_t UpdateDispatch(C, R_storage, uint8_t *Q)
+C470调用，C476保存EAX，C47C立即gleUpdateDispatchJIT复制R。策略返回不是GL error/IOReturn/status。
+
+2.1 固定直TCL候选
+A+65=1从Create时就一致；初始化DA73..DA8F令当前策略=1、G+b614=5。
+正常GL_RENDER=0x1c00且当前策略非零时，gleSelectPrimitiveFunc AE8F..AEC3以16-byte pattern填15项begin入口；pattern地址0x7FFB410F1A90尚无原始内容，不能把15项全部断言为TCL。此为具体剩余证据，不需要全shader逆向。
+0x5：bit0=1，bit2=1，保持该策略。
+0x7：另置bit1，让已跟踪caller重读A+208/+210并重选submit。
+EE94测bit2，置位绕过FallbackBegin逻辑；EF24提取bit0。清bit2可能换设备或进入CPU策略，不能作为可控abort。
+C4AA门控(new XOR G+b614)&0x47；C4D1测bit1才重读descriptor。当前旧值5时7可以请求刷新；不能泛化“任何旧状态返回7必刷新”。本轮所见G+b614写入主要更新bit0/bit6，不见此尾段整值赋成UpdateDispatch返回值，不能自行设想它是简单last_return缓存。
+最佳最小实现：D对象长期稳定；只在配置/布局实际需要重选时请求bit1，保持常规策略固定；不在错误时清descriptor或换成未实现CPU执行策略。
+
+2.2 精确支持组算法
+请求在调用前写H+8:u32、H+c:u8、H+d:u8。glBegin传(1<<primitive,1,1)。
+C568开始从A+230的8个u32中找第一个(group & request)!=0，C582读取该组并缓存；它不是全包含判断。
+C5B5开始从A+250的4个u8中作同类搜索；C606从A+254的4个u8搜索。
+缓存与请求相交且返回位没有要求强制刷新时可复用；0x20/0x80/0x100分别强制重新选三组。
+未匹配时索引分别变8/4/4，随后仍执行load，地址恰为A+250/A+254/A+258；无失败分支。
+因此不能A第一组0x10、其余0就声称安全拒绝所有primitive；也不能动态清所有组表达unsupported。
+
+受控legacy glBegin(0..9)且三类请求明确已实现的候选配置：
+  A+230: [0x00000010, 0x000003ef, 0,0,0,0,0,0]
+  A+250: [0x01,0x02,0x04,0xf8]
+  A+254: [0x01,0x02,0x04,0xf8]
+这是自有路由覆盖方案：triangle独立组、其他legacy primitive作为拒绝组；后两张byte表中的非1分组只承诺送入错误消费，不承诺绘制能力。第一次Begin的1/1请求命中首组。
+若需避免公开实现可接受的全部0..14 primitive在组查找处落空，可把第二primitive组扩大为0x00007fef；但这仅覆盖查表，不能凭此证明adjacency/patch的缓冲续接安全。未完成该域时不得把全部0..14纳入首轮公开负向测试。
+固定分组在Create/Populate阶段准备，尽量避免每draw修改。确需动态更换则带相应重选位并完成全部状态重验。
+请求值为0时任意掩码都不能相交；已证glBegin三类请求非零，不把上述表外推到所有内部调用。
+H+8在UpdateDispatch入口是请求，退出后会被所选整个组覆盖。必须保存入口请求供日志/判定，不能End把H+8整个组当本次primitive。实际primitive以R20/21参数为准。
+分组扩大可让后续glBegin绕过UpdateDispatch（945FF..94613）；R20/21必须逐次检查支持域，不能仅UpdateDispatch一次锁存。
+
+2.3 dirty与拒绝状态
+C7FA..C806无条件清已跟踪尾段Q[0..19]。复制所需dirty头和自有状态/资源代次，不靠“不清Q”重试。
+READY允许通过所有门控的段；REJECTED阻止后端但保持sink可写；FAULTED持久禁止后端且不被GetError解除。
+UpdateDispatch先建好完整可达表再发布；错误时保持安全描述符/容量，发布拒绝行为并锁存0x502（自有限制，不宣称这是合法GL状态的规范要求）。实际分配失败用0x505，且应在context创建阶段退出，见§3。
+gldGetError原样返回非零u32已证；取并清pending_gl_error，保留reject_reason/backend_fault。任何成功的后续draw都不能抢先清掉未被GetError消费的GL error。
+
+3. R20 Begin：零输入、布局选择、容量、生命周期
+机器适配形状：void *Begin(C,uint32_t primitive,int32_t *count_inout)。
+int32_t是安全适配选择：指针访问宽度4；engine A11F/A45F movslq返回count，故输出必须1..INT32_MAX。不是额外返回状态+out-pointer四参。
+
+3.1 初始0确证
+0x7FFB0637DBDB xor eax,eax；DBE4 mov eax,G+aec8。
+glBegin_Exec 945AB..9465E不把它改成顶点数。
+A0D5读G+aec8到local；A0E4 test；A0E9按是否非零选G+a3bc/+a3be的signed16 stride；A103调用R20。
+A111/A118直接保存RAX为buffer/current；A11F signextend count，A122乘stride，A129写end。
+因此输入0表示此调用路径的初始/即时输入模式；不能返回NULL/0。即使随后用户发0个顶点，也必须先提供有效正容量，之后R21 count=0才是真正空段。
+
+3.2 非零count与第二布局
+数组路径E0AA4把总数写G+aec8，E0C4D把restart分段数写入；E0D2E清回0。
+AMD Begin 21EBC先测*count，非零且A+210非空时用第二descriptor，否则用A+208；21F08读取D[2]。
+engine在调用R20前已选择相应stride，故bridge必须先保存输入count，用它选正确布局，然后写输出容量。非零不是“必须按请求值分配这么多顶点”。
+受限即时候选D=position+primary color 12字节：02 00 08 00 00 18 00 00 04 98 00 00；Dalt=NULL已有消费者回落证据。数组不因此成为支持域。两种输入均不能使输出布局与engine stride不一致。
+
+3.3 12倍数容量：本轮双侧新证据
+Intel AF0C5..AF0D8：q=((uint64)n*0xaaaaaaab)>>35；capacity=(q<<2)*3=12*floor(n/12)，AF0F1写*count。
+AMD 22000..22012同样算法；22015..22022上限0xffffc，亦为12倍数。
+这说明不能只要求capacity>=3就支持分段；12整倍数同时适合常见独立lines/triangles/quads及adjacency基元分组。不能据此宣称patch任意大小也闭合。
+建议最小固定capacity=48、stride=32、buffer=1536 bytes，至少16-byte对齐；对应既有64记录存储可以只暴露48。另加边界canary是自有测试措施，不向engine宣称多余容量。
+存储在context创建前置分配成功后才发布入口，生命周期到context销毁；R20不做可能失败的临时分配，REJECTED/FAULTED仍返回这块sink。
+R20拒绝不支持primitive时：锁存错误，写48，返回sink；不NULL、不清descriptor、不提交。count输入负值属于未证异常，记录故障但不能用NULL把继续执行变成越界；受控测试不构造损坏engine参数。
+系统callback上没有已证“分配失败且上层停止写”的协议，所以运行期sink分配是错误设计。预分配失败应沿已证CreateContext失败清理协议退出。
+
+3.4 与现有自有接口的差别
+primitive_exports.c:125开始的begin是IOReturn四参，自有handle，不是C指针系统ABI。
+其:142..145输入0输出NULL；primitive_exports.h:83..86也明确零noop且不能直接R20导出。
+其GI_PRIMITIVE_CAPACITY=64且primitive只接受4；这些适合自有probe契约，不足以充当任意系统拒绝sink。
+必须另写明确bridge，不可函数指针强转；本轮不改代码。bridge可复用自有分配/decoder思路，不能照搬返回/生命周期语义。
+
+4. 分段R21 flags/count与sink安全性
+机器适配形状：ignore_return End(C,uint32_t flags,uint32_t primitive,uint32_t count)。
+ignore_return只说明已证caller不消费结果，不是恢复了Apple正式void原型；独立桥接可采用void输出。
+
+4.1 可直接编码的triangle机械规则
+A505保留原primitive=G+aec6；A51F..A528 count=(current-base)/stride；primitive4直接A605。
+A607检查G+aecc==0，置0x8000；低位初始2；A617..A634尾跳R21。
+因此：首次回调flags=0x8002；该GL primitive经历flush后的回调flags=0x0002。count为本段buffer内顶点总数，不是累计GL顶点数、字节数或三角形数。
+空Begin/End仍可调用(0x8002,4,0)，无需GPU提交，不能因此清故障。
+必须验证count<=本次返回容量，并在任何后端操作前验证本段全部position/color/状态/目标/代次。
+R21返回错误数无效；glEnd 94804之后覆盖EAX，无检查，需driver GL error锁存。
+
+4.2 flush不会提供最终结束标志
+A416通过G+acc0调用同一render函数；A41F才写aecc=1；A426重新取原G+aec8；A447再次R20。
+A450存新base；A45F..469由新capacity和旧stride计算end；A470..48C把之前备份的续接顶点复制到新base；A494写current=base+续接字节数。
+故first flush与未分段最终End完全可能拥有相同flags和count；后续flush与最终End也可能相同。R21不是“用户glEnd事件”。
+适配层每次R21结束的是buffer lease；下一R20可正常复用，不能当“重复Begin错误”。整个GL primitive的失败状态必须跨这些lease保持。
+不能在每个R20重置全部reject/fault状态。可在R21看到0x8000时识别第一个输出段，但在获知前不可提交；持久FAULTED始终不复位。若需要按整个GL Begin原子提交/回滚，现有两个callback不足以提供最终边界。
+首轮只允许一个小triangle段实际提交；大批/分段作为拒绝消费测试。若后续要支持多段绘制，应明确按段提交语义，不承诺后段拒绝会撤销前段。
+
+4.3 其他legacy primitive：不能要求End primitive==Begin primitive
+primitive0/1/4/5/6/7/8/9一般进入低位2分支（2和3例外）；0x8000生成规则同上。
+primitive3(line strip)：A5DD..5EF低位为首段1、后续0，传递primitive3；flags首段0x8001、后续0。
+primitive2(line loop)：
+- 尚未flush且当前G+aec4==2（中途flush）时A5F1..600传primitive3、低位1；
+- 尚未flush且最终glEnd已将当前设-1时传primitive2、低位1；
+- 已flush时传primitive3、低位0；最终End追加保留的首顶点闭环，若当前已满则A580..592临时恢复当前primitive2、递归调用flush，返回后再补首顶点。
+拒绝sink不解析这些顶点、不创建拓扑、不送后端，只接受有效buffer lease后锁存不支持并丢弃；允许End的primitive为2或3，不因变化破坏内存生命周期。
+
+4.4 续接内存与尚缺跳表
+flush在A195..A1C1按primitive-2索引跳表，范围2..14。文本A4C4..A4F8把表当指令/漏字节，无法把每个primitive精确映射到每个copy分支。
+已见分支有：复制末1/2/3个顶点、复制首尾、保留8个记录并改写邻接记录、按G+514c取模保留余数。最大的显式固定暂存为8*stride；patch取模依赖额外状态。临时栈区0x1400 bytes。
+对legacy(0..9)、固定32-byte记录、capacity48：这些已见固定copy规模不超过sink；每次返回48仍留出续接后新增顶点空间；不在R21后释放sink。由于跳表缺失，不能声称每种分段legacy控制流已完整静态证明。
+triangle flush尤其不能用capacity64而忽略余数；12倍数容量在已证两家实现都有，48是更强的受控候选。首轮正向三点不会进入容量边界，负向超过容量的测试先在CPU-only模式观察真实callback与边界canary。
+没有权限读取新的二进制/常量内存，本轮不补造jump table，不扩展运行探针。
+
+5. 25槽签名与拒绝行为清单
+下面P=64位指针载体，U=32位整数载体，X=64位opaque载体。符号U不自动保证有符号/无符号语义；使用本目标x86_64 ABI，严禁按Windows x64寄存器约定生成客体callback。
+各槽独立typed wrapper，可共用内部latch_error(C)；不得用一个无参/可变参函数强转填全部25槽。
+返回记作ignore表示已跟踪调用边不检查，不能向未知边外推。拒绝时只碰自有C，不解引用未知P。
+
+槽  参数顺序/返回                              已证拒绝消费方式
+0   (C,U mask)->ignore                         锁存错误后返回；A+6e=1走显式ClearFramebufferData，仍可留typed防护。
+1   (C,P xy,U w,U h,U format,U type,           已跟踪GLEngine 399031后不检查EAX，可锁存后返回0。
+     P pixels,U mode,X arg9)->u32              AMD有EAX结果；arg9宽度/语义未完整闭合，按64位保留、不消费。
+2   (C,P xy,U x,U y,U w,U h,U kind)->ignore    锁存后返回，无需拷贝/读取pixels。
+3   (C,P vertices,U count,U flags)->ignore    锁存后返回；不解释0x280内部顶点。
+4   同3                                       同3。
+5   同3                                       同3；第四参可由“是否首段”计算。
+6   同3                                       同3。
+7   同3                                       同3。
+8   同3                                       同3。
+9   (C,P first,P following,U count,U flags)   五参数，不能当3的四参函数；锁存后返回。
+    ->ignore
+10  同3                                       锁存后返回。
+11  同3                                       锁存后返回；DrawPixels也能使用此槽。
+12  同3                                       锁存后返回。
+13  未恢复                                    不发明签名；已查初始硬件NULL，受控域需证明不触达。
+14  未恢复                                    同13。
+15  未恢复                                    同13。
+16  未恢复                                    同13。
+17  (C,P vertices_or_array,U count)->ignore   三参数；CPU调用中P也可能是指针数组，拒绝层无需解释。
+18  (C,P vertices_or_array,U count,U flags)   四参数；同样不可假定所有P均连续float4。
+    ->ignore
+19  (C,P pointer_array,U count,U flags)        锁存后返回；不可把指针数组解为float记录。
+    ->ignore
+20  (C,U primitive,int32_t *count)->P          始终返回预分配对齐正容量sink，错误锁存；不得NULL/0。
+21  (C,U flags,U primitive,U count)->ignore   结束本段lease；拒绝时不提交、不推进完成代次；见§4。
+22  (C,U primitive,U min,U max,U type,        返回NULL已证触发fallback，需全套安全下游；不能单独宣称abort。
+     U count)->P                              锁存错误并进入sink。首轮不实现bulk写入缓冲。
+23  (C,U primitive,U min,U max,U type,        已跟踪返回被忽略，锁存后返回；R22恒NULL时配对正向路径不达。
+     U count,P indices)->ignore               仍可typed防护；不要访问P。
+24  (C,U mode,U primitive,U first,U count,   选定已证调用边：锁存0x502并返回1消费该请求，不提交。
+     U type,P indices,U instances,X arg9)     返回0表示退回其他路径，必须有安全sink；非零不是GL成功。
+    ->uint32_t
+
+5.1 关键证据锚点
+R0 3979C9/C0362别名call，返回后直接做framebuffer状态跟踪；不能把公共clear mask解释成内部clear mask。
+R1 399001..399031：六个寄存器参数；栈按逆序push arg9=0、arg8、arg7；399034/03C开始恢复context/覆盖EAX。AMD 606D2..606DE证实format/type低32位；608D3读栈arg7；60767读arg8低32位。arg9不命名。
+R2 4582E5..45830F；AMD D0D6读第7参32位。
+R3..12及17..19全部现场在render-first-raw.txt:211..594、render-mirror-raw.txt:27..549。多数调用后直接jmp或覆盖寄存器，未见返回决定拒绝。
+R17镜像raw:433..451对P数组逐指针读取，再call；更正“R17必定连续顶点”的过窄理解；R18同理:480..498。
+R22 E0955后立即test RAX，NULL跳E09B2；R23 E0E02后直接恢复输出buffer/flush函数。
+R24 39FC0B后test EAX，非零跳FC7A，进入收尾而不进入fallback。AMD 45E51读第9栈参64位、460F3读第8参32位。
+Intel _glrIntelNoopRenderVertexArray 20C4014明确xor eax,eax，是“未处理/回退”，不是成功绘制。
+本轮再次筛选R24 115个直接call的前18个返回现场，均有非零已处理/转出分支；没有把其余97处全部宣称逐一闭合，也没有覆盖全部JIT间接调用。公开数组API扩展前需选定具体入口逐个核对。
+
+5.2 13..16处理边界
+本轮查既有glengine-code.txt的b388/b390/b398/b3a0基址引用，只有两处SIMD拷贝命中（447477、44749A），未出现直接call；既有镜像搜索同样没有。
+这支持在窄化已验证路径中保留硬件惯例NULL，不支持“所有API永远不调用”。JIT动态生成/基址别名仍可能绕过文本偏移搜索。
+不要用万能函数掩盖未知ABI。首轮明确不测试selection/feedback、patch/adjacency、用户shader、多绘制/间接绘制等范围；若实际日志或新证据显示这四槽可达，先恢复该调用边后再扩大测试。
+
+6. 最小拒绝状态机与实现顺序（方案，未改源码）
+(1) CreateContext先分配C的长期descriptor、48*32对齐sink及slot计数日志；任一分配失败走创建失败，不发布半初始化dispatch。
+(2) Populate按§5发布独立typed函数；未知13..16保留NULL并记录受控域限制。R20/21必须从第一次Populate就可安全消费，不等待第一次UpdateDispatch才修补。
+(3) A+65=1，D指向position+color候选、Dalt=NULL，配置固定覆盖分组；保留已有真实ClearFramebufferData/read/lifecycle实现。A+1a、默认pipeline等仍遵守既有契约，不复制厂商魔数。
+(4) UpdateDispatch复制Q头与H/B必要状态，完整验证资源/状态/对象；仅决定READY或REJECTED/FAULTED及策略0x5/0x7。绝不因失败保留旧后端可提交路径。
+(5) R20保存入参模式、设置lease并返回48记录sink；逐次读实际受支持状态，primitive非4一律拒绝。输入非零数组模式首轮拒绝但仍履行内存协议。
+(6) R21先检查本次lease/count，不支持flags/primitive/颜色/状态均锁存且丢弃；不读超count记录，不访问CPU内部P。拒绝无GPU提交，无resource generation变化。
+(7) CPU-only公开探针阶段所有R21均sink，受控预期错误为0x502，日志记录真实位置/RGBA；不把这个模式标记为绘制成功。
+(8) 真正单triangle提交仅在剩余门控满足后开放：flags=8002、primitive4、count3、所有记录先验证、真实目标和完成协议就绪。后续flags2/其他count保持拒绝，且不宣称整个primitive原子性。
+(9) driver pending_gl_error只在GetError取出时清；backend_fault单独锁死；R24的“消费拒绝1”不设置completed/generation。R22 NULL回退同样受统一拒绝状态保护。
+
+7. 足以开始受控公开CGL测试的具体步骤
+本轮未执行。下面阶段区分“观察系统CPU契约”与“允许真实draw”，避免把所有剩余JIT语义都当首次观察前必须无限逆向，也避免把未知内存边界当已证安全。
+
+阶段A：宿主纯CPU适配验证（先实现，运行不属于本轮）
+- 分别通过每个typed wrapper验证参数槽位、错误锁存、R24返回1、R22返回NULL；不调用任何Apple私有函数。
+- R20输入0、1、48及已支持范围内其他正值均返回有效buffer与48，布局选择在覆写前读取输入值。
+- 对empty、3点、48点、lease重用、count越界、FAULTED后继续sink、GetError后故障仍在做边界验证；检查canary与代次不动。
+- 注意手工模拟不能证明engine跳表/真实JIT；只验自有C层。
+
+阶段B：公开CGL建立context后的CPU-only观察，单独进程、固定兼容GL_RENDER
+前置：已有版本/UUID gate；默认对象生命周期可完成；静态已知调用域只使用glBegin(0..9)，至少已确认实际TCL入口pattern或以受控首次观察将它作为明确待核对条件；不得写G强迫路径。
+- 应用仅用公开CGL/GL，选目标renderer并核对命中自有driver；命名RGBA8 256x256 FBO，不启用用户program/TF；显式单位矩阵、viewport/depth、红色、FILL及out/gld-triangle-state-contract.txt所列受限状态（包括其enable表中要求关闭的状态）。
+- 初始空glBegin(GL_TRIANGLES)/glEnd：检查R20输入0、输出48、R21 count0；无越界、无后端提交。sink模式明确报受限错误，不拿glGetError=0冒充成功。
+- 三次glVertex4f(...,1)（先使用明确w的公开API）捕获三个32-byte记录，核对位置/红色、首段8002；这样可把glVertex3f的G+124初始化缺口留给后续而不编造其值。
+- red/green/red中途改色反例：观察逐顶点颜色，sink均不提交；重复执行以覆盖CVM更新后的实际路径。日志证明执行内容，不能仅凭函数名带LLVM认为正确。
+- 逐项测试points、lines、line strip/loop、triangle strip/fan、quads/quad strip/polygon，先小于容量，全部预期错误、目标不变。
+- 待续接跳表/入口证据足够后，再测试47/48/49、95/96/97记录；line-loop覆盖恰满闭环重入。核对first8002与后续2、line strip/loop的差异、count<=48、canary不变。异常即结束独立测试进程，保持GPU提交禁用。
+- 数组拒绝在选定glDrawArrays入口的R24非零分支核对后单测；R24不保证每个数组请求都会被调用，其他fallback仍需sink。不要首轮混入DrawPixels、indirect、多重draw或patch。
+阶段B不能在现有gi_primitive_*未桥接、R20零NULL或未知slot可达的状态下直接启动。
+
+阶段C：受限三点真实draw
+前置：B阶段记录布局/颜色/容量及已选JIT路径通过；默认pipeline/用户program/TF门控达到所承诺范围；后端已支持指定资源且不隐式clear；错误锁存、完成与目标代次可观察。
+- 两组不同glVertex4f位置、同FBO与另一FBO交替，背景不是后端模板绿；公开glFinish/readback并比对目标隔离与三角形几何变化。
+- 无GL错误只是一项，需同时有真实R20/R21命中、目标resource、提交/完成证据，排除software fallback。
+- 非红、非单位矩阵、非FILL、其他primitive、故障后再次draw都拒绝且不增加目标generation。
+- 三点以内首轮不会需要flush，不宣称已支持任意长度primitive。打开分段真实绘制前须明确定义按段提交，不保证整个Begin无副作用。
+
+8. 剩余缺口，按最小证据列出
+D1：本轮未重取，但前序docs/cb-findings-2026-10-08.md §86记录已关闭：两个指针均归一化为gleBeginPrimitiveTCLFunc 0x7FFB0646A0C1；具体原始证据待交接定位。不再列为开发阻塞。flush跳表缺口独立保留。
+D2：0x7FFB0646A4C4处13项相对jump table，映射primitive2..14到flush保留分支；无需恢复整个GLEngine。特别不能把patch余数和adjacency续接无限外推。
+D3：13..16是否被所选模式的JIT/别名调用；若达则逐槽恢复机器参数与返回，绝不用同一函数填充。
+D4：R1第9参数及未检查的全部返回调用边；首轮不触发像素绘制就不必为triangle恢复整条像素管线。
+D5：R24其余直接/间接call边完整性；初始仅承诺已列公开数组入口的拒绝行为。
+D6：position+color实际JIT snapshot与解释器漏跳表，见vertex-color报告J1/J2；受控CPU-only观察可收集所选执行路径证据，不必先恢复任意shader。glVertex4f暂避J3，glVertex3f仍需补证。
+D7：默认pipeline真实支持域、用户program充分拒绝、TF镜像同步，见pipeline-draw报告；固定0x5策略不自动补全这些门控。
+D8：R21不携带整个GL primitive结束事件；如果要求跨所有flush的全有或全无事务，需另有公开/已证结束边界或更窄承诺，不能靠flag2猜测。
+
+最终边界：本轮交付了可开始编写bridge和受控公开CPU-sink测试的具体契约；没有交付或运行该bridge，没有解除D1/D2/D3等内存安全相关条件，没有宣称系统GL三角形已通过。新增结论无需无限全shader逆向，但也不能把0x5/0x7、capacity48或typed拒绝函数本身当端到端成功证明。

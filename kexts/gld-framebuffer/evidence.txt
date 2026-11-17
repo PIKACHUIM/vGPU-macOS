@@ -1,0 +1,65 @@
+独立有界 framebuffer 适配层：证据与范围
+目标 build：macOS 15.7.3 / 24G419 / x86_64。
+GLEngine UUID：FB994F78-34C6-39F3-857D-99F9B3013E8F。
+
+复用证据：
+ out/gld-framebuffer-verified-snippets.txt E3/E4：create 的 Q/D 分别保留。
+ E6：FD+8*j 是插件 texture opaque token，不能强转成 vgt/vgc handle。
+ E7/E8：FQ+b2/b4 为 u16 尺寸，FQ+c0 为 u32 附件 bitmap。
+ E9 和 out/gld-context-minimal-verified.txt 第5节：pending/failed 状态握手。
+ out/gld-context-init-required-verified.txt 5.2/6：FBO 必须直接 ensure_backing。
+
+本轮只读 SSH 补查 /var/tmp/vgpu-fb/glengine-code.txt，未改客体、未执行 GPU。
+_glFramebufferRenderbufferEXT_Exec 的非空 renderbuffer 分支：
+0x7FFB063CBCC3 movq %rax, %r12
+0x7FFB063CBCC6 movl %r13d, %edx
+0x7FFB063CBCC9 movl $0x2000, %r13d
+0x7FFB063CBCCF xorl %eax, %eax
+0x7FFB063CBCD1 jmp 0x7ffb063cbcdc
+0x7FFB063CBCDC addq $0x28, %r15
+0x7FFB063CBCE4 movq %rbx, %rdi
+0x7FFB063CBCE7 movq %r15, %rsi
+0x7FFB063CBCEA movl %r13d, %ecx
+0x7FFB063CBCED movq %r12, %r8
+0x7FFB063CBCF0 xorl %r9d, %r9d
+0x7FFB063CBCF3 pushq %rax
+0x7FFB063CBCF4 pushq %rax
+0x7FFB063CBCF5 pushq %rax
+0x7FFB063CBCF6 callq _gleFramebufferTexture
+
+_gleFramebufferTexture 入口保存实参：
+0x7FFB0645586A movl %r9d, -0x38(%rbp)
+0x7FFB06455871 movl %ecx, -0x34(%rbp)
+0x7FFB0645587D movl 0x18(%rbp), %eax
+0x7FFB06455880 movl %eax, -0x30(%rbp)
+0x7FFB06455883 movl 0x10(%rbp), %eax
+0x7FFB06455886 movl %eax, -0x2c(%rbp)
+对应 E6 已证写入 Q 的16字节记录：
++0 u16 <- ECX(type=0x2000)
++4 u32 <- R9D=0；E7中作为0x1e0步长的图像组索引。
++8 u32 <- 第7参数=0；E7中作为0x20步长的level索引。
++c u32 <- 第8参数=0；其他层级语义尚未完全恢复。
+因此仅接受上述 renderbuffer 零组/零level/零附加层级条件。
++2/+3 没有已证语义约束，代码不读取；测试故意置0xa5。
+普通 texture/cube/数组/层附件暂不支持，不凭名称推断非零值。
+
+实现范围：
+ vgf_create 借用有长度 FQ/FD，拒绝输出/可写视图别名和地址溢出。
+ backend resolve 显式完成系统 token->texture 映射；share 在 ensure 前校验。
+ ensure_backing 返回真实已准备 vgc image；格式/尺寸/深度/样本数严格核验。
+ vgc_framebuffer_attach 再次校验实际 image 类型及 share，防回调错误归属。
+ 独立候选 FBO attach/load 成功才替换 active target，失败不改旧目标。
+ FD 只在失败时置 failed bit0；成功清 pending bit0/failed bit0，保留其余位。
+ 未知 pending 位拒绝，FD 所有 texture token 和 FQ 始终不改。
+ 旧 target 与 image 由预分配节点持强引用；释放失败可在后续 load/destroy 重试。
+ destroy 失败保留包装，停止新 load/get，直到所有引用及 backend lease 清理成功。
+ vgf_target_get 返回借用已提交 vgc FBO；绑定 context 后 context 自行持强引用。
+ 此模块没有系统 GLD 导出，没有 CPU 假后端作为正式 backend。
+
+测试：
+ verify_cpu.py 编译本模块 + 实际 gld-context/vgpu_context.c。
+ test_surface.c 仅为隔离双槽 CPU 生命周期替身，clear/read 固定 Unsupported。
+ 测试包含成功、双槽满候选失败、跨share、错误image归属、无部分FD提交、
+ 未知pending、未知附件/格式/层、借用输出别名、视图溢出、context强引用、
+ backend释放重试、image最后释放重试、提交后旧image回收失败。
+ 结果与完整编译命令见 cpu-results.txt；不构成 GPU/系统GLD/3D 可用证据。

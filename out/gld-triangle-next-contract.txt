@@ -1,0 +1,122 @@
+系统 GL 最小 triangle：下一步可编码契约与阻塞
+2026-11-17；只读研究；目标 macOS 15.7.3 / 24G419 x86_64。
+GLEngine UUID FB994F78-34C6-39F3-857D-99F9B3013E8F；以下 GLEngine 地址均 unslid。
+
+结论
+可以把目标收窄为兼容模式 glBegin(GL_TRIANGLES)、三个用户 glVertex3f、单位矩阵、常量红色、不启用纹理/光照/混合/深度/stencil/scissor、单颜色目标。已验证的 float4 passthrough VS + 常量红 PS 足够表达这个 GPU 工作负载，不需要先恢复通用 shader compiler。但现有资料尚不能宣称填20/21两个回调就让系统GL可画：UpdateDispatch返回位、选择TCL入口的常量表、默认pipeline对象生命周期及后端目标绑定仍需闭合。
+本报告实际新增：即时顶点到TCL缓冲的调用参数与容量单位；描述符头/条目的双侧消费；公开API执行表安装点；现有内核draw的不可直接复用行为。没有运行GL/GPU探针、调用私有入口、修改客体、安装或重启。仅新增本文件；未读取历史jsonl/输出凭据。
+
+1. 证据来源与读取方法
+已有宿主：glengine-contract.txt、gld-context-minimal-verified.txt、gld-context-init-dispatch-bounded-raw.txt、gld-context-render-first-raw.txt、gld-context-hardware-raw.txt、gld-context-amd-primitive-state-raw.txt、gld-loader-memory.txt、gld-context-init-required-verified.txt。
+本轮SSH仅通过已有tools/mssh.py，在客体读取既有 /var/tmp/vgpu-fb/glengine-code.txt，按明确符号/地址筛选stdout；没有保存或生成客体文件。dyld_info仅读取自身用法；其当前用法没有指定单函数选项，因此没有重新全量反汇编。
+tools/rev/vmx-func.py是vmware-vmx PE/.pdata函数边界工具，默认IB=0x140000000；它不能替代macOS GLEngine ABI证据。本轮未运行VMX修改或GPU相关工具。
+注意线性反汇编会漏标签：gleSetVertexSubmitFunc约0x7FFB06394720的入口字节未正确显示；gleRenderPrimitiveTCLFunc约0x7FFB0646A4F8亦漏标签。本文只依赖清楚的内部指令区间，不把邻近标签块当严格函数边界。
+
+2. 公开GL到render dispatch的实证链
+G=GLEngine上下文，C=独立驱动上下文，A=Create第四参，H=第五参，R=G+0xb320，T=plugin+0x420。
+2.1 执行API表：
+  0x7FFB064D22EE lea _glBegin_Exec；22F5写API表+0x20。
+  0x7FFB064D4004 lea _glVertex3f_Exec；400B写API表+0xa00。
+  这是GLEngine对公开API执行表的安装证据；本轮未逐条恢复libGL公开导出stub/TLS桥接，不能将_Exec内部函数当可供应用直接调用的API。
+2.2 _glBegin_Exec（0x7FFB063945AB）：RDI=G，ESI=primitive。
+  945FF检查primitive对应位及dispatch有效字节；94622调用gleDoDrawDispatchCore(G,1<<primitive,1,1)。
+  9462E/635将primitive写G+0xaec6/+0xaec4；9464A/651把G+0xa3d0写G+0xa3c0；9465E跳G+0xac48[primitive]。
+2.3 _glVertex3f_Exec（0x7FFB0639D292）：
+  RSI=*(G+0xa280)当前输出；比较G+0xa288选择G+0xa3c0/+0xa3c8；XMM0/1/2保留公开x/y/z，D2B1从G+0x124取XMM3，随后尾跳submit函数。
+  gleSetVertexSubmitFunc区间94745..94781建立key、安装gleLLVMSubmitFunc并请求cvm函数指针更新；不是驱动shader编译入口。
+  gleLLVMSubmitFunc 0x7FFB0648F6B4取G+0xa4c0为key，F6C3跳gleRunVertexSubmitImmediate。
+2.4 _glEnd_Exec（0x7FFB063947D0）：947E3写G+0xaec4=-1，94804调用G+0xacc0的render函数。
+2.5 两条策略：
+  gleSelectPrimitiveFunc 0x7FFB0648AE8F/AE9A要求G+0xb636==0x1c00且G+0xc691!=0，才用一个16字节pattern填G+0xac48共0x78字节；其他分支安装gleBeginTrianglesRender等。
+  这份pattern位于0x7FFB410F1A90（由AEAA RIP+0x3ac66bdf计算），本轮未读取其重定位后内容，不能声称已证明15项全是gleBeginPrimitiveTCLFunc。补这一16字节只读证据即可关闭直接TCL入口选择的一项具体缺口。
+  非直接TCL分支gleBeginTrianglesRender 0x7FFB064BDC29传4调用gleBuildPrimitiveRenderFunc；把G+0xad50函数装G+0xacc0、把G+0xa278置当前输出。CPU primitive构造器0x7FFB064BCC60检查G+0xa550；非NULL时写flags=0x80020000，使下游走20/21的转换缓冲分支。NULL则可走3..12/17..19。
+
+3. 25槽职责：不能把它们当25个shader编译入口
+R槽  偏移  已证职责/形态
+0    00    clear；与triangle无直接关系。
+1    08    DrawPixels；与最小triangle无直接关系。
+2    10    CopyPixels；与最小triangle无直接关系。
+3-8  18-40 CPU primitive处理后的连续顶点提交形态(C,p,u32,u32)。3有DrawPixels使用，不意味着仅像素用途。
+9    48    CPU primitive提交，(C,p,p,u32,u32)，不是统一四参。
+10-12 50-60 CPU primitive连续顶点提交形态(C,p,u32,u32)。
+13-16 68-80 未恢复。已查初始硬件为NULL，无直接/镜像call证据；不能命名为shader槽，也不能证明可永远NULL。
+17   88    CPU点primitive输出(C,p,u32)，不擅自补第四参。
+18   90    CPU primitive输出(C,p,u32,u32)。
+19   98    CPU顶点指针数组输出(C,pointer_array,u32,u32)，已见三个间隔0x280的内部顶点指针。
+20   a0    BeginPrimitiveBuffer(C,primitive32,count_inout32*) -> writable pointer64。
+21   a8    EndPrimitiveBuffer(C,flags32,primitive32,vertex_count32)，返回契约未恢复。
+22   b0    DrawArrays/Elements批量缓冲准备(C,u32,u32,u32,u32,u32)->pointer64，NULL会回退。
+23   b8    与22配对的批量提交(C,u32,u32,u32,u32,u32,p)，第7参在栈上。
+24   c0    RenderVertexArray快速draw，9参数；EAX非0表示该上层分支已处理，EAX=0进入其他绘制路径，不是“0绘制成功”。
+3..12、17..19位于gleLLVMVecPrimPointRender/MultiRender的CPU处理输出侧，前有projection/light等GLEngine函数调用，不能称这些GLD槽本身就是CPU TCL实现。也不能仅按槽顺序把它们定名为points/triangles/strips。0x280是内部顶点间隔，不是后端float4 ABI。
+签名现场细节见gld-context-render-first-raw.txt:211..594；20/21双侧见gld-context-intel-raw.txt:4678和4811、gld-context-amd-dispatch-bounded-raw.txt。
+
+4. 新闭合：即时TCL的20/21参数、计数单位和所有权
+4.1 gleBeginPrimitiveTCLFunc 0x7FFB0646A0C1：
+ A0D5读取G+0xaec8写local count；A0E9依据该值是否非零，读取signed16步长G+0xa3bc/+0xa3be。
+ A0F2 RDI=C；A0F9 ESI=signextend16(G+0xaec4)，即glBegin设置的primitive；A100 RDX=&count；A103 call R[20]。
+ A111/A118保存RAX到G+0xa2a8与G+0xa280；A11F..129用count*stride算G+0xa288结束指针。
+ 因此count输出是顶点容量而非字节；count不能初始化垃圾；返回缓冲必须持续可写到End，至少capacity*stride字节，不能指向回调栈。容量与步长须为正并避免上层有符号乘/除的边界问题。
+ 最小内存适配可独立写：C拥有对齐CPU staging，Begin确认primitive==4且输入选择受支持，写容量>=3并返回staging。建议首轮容量大于3以避免第三顶点恰满时进入额外flush边界；仍须正确支持End(count=0)和重复Begin/End。
+4.2 gleRenderPrimitiveTCLFunc内部0x7FFB0646A502..634：
+ A505 R14D=signextend16(G+0xaec6)，保留原primitive（glEnd已把当前primitive置-1）。
+ A50D stride=G+0xa3b4；A51F/A528 count=(current-base)/stride。
+ A52B EDX=2；primitive=4时A530的bit1测试为0，直接到A605。
+ A605..615 ESI=((G+0xaecc==0)?0x8000:0)|2。
+ A617 RDI=C；A61E R8=R[21]；A625 EDX=4；A628 ECX=count；A634尾跳。
+ 所以单次未分段、三个顶点的triangle实参为(C,0x8002,4,3)。0x8002不是绘制模式；不能照先前DrawPixels现场把ESI恒当2。
+ 这只恢复当前triangle分支的位值，不给flags全部位命名。
+4.3 20无需直接把GPU映射页交给GLEngine：独立staging由GLEngine写，21在用户态验证/转换再复制至现有内核输入，可保持GLD和SVGA私有结构分离。
+
+5. 描述符：可实现存储形状，position-only值为待验证候选
+D=*(A+0x208)，D2=*(A+0x210)。它们不是函数指针。
+- gld-context-amd-primitive-state-raw.txt:67..70生产D[0]=属性数量，D[2]=4*数量，D[1]=0；条目从D+4起按4字节写。
+- GLEngine 0x7FFB0648DCC6读D[0]，DCC9读头32位；DD54从D+4+4*i读u32，扩展为本地key的8字节条目。
+- gleSelectVertexSubmitFunc 0x7FFB06380660..667以u8 D[2]*4写u16字节stride；D2同理。因此D[2]是DWORD步长。
+- gliUpdateDispatchState 0x7FFB064DA929..941会把非空描述符的零D[2]改成1，不能用零步长表达无输出。
+- AMD生产条目：输出dword offset位于低8位；源属性索引由源u16低6位移14；普通float4分支OR 0x1800（AMD 0x21954..219C9）。GLEngine消费者0x7FFB06490064..070分别取(entry>>14)&0x3f、(entry&255)*4；0x7FFB0648E36F..377取((entry>>11)&7)+1为输出分量数，再与上层属性当前分量数比较。
+- 即时mode=0在0x7FFB0648E307..315设置key mode=6；E363从*(G+0x5ac8)+0x480+attr读当前分量数；E385..39E为条目补源分量数和0xa000000000。
+- gleRunVertexSubmitImmediate 0x7FFB06490335对position索引掩码0xbc000为0的兼容分支，90362/387/39A/3B1读保存的XMM0/1/2/3，形成输入向量，909AC调用GLEngine自身输出格式转换函数；9219A..A5按header stride推进，921ED写回G+0xa280。
+候选最小D字节：01 00 04 00 00 18 00 00，即一个属性、4 DWORD stride、entry=0x1800（attribute0、offset0、float4形态）。这是双侧生产/消费推导出的测试候选，不是已经运行验证的最终ABI常量；D[3]所有语义、JIT和解释器等价、glVertex3f的w补全及内部当前属性对象初始化尚未完整闭合。不能直接宣布这8字节必然足够启动系统GL。
+需要恢复/验证的下一小段是gleLLVMStoreDataToOutFloatInFloat的这组参数写入行为及函数key生命周期，无需恢复通用GPU shader编译器。
+
+6. UpdateDispatch 与 shader/pipeline 的真实依赖层
+6.1 GLD导出T+0x90（索引18）是gldUpdateDispatch（gld-loader-memory.txt:578）。
+ gleDoDrawDispatchCore 0x7FFB0644C457 RDI=C，C465 RSI=R，C46C RDX=G+0x5f0 dirty块，C470 call T+0x90；C476保存EAX，C47C复制更新后的R镜像。
+ 可用适配形态：uint32_t UpdateDispatch(C,void **R,void *dirty_inout)；dirty具体总大小未恢复，不声明完整struct。AMD 0x631B7保存RDX、0x631C7/631D7修改dirty+8/+0，证明确是可写共享状态，不能const。
+ C4A2把EAX与旧G+0xb614异或；C4AA测试0x47，C4B2测试0x45；返回bit1触发A+0x208/+0x210重读与submit函数重选。
+ gleUpdateDispatchCodeChange 0x7FFB0638EE94检查返回bit2，未置且有其他设备时可进入FallbackBegin；EF24取返回bit0，EF7F/EFB5写G+0xc691，控制直接TCL或CPU策略。
+ 因此“返回0成功”“返回1成功”均错误；4/5只能作为已见初始策略值线索，不是完整可硬编码返回契约。最小实现须恢复支持路径的能力返回及dirty消费，超出状态不得伪成功。
+6.2 CPU生成与GPU编译分层：
+ cvmRequestFunctionPointerArrayWrite / cvmCreateModularFunction出现在GLEngine内部submit/primitive组装中，是可复用的CPU代码生成路径。驱动无需自己实现GLEngine的LLVM模块，但必须提供它消费的数据。
+ AMD UpdateDispatch实际调用gpusLoadCurrentPipelinePrograms、glrAMD_GFX9_ValidatePipelinePrograms（hardware-raw:636,776,843,1010），这证明AMD后端依赖自己的program；不证明独立SVGA后端必须运行AMD或Intel编译器。
+6.3 不能忽略默认pipeline对象：
+ GLEngine初始化0x7FFB0637E29D..E2B1调用plugin+0x658 = gldCreatePipelineProgram。
+ RDI=*(plugin-region+8)的share句柄，RSI=program_object+0x28+8*i输出槽，RDX=program_object+0x1d0共享描述区域，RCX=program_object+0x260+4*i状态区域；每插件循环。
+ 这可作为独立“小program句柄+借用视图”适配起点；本轮未恢复descriptor/state全部字段、销毁、load和验证返回协议，不能以空句柄固定成功替代。固定VS/PS仅消除通用代码翻译需求，不消除program生命周期/状态验证。
+
+7. 现有SVGA后端可复用部分与具体必须改动
+源码：kexts/framebuffer/vgpuFramebuffer.cpp。
+- 2091..2105 drawVertices ABI：两个u32头(1,0)+三个float4，共56字节；x/y范围[-1,1]、z范围[0,1]、w严格1。不能直接送OpenGL全部clip范围或任意w。
+- 2209..2215为60字节passthrough VS；2294只复制48字节，2301 stride=16，2307 DRAW(3,0)。无需生成三角形特定shader。
+- 6053起PS为常量红；系统GL初始当前色默认白，首轮公开调用需明确glColor4f(1,0,0,1)，或后端改为对应常量白PS。不能将红色固定输出宣称支持一般glColor。
+- 2299..2318的现有userSubmit每次draw绑定模板RTV、设置固定raster，并先清绿，再DRAW；它不是“向当前GL FBO追加一个三角形”的语义。
+- 2324固定读取surface3的256x256模板；双BGRA资源clear/read路径没有自动获得draw能力。
+最小代码工作：在现有受锁和owner验证的后端上，为指定已存在的颜色resource句柄提供仅draw操作；按资源选择RTV/尺寸/viewport/readback/generation；不隐式clear；显式绑定固定VS、PS、layout、VB、trianglelist、受限blend/depth/raster，保留已有同步和故障锁死语义。此次只研究，不修改代码。
+坐标适配在用户态做：仅单位矩阵且w=1时，GL clip z需映射为(z+1)/2再进目前[0,1]接口；首轮z=0对应0.5。Y/读回行方向和viewport需独立对照当前资源约定，不能仅看三角形可见就认为正确。若选CPU投影后的3..12/17..19路径，还须逆窗口变换或采用窗口坐标适配；本报告优先直接TCL以避免先恢复整个0x280内部顶点布局。
+
+8. 可直接编码的顺序与停止条件
+(1) 实现独立C的staging缓冲和20/21桥接：Begin提供正容量；End只接受primitive4、支持已证flags组合，按count以三点批次处理。捕获的是实际用户顶点，不使用VertexID硬编码坐标。缓冲复用必须等待后端拷贝/提交契约允许。
+(2) 将现有后端float4 DRAW拆出“指定颜色资源、无隐式clear”的入口。这个改动不依赖Apple私有shader结构，可先实现并做CPU请求/边界验证。
+(3) 固定描述符position-only候选并闭合直接TCL选择pattern；实现UpdateDispatch的受限状态检查、正确策略位与动态描述符发布。不得主动调用gleBeginPrimitiveTCLFunc等私有入口，也不得改GLEngine上下文强迫跳支。
+(4) 对接初始化program最小生命周期；先沿上述Create四参的实际消费者闭合load/validation，不解析任意GLSL、不移植Intel context，不把缺字段的program当已可用。
+(5) 未来获得运行授权后，经公开CGL/GL测试：目标驱动context、GL_TRIANGLES、单位矩阵、红色、三个不同位置、glEnd/Finish、同一命名颜色FBO readback。至少两组不同顶点和非绿背景验证几何变化及无隐式clear；两个资源交替验证目标隔离。检查真实回调命中、返回无GL错误、硬件提交完成，排除软件fallback。此轮未执行。
+
+明确阻塞（不泛化成“恢复所有shader”）
+B1：G+0xac48选择分支的16字节pattern内容未读；入口函数起点边界需function_starts确认。
+B2：position-only描述符的最终输出和JIT路径未运行核验；仍缺D[3]、属性当前分量状态及w补全的完整双侧证明。
+B3：UpdateDispatch受限返回位、支持掩码与dirty清除协议未闭合；填25槽不解决它。
+B4：初始化必需CreatePipelineProgram以及后续load/update/destroy元数据协议未闭合；已证明会调用，不允许静默空桩。
+B5：后端当前draw固定模板目标且隐式clear；需明确resource draw，不可用双BGRA clear成功替代triangle成功。
+B6：如果直接TCL条件不成立，CPU路径需要更多primitive槽和0x280顶点字段/窗口坐标语义；当前证据不足以用一个“triangle回调”覆盖这些槽。
+上述B1..B4关闭前，准确结论是“已有窄化且可开始编码的缓冲/后端路线，系统GL端尚未闭环”，而不是“必须先恢复全shader compiler”，也不是“系统3D已可用”。

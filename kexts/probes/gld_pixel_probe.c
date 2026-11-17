@@ -56,6 +56,22 @@ static void parser_tests(void)
     CHECK(gp_parse_normalized(duplicate, sizeof(duplicate), &request) == GP_OK);
     CHECK(request.color_min == 32 && request.alpha_min == 8 && request.depth_min == 24 &&
           request.stencil_min == 8 && request.double_buffer == 1);
+    const uint32_t offscreen[] = {53, 53, 4, 5, 8, 24, 11, 8, 12, 16, 13, 8, 0, 999};
+    CHECK(gp_parse_normalized(offscreen, sizeof(offscreen), &request) == GP_OK);
+    CHECK(request.offscreen == 1 && request.double_buffer == 1 &&
+          request.color_min == 24 && request.alpha_min == 8 &&
+          request.depth_min == 16 && request.stencil_min == 8 &&
+          request.consumed_words == WORDS(offscreen) - 1);
+    const uint32_t offscreen_only[] = {53, 0};
+    CHECK(gp_parse_normalized(offscreen_only, sizeof(offscreen_only), &request) == GP_OK);
+    CHECK(request.offscreen == 1 && request.double_buffer == 0 && request.consumed_words == 2);
+    parse_status(offscreen_only, sizeof(uint32_t), GP_UNTERMINATED);
+    const uint32_t offscreen_truncated[] = {53, 12};
+    parse_status(offscreen_truncated, sizeof(offscreen_truncated), GP_TRUNCATED_VALUE);
+    const uint32_t no_recovery[] = {53, 72, 0};
+    parse_status(no_recovery, sizeof(no_recovery), GP_UNSUPPORTED_TOKEN);
+    CHECK(gp_parse_normalized(empty, sizeof(empty), &request) == GP_OK);
+    CHECK(request.offscreen == 0);
     parse_status(empty, sizeof(empty), GP_OK);
     parse_status(NULL, 0, GP_UNTERMINATED);
     parse_status(NULL, 4, GP_BAD_ARGUMENT);
@@ -82,7 +98,7 @@ static void parser_tests(void)
         parse_status(pair, 12, GP_BAD_VALUE);
     }
     for (uint32_t token = 1; token <= 102; ++token) {
-        if (token == 4 || token == 5 || token == 8 || token == 11 || token == 12 || token == 13)
+        if (token == 4 || token == 5 || token == 8 || token == 11 || token == 12 || token == 13 || token == 53)
             continue;
         parse_status(&token, sizeof(token), GP_UNSUPPORTED_TOKEN);
     }
@@ -183,6 +199,26 @@ static void selection_tests(void)
         impossible[1] = INT32_MAX;
         CHECK(gp_choose_normalized(impossible, sizeof(impossible), fixture, 3, NULL, &list) == GP_NO_MATCH);
     }
+    const uint32_t offscreen[] = {53, 0};
+    gp_format_cap surface_caps[] = {fixture[2], fixture[1]};
+    CHECK(gp_choose_normalized(offscreen, sizeof(offscreen), surface_caps, 1, NULL, &list) == GP_NO_MATCH);
+    CHECK(list.head == NULL && list.allocation == NULL && list.count == 0);
+    CHECK(gp_choose_normalized(offscreen, sizeof(offscreen), surface_caps, 2, NULL, &list) == GP_OK);
+    CHECK(list.count == 1);
+    if (list.head != NULL) {
+        CHECK(list.head->backend_format_index == 1 && list.head->next == NULL);
+        CHECK(get32(list.head, 0x0c) == surface_caps[1].flags);
+    }
+    gp_pixel_list_destroy(&list);
+    CHECK(gp_choose_normalized(empty, sizeof(empty), surface_caps, 2, NULL, &list) == GP_OK);
+    CHECK(list.count == 2);
+    if (list.head != NULL) {
+        CHECK(list.head->backend_format_index == 0 && get32(list.head, 0x0c) == GP_FLAG_WINDOW);
+        CHECK(list.head->next != NULL);
+        if (list.head->next != NULL)
+            CHECK(get32(list.head->next, 0x0c) == GP_FLAG_OFFSCREEN);
+    }
+    gp_pixel_list_destroy(&list);
     const uint32_t doubles[] = {5, 0};
     CHECK(gp_choose_normalized(doubles, sizeof(doubles), fixture, 1, NULL, &list) == GP_NO_MATCH);
     const uint32_t color24[] = {8, 24, 0};
@@ -268,11 +304,11 @@ static void guarded_tests(void)
     CHECK(mprotect(mapping + page, page, PROT_NONE) == 0);
     gp_request output;
     CHECK(gp_parse_normalized(mapping + page, 0, &output) == GP_UNTERMINATED);
-    const uint32_t endings[] = {0, 4, 5, 8, 11, 12, 13, 99};
+    const uint32_t endings[] = {0, 4, 5, 8, 11, 12, 13, 53, 99};
     for (size_t i = 0; i < WORDS(endings); ++i) {
         memcpy(mapping + page - 4, &endings[i], 4);
         gp_status expected = endings[i] == 0 ? GP_OK : endings[i] == 99 ? GP_UNSUPPORTED_TOKEN :
-            endings[i] <= 5 ? GP_UNTERMINATED : GP_TRUNCATED_VALUE;
+            (endings[i] <= 5 || endings[i] == 53) ? GP_UNTERMINATED : GP_TRUNCATED_VALUE;
         CHECK(gp_parse_normalized(mapping + page - 4, 4, &output) == expected);
     }
     const uint32_t zero_value[] = {8, 0};
@@ -282,7 +318,7 @@ static void guarded_tests(void)
     memcpy(mapping + page - sizeof(done), done, sizeof(done));
     CHECK(gp_parse_normalized(mapping + page - sizeof(done), sizeof(done), &output) == GP_OK);
     uint32_t seed = 0x51a7f00d;
-    const uint32_t pool[] = {0, 4, 5, 8, 11, 12, 13, 73, 99, 24, UINT32_MAX, INT32_MAX};
+    const uint32_t pool[] = {0, 4, 5, 8, 11, 12, 13, 53, 73, 99, 24, UINT32_MAX, INT32_MAX};
     for (unsigned iteration = 0; iteration < 20000; ++iteration) {
         seed = seed * 1664525U + 1013904223U;
         size_t bytes = (seed % 32) * 4;

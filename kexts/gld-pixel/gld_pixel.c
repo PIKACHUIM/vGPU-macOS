@@ -46,6 +46,9 @@ gp_status gp_parse_normalized(const void *tokens, size_t byte_length,
         case 5:
             request.double_buffer = 1;
             continue;
+        case 53: /* driver-evidence.txt:235/687，无值请求 flags 0x4。 */
+            request.offscreen = 1;
+            continue;
         case 8: minimum = &request.color_min; break;
         case 11: minimum = &request.alpha_min; break;
         case 12: minimum = &request.depth_min; break;
@@ -83,6 +86,7 @@ static int matches(const gp_request *request, const gp_format_cap *cap)
 {
     const uint32_t alpha = cap->color_mode == GP_COLOR_ARGB8888 ? 8U : 0U;
     return (!request->double_buffer || cap->buffer_mode == GP_BUFFER_MONO_DOUBLE) &&
+        (!request->offscreen || (cap->flags & GP_FLAG_OFFSCREEN) != 0) &&
         request->color_min <= 32 && request->alpha_min <= alpha &&
         request->depth_min <= cap->depth_bits && request->stencil_min <= cap->stencil_bits;
 }

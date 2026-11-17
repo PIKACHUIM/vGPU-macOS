@@ -1,0 +1,55 @@
+GLD 隔离集成发现实验：代码、验证及安装阻塞
+目标 macOS 15.7.3 / 24G419 / x86_64；本轮没有安装、替换bundle、重启或GPU绘制提交。
+
+产物
+源码：integration.c/h、traps.S、Info.plist、build.sh、probe.c、run_tests.py。
+构建结果：validation-20261116T160920073500Z/build/VGPUDriverIntegration.bundle。
+完整验证日志：validation-20261116T160920073500Z/validation.log。
+源码哈希：同目录 source-sha256.json；二进制哈希见 build/SHA256SUMS。
+bundle executable SHA256 0ba8edceda921d1c3aeac865626d9b84e22fbcf298ce1d1e1105a01fb8ec98eb。
+客体产物：/var/tmp/vgpu-gld-integration-20261116T160920073500Z/build。
+
+实现与能力边界
+1. 直接编译链接原 gld-device 和 gld-pixel 三个模块。仅对各编译单元用宏重命名系统入口；不修改原模块，不链接 diagnostic.c。129项来自诊断模块唯一清单：10项已知入口、119个独立UD2 trap。另有initialize/terminate及两个自研诊断入口，共133导出。链接exported_symbols_list限制内部符号，不导出gpx_configure和gi_device_create。nm精确集合比较通过。
+2. initialize清空能力表；活跃device或pixel链时拒绝重新初始化，旧对象保持可用。仅允许一个真实device。device打开仅证明私有连接/selector1 generation0可响应，不证明完整渲染能力。
+3. 真实device创建后默认仍无候选。隔离harness核对已有GPU验收和当前启动multi-resource-v2-unorm8标签后，显式调用自研vgpuIntegrationPublishCandidate。没有后端能力查询ABI，因此该入口是实验前置条件，不是自动发现或运行时能力认证。系统loader不会调用此入口。
+4. 唯一候选为256x256单采样、单缓冲、无depth/stencil、8位RGBA颜色语义的offscreen实验候选；物理backing为BGRA8格式141，不是旧BGRX假alpha。GP_COLOR_ARGB8888仅是已证CGL颜色模式编码，不代表线性CPU字节排列。pixel前缀不能表达尺寸，256限制仅在自研状态中描述；后续context必须实际拒绝其他尺寸。
+5. renderer只填已证offscreen、mono-single、ARGB8888、零depth/stencil模式；maxsample/samplebuffer等保持0。没有accelerated/compliant/core/vertex/fragment/compute位，也没有显存容量声明。CGL MajorGLVersion会把未置core位解释为2：不能据此称为支持GL2，更不能拿实验记录证明完整GL版本/profile。
+6. renderer ID从真实device状态取得，pixel原样使用；driver协议字段0x7e00对应driver ID 0x27e00，首个device为0x01027e00。重复服务槽0/7/31合并mask 0x80000081；不另造ID。
+7. 全部系统包装由同一mutex串行，pixel注册head按整链管理。活跃链时device destroy拒绝；terminate先释放全部链，再清能力表，最后关闭所有device/服务引用。terminate后旧head不可读/再用；free式ABI不提供地址复用ABA保证。调用者须同步读取和销毁，dlclose前须terminate，不支持任意卸载或pthread cancellation。
+8. share/context创建按已证三参/六参ABI清空输出并返回SDK BadMatch；销毁不存在对象返回失败。没有成功stub、没有虚假share/context，也没有调用未知签名。其余119入口保留可定位UD2，意味着这个bundle不具备系统初始化/绘制安全性。
+
+依据
+out/gld-device-contract-verified.txt：设备、配置、renderer布局、生命周期、ID。
+out/renderer-properties-research.txt：0x88记录消费者偏移及MajorGLVersion隐含2。
+out/gld-context-minimal-verified.txt 第2节：share/context创建和销毁参数。
+kexts/gld-diagnostic/abi-evidence.txt：loader版本和129槽。
+kexts/tests/multi-resource/gpu-v2-results.txt：alpha、A/B资源隔离及完整图像验收。
+out/bgra-macos-20261116T155414284044Z/results.json：独立BGRA surface/context验收。
+上述后端GPU证据被引用，本轮未重跑资源/绘制探针，没有修改surface/context/texture模块。
+
+本轮运行
+SDK严格警告-Werror构建通过；仅依赖IOKit/CoreFoundation/libSystem，不链接OpenGL/GPUSupport。
+RTLD_NOW|LOCAL 和 RTLD_LAZY|LOCAL分别覆盖全部129槽及initialize/terminate/status；已实现符号归属/地址及119个trap的0f0b机器字节通过。
+空表非特权探针：1105检查 PASS。
+真实device特权探针：2472检查 PASS。两种dlopen模式各16轮create/populate/choose/destroy，以及活跃两条链terminate、再次初始化/创建/销毁通过。
+验证内容包括：C/R canary、零未知配置、ID/mask一致性、RGBA8唯一候选、double/depth/stencil/alpha9无匹配、未知token失败、非法/重复pixel销毁失败、活跃链阻止设备销毁、活跃对象阻止重初始化、默认空表、终止清理全部链、服务retain/release及连接open/close计数平衡。
+上下文失败不修改A/H/B，输出句柄为NULL；真实连接打开失败会立即停止，不改为dummy device、不重试拒绝操作。
+当前启动kernel日志确认multi-resource-v2-unorm8；磁盘kext SHA256为2e5cdb6541f20506be52cd839cf6fa77a4fa20213992f0a7798d785b7556e299。磁盘hash本身不等同运行映像证明，启动日志和既有验收共同作为本次隔离候选前置。
+前后kern.boottime均为sec=1794841954,usec=641089，没有重启。
+没有本轮ASan/TSan或真实多线程竞态测试；不以通过断言数替代这些验证。
+
+安装前必须满足的条件（当前不满足，禁止将本产物当可用3D驱动安装）
+A. 接入其他代理验收后的share/context/texture/surface真实路径；完成A/H/B初始化、dispatch、clear/readback、flush/wait及资源生命周期。119个trap里所有可能被系统路径调用的入口须有已证ABI和真实实现/正确失败策略。
+B. 固定256x256限制必须在实际资源/context入口严格校验；通过系统请求→真实后端→回读的端到端证据，排除软件fallback。仅pixel发现不证明3D可用。
+C. 确定能力发布的真实运行时查询或受验证后端绑定机制，取代harness专用启用。明确GL版本/profile/着色器最小充分能力；当前默认主版本2不能用来冒充GL2。
+D. 普通用户进程的设备访问尚未解决：当前真实device依赖管理员私有连接，root探针成功不能外推应用可访问。
+E. 验证driver ID 0x27e00与运行插件无冲突。当前诊断bundle也使用此ID；独立dlopen不证明系统插件列表可同时装载。后续安装方案必须明确替换/隔离策略、签名信任、IOGLBundleName以及可恢复验证步骤。
+F. 审查后的具体安装操作仍须由主任务决定；本交付只保留/tmp与本地审查产物，不提供自动安装路径。
+
+复现
+客体已有隔离源码目录：bash <临时目录>/gld-integration/build.sh <尚不存在的/var/tmp输出目录>。
+空表：integration_probe <bundle executable> --empty。
+真实device：仅在核对上述后端证据后，以已授权的管理员身份运行 integration_probe <bundle executable> --device。
+宿主runner通过tools/mssh.py读取既有凭据，不打印凭据；SSH默认单次尝试，命令失败立即停止。
+本机测试依赖隔离安装于.test-deps；使用py -3.13并将该目录作为PYTHONPATH，不应把此依赖目录作为源码交付。

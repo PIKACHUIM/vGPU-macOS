@@ -1,0 +1,193 @@
+公开 legacy CGL context 最小接线审查
+日期：2026-11-17
+目标：macOS 15.7.3 /24G419，x86_64；GLEngine UUID FB994F78-34C6-39F3-857D-99F9B3013E8F。
+范围：只读源码/已有静态证据；唯一写入为本报告。未改源码、未安装/重启、未执行GL/GPU、未提交推送。其他代理负责的read/error、primitive颜色、polygon gate、拒绝dispatch、公开probe、pipeline gates未重复实现。源文件并行变化中，下列行号以本轮读取快照为准。
+
+1. 可执行结论
+
+不存在已经证实“只补几个魔数即可保证公开CGLCreateContext成功”的充分配置。可以立即实现的最小接线已经足够具体：
+(1) 保留并认识GLEngine在create前预填的A；补+0x15=1等已证受限能力；将default execution策略、descriptor、支持分组与真实render对象在同一context事务中发布。
+(2) 将gi_populate_context_dispatch从“只报未实现”接到已实现的、ABI正确的render表；GLEngine不会检查它的返回值，返回-2007或打印日志都不能阻止继续执行。
+(3) 接通gldUpdateDispatch及初始化所到达的真实UpdateState依赖，不能只导出Create/Populate。当前build.sh仍把UpdateDispatch/UpdateDraw/UpdateRead等未列入白名单的入口编成trap；仅把它们改名字为implemented仍不够，须有对应实现。
+(4) 保留已有11 texture +11 sampler的合法空图像元数据生命周期；A+0x65=1会增加state-program依赖，不可继续拿只手工创建3个pipeline的CPU probe当完整初始化。
+(5) 公开CGL测试须明确走legacy、确实选中本驱动、确实经过GLEngine initialize/dispatch安装；手调gldCreateContext或自有CPU primitive probe不能替代它。
+
+最重要的新收敛：旧报告中的“G+c6a6生产者未知”和“支持组全零假设”可由已有glengine-contract-snippets.txt直接修正，见第3、4节。无需重新恢复整个GLEngine。
+
+2. 当前源码差距与已有正确部分
+
+kexts/gld-integration/context_exports.c:148 config：
+- 已正确按当前唯一PF写RGBA8/单缓冲/无depth、stencil，+4/+8=256，+aa=0，+6e=1。
+- +65=0选择默认IMM侧；+208/+210被明确清NULL。这是旧metadata实验策略，不是当前受限直接TCL路线所需配置。
+- +15未写；真实calloc基础下该值为0。已有Indexed color/ClearBuffer消费者要求有效目标数量，单目标建议明确写1。
+- 点范围只把+40/+48写0，下界+3c/+44未写；已知这些是点大小范围，不应继续称“未知浮点limit”。建议四值1.0f只能作为明确的范围策略候选，并不能证明point draw支持。
+- 未写+230/+250/+254。真实GLEngine已填非零默认值，不能把本函数的“未写”描述成运行时必然全0；synthetic A则可能是0或0xa7，二者都不是真实caller状态。
+
+context_exports.c:166 gi_create_context：
+- out先NULL，share/设备identity/PF检查，分配自有entry，借用A/H/B，native_b与外部B隔离，这些可保留。
+- vgc_context_create只接受H与自有native_b；这并未建立primitive descriptor/staging/dispatch生命周期。
+- config成功后insert；若增加可失败的primitive分配/retain，须在config和句柄发布前完成，失败不得留下已发布A指针指向被释放对象。
+- H默认初始化在驱动create之后，不能在本入口以矩阵/viewport/color尚未初始化来永久拒绝，也不能缓存此时的状态当运行状态。
+
+context_exports.c:193 gi_populate_context_dispatch：
+- 当前完全不写表，返回GI_CONTEXT_UNIMPLEMENTED。内部负向单元测试有效，但不是公开初始化的可传播失败协议。
+- GLEngine 0x7FFB06447500调用后直接跳gleUpdateDispatchJIT，复制25*8=0xc8字节；没有test EAX。
+- create允许返回0之前须确保该context至少能发布所选路径的有效表；尚不具备时在create的已证错误通道拒绝，而非让Populate事后“返回失败”。
+
+integration.c:171 EnableMetadata / :272 PublishCandidate、:430附近gldCreateContext、:497 Populate：
+- publish和metadata/native注册目前需要自定义显式启用，gldCreateDevice本身不做这两步；普通公开CGL不会自动调用vgpuIntegrationEnableMetadata/PublishCandidate。
+- gldInitializeLibrary将candidate表清空。公开发现/启用若未另接，甚至到不了context create。这是公开probe/loader所有者的前置交接项，本报告不改其方案。
+- outer context_owner先建render再建GI context，成功后发布；应把新增primitive/descriptor生命周期纳入这笔事务和close_context释放顺序，不能另外创建无关的draw owner。
+- 两套native context存在于GI metadata与render层；primitive submit须使用真正绑定目标的render owner，不能误用未绑定draw的metadata native。
+
+3. profile真正来源：已有静态证据已足够
+
+out/glengine-contract-snippets.txt:88、195..213：
+  0x7FFB0637AF4F movl %r9d,-0x64(%rbp)       ; GLI create第6参flags
+  0x7FFB0637B0FA movl -0x64(%rbp),%eax
+  0x7FFB0637B10C testb $0x18,%al
+  0x7FFB0637B159 setne 0xc6a6(%r15)
+中间只有mov/lea等不改条件码的指令，故G+c6a6 = ((GLI flags &0x18)!=0)，不是A中的profile字段，也不是A+65。
+
+out/gld-context-init-dispatch-bounded-raw.txt:660：
+  0x7FFB06380756 movb G+c6a6,%al
+  0x7FFB0638075C testb %al,%al
+  0x7FFB0638075E je 0x7FFB063841D9
+零走legacy执行表分支；非零走另一profile分支。上层表0x1e78字节/975槽，不是GLD render的25槽。
+
+out/pixel-format-research.txt:39..79：
+- 公开属性99，Legacy=0x1000、Core3.2=0x3200、Core4.1=0x4100。
+- CGL规范化删除profile token；Core请求通过候选flags+0xc的0x20000/0x40000筛选，GLD不收到原始99 token。
+- 现有PF只发布GP_FLAG_OFFSCREEN=4，不发布core位；gi pixel_valid要求整个+0xc恰为4。
+- PF+0x31在GLI create中只有flags&0x18非零才参与后续limits选择；当前legacy零分支不需要给这个未知byte猜一个“profile值”。
+
+实施建议：公开probe显式请求legacy并核对实际renderer；不要新增config(A).profile、不要通过H回推G后写G+c6a6，也不要把公开0x1000直接写入GLI flags。公开CGL到GLI第6参的完整逐位映射本轮未重新恢复；应由真实公开probe确认flags&0x18==0，不能把GLI局部证据冒称完整映射。
+
+4. A不是全零输入：真实create前预填表（本轮从已有原始证据提取）
+
+基址：S_i=G+0xc6b0+i*0xe20；A=S_i+0x10=G+0xc6c0+i*0xe20。
+全部来自out/glengine-contract-snippets.txt:239..254，均在0x7FFB0637B27A驱动create之前。
+
+A偏移       宽度   engine实际预填                指令地址
++0xaf       u8     0x10                         0x7FFB0637B1E7
++0x9a       u32    0x00100050                   0x7FFB0637B1F0
++0x230      u32    0x0800ffff                   0x7FFB0637B1FC
++0x250      u8     0x8f                         0x7FFB0637B20A
++0x254      u8     0x8f                         0x7FFB0637B212
++0x88       8B     常量池8字节，值本轮未解码      0x7FFB0637B222
++0x17a      u16    1                            0x7FFB0637B22C
++0x1f8      u8     1                            0x7FFB0637B237
++0x19       u8     原值AND 0x80                 0x7FFB0637B240
++0x258      u64    getpagesize()                 0x7FFB0637B260
+
+其余基础来自calloc，但这不能变成驱动有权整体清零A的理由。驱动返回后engine还会：
+- +258取与0x4000的较小值；
+- 根据legacy/profile路径裁剪+9a(u16)、+9c(u16)、+af(u8)、+164/+17c/+194(u32)等limits；
+- PF积累颜色条件成立时写A+34..37=0x20202020。当前无accum PF不会走此支。
+这些后写说明A是共享活视图。不得把create完成后的整块快照当永远不变。
+
+默认支持分组不是本驱动承诺：A+230=0x0800ffff覆盖远多于triangle；A+250/+254=0x8f亦非受限1。旧config保留它们不能被称为主动完成了支持域声明。
+
+5. 建议的字段/长度接线清单
+
+PF只验证/借用0x38前缀；现有A最小0x218仅覆盖两个指针。若实现下面三张支持表，内部约定须扩大为至少0x258可访问前缀（端点，不包含pagesize）；真实caller预填/保留pagesize覆盖到0x260，但0x260仍不是已恢复Apple struct sizeof。
+H已有decoder最小span=0x4eea，B=0x4b0；R=0xc8。这些都是已用字段覆盖，不允许按此长度整体清零H/B。
+
+字段                  受限策略/要求                               证据及可信度
+A+04/+08 u32          256/256                                    真实资源上限一致时可直接实现；init-required:38
+A+15 u8               1                                          单color0；r1-r4:44..48,144
+A+1a u16              0作为明确实验候选                          parser偏好字，不是已证充分值；不得复制Intel0x16/AMD0x6
+A+28..3b              保留当前唯一PF派生值                       当前RGBA8、无accum/depth/stencil策略已有双侧证据
+A+3c/40/44/48 f32     1.0f候选，四个字段统一                     点范围；须保持point拒绝，不冒称point draw已实现
+A+65 u8               直接TCL受限路线用1                         已证初始G+b614=5、H+4=0；0则4、H+4=1
+A+6e u8               1                                          仅当真实显式clear入口可用；不依赖R[0]
+A+aa u8               0                                          RenderbufferStorage非MSAA请求samples=0
+A+208 pointer64       context自有、可写、保活的D                 不是函数；不能指向栈/借用临时数组
+A+210 pointer64       NULL仅限明确选择0的受限路线                 选择1/第二流若可达必须由对应拒绝/支持路径闭合
+A+230..24f            8*u32；第一项0x10，其余明确0               受控GL_TRIANGLES请求；不表示通用拒绝协议
+A+250..253            4*u8；{1,0,0,0}                            初始glBegin第二请求=1
+A+254..257            4*u8；{1,0,0,0}                            初始glBegin第三请求=1
+A+258..25f            完全保留caller pagesize                    禁止作为支持表哨兵覆盖
+A+6f、+220能力字等    保留已有值；不凭空开启或整体清零           未完整恢复；+221 bit6、+225 bits5/6仅各自已证消费者
+
+支持表三个搜索的原始实证（本轮只读客体现有glengine-code.txt，范围0x7FFB0644C540..C640）：
+  C568 testl request,0x230(A,index,4)
+  C575 cmpq $8,index；未命中C57B index=8；C582仍读取0x230(A,index,4)
+  C5B5读取0x250(A,index)；C5C5比较4；未命中C5CB index=4；C5D2仍读取
+  C606读取0x254(A,index)；C616比较4；未命中C61C index=4；C623仍读取
+所以未匹配分别读到A+250的u32、A+254的byte、A+258的byte。不是安全的unsupported返回！第一表匹配是按位相交非零，不是检查请求是否完全包含于组。
+
+实施约束：仅triangle表可用于明确受控的初始0x10/1/1请求。若要公开接收任意primitive然后拒绝，需与拒绝dispatch所有者共同决定覆盖所有可达请求的分组及安全CPU sink；不能给全0表、不能靠未知位或页大小碰巧匹配，也不能用覆盖全域的组宣称所有draw受支持。
+
+6. descriptor、Populate和UpdateDispatch的最小一致事务
+
+D头至少4B，条目各4B，总4+4*D[0]；D[2]是DWORD stride，GLEngine取D[2]*4得到byte stride，并可能写D[2]。所有D存储须为context生命周期内的可写内存。
+- 旧position-only候选8B：01 00 04 00 00 18 00 00；stride16。只适用明确受控实验，不能检测Begin/End中逐顶点颜色变化。
+- 当前并行源码primitive_exports.c:10已有colored候选12B：02 00 08 00 00 18 00 00 04 98 00 00；stride32，position float4后接color float4。此处仅记录代码事实，颜色attr/JIT证据与实现由颜色代理负责，不把该数组存在当作公开GL输出已验证。
+- publish D之前创建staging、保活render owner；Populate、UpdateDispatch、Begin/End必须看同一D/stride/代次。
+- R20 byte offset0xa0，R21=0xa8，R24=0xc0。25槽总0xc8；其他可达槽由拒绝dispatch所有者提供已证ABI，不能把全部槽强转同一个无参no-op。
+- Init及切换会再次Populate，不假定仅一次；gliUpdateDispatchState DA8D4 Populate后DA904/912重读D并重选submit。
+
+当前gi_primitive_begin不是可直接塞入R20的函数：
+primitive_exports.h:84、primitive_exports.c:138..145把输入0当空操作返回NULL；真实GLEngine R20 count_inout输入0是第一descriptor选择，随后会直接写返回缓冲而不检查NULL。
+R20适配必须将选择0转成真正正容量，例如现有64个顶点，返回持续有效的staging；不能把0原样传给自有begin。R20机器返回pointer64，不是IOReturn加额外out形参；句柄C也不是gi_primitive_handle整数。
+现有End只接受flags0x8002、primitive4、count3；空End/分段/满容量循环的真实可达情况交由primitive/拒绝dispatch所有者闭合后才能接公开路线。
+
+UpdateDispatch(C,R,Q=G+0x5f0)->u32：
+- 候选直接TCL稳定策略0x5；descriptor刷新候选0x7。不是status，不可把0/1或0x502当失败码。
+- bits0/1/2分别影响执行策略/descriptor刷新/回退门控；bits5/7/8对应三张分组的强制重选；bit6模式不一致。
+- descriptor刷新还受(new XOR old)&0x47的外层条件限制，不能常返7并假定每次都刷新。固定context descriptor最好create时一次发布，后续真实变更才按已证状态机更新。
+- Q头部20B会由engine清零；不清整个未知Q，不把保留dirty当重试保障；故障锁存留在自有C。
+- 是否拒绝draw与初始化创建是两阶段：新context还没有命名FBO且H尚未初始化时不能要求已满足最终triangle目标门控。实际draw时才按H/B与pipeline门控放行。
+
+7. 真实初始化时序及可直接复用的代码
+
+out/glengine-contract-snippets.txt:259..469；out/gld-context-init-consumers-raw.txt:185..293：
+1) GLEngine创建shared，S/C输出槽，calloc G，写profile和A默认值、H首u32=0x10004。
+2) gldCreateContext(SG,&C,PF,A,H,B)；EAX=0才继续；驱动自有资源此时须已可保活。
+3) engine裁剪A的pagesize/limits，设置主C/A/T别名。
+4) 0x7FFB0637B4CE调用gleInitializeContext：
+   gleInitConstants -> 汇总A+1a/+65 -> gleInitGLDState(H) -> gleInitGLIState(G)
+   -> gleSetBaseTCLState -> gleInitDerivedState
+   -> texture -> shader program -> vertex array -> pipeline program
+   -> buffer/hash/query/transform-feedback/draw-copy-pixels/bitmap/accum
+   -> 0x7FFB0637C725 gleUpdateState。
+5) 初始化返回0之后，可能创建cmd-buffer machine，再0x7FFB0637B67B gliInitDispatchTable，B687才向上层发布G。
+6) 初始化失败时调用gldDestroyContext(C)和shared释放；必须能销毁半初始化对象、无FBO、无draw的context。
+
+当前已有gi texture/sampler/pipeline create/destroy可以复用；不要重新写假对象。默认11个texture无image是合法元数据。默认3个pipeline加执行策略条件触发的第4个见default-object-contract:8..14；普通gldCreateProgram未证是此默认链必经。
+本轮尝试从既有客体全文按_gleUpdateState精确标签筛选，但该标签未命中；不据此称函数不存在，也未重新全量反汇编。其递归必达导出仍需运行日志/已证局部证据确认，不能把所有未恢复API都泛化成启动阻塞。
+
+build.sh:19..25、44..61当前快照还没有将primitive_exports编入bundle，UpdateDispatch等也不在implemented正则。应由集成人员把实际新实现与导出清单/编译单元同时接通。不能只看独立CPU模块测试已通过就认为bundle包含它。
+
+8. 可直接落地的实现顺序（不重复其他代理所有权）
+
+A. context所有者先添加自有可写descriptor和primitive生命周期关系；把A访问span从0x218扩大为所用字段端点0x258，保持pagesize/未知字段哨兵。失败前不发布指针。
+B. 把config改成可接收context-owned descriptor和明确执行策略的稀疏写入函数：+15=1、+65=1（仅直接TCL候选启用时）、D指针、三表；保留当前PF派生值。+1a=0及点范围值分别标注为候选/范围策略，不包装为已证充分配置。
+C. 由拒绝dispatch所有者提供完成的表，再让gi_populate_context_dispatch验证context并写完整0xc8；不能通过返回值拒绝后续执行。表构建先在自有临时表完成，再一次性复制到caller存储。
+D. integration只负责连接同一render owner、UpdateDispatch、R20/R21 ABI适配、生命周期和正确导出。read/error、颜色、polygon、pipeline逻辑采用对应所有者的接口，不重复实现。
+E. CPU补验证真实caller预填A（第4节）而非仅全0/0xa7；检查+258保留、三个表精确宽度、D保活、R20选择0→正容量、重复Populate和失败回滚；这些验证不需要调用未知系统入口。
+F. 交公开probe所有者执行阶段化验收：先CGLChoose/实际renderer，再Create/MakeCurrent/Destroy，记录默认对象数及Populate调用；再指定FBO clear/read，最后triangle。不得把后两项未做写成context初始化失败，也不得把create成功写成draw成功。
+
+9. 尚须动态验证的最小集合
+
+D1 公开loader能发现且选中候选；当前自定义enable/publish不属于CGL标准调用链，需证明初始化状态由正式集成入口建立。
+D2 flags&0x18在公开legacy路径为0；PF+31保持0仍可创建；不靠修改G强迫分支。
+D3 A+1a=0、限值/能力组合以及A+65=1下实际gleInitializeContext完成；默认program对象增加和UpdateState到达入口不落trap。
+D4 初次Populate是否足以产生正确策略；0x5/0x7实际刷新、JIT/解释器输出D布局、初次R20选择和容量、stride、glVertex3f w补全。直接TCL pattern内容缺口若其他代理尚未关闭，应继续作为精确缺口，不凭A+65=1宣布自动闭合。
+D5 unsupported请求在支持组、拒绝表和sink间不会越界/NULL写/意外fallback；此项由拒绝dispatch所有者验收，本报告不伪造解决方案。
+D6 失败中途销毁后无context/share/descriptor/primitive引用泄漏；默认无draw context销毁不要求先有GPU completion。
+
+这些项目均未在本轮运行。此报告交付“最小接线及可执行验证边界”，不宣称公开legacy CGL已初始化成功。
+
+10. 证据索引与执行记录
+
+已读：
+- out/gld-loader-contract.txt；glengine-contract.txt；glengine-contract-snippets.txt。
+- out/gld-context-minimal-verified.txt；gld-context-init-required-verified.txt；gld-context-init-consumers-raw.txt；gld-context-init-dispatch-bounded-raw.txt。
+- out/gld-context-r1-r4-state-evidence.txt；gld-default-object-contract.txt；pixel-format-research.txt。
+- out/gld-triangle-next-contract.txt；gld-triangle-state-contract.txt。
+- context_exports.[ch]、integration.c、build.sh、context_exports_probe.c、primitive_exports.[ch]、vgpu_context.h、gld_pixel.h、abi_gate.c。
+
+新增只读证据：tools/mssh.py读取客体既有/var/tmp/vgpu-fb/glengine-code.txt，stdout仅提取0x7FFB0644C540..C640及尝试_gleUpdateState标签的call/jmp；成功返回的支持表指令已摘入第5节。未新建客体文件，未新反汇编，未输出凭据。
+初始三次命令因本机PowerShell/native参数引号或执行器路径改写导致Python语法错误，在建立SSH前失败；随后通过PowerShell stdin传Python成功。没有以重试掩盖权限拒绝或远端操作失败。

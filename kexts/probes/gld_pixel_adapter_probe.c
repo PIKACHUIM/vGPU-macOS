@@ -57,7 +57,7 @@ static void test_inputs(void)
     expect(negative, GP_BAD_VALUE);
     for (uint32_t token = 1; token < 104; ++token) {
         if (token == 4 || token == 5 || token == 8 || token == 11 ||
-            token == 12 || token == 13) continue;
+            token == 12 || token == 13 || token == 53) continue;
         expect(&token, GP_UNSUPPORTED_TOKEN);
     }
     uint32_t *short_allocation = malloc(sizeof(uint32_t));
@@ -91,6 +91,51 @@ static void test_inputs(void)
     expect(limit, GP_BAD_VALUE);
 }
 
+static void test_offscreen(void)
+{
+    const uint32_t offscreen[] = {53, 0};
+    const uint32_t following[] = {53, 53, 4, 5, 8, 24, 11, 8, 12, 24, 13, 8, 0};
+    const uint32_t no_recovery[] = {53, 72, 0};
+    const uint32_t too_deep[] = {53, 12, 32, 0};
+    const uint32_t empty[] = {0};
+    gp_format_cap caps[] = {fixture[0], fixture[1]};
+    caps[0].flags = GP_FLAG_WINDOW;
+    caps[1].flags = GP_FLAG_OFFSCREEN | GP_FLAG_WINDOW;
+    CHECK(gpa_configure(caps, 1) == GP_OK);
+    expect(offscreen, GP_NO_MATCH);
+    expect(empty, GP_OK);
+    CHECK(gpa_configure(caps, 2) == GP_OK);
+    expect(no_recovery, GP_UNSUPPORTED_TOKEN);
+    expect(too_deep, GP_NO_MATCH);
+    for (size_t i = 0; i < 2; ++i) {
+        void *head = NULL;
+        uint64_t generation = 0;
+        CHECK(gpa_choose(&head, i == 0 ? offscreen : following, &generation) == GP_OK);
+        CHECK(head != NULL && generation != 0);
+        if (head != NULL) {
+            const gp_pixel_node *node = head;
+            uint32_t flags = 0;
+            memcpy(&flags, node->fields + 4, sizeof(flags));
+            CHECK(node->next == NULL && node->backend_format_index == 1);
+            CHECK(flags == caps[1].flags);
+            CHECK(gpa_destroy(head, generation) == GP_OK);
+        }
+    }
+    void *head = NULL;
+    uint64_t generation = 0;
+    CHECK(gpa_choose(&head, empty, &generation) == GP_OK);
+    CHECK(head != NULL);
+    if (head != NULL) {
+        const gp_pixel_node *node = head;
+        uint32_t flags = 0;
+        memcpy(&flags, node->fields + 4, sizeof(flags));
+        CHECK(node->backend_format_index == 0 && node->next != NULL);
+        CHECK(flags == GP_FLAG_WINDOW);
+        CHECK(gpa_destroy(head, generation) == GP_OK);
+    }
+    CHECK(gpa_configure(fixture, sizeof(fixture) / sizeof(fixture[0])) == GP_OK);
+}
+
 static void test_guard_pages(void)
 {
     long page_long = sysconf(_SC_PAGESIZE);
@@ -111,6 +156,12 @@ static void test_guard_pages(void)
     word = 4;
     memcpy(end - 4, &word, 4);
     expect(end - 4, GPA_READ_FAILED); /* 缺终止。 */
+    word = 53;
+    memcpy(end - 4, &word, 4);
+    expect(end - 4, GPA_READ_FAILED); /* 无值53仍须读取后继终止符。 */
+    const uint32_t offscreen[] = {53, 0};
+    memcpy(end - sizeof(offscreen), offscreen, sizeof(offscreen));
+    expect(end - sizeof(offscreen), GP_NO_MATCH); /* 完整复制且不越过终止符。 */
     word = 8;
     memcpy(end - 4, &word, 4);
     expect(end - 4, GPA_READ_FAILED); /* 值不可读。 */
@@ -233,6 +284,7 @@ static void test_configuration(void)
 int main(void)
 {
     test_inputs();
+    test_offscreen();
     test_guard_pages();
     test_owners();
     test_configuration();

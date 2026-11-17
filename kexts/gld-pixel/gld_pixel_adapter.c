@@ -91,7 +91,7 @@ static int32_t copy_tokens(const uint32_t *source, uint32_t *local, size_t *byte
         } else {
             switch (local[i]) {
             case 0: return GP_OK;
-            case 4: case 5: break;
+            case 4: case 5: case 53: break;
             case 8: case 11: case 12: case 13: need_value = 1; break;
             default: return GP_OK; /* 仅已复制前缀交给parser报告未知项。 */
             }

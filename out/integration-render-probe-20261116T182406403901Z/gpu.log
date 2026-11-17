@@ -1,0 +1,8 @@
+BUNDLE /private/var/tmp/vgpu-integration-render-probe-20261116T182406403901Z/build/VGPUDriverIntegration.bundle/Contents/MacOS/VGPUDriverIntegration
+GEN image0=3 image1=2
+PASS GPU 按值 dirty：draw/read 初始绑定、零 dirty、重绑与分离像素验证
+PASS GPU round=1；完整释放后重租
+GEN image0=3 image1=2
+PASS GPU 按值 dirty：draw/read 初始绑定、零 dirty、重绑与分离像素验证
+PASS GPU round=2；完整释放后重租
+PASS integration render checks=451 mode=--gpu；无系统私有调用、无安装

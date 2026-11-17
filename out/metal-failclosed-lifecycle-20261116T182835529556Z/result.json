@@ -1,0 +1,156 @@
+{
+  "status": 0,
+  "failure": null,
+  "remote": "/var/tmp/vgpu-metal-failclosed-lifecycle-20261116T182835529556Z",
+  "manifest": {
+    "metal_failclosed_lifecycle_probe.m": "68ca22c8a30874c068dfc56f32bad54f097092702fd4ff149bd91591edf42fe1",
+    "build_metal_failclosed_lifecycle_probe.py": "8e811b2909c3bb820fb807b14395870ce81368cd8f3a799c278a9d95cba894c5",
+    "metal-failclosed-candidate.m": "83eabdcfe91bf20d98165cb9578fc1c99e6d38c4b4c7bff0e8026b89d30305fb",
+    "metal-failclosed-contract.txt": "c293ad084bea5641c83b94c79113213dea89ca2703a335321fcfe74b31f269a1",
+    "metal-base-evidence-v2.txt": "651b5b86fdfd4ebcd4e005a77063e4a8438156e7d9a3097c1cf9ffcd98eacdf1",
+    "metal-base-runtime.txt": "2ebbe3c2143d6fbb78f912e7509667f7c182fe206f3f99c11e2c7413043d3356"
+  },
+  "upload_sha256": {
+    "metal_failclosed_lifecycle_probe.m": "68ca22c8a30874c068dfc56f32bad54f097092702fd4ff149bd91591edf42fe1",
+    "build_metal_failclosed_lifecycle_probe.py": "8e811b2909c3bb820fb807b14395870ce81368cd8f3a799c278a9d95cba894c5",
+    "metal-failclosed-candidate.m": "83eabdcfe91bf20d98165cb9578fc1c99e6d38c4b4c7bff0e8026b89d30305fb",
+    "metal-failclosed-contract.txt": "c293ad084bea5641c83b94c79113213dea89ca2703a335321fcfe74b31f269a1",
+    "metal-base-evidence-v2.txt": "651b5b86fdfd4ebcd4e005a77063e4a8438156e7d9a3097c1cf9ffcd98eacdf1",
+    "metal-base-runtime.txt": "2ebbe3c2143d6fbb78f912e7509667f7c182fe206f3f99c11e2c7413043d3356"
+  },
+  "binary_sha256": {
+    "metal-lifecycle-mrc": "eecb39aeffef136fdbee7c92ea7bbba8cc34fa41d97151756e50af0669372d1a",
+    "metal-lifecycle-asan-ubsan": "2eb1da3ca5c010558dd73488273204b9a77fbea75f60e629d19467896a9b363f"
+  },
+  "runs": [
+    {
+      "binary": "metal-lifecycle-mrc",
+      "repetition": 1,
+      "exit": 0,
+      "entries": 4,
+      "nil_returns": 4,
+      "allocations": [
+        [
+          "1",
+          "656",
+          "4508"
+        ],
+        [
+          "2",
+          "656",
+          "4508"
+        ],
+        [
+          "3",
+          "656",
+          "4508"
+        ],
+        [
+          "4",
+          "656",
+          "4508"
+        ]
+      ],
+      "passed": true,
+      "log": "metal-lifecycle-mrc-run-1.log"
+    },
+    {
+      "binary": "metal-lifecycle-mrc",
+      "repetition": 2,
+      "exit": 0,
+      "entries": 4,
+      "nil_returns": 4,
+      "allocations": [
+        [
+          "1",
+          "656",
+          "4509"
+        ],
+        [
+          "2",
+          "656",
+          "4509"
+        ],
+        [
+          "3",
+          "656",
+          "4509"
+        ],
+        [
+          "4",
+          "656",
+          "4509"
+        ]
+      ],
+      "passed": true,
+      "log": "metal-lifecycle-mrc-run-2.log"
+    },
+    {
+      "binary": "metal-lifecycle-asan-ubsan",
+      "repetition": 1,
+      "exit": 0,
+      "entries": 4,
+      "nil_returns": 4,
+      "allocations": [
+        [
+          "1",
+          "656",
+          "4510"
+        ],
+        [
+          "2",
+          "656",
+          "4510"
+        ],
+        [
+          "3",
+          "656",
+          "4510"
+        ],
+        [
+          "4",
+          "656",
+          "4510"
+        ]
+      ],
+      "passed": true,
+      "log": "metal-lifecycle-asan-ubsan-run-1.log"
+    },
+    {
+      "binary": "metal-lifecycle-asan-ubsan",
+      "repetition": 2,
+      "exit": 0,
+      "entries": 4,
+      "nil_returns": 4,
+      "allocations": [
+        [
+          "1",
+          "656",
+          "4511"
+        ],
+        [
+          "2",
+          "656",
+          "4511"
+        ],
+        [
+          "3",
+          "656",
+          "4511"
+        ],
+        [
+          "4",
+          "656",
+          "4511"
+        ]
+      ],
+      "passed": true,
+      "log": "metal-lifecycle-asan-ubsan-run-2.log"
+    }
+  ],
+  "gpu_executed": false,
+  "installed": false,
+  "standard_loader_verified": false,
+  "usable_metal_verified": false,
+  "limitations": "仅固定系统的直接调用负向生命周期；ASan/UBSan 不覆盖 Apple 系统库全部内部操作，未启用泄漏检测。"
+}

@@ -1,0 +1,316 @@
+仅本地 CPU 验证；无后端、远端、GPU、安装或 GLD 错误映射证明。
+SHA256 ddfa9b2abd68c9f92efda502df46b4c2609b197dc34c71959843de0de43504cb kexts/gld-state/vgpu_clear_state.c
+SHA256 2015840052c5964172a72d7a1af4b19c490cff3e27e86d14ec0a06a03fc65e2d kexts/gld-state/vgpu_clear_state.h
+SHA256 b8c3eb33fff0d087b1655cb7936321244f2cfb6f77ada3d792c350eaa95f405f kexts/gld-state/clear_state_cpu_test.c
+SHA256 e8e7d2b7edbc2908dc1497888497a34b2cb3ea25a07f0b7e012786fc4a89bfe6 kexts/gld-state/verify_cpu.py
+SHA256 90fd5212988e99e441ba70b398f6994e32c7781e5ef0ba3d1f8880cdd3e843fb kexts/gld-context/vgpu_context.h
+SHA256 06705d4bf4b617b405dc9440891764638380192385ff6689a8aa3656e788b56d kexts/gld-surface/vgpu_surface.h
+SHA256 5ad1f218d80700baf05d4d56cd3465c2d002eaf140fbd2dccd17039933cf638f kexts/gld-objects/cpu-fixture/IOKit/IOReturn.h
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc --version
+clang version 19.1.7 (https://github.com/ziglang/zig-bootstrap de1b01a8c1dddf75a560123ac1c2ab182b4830da)
+Target: x86_64-unknown-windows-gnu
+Thread model: posix
+InstalledDir: D:/Codes/vGPU-macOS/out/.ziglang/ziglang
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\kexts\gld-state\vgpu_clear_state.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\strict.exe
+
+
+EXIT 0
+BINARY_SHA256 3dcef5bf5d17b6b345c36b4c400711114ff035046b2921568eea5318af8b3e2d strict.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\strict.exe
+PASS clear_state CPU checks=369107
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu -DNDEBUG D:\Codes\vGPU-macOS\kexts\gld-state\vgpu_clear_state.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\ndebug.exe
+
+
+EXIT 0
+BINARY_SHA256 bebf886d176a520a590447984a8e43c1df4c5e0ff5906b4f56f91c7309cac60c ndebug.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\ndebug.exe
+PASS clear_state CPU checks=369107
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all D:\Codes\vGPU-macOS\kexts\gld-state\vgpu_clear_state.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\ubsan.exe
+
+
+EXIT 0
+BINARY_SHA256 345c5b925e10858804af7075cd06a857c7155b7347e697a8faa91147b6646f0c ubsan.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\ubsan.exe
+PASS clear_state CPU checks=369107
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\srgb-wide.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\srgb-wide.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\srgb-wide.exe
+
+FAIL line=49: vgpu_clear_state_decode(hi, vi, mask, &output) == expected
+
+EXIT 1
+MUTATION KILLED srgb-wide
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\summary-wide.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\summary-wide.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\summary-wide.exe
+
+FAIL line=49: vgpu_clear_state_decode(hi, vi, mask, &output) == expected
+
+EXIT 1
+MUTATION KILLED summary-wide
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\bitmap-bit0-only.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\bitmap-bit0-only.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\bitmap-bit0-only.exe
+
+FAIL line=49: vgpu_clear_state_decode(hi, vi, mask, &output) == expected
+
+EXIT 1
+MUTATION KILLED bitmap-bit0-only
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\integer-byte-only.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\integer-byte-only.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\integer-byte-only.exe
+
+FAIL line=49: vgpu_clear_state_decode(hi, vi, mask, &output) == expected
+
+EXIT 1
+MUTATION KILLED integer-byte-only
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\channel-boolean.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\channel-boolean.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\channel-boolean.exe
+PASS clear_state CPU checks=369107
+
+
+EXIT 0
+MUTATION SURVIVED channel-boolean
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\all-targets-required.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\all-targets-required.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\all-targets-required.exe
+
+FAIL line=49: vgpu_clear_state_decode(hi, vi, mask, &output) == expected
+
+EXIT 1
+MUTATION KILLED all-targets-required
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\nan-accepted.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\nan-accepted.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\nan-accepted.exe
+
+FAIL line=49: vgpu_clear_state_decode(hi, vi, mask, &output) == expected
+
+EXIT 1
+MUTATION KILLED nan-accepted
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\last-channel-unchecked.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\last-channel-unchecked.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\last-channel-unchecked.exe
+
+FAIL line=57: memcmp(output.rgba, vi.data, sizeof(output.rgba)) == 0
+
+EXIT 1
+MUTATION KILLED last-channel-unchecked
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\partial-output.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\partial-output.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\partial-output.exe
+
+FAIL line=53: memcmp(before, &output, sizeof(output)) == 0
+
+EXIT 1
+MUTATION KILLED partial-output
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\alias-last-byte-missed.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\alias-last-byte-missed.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\alias-last-byte-missed.exe
+
+FAIL line=158: vgpu_clear_state_decode(which ? hv : input, which ? input : vv, 1, out) == VGPU_CLEAR_STATE_BAD_ARGUMENT
+
+EXIT 1
+MUTATION KILLED alias-last-byte-missed
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\input-write.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\input-write.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\input-write.exe
+
+FAIL line=50: memcmp(h, hs, sizeof(h)) == 0
+
+EXIT 1
+MUTATION KILLED input-write
+RESULT FAIL failed=1
+
+===== 本地 CPU 验证 =====
+仅本地 CPU 验证；无后端、远端、GPU、安装或 GLD 错误映射证明。
+SHA256 ddfa9b2abd68c9f92efda502df46b4c2609b197dc34c71959843de0de43504cb kexts/gld-state/vgpu_clear_state.c
+SHA256 2015840052c5964172a72d7a1af4b19c490cff3e27e86d14ec0a06a03fc65e2d kexts/gld-state/vgpu_clear_state.h
+SHA256 ab772b5cade3fba13a08e06250904aade7231bb6a6432d053e6875d963bc01b8 kexts/gld-state/clear_state_cpu_test.c
+SHA256 4ae77e5a531cfc64a9dffe33529adacd14afb4bce20eaa0a1e4cd2b893de312f kexts/gld-state/verify_cpu.py
+SHA256 90fd5212988e99e441ba70b398f6994e32c7781e5ef0ba3d1f8880cdd3e843fb kexts/gld-context/vgpu_context.h
+SHA256 06705d4bf4b617b405dc9440891764638380192385ff6689a8aa3656e788b56d kexts/gld-surface/vgpu_surface.h
+SHA256 5ad1f218d80700baf05d4d56cd3465c2d002eaf140fbd2dccd17039933cf638f kexts/gld-objects/cpu-fixture/IOKit/IOReturn.h
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc --version
+clang version 19.1.7 (https://github.com/ziglang/zig-bootstrap de1b01a8c1dddf75a560123ac1c2ab182b4830da)
+Target: x86_64-unknown-windows-gnu
+Thread model: posix
+InstalledDir: D:/Codes/vGPU-macOS/out/.ziglang/ziglang
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\kexts\gld-state\vgpu_clear_state.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\strict.exe
+
+
+EXIT 0
+BINARY_SHA256 fb75da95b387cacdc9d13634b3d278f378995200ce673364c0f64fb2fdf61d18 strict.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\strict.exe
+PASS clear_state CPU checks=370387
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu -DNDEBUG D:\Codes\vGPU-macOS\kexts\gld-state\vgpu_clear_state.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\ndebug.exe
+
+
+EXIT 0
+BINARY_SHA256 b73ec318493ed056f5cfb9592bc8140d377106cb518bbbedbfbe8aea0036b547 ndebug.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\ndebug.exe
+PASS clear_state CPU checks=370387
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu -fsanitize=undefined -fno-sanitize-recover=all D:\Codes\vGPU-macOS\kexts\gld-state\vgpu_clear_state.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\ubsan.exe
+
+
+EXIT 0
+BINARY_SHA256 721422eb2611372b1ced24b8eaa8ac908d77e7546315a9874b0cd1557a412ce8 ubsan.exe
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\ubsan.exe
+PASS clear_state CPU checks=370387
+
+
+EXIT 0
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\srgb-wide.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\srgb-wide.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\srgb-wide.exe
+
+FAIL line=49: vgpu_clear_state_decode(hi, vi, mask, &output) == expected
+
+EXIT 1
+MUTATION KILLED srgb-wide
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\summary-wide.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\summary-wide.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\summary-wide.exe
+
+FAIL line=49: vgpu_clear_state_decode(hi, vi, mask, &output) == expected
+
+EXIT 1
+MUTATION KILLED summary-wide
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\bitmap-bit0-only.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\bitmap-bit0-only.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\bitmap-bit0-only.exe
+
+FAIL line=49: vgpu_clear_state_decode(hi, vi, mask, &output) == expected
+
+EXIT 1
+MUTATION KILLED bitmap-bit0-only
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\integer-byte-only.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\integer-byte-only.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\integer-byte-only.exe
+
+FAIL line=49: vgpu_clear_state_decode(hi, vi, mask, &output) == expected
+
+EXIT 1
+MUTATION KILLED integer-byte-only
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\channel-boolean.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\channel-boolean.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\channel-boolean.exe
+
+FAIL line=49: vgpu_clear_state_decode(hi, vi, mask, &output) == expected
+
+EXIT 1
+MUTATION KILLED channel-boolean
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\all-targets-required.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\all-targets-required.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\all-targets-required.exe
+
+FAIL line=49: vgpu_clear_state_decode(hi, vi, mask, &output) == expected
+
+EXIT 1
+MUTATION KILLED all-targets-required
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\nan-accepted.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\nan-accepted.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\nan-accepted.exe
+
+FAIL line=49: vgpu_clear_state_decode(hi, vi, mask, &output) == expected
+
+EXIT 1
+MUTATION KILLED nan-accepted
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\last-channel-unchecked.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\last-channel-unchecked.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\last-channel-unchecked.exe
+
+FAIL line=57: memcmp(output.rgba, vi.data, sizeof(output.rgba)) == 0
+
+EXIT 1
+MUTATION KILLED last-channel-unchecked
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\partial-output.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\partial-output.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\partial-output.exe
+
+FAIL line=53: memcmp(before, &output, sizeof(output)) == 0
+
+EXIT 1
+MUTATION KILLED partial-output
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\alias-last-byte-missed.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\alias-last-byte-missed.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\alias-last-byte-missed.exe
+
+FAIL line=163: vgpu_clear_state_decode(which ? hv : input, which ? input : vv, 1, out) == VGPU_CLEAR_STATE_BAD_ARGUMENT
+
+EXIT 1
+MUTATION KILLED alias-last-byte-missed
+COMMAND D:/Codes/vGPU-macOS/out/.ziglang/ziglang/zig.exe cc -std=c11 -Wall -Wextra -Werror -Wpedantic -Wconversion -Wshadow -O1 -g -ID:\Codes\vGPU-macOS\kexts\gld-objects\cpu-fixture -ID:\Codes\vGPU-macOS\kexts\gld-state -target x86_64-windows-gnu D:\Codes\vGPU-macOS\out\gld-state-cpu\input-write.c D:\Codes\vGPU-macOS\kexts\gld-state\clear_state_cpu_test.c -o D:\Codes\vGPU-macOS\out\gld-state-cpu\input-write.exe
+
+
+EXIT 0
+COMMAND D:\Codes\vGPU-macOS\out\gld-state-cpu\input-write.exe
+
+FAIL line=50: memcmp(h, hs, sizeof(h)) == 0
+
+EXIT 1
+MUTATION KILLED input-write
+RESULT PASS failed=0

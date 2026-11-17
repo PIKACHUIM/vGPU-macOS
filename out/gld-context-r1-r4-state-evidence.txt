@@ -1,0 +1,158 @@
+R1/R4 补充证据：clear 状态可实施边界与初始化能力解释
+日期：2026-11-16
+范围：只读静态 ABI 研究；仅新增本 txt。未修改源码、客体文件或配置，未安装、重启、调用私有函数、运行 GL 测试。没有读取历史 jsonl，没有输出凭据。
+
+1. 结论与可信度
+R4：scissor、RGBA 每目标写掩码、FRAMEBUFFER_SRGB 的 H 偏移已经由 GLEngine 生产/查询入口与 Intel 消费者交叉闭合；补充 dither 和 V+0x18 的整数/float 区分。可以实施一个有明确前置条件的 RGBA8 全表面 clear/read 后端。
+R1：A+0x40/+0x48 确认是点大小上限，不是浮点像素能力；A+0x65 确认驱动默认执行模式参与 IMM/ACC 分流及 state-program 依赖。A+0x1a 是程序解析/固定功能程序生成偏好字，已恢复多个位的机械作用，但没有恢复全部位的正式语义。因此不能声称 R1 全闭合或随意清零就能完成整个 GL 初始化。
+本报告的拒绝条件是最小实现自己的支持边界，不是声称 OpenGL 规范拒绝这些合法状态。GLD 错误返回映射尚未完全恢复；不得仅返回失败并假设上层必定观察，也不得忽略状态后返回成功。
+
+2. 来源与记号
+版本沿用 gld-context-init-required-verified.txt：macOS 15.7.3 /24G419，GLEngine UUID FB994F78-34C6-39F3-857D-99F9B3013E8F。
+G 为 engine context，H=G+0x8e0；A 为 plugin config（G+0xb318 主配置，G+0xb4d8 当前配置）。下列地址均 unslid。
+优先本地：out/gld-context-init-consumers-raw.txt、gld-context-intel-raw.txt、gld-context-intel-clear-config-raw.txt、gld-context-init-required-verified.txt。
+新增 GLEngine 查询仅对客体现有 /var/tmp/vgpu-fb/glengine-code.txt 按函数名或地址区间流式筛选，使用 tools/mssh.py 的既有 load_env_file/connect/run；不打印环境或连接配置。
+解析器补充只读执行：/usr/bin/dyld_info -arch x86_64 -disassemble /System/Library/Frameworks/OpenGL.framework/Versions/A/Libraries/libGLProgrammability.dylib；远端逐行筛选指定符号/地址，只返回片段，无客体落盘。
+另只读筛选过 Float bundle 的 Config 符号，没有据此获得可采纳的 context A+0x65 生产值。禁止将未找到当作零值证据。
+
+3. R4 精确 H 状态表
+H+0x3ca8 u8：R 通道目标位图。
+H+0x3ca9 u8：G 通道目标位图。
+H+0x3caa u8：B 通道目标位图。
+H+0x3cab u8：A 通道目标位图。
+对 draw buffer j：允许通道 c 写入 iff (u8(H+0x3ca8+c) & (1u<<j)) !=0。不是四个通道布尔量，也不是 target 的 4-byte mask 数组。
+全局 glColorMask 将每个 byte 写为 0 或 0xff；Indexed 入口只改指定 bit。只支持目标0的全写检查为 ((R&G&B&A)&1)!=0，不要求四 byte 恰好等于0xff，否则会错误拒绝其他目标关闭但目标0全开的合法状态。
+H+0x3cae u16：clear 使用的有效附件/写目标汇总 mask；不能代替逐通道 mask。glColorMask 的 OR 汇总再与当前 draw bitmap 相交，故部分通道关闭时目标 bit 仍可能有效。
+H+0x3d74/+0x3d78/+0x3d7c/+0x3d80 int32：索引0的 scissor x/y/width/height 镜像。
+H+0x3d84 u8：索引0 scissor enable 镜像。
+H+0x3d88+0x10*i 四个 int32：索引 i 的 scissor x/y/width/height，i=0..15。
+H+0x3e88 u32：scissor enable bitmap，bit i 对应索引 i。
+H+0x3e8c u8：是否已进入 multi-viewport 路径（0/非0）；这里不把它当 profile 或 framebuffer 数。
+H+0x3c1c u8：GL_FRAMEBUFFER_SRGB (0x8db9) enable。
+H+0x3c38 u8：GL_DITHER enable。最小精确 RGBA8 验收显式关闭，不能假设默认关闭。
+
+3.1 颜色写掩码原始锚点
+_glColorMask_Exec:
+0x7FFB063A0B8C negb %sil；0x7FFB063A0B94 sbbl %esi,%esi（输入非零生成全1）
+0x7FFB063A0BD2 movb %sil,0x4588(%rdi)
+0x7FFB063A0BD9 movb %dl,0x4589(%rdi)
+0x7FFB063A0BDF movb %cl,0x458a(%rdi)
+0x7FFB063A0BE5 movb %al,0x458b(%rdi)
+0x7FFB063A0BF8..0C05 将四 byte OR 后写 G+0xb61c 的低byte。
+0x7FFB063A0C27 andl (%rdx),%eax；0C29 movw %ax,0x458e(%rdi)。
+_glColorMaskIndexedEXT_Exec:
+0x7FFB064DDD9D movl %esi,%ecx；DDDA4 shll %cl,%esi（1<<index）
+0x7FFB064DDDCF movzbl 0x15(%r10),%r10d；DDDD4 cmp %ecx,%r10d；DDDD7 jbe 0x7ffb064ddedb。
+0x7FFB064DDDF2 xorl $0xff,%ecx；DDDFB andl %ecx,%edx；DDDFD orl %ebx,%edx。
+0x7FFB064DDE58/5E/64/6B 分别写 G+0x4588/89/8a/8b。
+index>=A+0x15 时 DDEE5 写 engine error 0x501（仅在原 error 为0时）。
+Intel clear 消费者（本地 gld-context-intel-raw.txt 第864、1417、1439行）：
+0x7FFB01EBDE67 vmovd 0x3ca8(%rax),%xmm0
+0x7FFB01EBDE6F/74/78/7D 对四 byte 做 AND；DE85 testb $1,%al。
+0x7FFB01EBE9E8/9F1/9FA/EA03 分别 testb $1,H+0x3cab/3ca8/3ca9/3caa。
+这些跳转选择 Intel fast/slow clear，不是 API 错误返回；独立实现不能照抄硬件分支成规范拒绝。
+
+3.2 scissor 原始锚点及可实施矩形
+_glScissorArrayv_Core:
+0x7FFB063EAF59 cmpl $0,-4(%rax)；EAF5D js 0x7ffb063eb050
+0x7FFB063EAF63 cmpl $0,(%rax)；EAF66 js 同上（负width/height）
+0x7FFB063EAFA0 leaq 0x4668(%rax),%r13
+0x7FFB063EAFC6 shlq $4,%rdx；EAFCA leaq (%rdx,%r13),%rcx
+0x7FFB063EB010 movups %xmm0,(%rcx)；EB01D call gleUpdateViewScissorDataIndexed。
+负尺寸分支 EB062 在 error 原为0时写 0x501。
+_gleSetEnable_SCISSOR_TEST:
+0x7FFB063A0AF4 movl $0xffff,%eax；0AF9 cmovel %ecx,%eax（legacy 为1，其他profile为0xffff）
+0x7FFB063A0AFC testl %edx,%edx；0AFE cmovel %edx,%eax（disable为0）
+0x7FFB063A0B12 movl %eax,0x4768(%rdi)；0B18 call gleUpdateViewScissorData。
+_gleUpdateViewScissorDataIndexed:
+0x7FFB0648C153 addq $0x4668,%r9（r9=G+16*i）
+0x7FFB0648C15A andl 0x4768(%rdi),%r10d（r10=1<<i）
+0x7FFB0648C161 testl %ecx,%ecx；C163 jne C177
+0x7FFB0648C165 movups (%r9),%xmm0；C169 movups %xmm0,0x4654(%rdi)
+0x7FFB0648C170 movb %r10b,0x4664(%rdi)。
+因此 H+0x3d84 和 H+0x3e88 bit0 是同一个 enable 的派生/主存储；同步状态中应一致。
+Intel UpdateDraw 0x7FFB01EBD462 读 H+0x3e88，D469 bt index；读取 H+0x3d88+16*i 的矩形。
+Intel clear 0x7FFB01EBD67D 读 H+0x3d84；为0则 D71B..D725 用全附件尺寸/原点0，为非0使用已派生硬件裁剪矩形；不能把 Intel C+0x7c1c 当 GLD 公共字段。
+独立后端可不依赖硬件派生矩形：若实现 scissor，取 index0 的有符号 x/y 和非负 w/h，以宽整数求 [x,x+w)×[y,y+h)，与 [0,W)×[0,H) 相交；空集为语义正确的 no-op。这里只处理命名 FBO，不套默认 drawable 的翻转/旋转规则。
+若暂仅全表面 clear，拒绝 H+0x3d84!=0 或 (u32(H+0x3e88)&1)!=0；两者不一致也视为未同步状态拒绝。其他 viewport enable 位无需冒充 clear 的裁剪索引。
+
+3.3 sRGB 与 dither 原始锚点
+_gleGetState:
+0x7FFB0638B4B4 cmpl $0x8db9,%ebx；B4BA je B63B
+0x7FFB0638B63B movzbl 0x44fc(%r14),%eax。
+_gleGetEnabled:
+0x7FFB063A01DE cmpl $0x8db9,%esi；01E4 je 0495
+0x7FFB063A0495 movb 0x44fc(%rdi),%al。
+setter地址 0x7FFB064E1129..1150：读 G+0x44fc，与EDX比较；1134 movb %dl,0x44fc(%rdi)，113A 标 G+b61a bit5 dirty，1148 标 G+60e bit2 dirty。
+注意已有全文将此段归在相邻 cold symbol 名称下，不能据该符号名解释语义；0x8db9 的两个查询分支和 Intel 消费共同确定字段。
+Intel UpdateDraw 0x7FFB01EBD18B 读 H+0x3c1c；D19C/D1A0 同时测试该开关与附件私有格式标志，选择不同 render-target 格式。D283..D2BE 为另一条交叉证据。
+所以 sRGB 是否转换取决于 enable AND 附件颜色编码，不是 enable 非零就对一切 RGBA8 做 gamma。最小实现可保守要求 enable=0 且 TD.sizedInternalformat=0x8058；拒绝 sRGB8_ALPHA8 等格式。允许线性RGBA8+enable1需要明确支持此 no-conversion 语义后再放宽。
+_gleSetEnable_DITHER:
+0x7FFB063A0B32 movzbl 0x4518(%rdi),%eax
+0x7FFB063A0B46 movb %dl,0x4518(%rdi)
+0x7FFB063A0B55 orb $4,0xb619(%rbx)。
+
+3.4 V+0x18 已恢复的含义与边界
+_glClear_Exec 0x7FFB06397A2D 写 V+0x18=0，然后 97A42 call plugin+0xd0。
+_glClearBufferfv_Exec 0x7FFB063BFEBA 写 V+0x18=0；BFED2 调同一clear。
+_glClearBufferiv_Exec：0x7FFB063C04C6 RAX=&stack[-0x28]；color分支 C059E ECX=1；C05A7 将颜色写 stack[-0x40]；C05AB 将1写(RAX)。故相对V为+0x18=1。
+_glClearBufferuiv_Exec：C0709 RAX=&stack[-0x28]；C07E1 ECX=1；C07EA/7EE 同上。
+因此0表示已跟踪的float clear，1表示已跟踪的integer-color clear；1本身不能区分signed/unsigned。最小RGBA8 float实现检查 V+0x18==0；不要将1解释为signed，或假定其他值有已知含义。
+
+4. R1 浮点字段：点大小范围，已闭合
+A+0x3c float32=aliased point range 下界，A+0x40=float32 上界。
+_gleGetState 0x7FFB0638A53F cmp $0x846d,EBX；A54B/A552/A563 读当前A+0x3c/+0x40并返回二元素范围。0x846d=GL_ALIASED_POINT_SIZE_RANGE。
+A+0x44 float32=smooth point range 下界，A+0x48=float32 上界。
+0x7FFB0638A59B cmp $0xb12,EBX；A5A7/A5AE/A5C0 读A+0x44/+0x48。0xb12=GL_POINT_SIZE_RANGE/GL_SMOOTH_POINT_SIZE_RANGE。
+另一profile分支 A6F3..A723 对下界取min(A+44,A+3c)，上界取max(A+48,A+40)，不改变两对字段本身的含义。
+初始化 0x7FFB0637DE4A/4F/54 的max写 G+0x4598。查询 0x7FFB0638C7D7 cmp $0x8127,EBX；C7E3 读 G+0x4598；0x8127=GL_POINT_SIZE_MAX。
+_gleUpdatePointAttenuation 0x7FFB063E48CF/48D4 读两下界取min，E491F/4924 读两上界取max，与当前点衰减/大小限制比较。
+可实施策略：若后端确实支持且只承诺1像素点范围，可填3c/40/44/48均1.0f（0x3f800000）；这不是抄KBL常量。只做clear且没有点绘制实现，不能借填1宣称已经支持point draw。这四值不决定RGBA8或float clear的存储格式支持。
+
+5. R1 A+0x65：执行模式的已证行为
+0x7FFB0637DA73/DA7A/DA7D 把主A+0x65复制到 G+0xc691；DA85..DA8F 令 G+b614=4（0）或5（非0）。
+0x7FFB0637DEEF..DEFD 令 H+4与G+b63a=(A+0x65==0)，宽度u16。
+_gleUpdateDrawArraysFuncs 的 GL3 分支：
+0x7FFB0642882E 读 G+c691；2883E/28840 为0跳28D5B（特定已有选择状态）；非0继续安装 _glDrawArrays_ACC_GL3Exec（28863）。
+0x7FFB06428D57/28D59 在另一选择状态下为0进入28D5D；28D7A安装 _glDrawArrays_IMM_GL3Exec。
+legacy 分支 0x7FFB06428A26/28A2D 为0跳28BEE，28C1F 安装 _glDrawArrays_IMM_Exec（取决于原选择状态）。
+故只能将0/1称为默认IMM侧/ACC侧执行策略，不可笼统称“关闭/打开clear”“CPU/GPU完成标志”或把ACC拼写当全部硬件语义证明。
+_gleUpdateDispatchCodeChange 0x7FFB0638EF7F/EFB5 会将 G+c691改0/1；EFD5比较A+65，EFF2更新执行模式位和 mismatch bit6；A+65是驱动默认策略，G+c691是可切换的当前策略。
+0x7FFB064627B6 测 A+65；非0进入创建state-program依赖（627F8..627FC调用gleCreateStateProgram）；为0还须 G+c6aa==0 才走6282A，不能说0无条件省略program。
+最小clear集成候选可选择A+65=0且A+6e=1，以明确的IMM策略与显式clear回调对接；但必须先兑现该策略触达的生命周期/UpdateState入口。静态证据不能保证“设0即整个context初始化成功”。不支持完整primitive路径时不可对任意draw返回成功。
+
+6. R1 A+0x1a：已证数据流、位操作与尚未知语义
+汇总：shared+0x19a = (OR_i A_i.word &0x4ef) | (AND_i A_i.word &0xfb10)。单插件等于输入word。
+OR位：0,1,2,3,5,6,7,10；AND位：4,8,9,11,12,13,14,15。没有“所有位都是能力支持位”的证据。
+0x7FFB063A1B60 读shared+19a，1B6A调用PPParserSetPrefs。
+libGLProgrammability _PPParserSetPrefs 0x7FFB061FCE6F movw %si,0x178(%rdi)；函数只是保存偏好word，无有效性检查/错误返回语义可借用。
+bit0：PPParserParseOptionIdentifier 0x7FFB061F3149 testb $1,parser+178，非零跳32F3；PPParserParse FABFE 测同位，需同时parser+17c bit0非零才走FAC0B的生成路径。对应选项文本在只读常量池，未在本轮解码，不补正式名称。
+bit0另一路：glePPUpdateProgram 0x7FFB063A29D9/29E1/29E4 和2A4F/2A56/2A58 取 NOT(shared.word)&1 作为glePPSetParamRemap的第4实参（且受program+1a1控制）。
+bit1：PPParserParse 0x7FFB061FAC47 testb $2,%al；FAC49 sete；FAC4C shlq $0x28，进入生成token；FAD8B 测parser+178 bit1，非0跳FB065。不是据此命名为某硬件能力。
+固定功能程序生成的有效偏好 E：gleUpdateVertexStateProgram 0x7FFB0643D5BA取A.word，D5C6取shared.word；若shared bit0=1，E=(A.word &~3)|(shared.word&2)，否则E=A.word。
+E bits1/2：0x7FFB0643D6AB and $6，D6AF shl $0x37，写生成键的bit56/57；具体坐标/数值语义未恢复。
+E bit5：0x7FFB0643D7F0 与D8CA test $0x20，改变点大小/衰减生成键的0x10000000000042c0组合；0不等于该功能不存在，可能改变生成方式。
+E bit7：0x7FFB0643D75D testb %cl,%cl；D75F js D766，取G+50b4低6位并移24进入键；正式功能名未知。
+E bit4/bit6：0x7FFB0643DA29 test $0x10，置键bit59；否则DA2E test $0x40，置键bit61。该分支在读取G+4298等状态后发生，不无依据命名为泛用sRGB/float支持。
+原始A bit12：0x7FFB0643DD6D shr $0xc,%eax，DD70 and $1，参与后续程序生成条件。
+bits3/8/9/10/11/13/14/15本轮除汇总外无逐位语义证据；上述已跟踪位的正式名称也未全部恢复。
+安全配置结论：不得复制Intel0x16、AMD0x6；也不得宣称全0是已证的“最小充分A”。如实现先用自定义A.word=0，应标为待验证策略，限定无用户program/无draw的实验配置，并保留初始化可能触发程序生成的阻塞项。它不阻塞R4状态解码和真实backing模块实施。
+
+7. 可直接实施的最小renderbuffer clear/read配置
+公共GL测试约束（只描述，不在本轮执行）：单插件；命名FBO；唯一COLOR_ATTACHMENT0；RGBA8 renderbuffer，单组level0，普通RenderbufferStorage samples参数0；draw/read均选COLOR_ATTACHMENT0；无depth/stencil、无PBO。
+显式glDisable(GL_SCISSOR_TEST)、glColorMask(TRUE,TRUE,TRUE,TRUE)、glDisable(GL_FRAMEBUFFER_SRGB)、glDisable(GL_DITHER)。用glClearColor+glClear(GL_COLOR_BUFFER_BIT)，先用0/1端点色检验通道顺序与可见性；read格式GL_RGBA/GL_UNSIGNED_BYTE。clear不受viewport尺寸限制，不能错误要求viewport覆盖附件才清全图。
+A：+04/+08为自身真实支持的尺寸上限；+15至少1且不可超实现支持数（Indexed颜色和ClearBuffer入口有精确消费者）；+aa=0拒绝正samples；+6e=1仅在ClearFramebufferData真实实现后设置；点范围四值按第4节实际能力；+65按第5节选定策略；+1a未提供“保证可初始化”的魔数。
+Clear最小支持条件（每次调用同步读取H，不修改借用H来伪造默认状态）：
+(1) draw FB真实materialized，唯一目标0，实际格式RGBA8，非整数、非sRGB、非多采样；resource尺寸/pitch/容量自有并验证。
+(2) 内部clear mask只含本实现可处理的目标bit0。mask=0是真实空操作；含depth/stencil或其他未知位在任何写入前拒绝。不能把公共GL_COLOR_BUFFER_BIT直接当内部mask。
+(3) V+18==0，颜色按float四分量解析并按RGBA8规则转换；V栈内容立即复制。首轮可限定有限颜色并显式拒绝未实现的NaN策略。
+(4) H+3d84==0且(H+3e88&1)==0；若实现了第3.2节裁剪可以放宽。
+(5) ((H[3ca8]&H[3ca9]&H[3caa]&H[3cab])&1)!=0；若实现逐通道保留，可放宽为每通道条件写。不能因只有一个目标就忽略mask。
+(6) H[3c1c]==0与H[3c38]==0；本次最小实现不执行sRGB编码和抖动。
+(7) backend clear必须实际写入同一image，完成后再暴露read结果；flush/wait使用真实完成机制。资源失败不得清dirty或假返回成功。
+Read：沿用已证十参ABI、mode0/bufferNULL；pack以H+4ec8为基，rowLength/currentStride/skipRows/skipPixels/alignment按既有报告；最小验收设rowLength=0、skip=0、alignment=1或4、swap/lsb=false。pixels已含engine裁剪修正，不重复加偏移。
+不支持状态的内部Unsupported结果需要通过已证GLD返回/错误通道映射；在映射尚未闭合前只能作为独立模块拒绝和受限验收入口，不把丢弃clear伪装成驱动成功。
+
+8. 交付边界
+本轮完成：R4目标字段、精确通道mask、scissor的主/镜像关系、sRGB查询/消费交叉证据、dither、float/integer clear标记；R1点范围语义、+65实际执行分流与额外初始化依赖、+1a解析/生成数据流和若干位操作。
+仍未完成：A+1a全位正式语义、完整profile/递归初始化的充分配置、GLD所有错误映射、真实GPU后端及端到端动态验收。报告不声称3D已可用。主任务应继续实施独立模块，同时将这些残余项作为集成证据缺口。

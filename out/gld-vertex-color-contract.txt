@@ -1,0 +1,177 @@
+position + primary color：即时顶点输出契约与静态证据边界
+日期：2026-11-17；只读研究；macOS 15.7.3 /24G419 x86_64。
+GLEngine UUID FB994F78-34C6-39F3-857D-99F9B3013E8F；以下 GLEngine 地址均 unslid。
+
+0. 交付结论
+已闭合：primary color 源属性索引为2；position 为兼容即时入口的属性0；全局分量表两者均4；颜色在每次 vertex submit 时从当前G重新读取，不是Begin或End快照；descriptor字节编码、两个descriptor的选择差异、32-byte目标布局、16-byte staging对齐要求；polygon mode两个面的u16字段和setter。
+可实施的自有CPU布局为每顶点 float32 position[4] 后接 float32 primary_rgba[4]，stride=32，颜色offset=16。候选D精确12字节：
+  02 00 08 00  00 18 00 00  04 98 00 00
+  header=0x00080002；entry0=0x00001800；entry1=0x00009804（x86 little-endian）。
+这两条entry有生产者位域与消费者取数双侧依据，不是按其他GL实现的惯例猜索引。
+仍不得宣布B2/JIT双侧完全闭合：现有glengine-code.txt存在漏标签、漏入口及跳表被当指令反汇编的问题；已见CVM和解释器共用key，但未见JIT构建回调/IR或生成机器码；输出helper有清晰内部片段，却缺完整入口/跳表关联；glVertex3f的w取自G+124，本轮没有补齐该常量的初始化值。详见第6节。
+因此结果是“精确可编码布局及窄化缺口”，不是“系统GL端已可无条件启用”。
+
+1. 范围、来源和记号
+先读：out/gld-triangle-state-contract.txt（重点§6）、out/gld-context-r1-r4-state-evidence.txt、out/gld-triangle-next-contract.txt。
+交叉读取：out/gld-context-amd-primitive-state-raw.txt。
+新增材料只通过tools/mssh.py既有load_env_file/connect/run，对客体现有/var/tmp/vgpu-fb/glengine-code.txt做Python流式筛选。没有重新反汇编、写客体、运行GL/GPU、调用私有入口、安装、重启或commit；未输出凭据。
+解释器使用 C:/Users/Pika/WorkBuddy/2026-09-27-20-30-43/.venv/Scripts/python.exe -B，避免导入mssh产生pycache。若干包含冒号/转义换行的命令受执行环境引号转换影响而SyntaxError；这些失败没有目标文件写入或GPU行为。
+本报告是唯一主动写入的项目文件。工具自动保留的stdout记录不是额外项目交付物。
+G=GLEngine context；H=G+0x8e0；A=Create第4参。
+D=*(A+208)，Dalt=*(A+210)；engine镜像G+a550/G+a558。
+source attribute index是GLEngine descriptor的6-bit源索引，不等同于API generic vertex attribute location。
+
+2. 源索引和分量数：生产/消费闭合
+2.1 当前primary color生产
+_glColor4f_Exec：
+  0x7FFB063C2F52 movss xmm0,G+2110
+  0x7FFB063C2F5A movss xmm1,G+2114
+  0x7FFB063C2F62 movss xmm2,G+2118
+  0x7FFB063C2F6A movss xmm3,G+211c
+  2F72 pop rbp；2F73 ret。
+即H+1830的RGBA float32[4]；没有dirty写入，也没有Begin内拒绝检查。
+
+2.2 分量表不是待驱动填充的未知对象
+_gleInitializeContext：
+  0x7FFB0637C18B lea _gle_globals_struct,rcx
+  0x7FFB0637C192 mov rcx,G+5ac8
+_glePreInitGlobals：
+  0x7FFB0637AC52 lea 0x3d0b9e9f(%rip),rcx；next IP=AC59
+  0x7FFB0637ACA0 movabs $0x0101010403040304,rax
+  0x7FFB0637ACAA mov rax,0x3d0ba2c7(%rip)；next IP=ACB1
+地址算术：global=0x7FFB43434AF8；store=0x7FFB43434F78；差=0x480。
+little-endian首8个分量数为[4,3,4,3,4,1,1,1]。因此index0=4、index2=4有直接初始化证据。
+旧triangle-next报告把G+5ac8称“当前属性对象”可进一步精化：这里初始化指向engine全局对象的分量数表，不是逐顶点颜色值所在对象。
+
+2.3 即时key构造及取值
+_gleGetVertexSubmitFuncObjectAndKey：
+  0x7FFB0648E307 读G+5ac8
+  E30F and $~0x700,header；E315 or $0x600,header：即时mode=6
+  E350 读本地8-byte entry
+  E35B shr14；E35F and63：source index
+  E363 movzbl [global+480+index]：源分量数
+  E36F shr11；E373 and7；E377 inc：输出分量数
+  E37A/E37D 取min(输出分量数,源分量数)
+  E385 shl32；E39B or 0xa000000000；E39E写回key entry。
+_glVertex3f_Exec：
+  0x7FFB0639D296 读G+a280当前输出；D29F比较G+a288；D2A9选择submit槽
+  D2B1 movss G+124,xmm3；D2BA尾跳submit。
+_gleLLVMSubmitFunc 0x7FFB0648F6B4取G+a4c0 key，F6C3跳_gleRunVertexSubmitImmediate。
+后者：
+  0x7FFB06490064 shr14；90069 and63；9006C/70输出offset=(entry&255)*4
+  90100..10F解key源类型，0xa000000000>>35=20，进入current值分支
+  90115..127 header mode不是4（即时为6），跳90324
+  90324..343兼容profile且(entry&0xbc000)==0时走position输入寄存器；index0满足；index2不满足。
+  90362/387/39A/3B1分别读取本次入口保存的XMM0/1/2/3。
+  90531 cmp index,15；9053A shl4；9053D add0x20f0；90773保存源偏移。
+因此primary color满足：G+20f0+16*2=G+2110，与glColor4f四次写入精确重合。
+不能把primary color按另一套常见属性编号猜成3。
+
+3. descriptor格式、float4布局、snapshot与对齐
+3.1 驱动生产者
+AMD _glrATI_UpdatePrimitiveBufferState（本地raw第34..70行）：
+  0x21954读源u16；2195B and0x3f；2196C shl14；21973 mov0x1800
+  219C3 OR当前输出DWORD偏移；219C9写D+4+偏移（每entry4字节）
+  219CE 偏移+=4；219DF D[0]=属性数；219EA D[2]=4*属性数；219EE D[1]=0。
+普通float4分支源u16不带0x40/0x80等附加格式位。
+由此构造而不是引用未知常量：
+  entry(position)=(0<<14)|(3<<11)|0 = 0x1800
+  entry(primary) =(2<<14)|(3<<11)|4 = 0x9804
+  D[0]=2；D[1]=0；D[2]=8；D[3]=0（本方案主动选择零，不能声称全部语义已恢复）。
+
+3.2 engine消费者和32-byte步长
+0x7FFB0648DCC6读D[0]；DCC9读4-byte头；DD54逐条读D+4+4*i并扩成8-byte key entry。
+0x7FFB06380660/664/667以D[2]*4写G+a3bc u16；Dalt或D的同类值写G+a3be。
+0x7FFB0646A0E9选择上述步长；A109写G+a3b4；A11F..129算capacity*stride。
+0x7FFB0649219A/19C/19F从header移14并and0x3fc（即D[2]*4），21A5推进输出；21ED写回G+a280。
+精确目标布局（每顶点base+i*32）：
+  +00 x float32；+04 y；+08 z；+0c w
+  +10 r float32；+14 g；+18 b；+1c a
+输出不是内部0x280-byte CPU transformed vertex。
+
+3.3 每顶点颜色snapshot为何成立
+上述key只存格式/索引/分量数，不存RGBA数值。每次glVertex进入submit后：
+  0x7FFB064907AB..7C3按entry bit23及源分量数选择vector/scalar读取
+  907C5..7CB即时mode6进入90925
+  90925 movaps [G+源偏移],xmm4；9092A/930设置float-vector分支
+  90BA2取当前输出base；90BA6 movaps xmm4,[base+输出偏移]
+本方案颜色源为G+2110，输出偏移16，源分量4；读取/写出的是当前vertex时的16-byte RGBA。
+另有scalar路径9100F/102A/103C/1052依次读源+0/+4/+8/+c。
+注意90970..97E使用跳表，当前文本没有原始跳表字节；90BA6是明确的float4写出分支，但从edi=6到90BA2的每一个表项尚未字节级闭合，不能冒称无缺口的完整控制流证明。
+
+3.4 对齐是实现约束
+E145先测header的0x30000，即DWORD stride低2位；stride=8进入E170。
+E1A5检查entry输出DWORD偏移低2位为0；E1B6..1C2对float4置key entry bit23（E180 or0x800000）。
+本方案offset0、4都满足16-byte边界，步长32也满足；颜色读取进入movaps，输出90BA6也为movaps。
+所以driver staging基址须至少16-byte对齐、容量为capacity*32且溢出受检。仅有可写地址或malloc意图而没有对齐保证不足。
+如果driver decoder以memcpy读float可避免自身未对齐访问，但不能以此豁免engine对输出缓冲的movaps要求。
+
+3.5 输出helper已见片段及限制
+符号_gleLLVMStoreDataToOutFloatInFloat出现在909AC/9020F调用注释；全文没有对应独立标签。
+_gleLLVMStoreDataToOutFloatInDouble（92620..9271B）后有邻接无标签片段：
+  92731..9275E：解输出offset、源分量数和目标分量数，取[参数块+8]输出base
+  927AF/B8/C3/CE读源四float，927B3/BD/C8/D3写输出0/4/8/c
+  927DE..927F7写xyz；9280D..11在输出4分量时跳92848
+  92848 movl $0x3f800000,output+c（缺少w时补1）
+  92855..92876另有反向三分量写序，不能忽略其分支选择而把整块都当普通RGBA。
+线性文本92720/92727把跳表数据解作指令，并漏了入口若干字节；不将邻接片段无条件命名为已确认函数起点，也不从存在补1分支推出glVertex3f必然走该分支。
+本即时属性0源分量表为4，且glVertex3f显式将G+124装XMM3；因此其w的最后缺口是G+124常量初始化，而不是凭规范断言会触发三补四路径。
+
+4. A+208与A+210不是position/color两个流
+_gleGetVertexSubmitFuncObjectAndKey参数：ESI存-3c4（输入模式），EDX存-3c8（输出选择），ECX另存r14。
+  DA8B默认取G+a550=D。
+  DCAE比较输出选择是否2；仅等于2时DCB7读取G+a558=Dalt；若非NULL，DCC2替换D。
+  若Dalt=NULL保持D。
+即时setter：0x7FFB06394753/755/757把ESI/EDX/ECX全部置0；94759构键。因此即时glVertex用D，不用Dalt。
+数组setter：0x7FFB0648F7A0 ESI=1、F7A5 EDX=2、F7AA ECX=1，F7AF构键；这条路径可用Dalt。
+转换setter：F6F1 ESI=2、F6F6 EDX=0，因此输入转换模式2不等于输出选择2，不能混淆。
+AMD生产侧双证据：
+  21920发布A+208；21954..219EE构造常规每属性float4 descriptor。
+  21A56..21A67要求另一个对象及其+300非空；随后第二descriptor按实际源数组type/size决定输出格式和打包。
+  21C69..21CA6写第二descriptor条目；21D29按type byte-size累加字节；21DBE/DC2向上取整为DWORD stride；21DDB写Dalt[2]。
+  21D98..21DA9条件不满足时清A+210；21E42有效时发布第二descriptor。
+所以第二指针是可选另一输出布局，且已有生产者允许NULL。受限即时方案可令D指向上述12字节、Dalt=NULL；这只是已有选择/回落协议允许，不表示数组API自动受支持。
+不要把D设置position-only、Dalt设置color-only；那会丢失颜色，不能构成同一顶点两个属性。
+
+5. polygon mode FILL：精确setter与门控
+字段：front=H+3d64 u16（G+4644）；back=H+3d66 u16（G+4646）。支持域要求二者均0x1b02。
+_glPolygonMode_Exec：
+  0x7FFB063A5630比较G+aec4；Begin内部跳5687锁存0x502（已有错误则保留）。
+  5645 lea mode-0x1b00；564B cmp3；564E jae拒绝。接受POINT=1b00、LINE=1b01、FILL=1b02。
+  5650..565F某profile要求face=0x408；不凭该byte扩张profile正式命名。
+  56A5比较face=0x404；56BC写G+4644；56C3比较back是否FILL。
+  5746比较face=0x405；5761写G+4646；5768比较front是否FILL。
+  5659比较0x408；5677/567E两面都写EDX低16位。
+  56CE比较mode=1b02，56D4 sete G+4652（H+3d72）用于派生判断。
+  56E8 OR G+5f2 byte 0x80；56EF清G+aebc；56F6 OR G+60c u32 0x8202；非FILL另有分支设置G+608 bit30。
+错误枚举分支569B锁存0x500。
+该证据把之前仅初始化两u16=FILL的结论升级为实际API setter字段证据。实现直接读两个u16，不依赖G+4652派生byte，也不写engine私有dirty字段。
+
+6. JIT与解释器：已证双侧链和明确未闭合项
+已证链：
+  A端descriptor由AMD位域生产；engine将同一descriptor复制到key，追加mode/源分量数/格式。
+  0x7FFB0648DB77..DBB4按完整8-byte key比较，变化才释放旧function。
+  DBCF设置模块类别8；DBD7 cvmGetModularFunctionFromCache。
+  DBE4..DBF3 cvmCreateModularFunction(8,key,dword_count)；DC04 cvmBuildModularFunctionDeferred。
+  DC11加入cache；DC19 cvmGetFunctionKey；DC28存key指针。
+  0x7FFB06394765..773先安装gleLLVMSubmitFunc；94781 cvmRequestFunctionPointerArrayWrite。
+  gleLLVMSubmitFunc取上述key后进入本报告解释器取数/输出路径。
+这证明描述符不是GPU shader，且engine自带CPU解释/生成框架；驱动不用复制AMD编译器。
+但“名字带LLVM”“request patch函数指针”“共用key”不等于已证明生成代码和解释器每条float4写出完全等价。
+本轮没有取得模块8的JIT IR/构建回调、生成机器码或实际patch后的执行证据。禁止将此标作JIT双侧语义已闭合。
+残余最小项：
+  J1：模块8生成端读取index2/当前G+2110及输出offset16的指令/IR；证明不是构键时常量折叠颜色。
+  J2：解释器90970跳表edi=6表项；float helper完整入口及其源4/目标4跳表项（现有文本存在漏字节），确认RGBA不交换及16-byte写出。
+  J3：G+124 float32的初始化=1.0证据，关闭glVertex3f.w；也可在未来授权运行中观察真实输出，但本轮未运行。
+  J4：D[3]非零语义尚未全恢复。本候选显式置0，32-byte stride高位为0；不外推一般descriptor。
+这些是具体证据缺口，不要求恢复完整shader compiler；不能偷偷扩大本轮授权读取其他客体二进制、运行GL或重启来补。
+
+7. 可实施策略与反例验收设计（仅描述，未运行）
+可立即编码独立CPU staging布局/decoder：16-byte对齐，32-byte记录；输入容量按顶点计；逐顶点memcpy读position和RGBA；全部检查finite。
+若后端仍固定红PS，每次End/分段flush对本次所有有效顶点的RGBA逐项验证数值(1,0,0,1)，容许正负零相等；任何非红在真实提交前拒绝并锁存错误，不推进完成/资源代次。
+合法中途改色反例必须覆盖：red; Begin; v0; green; v1; red; v2; End。
+预期三个颜色snapshot为red/green/red，即使Begin/End读当前H颜色都是red，第二个记录+0x10仍为green，必须拒绝固定红路径。
+不要在处理第一个三角形后才发现后续顶点不支持而声称整批无副作用；若承诺整批先验拒绝，应先验证该次提交全部记录，再进行任何GPU写入。跨flush事务性是另外的生命周期约束，不假定可以撤销已提交段。
+position-only+首尾检查无法完成这个保证；Begin内改色未必dirty，不能靠UpdateDispatch重选补救。
+FILL gate按front/back两个u16检查；仍保留state-contract其他矩阵/enable/资源和错误锁存约束。
+只有J1/J2/J3及原有B1、B4、分段/拒绝槽契约等启用条件满足后，才能宣称系统GL直TCL路径完整支持此窄域；本报告不把精确布局推导升级为GPU或端到端成功。

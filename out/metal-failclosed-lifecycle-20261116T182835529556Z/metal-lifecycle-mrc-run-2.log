@@ -1,0 +1,18 @@
+CONTRACT build=24G419 base=_MTLDevice superclass=NSObject base_size=656 candidate=VGPUMetalFailClosedDevice candidate_size=656
+METHOD class=_MTLDevice selector=initWithAcceleratorPort: encoding=@20@0:8I16
+METHOD class=VGPUMetalFailClosedDevice selector=initWithAcceleratorPort: encoding=@20@0:8I16
+METHOD class=_MTLDevice selector=.cxx_construct encoding=@16@0:8
+METHOD class=_MTLDevice selector=dealloc encoding=v16@0:8
+ALLOC iteration=1 size=656 pid=4509
+RETURN iteration=1 nil=1
+ALLOC iteration=2 size=656 pid=4509
+RETURN iteration=2 nil=1
+ALLOC iteration=3 size=656 pid=4509
+RETURN iteration=3 nil=1
+ALLOC iteration=4 size=656 pid=4509
+RETURN iteration=4 nil=1
+LIFECYCLE_PASS iterations=4 nil_returns=4 GPU_NOT_EXECUTED
+VGPU_METAL_DIAGNOSTIC_INIT service=0x0 result=nil GPU_NOT_EXECUTED
+VGPU_METAL_DIAGNOSTIC_INIT service=0x0 result=nil GPU_NOT_EXECUTED
+VGPU_METAL_DIAGNOSTIC_INIT service=0x0 result=nil GPU_NOT_EXECUTED
+VGPU_METAL_DIAGNOSTIC_INIT service=0x0 result=nil GPU_NOT_EXECUTED

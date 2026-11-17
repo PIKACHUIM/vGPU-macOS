@@ -20,14 +20,14 @@ typedef enum gp_status {
 
 typedef struct gp_request {
     uint32_t color_min, alpha_min, depth_min, stencil_min;
-    uint32_t double_buffer;
+    uint32_t double_buffer, offscreen;
     size_t consumed_words; /* 包括首个终止符；其后内容不读取。 */
 } gp_request;
 
 /* byte_length 必须是调用方确认可读的实际长度；不探测映射、不无界扫描。
  * 非整词长度拒绝。失败不修改 out。tokens 可未对齐，out 不得与输入重叠。
- * 仅接受 0、4、5、8/value、11/value、12/value、13/value。
- * 4 无值且无副作用；重复尺寸取最大值；负数位模式拒绝。
+ * 仅接受 0、4、5、53、8/value、11/value、12/value、13/value。
+ * 4 无值且无副作用；5/53 无值且重复幂等；重复尺寸取最大值；负数位模式拒绝。
  */
 gp_status gp_parse_normalized(const void *tokens, size_t byte_length,
                               gp_request *out);
@@ -82,6 +82,7 @@ typedef struct gp_pixel_list {
 
 /* 成功按 capability 表顺序枚举匹配项，无评分/恢复/离线策略。
  * 5 要求 double；未出现5时不额外限制 single/double。
+ * 53 要求已有 GP_FLAG_OFFSCREEN；未出现53时不额外限制该位，不添加能力位。
  * 尺寸是最小值，ColorSize 的已证消费者定义为32（包括 RGB888）。
  * out 必须为空 owner，失败不改变它；allocator==NULL 使用 malloc/free。
  */

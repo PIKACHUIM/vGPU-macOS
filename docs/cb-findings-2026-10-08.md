@@ -6525,3 +6525,49 @@ primitive 新增独立 colored probe 模式：每顶点 position float4 + RGBA f
 主代理扩展gld_primitive_draw_probe.c，先运行原有链，再共享同一真实native owner测试全红、红绿红拒绝和全红恢复。固定快照 out/primitive-draw-macos-20261116T180126201793Z，SDK strict与ASan+UBSan构建、旧CPU136及新CPU168检查通过，构建结束WORKSPACE_CHANGED为空。主代理串行真实GPU普通任务hlLjXK与sanitizer任务DL30SZ均exit0：196检查、submit12、flush13、retain2、release3、freed1。红绿红拒绝时完成代次保持12，全图RGBA/pack不变、未增加submit；有效全红恢复至13，最后释放后槽可重租。汇总在该目录gpu-colored-result.txt。LSan关闭；不将此结果称为公开GL/JIT验证。
 
 out/gld-vertex-submit-final-evidence.txt闭合解释器索引6到float4 store及position helper真实入口492730；四分量按原顺序写出，JIT生成端仍未验证。out/gld-pipeline-gate-final-evidence.txt证明UseProgram前置拒绝未链接对象，并明确新建无共享、无用户program/TF调用历史的受控legacy实验可联合默认VP/FP身份、H支持域和稳定A+65=1/策略5放行，不要求扩读PD或先恢复通用shader compiler。系统dispatch接线、公开CGL三角形及Metal仍未完成。
+
+### 86.4 初始化更新可达性修正与分阶段公开基线
+
+out/gld-initial-update-wiring.txt通过function_starts确认gleUpdateState真实入口0x7FFB0637EA08，先前deferred/dispatch片段不属于该函数。新建legacy、无命名FBO/用户程序/活动TF的初始化闭包不必达UpdateDispatch/DrawFramebuffer/ReadFramebuffer/TransformFeedback。新context无目标是合法元数据状态；实际draw/clear/read仍必须检查有效目标。后续Draw/Read第二参为按值dirty，不能直接转发给内部uint32_t*；Draw返回2触发额外更新、Read返回被忽略，错误须自有锁存，UpdateDispatch返回5是策略而非状态。
+
+公开探针新增--context-only和--clear-read，分别验证创建/绑定/销毁与双FBO背景/pack，完整--gpu和--reject-color保持。固定快照 /var/tmp/vgpu-public-triangle-20261116T181959407528Z，源gl_triangle_cgl_probe.c SHA256=a978a0e811cf5ee2b1c9893577b35a78934acb092f051ce49f8f8a3ee5316eda，公开二进制SHA256=c0d07f5e9d23043897a2520de53c9bb20941a4a830bcfb77bceba8cf890f17cc。真实SDK编译及普通/ASan+UBSan CPU oracle通过，coverage6400/12800、并集18446；WORKSPACE_CHANGED为空，LSan关闭。
+
+主代理root执行旧安装诊断bundle的--context-only（任务nUPpoC）：正常命中DIAG initialize/version/CreateDevice，CreateDevice按设计返回-1，CGLChoosePixelFormat报10002，PUBLIC_CGL_CONTEXT FAIL，未到CreateContext。安装映像SHA256=2b6706eba22815dd3c4b359ad30f9c87728d3435ae6295ffd7f1bf64d9322247；kern.boottime仍为2026-11-17 01:28:21。本次证明公开loader仍能到达已有插件且root进程可重现旧拒绝基线，不是新集成候选失败，更不是公开GL绘制通过。
+
+系统renderbuffer视图接线依据已核验producer：Create前flags精确0x2002、object分配0x3e0、TD=object+0x310，登记0xd0；其余（含11默认对象）维持0x80。Modify不升级长度。新增显式gi_create_texture_views供未知producer提供真实容量。out/texture-system-views-20261116T182039879494Z/result.json记录strict/NDEBUG/ASan+UBSan通过，含保护页、相邻canary、默认对象、flags变更不扩读、backing/FBO保活重建与释放；属于CPU fixture验证，实际系统FBO GPU验收待新集成bundle。
+
+### 86.5 系统 GLD 导出到真实 GPU 的 clear/read 闭环
+
+固定快照 out/integration-render-probe-20261116T182406403901Z，bundle SHA256=d21a6a092bc01e47bf9003f2262d9e91985abe24dedbce41d5787e88d63c92f8。真实SDK构建136导出、独立render probe empty89检查、read CPU strict/ASan+UBSan回归通过。独立probe只编译自身，不链接fixture或驱动核心；dladdr检查全部调用符号来自同一指定bundle，内部views/surface符号未导出。
+
+主代理串行root执行普通GPU任务4VSuhV与ASan+UBSan探针任务D8CaPE，均exit0、451检查：每版两轮独立资源周期，image0完成代次3、image1代次2；全图RGBA与pack padding、READ/DRAW分离、初始绑定/零dirty/重绑、目标错误及context错误隔离、拒绝后flush、完整释放与重新租用通过。日志gpu.log、gpu-sanitized.log保存在快照目录。sanitizer覆盖探针本身，dlopen bundle为常规O2构建，不能声称整个bundle已插桩；LSan关闭。
+
+验收后逐文件SHA核对当前manifest返回SOURCE_CHANGED=[]。该结果闭合系统0x2002 renderbuffer→完整TD→真实backing/FBO→ClearFramebufferData/ReadFramebufferData链；没有调用公开GLEngine，不等于标准OpenGL应用三角形通过，也不包含Metal成功证据。
+
+### 86.6 typed R20/R21 实际绘制与 GL 窗口 Y 修正
+
+独立 `gld_controlled_draw_probe.c` 通过 dlopen 指定映像获取25槽分派，调用R20/R21，不链接fixture或驱动实现。CPU oracle采用非对称GL左下坐标三角形：覆盖6400/12800、重叠754、并集18446像素。原bundle d21a6a09第一次真实绘制返回成功但全图校验失败：target0/mask1/byte57520（像素40,56红通道）读到0，预期255。补诊断后实际红像素6400，整图纵向翻转的逐字节 mismatch=0，定位为坐标方向而非空提交或覆盖数量错误。
+
+仅修改 `tcl_exports.c` 在既有 `z=(z+1)/2` 前加入 `y=-y`；底层resource/context/read ABI保持原行序。从已验收快照复制源树到 `/var/tmp/vgpu-tcl-yfix-XHsICF6j/`，仅替换该C文件，真实SDK重建bundle SHA256=`71ea9d3f8b8dd795ec5aa61931dfaf032d94e15010d35e14a57d3362ae50ed80`，TCL源码SHA256=`1b967ace6489e949d9e212ce59dbbc5aae4cc7a1ff53eb5664fc1f136526eb45`。
+
+固定探针目录 `/var/tmp/vgpu-controlled-draw-probe-20261116T183802047884Z-c518ad0f/` 的普通与ASan+UBSan探针，分别对修正bundle完成两轮真实GPU验收，各379检查：typed分派、双目标、累积、全图RGBA与前后guard、红绿红拒绝后内容/代次不变、GetError消费、拒绝后Finish/Flush返回NotReady、健康绘制恢复、完整释放后重租全部通过。Sanitizer仅覆盖探针，bundle未插桩，未启用LSan。该结果不代表公开CGL或实际JIT通过。
+
+同一轮前序metadata真实设备检查为5434（旧5442属于不同导出快照）。Metal负向生命周期已在普通MRC与ASan+UBSan各2进程、每进程4次的真实alloc/init调用中验证，共16次返回nil且正常退出；发现链仍G1_NO_METAL_PLUGIN_NAME，未获得可用Metal设备。
+
+### 86.7 accelerated候选、OffScreen解析与公开CGL前置拒绝
+
+受控构建用共享GI_PIXEL_FLAGS统一capability、renderer与context PF精确比较：默认0x4，GI_CONTROLLED_PUBLIC_EXPERIMENT为0x104；没有增加Window、compliant、core或通用shader能力。候选所有生产单元使用相同宏。SDK构建及12组CPU回归、empty1123通过。normalized无值token53新增offscreen请求与已有能力筛选，adapter明确接受该无值token；NoRecovery72仍由公开归一化层消费，没有加入normalized白名单。pixel/adapter/exports/allocation严格及ASan+UBSan回归分别27731/353/344/353检查通过。
+
+最终快照 `out/controlled-integration-20261116T185053437769Z/` 的候选SHA256为 `4222a040b3c532e56ca3f037c2f9945946499faffea52484e0bb0fb3df8e808b`，独立sanitizer探针串行完成两轮379项真实GPU检查。候选包含TCL的Y修复与token53；仍属于直接GLD调用，不证明公开CGL创建。
+
+`tools/public-cgl-cycle.py` 以固定输入SHA、完整bundle备份、全新inode替换、trust检查和退出恢复执行公开context-only实验。前两次分别在替换前遇到客体Python缺少os.listxattr、ditto不保留目录restricted标志，均未替换。改用系统xattr读取；备份比较只忽略目录SF_RESTRICTED单一位，文件标志与正式恢复仍严格比较。第三次实际替换记录为 `out/public-cgl-cycle-k9kde8tx/result.json`：trust_before/trust_replaced/trust_restored均exit0，公开probe exit1，CGLChoosePixelFormat=10000 invalid pixel format attribute，无候选入口日志。restore_verified=true，原二进制SHA `2b6706eba22815dd3c4b359ad30f9c87728d3435ae6295ffd7f1bf64d9322247`、plist、权限与bundle内容清单恢复一致。续轮再次通过SSH确认该SHA和01:28:21启动时间不变。
+
+公开OffScreen53与normalized53是不同门槛。目标24G419的CGLChoosePixelFormat归一化在53分支 `0x7FFB06169255` 检查链接SDK分类（来自_gfxLinkedOSVersion/dyld_get_program_sdk_version）：分类>=8且加载映像名不含X11/xcb时返回10000；现代SDK分类为16。Legacy profile本身合法，删profile不能解决。不能伪造X11/xcb映像或更改SDK身份制造通过。没有显式表面属性时上层默认Window位1；删除53也未必能匹配仅0x104的候选，下一步需综合核对现代FBO context的真实表面契约。
+
+当前仍没有公开CGL context、公开GL三角形、实际JIT或非空可用Metal设备成功。Metal独立NSBundle任务此前因响应流中断没有产物，不能计入16次直接负向初始化之外的验收。续轮Metal独立NSBundle任务返回平台安全检查拦截，新增源码未验收，不加入本阶段提交；未换路径重试。
+
+续轮为controlled integration补充显式normalized53经过集成包装器的测试，`out/controlled-integration-20261117T023030481647Z/validation.log` 中默认/候选SDK构建、empty1123及12组strict/ASan/UBSan CPU回归均通过，源码manifest核对一致。该测试没有执行公开CGL或GPU。
+
+公开runner已补probe PID与退出确认记录、二次超时输出快照、恢复重入及ACL清单校验。`tools/test_public_cgl_cycle.py` 的14项本地故障注入测试通过，涵盖超时/kill失败/中断、恢复失败重试/成功重入、备份损坏/inode丢失/ACL检查；硬链接与rename为真实本地操作，macOS命令和异常wait使用mock。客体普通无ACL的五个bundle路径已只读核对ls输出格式；带ACL备份/恢复仍未实测，SIGKILL或SSH断连后的恢复与证据回传仍无保证。
+
+旧 `kexts/gld-integration/run_tests.py` 改为编排维护中的read与controlled两个SDK CPU入口，去除固定时间戳历史结果依赖；设备生命周期另需显式--device和证据文件，保留原有后端tag门槛（不是本轮v3设备验收入口）。无out/.test-deps/历史目录的独立源码快照通过默认/候选构建、empty1123、read四配置、metadata387与controlled三配置；汇总为 `C:/Users/Pika/AppData/Local/Temp/vgpu-run-tests-clean-n_d6ftqs/out/integration-suite-20261117T023232139588Z/results.json`，scope=CPU、device=not_requested。首轮并行源码变化曾被manifest正确拒绝，独立快照重跑后才报告通过。

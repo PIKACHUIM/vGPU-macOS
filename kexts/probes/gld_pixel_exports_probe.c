@@ -107,6 +107,8 @@ static void test_inputs(void)
         expect(minimum, kCGLBadValue);
         expect_empty(maximum);
     }
+    const uint32_t offscreen[] = {53, 0};
+    expect_empty(offscreen); /* 无 offscreen 能力时是合法空结果。 */
     expect_empty(no_match);
     CHECK(configure_pixel(fixture, 2) == kCGLNoError); /* 空结果不注册owner。 */
     void *continued = NULL;
@@ -115,7 +117,7 @@ static void test_inputs(void)
     CHECK(destroy_pixel(continued) == kCGLNoError);
     for (uint32_t token = 1; token < 104; ++token) {
         if (token == 4 || token == 5 || token == 8 || token == 11 ||
-            token == 12 || token == 13) continue;
+            token == 12 || token == 13 || token == 53) continue;
         expect(&token, kCGLBadAttribute);
     }
     uint32_t *short_stream = malloc(sizeof(*short_stream));

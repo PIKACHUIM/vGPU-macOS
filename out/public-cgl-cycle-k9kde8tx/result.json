@@ -1,0 +1,135 @@
+{
+  "status": "BLOCKED",
+  "restore_verified": true,
+  "ssh_exit_code": 1,
+  "remote": {
+    "backup": "/private/var/tmp/public-cgl-cycle.4aI33Etc/VGPUDriverDiagnostic.bundle",
+    "backup_verified": true,
+    "hashes": {
+      "before": "2b6706eba22815dd3c4b359ad30f9c87728d3435ae6295ffd7f1bf64d9322247",
+      "plist_before": "148f813929040c7ad06f9d7b9f2da0217d36fe0fd307fee1a4cc6e3279a5f737",
+      "plist_replaced": "148f813929040c7ad06f9d7b9f2da0217d36fe0fd307fee1a4cc6e3279a5f737",
+      "plist_restored": "148f813929040c7ad06f9d7b9f2da0217d36fe0fd307fee1a4cc6e3279a5f737",
+      "replaced": "4222a040b3c532e56ca3f037c2f9945946499faffea52484e0bb0fb3df8e808b",
+      "restored": "2b6706eba22815dd3c4b359ad30f9c87728d3435ae6295ffd7f1bf64d9322247"
+    },
+    "old_inode_path": "/private/var/tmp/public-cgl-cycle.4aI33Etc/original.inode",
+    "original_inode": 796060,
+    "original_manifest": {
+      ".": {
+        "flags": 524288,
+        "gid": 0,
+        "kind": "directory",
+        "mode": 493,
+        "uid": 0,
+        "xattrs": {}
+      },
+      "Contents": {
+        "flags": 524288,
+        "gid": 0,
+        "kind": "directory",
+        "mode": 493,
+        "uid": 0,
+        "xattrs": {}
+      },
+      "Contents/Info.plist": {
+        "flags": 524288,
+        "gid": 0,
+        "kind": "file",
+        "mode": 420,
+        "sha256": "148f813929040c7ad06f9d7b9f2da0217d36fe0fd307fee1a4cc6e3279a5f737",
+        "uid": 0,
+        "xattrs": {}
+      },
+      "Contents/MacOS": {
+        "flags": 524288,
+        "gid": 0,
+        "kind": "directory",
+        "mode": 493,
+        "uid": 0,
+        "xattrs": {}
+      },
+      "Contents/MacOS/VGPUDriverDiagnostic": {
+        "flags": 524288,
+        "gid": 0,
+        "kind": "file",
+        "mode": 493,
+        "sha256": "2b6706eba22815dd3c4b359ad30f9c87728d3435ae6295ffd7f1bf64d9322247",
+        "uid": 0,
+        "xattrs": {}
+      }
+    },
+    "original_metadata": {
+      "gid": 0,
+      "mode": 493,
+      "uid": 0
+    },
+    "plist_metadata": {
+      "gid": 0,
+      "mode": 420,
+      "uid": 0
+    },
+    "probes": {
+      "public": {
+        "argv": [
+          "/private/var/tmp/public-cgl-cycle.4aI33Etc/probe",
+          "--context-only"
+        ],
+        "exit_code": 1,
+        "stderr_base64": "RkFJTCDpgInmi6nmoLzlvI8gQ0dMIGVycm9yPTEwMDAwIChpbnZhbGlkIHBpeGVsIGZvcm1hdCBhdHRyaWJ1dGUpCg==",
+        "stdout_base64": "Q1BVX09SQUNMRSBQQVNTIHRyaWFuZ2xlcz02NDAwLDEyODAwIG92ZXJsYXA9NzU0IHVuaW9uPTE4NDQ2IGV4Y2x1c2l2ZT01NjQ2LDEyMDQ2IGZsaXBwZWQ9MTA3OTIK5LuFIENQVSBvcmFjbGUg6Ieq5qOA77yM5LiN5Luj6KGo5YWs5byAIENHTC9HUFUg6aqM5pS26YCa6L+H44CCClBVQkxJQ19DR0xfQ09OVEVYVCBGQUlMIG1vZGU9bm8tZHJhdwo=",
+        "timeout": false
+      },
+      "trust_before": {
+        "argv": [
+          "/private/var/tmp/public-cgl-cycle.4aI33Etc/trust_probe",
+          "VGPUDriverDiagnostic"
+        ],
+        "exit_code": 0,
+        "stderr_base64": "",
+        "stdout_base64": "U1lTVEVNIHN5c25hbWU9RGFyd2luIHJlbGVhc2U9MjQuNi4wIG1hY2hpbmU9eDg2XzY0IHVpZD0wClNZTUJPTCByZXF1ZXN0ZWQ9Z3B1X2J1bmRsZV9pc19wYXRoX3RydXN0ZWQgYWN0dWFsPWdwdV9idW5kbGVfaXNfcGF0aF90cnVzdGVkIGltYWdlPS91c3IvbGliL3N5c3RlbS9saWJzeXN0ZW1fc2FuZGJveC5keWxpYgpTWU1CT0wgcmVxdWVzdGVkPWdwdV9idW5kbGVfZmluZF90cnVzdGVkIGFjdHVhbD1ncHVfYnVuZGxlX2ZpbmRfdHJ1c3RlZCBpbWFnZT0vdXNyL2xpYi9zeXN0ZW0vbGlic3lzdGVtX3NhbmRib3guZHlsaWIKRklORCBuYW1lPVZHUFVEcml2ZXJEaWFnbm9zdGljIHJlc3VsdD0wIGVycm5vPTAgcGF0aD0vTGlicmFyeS9HUFVCdW5kbGVzL1ZHUFVEcml2ZXJEaWFnbm9zdGljLmJ1bmRsZQpQQVRIIHBhdGg9L0xpYnJhcnkvR1BVQnVuZGxlcy9WR1BVRHJpdmVyRGlhZ25vc3RpYy5idW5kbGUgc3RhdD0wIHN0YXRfZXJybm89MCBkaXJlY3Rvcnk9MSB0cnVzdD0wIHRydXN0X2Vycm5vPTAKUEFUSCBwYXRoPS9MaWJyYXJ5L0dQVUJ1bmRsZXMvVkdQVURyaXZlckRpYWdub3N0aWMuYnVuZGxlL0NvbnRlbnRzL01hY09TL1ZHUFVEcml2ZXJEaWFnbm9zdGljIHN0YXQ9MCBzdGF0X2Vycm5vPTAgZGlyZWN0b3J5PTAgdHJ1c3Q9MCB0cnVzdF9lcnJubz0wCg==",
+        "timeout": false
+      },
+      "trust_replaced": {
+        "argv": [
+          "/private/var/tmp/public-cgl-cycle.4aI33Etc/trust_probe",
+          "VGPUDriverDiagnostic"
+        ],
+        "exit_code": 0,
+        "stderr_base64": "",
+        "stdout_base64": "U1lTVEVNIHN5c25hbWU9RGFyd2luIHJlbGVhc2U9MjQuNi4wIG1hY2hpbmU9eDg2XzY0IHVpZD0wClNZTUJPTCByZXF1ZXN0ZWQ9Z3B1X2J1bmRsZV9pc19wYXRoX3RydXN0ZWQgYWN0dWFsPWdwdV9idW5kbGVfaXNfcGF0aF90cnVzdGVkIGltYWdlPS91c3IvbGliL3N5c3RlbS9saWJzeXN0ZW1fc2FuZGJveC5keWxpYgpTWU1CT0wgcmVxdWVzdGVkPWdwdV9idW5kbGVfZmluZF90cnVzdGVkIGFjdHVhbD1ncHVfYnVuZGxlX2ZpbmRfdHJ1c3RlZCBpbWFnZT0vdXNyL2xpYi9zeXN0ZW0vbGlic3lzdGVtX3NhbmRib3guZHlsaWIKRklORCBuYW1lPVZHUFVEcml2ZXJEaWFnbm9zdGljIHJlc3VsdD0wIGVycm5vPTAgcGF0aD0vTGlicmFyeS9HUFVCdW5kbGVzL1ZHUFVEcml2ZXJEaWFnbm9zdGljLmJ1bmRsZQpQQVRIIHBhdGg9L0xpYnJhcnkvR1BVQnVuZGxlcy9WR1BVRHJpdmVyRGlhZ25vc3RpYy5idW5kbGUgc3RhdD0wIHN0YXRfZXJybm89MCBkaXJlY3Rvcnk9MSB0cnVzdD0wIHRydXN0X2Vycm5vPTAKUEFUSCBwYXRoPS9MaWJyYXJ5L0dQVUJ1bmRsZXMvVkdQVURyaXZlckRpYWdub3N0aWMuYnVuZGxlL0NvbnRlbnRzL01hY09TL1ZHUFVEcml2ZXJEaWFnbm9zdGljIHN0YXQ9MCBzdGF0X2Vycm5vPTAgZGlyZWN0b3J5PTAgdHJ1c3Q9MCB0cnVzdF9lcnJubz0wCg==",
+        "timeout": false
+      },
+      "trust_restored": {
+        "argv": [
+          "/private/var/tmp/public-cgl-cycle.4aI33Etc/trust_probe",
+          "VGPUDriverDiagnostic"
+        ],
+        "exit_code": 0,
+        "stderr_base64": "",
+        "stdout_base64": "U1lTVEVNIHN5c25hbWU9RGFyd2luIHJlbGVhc2U9MjQuNi4wIG1hY2hpbmU9eDg2XzY0IHVpZD0wClNZTUJPTCByZXF1ZXN0ZWQ9Z3B1X2J1bmRsZV9pc19wYXRoX3RydXN0ZWQgYWN0dWFsPWdwdV9idW5kbGVfaXNfcGF0aF90cnVzdGVkIGltYWdlPS91c3IvbGliL3N5c3RlbS9saWJzeXN0ZW1fc2FuZGJveC5keWxpYgpTWU1CT0wgcmVxdWVzdGVkPWdwdV9idW5kbGVfZmluZF90cnVzdGVkIGFjdHVhbD1ncHVfYnVuZGxlX2ZpbmRfdHJ1c3RlZCBpbWFnZT0vdXNyL2xpYi9zeXN0ZW0vbGlic3lzdGVtX3NhbmRib3guZHlsaWIKRklORCBuYW1lPVZHUFVEcml2ZXJEaWFnbm9zdGljIHJlc3VsdD0wIGVycm5vPTAgcGF0aD0vTGlicmFyeS9HUFVCdW5kbGVzL1ZHUFVEcml2ZXJEaWFnbm9zdGljLmJ1bmRsZQpQQVRIIHBhdGg9L0xpYnJhcnkvR1BVQnVuZGxlcy9WR1BVRHJpdmVyRGlhZ25vc3RpYy5idW5kbGUgc3RhdD0wIHN0YXRfZXJybm89MCBkaXJlY3Rvcnk9MSB0cnVzdD0wIHRydXN0X2Vycm5vPTAKUEFUSCBwYXRoPS9MaWJyYXJ5L0dQVUJ1bmRsZXMvVkdQVURyaXZlckRpYWdub3N0aWMuYnVuZGxlL0NvbnRlbnRzL01hY09TL1ZHUFVEcml2ZXJEaWFnbm9zdGljIHN0YXQ9MCBzdGF0X2Vycm5vPTAgZGlyZWN0b3J5PTAgdHJ1c3Q9MCB0cnVzdF9lcnJubz0wCg==",
+        "timeout": false
+      }
+    },
+    "replacement_inode": 817746,
+    "replacement_intent": true,
+    "restoration_inode": 817761,
+    "restore_verified": true,
+    "restored_metadata": {
+      "gid": 0,
+      "mode": 493,
+      "uid": 0
+    },
+    "restored_plist_metadata": {
+      "gid": 0,
+      "mode": 420,
+      "uid": 0
+    },
+    "run_error": "RuntimeError: 探测失败: public",
+    "status": "BLOCKED",
+    "temporary_images": [
+      "/Library/GPUBundles/VGPUDriverDiagnostic.bundle/Contents/MacOS/.public-cgl-5pyql__i",
+      "/Library/GPUBundles/VGPUDriverDiagnostic.bundle/Contents/MacOS/.public-cgl-xoz88xnh"
+    ]
+  }
+}
