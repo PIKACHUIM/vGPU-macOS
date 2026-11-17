@@ -49,7 +49,22 @@ def main():
         record("SOURCE_SHA256 " + json.dumps(manifest, sort_keys=True))
         mssh.load_env_file(mssh.DEFAULT_ENV_FILE)
         client = mssh.connect(retries=1)
-        run("sw_vers && xcrun --sdk macosx --show-sdk-path && xcrun clang --version")
+        run("sw_vers && xcrun --sdk macosx --show-sdk-path && xcrun --sdk macosx --show-sdk-version && xcrun clang --version")
+        _, sdk_stdout, _ = client.exec_command("xcrun --sdk macosx --show-sdk-path")
+        sdk = sdk_stdout.read().decode().strip()
+        if sdk_stdout.channel.recv_exit_status() != 0 or not sdk.startswith("/"):
+            raise RuntimeError("无法读取 SDK 路径")
+        with client.open_sftp() as sftp:
+            for header in ("OpenGL.h", "CGLTypes.h"):
+                path = sdk + "/System/Library/Frameworks/OpenGL.framework/Headers/" + header
+                with sftp.open(path, "rb") as stream:
+                    data = stream.read()
+                record("SDK_HEADER_SHA256 " + header + " " + hashlib.sha256(data).hexdigest())
+                for line in data.decode().splitlines():
+                    if any(name in line for name in ("CGLCreatePBuffer", "CGLSetPBuffer",
+                            "CGLGetPBuffer", "CGLDescribePBuffer", "CGLDestroyPBuffer",
+                            "CGLClearDrawable", "kCGLPFAPBuffer")):
+                        record("SDK_DECL " + line.strip())
         run("test -d /var/tmp && mkdir " + shlex.quote(remote))
         with client.open_sftp() as sftp:
             for name, data in snapshot.items():
@@ -72,7 +87,9 @@ def main():
         run(prefix + "./triangle_oracle --oracle-only")
         run(prefix + "ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 "
             "./triangle_oracle_sanitized --oracle-only")
-        for args in ("", "--choose-only", "--context-only", "--clear-read", "--gpu", "--reject-color", "--invalid", "--oracle-only --gpu"):
+        for args in ("", "--choose-only", "--context-only", "--clear-read", "--gpu", "--reject-color",
+                     "--pbuffer-choose-only", "--pbuffer-context-only", "--pbuffer-clear-read",
+                     "--invalid", "--oracle-only --gpu", "--oracle-only --pbuffer-clear-read"):
             run(prefix + "./triangle_oracle " + args + '; result=$?; test "$result" -eq 2')
         artifacts = ("gl_triangle_cgl_probe", "triangle_oracle", "triangle_oracle_sanitized")
         run(prefix + "shasum -a 256 " + " ".join(names + artifacts))
@@ -86,6 +103,9 @@ def main():
         if changed:
             raise RuntimeError("源文件在编译期间变动，需重新隔离构建")
         record("PUBLIC_CGL_NOT_EXECUTED：公开验收尚未运行；编译/CPU 通过不是 GPU 通过。")
+        record("PBUFFER_NOT_RUN：需另行确认自有 renderer 的 PBuffer 能力、隔离恢复和 runner 支持后逐阶段串行验收。")
+        for stage in ("pbuffer-choose-only", "pbuffer-context-only", "pbuffer-clear-read"):
+            record("PBuffer 阶段（本脚本未执行）：" + remote + "/gl_triangle_cgl_probe --" + stage)
         record("格式选择（本脚本未执行）：" + remote + "/gl_triangle_cgl_probe --choose-only")
         record("初始化阶段（本脚本未执行）：" + remote + "/gl_triangle_cgl_probe --context-only")
         record("清屏读回阶段（本脚本未执行）：" + remote + "/gl_triangle_cgl_probe --clear-read")

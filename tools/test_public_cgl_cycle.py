@@ -277,5 +277,112 @@ class CycleTests(unittest.TestCase):
         self.assertFalse(self.ns["backup_matches"](observed, original))
 
 
+class StageTests(unittest.TestCase):
+    RESULTS = {
+        "choose-only": "PUBLIC_CGL_CHOOSE PASS mode=no-draw",
+        "context-only": "PUBLIC_CGL_CONTEXT PASS mode=no-draw",
+        "clear-read": "PUBLIC_CGL_CLEAR_READ PASS mode=no-draw",
+        "gpu": "PUBLIC_CGL_TRIANGLE PASS mode=restricted-red",
+        "reject-color": "PUBLIC_CGL_TRIANGLE PASS mode=restricted-reject-color",
+        "pbuffer-choose-only": "PUBLIC_CGL_PBUFFER_CHOOSE PASS mode=no-draw",
+        "pbuffer-context-only": "PUBLIC_CGL_PBUFFER_CONTEXT PASS mode=no-draw",
+        "pbuffer-clear-read": "PUBLIC_CGL_PBUFFER_CLEAR_READ PASS mode=no-draw",
+    }
+
+    def request(self, stage):
+        argv = ["--stage", stage]
+        for name in ("candidate", "probe", "trust-probe"):
+            argv.extend(["--" + name, "/tmp/fixture-" + name,
+                         "--" + name + "-sha256", "a" * 64])
+        return RUNNER.make_request(RUNNER.parser().parse_args(argv))
+
+    def record(self, stage, output):
+        probes = {name: {"exit_code": 0, "exit_confirmed": True, "timeout": False}
+                  for name in ("trust_before", "trust_replaced", "public", "trust_restored")}
+        probes["public"].update(argv=["/tmp/fixture-probe", "--" + stage],
+                                stdout_base64=base64.b64encode(output).decode())
+        return {
+            "status": "COMPLETED", "restore_verified": True, "experiment_ok": True,
+            "backup_verified": True, "original_inode": 1, "restoration_inode": 2,
+            "old_inode_path": "/tmp/fixture-original", "plist_metadata": {"mode": 420},
+            "restored_plist_metadata": {"mode": 420},
+            "restored_metadata": {"mode": 0o755, "uid": 0, "gid": 0},
+            "hashes": {"before": RUNNER.BINARY_SHA, "replaced": "a" * 64,
+                       "restored": RUNNER.BINARY_SHA, "plist_before": RUNNER.PLIST_SHA,
+                       "plist_replaced": RUNNER.PLIST_SHA, "plist_restored": RUNNER.PLIST_SHA},
+            "probes": probes,
+        }
+
+    def test_all_stages_require_their_own_summary(self):
+        self.assertEqual(set(RUNNER.STAGES), set(self.RESULTS))
+        for stage, expected in self.RESULTS.items():
+            request = self.request(stage)
+            self.assertEqual(request["expected_public_result"], expected)
+            for actual in self.RESULTS.values():
+                with self.subTest(stage=stage, actual=actual):
+                    output = ("CPU_ORACLE PASS\n" + actual + "\n").encode()
+                    self.assertEqual(RUNNER.verified_result(self.record(stage, output), request, 0),
+                                     actual == expected)
+            for output in (b"", b"CPU_PBUFFER_ORACLE PASS\nCPU_ORACLE PASS\n",
+                           expected.replace(" PASS ", " FAIL ").encode(),
+                           (expected + "\n" + expected).encode(),
+                           (expected + " extra").encode()):
+                with self.subTest(stage=stage, output=output):
+                    self.assertFalse(RUNNER.verified_result(self.record(stage, output), request, 0))
+            record = self.record(stage, expected.encode())
+            record["probes"]["public"]["argv"][-1] = "--oracle-only"
+            self.assertFalse(RUNNER.verified_result(record, request, 0))
+
+    def test_stage_success_preserves_failure_gates(self):
+        stage = "pbuffer-clear-read"
+        request = self.request(stage)
+        for name, changes in (
+                ("public", {"exit_code": 1}), ("public", {"timeout": True}),
+                ("public", {"exit_confirmed": False}), ("trust_restored", {"exit_code": 1})):
+            with self.subTest(name=name, changes=changes):
+                record = self.record(stage, self.RESULTS[stage].encode())
+                record["probes"][name].update(changes)
+                self.assertFalse(RUNNER.verified_result(record, request, 0))
+        for field in ("restore_verified", "experiment_ok", "backup_verified"):
+            record = self.record(stage, self.RESULTS[stage].encode())
+            record[field] = False
+            self.assertFalse(RUNNER.verified_result(record, request, 0))
+        record = self.record(stage, self.RESULTS[stage].encode())
+        self.assertFalse(RUNNER.verified_result(record, request, 1))
+        record["hashes"]["restored"] = "0" * 64
+        self.assertFalse(RUNNER.verified_result(record, request, 0))
+
+    def test_remote_stage_check_before_experiment_success(self):
+        # 仅执行公开 probe 的 mock 调用、输出判断和成功赋值，绝不进入远端替换流程。
+        body = TREE.body[MAIN].body[0].body
+        start = next(i for i, node in enumerate(body) if isinstance(node, ast.Expr)
+                     and isinstance(node.value, ast.Call)
+                     and isinstance(node.value.func, ast.Name) and node.value.func.id == "probe"
+                     and node.value.args[0].value == "public")
+        block = compile(ast.Module(body=body[start:start + 4], type_ignores=[]), "stage", "exec")
+        def require(condition, message):
+            if not condition:
+                raise RuntimeError(message)
+        with tempfile.TemporaryDirectory(prefix="public-cgl-stage-test-") as temp:
+            work = pathlib.Path(temp)
+            for stage, expected in self.RESULTS.items():
+                for output in (expected, "CPU_ORACLE PASS", self.RESULTS["gpu"],
+                               expected.replace(" PASS ", " FAIL ")):
+                    with self.subTest(stage=stage, output=output):
+                        (work / "public.stdout").write_bytes((output + "\n").encode())
+                        probe = mock.Mock()
+                        state = {}
+                        ns = {"cfg": self.request(stage), "work": work, "state": state,
+                              "probe": probe, "require": require}
+                        if output == expected:
+                            exec(block, ns)
+                            self.assertTrue(state["experiment_ok"])
+                        else:
+                            with self.assertRaisesRegex(RuntimeError, "阶段结果不匹配"):
+                                exec(block, ns)
+                            self.assertNotIn("experiment_ok", state)
+                        probe.assert_called_once_with("public", [str(work / "probe"), "--" + stage])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

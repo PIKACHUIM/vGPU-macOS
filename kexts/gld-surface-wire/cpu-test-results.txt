@@ -1,0 +1,41 @@
+UTC 2026-11-17T03:59:13.449335+00:00
+COMMAND test -d /var/tmp && mkdir /var/tmp/vgpu-surface-wire-cpu-fbd025b4cefc478ab319cbf7a609966d
+EXIT 0
+SHA256 75afd09c8a19aad4613733b096df993ea5c8607a48d9526a81cd628f3bd14b8b vgpu_surface_wire.h
+SHA256 5e60ec98150ef554e08a9dec67b9dd28b33740d26b3b91fc151cbca723c09ddd vgpu_surface_wire.c
+SHA256 fe209d0d89c1e1429df3dbb772d52ba045d0f94fe5ce7e0fa9900438b7e16736 wire_test.c
+SHA256 874f01909f4e748392546acac2c0cc342056c7b78c2988a158637eee806d8305 run_cpu_tests.py
+COMMAND clang --version && xcrun --show-sdk-path
+Apple clang version 17.0.0 (clang-1700.0.13.5)
+Target: x86_64-apple-darwin24.6.0
+Thread model: posix
+InstalledDir: /Library/Developer/CommandLineTools/usr/bin
+/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-wire-cpu-fbd025b4cefc478ab319cbf7a609966d && shasum -a 256 vgpu_surface_wire.h vgpu_surface_wire.c wire_test.c
+75afd09c8a19aad4613733b096df993ea5c8607a48d9526a81cd628f3bd14b8b  vgpu_surface_wire.h
+5e60ec98150ef554e08a9dec67b9dd28b33740d26b3b91fc151cbca723c09ddd  vgpu_surface_wire.c
+fe209d0d89c1e1429df3dbb772d52ba045d0f94fe5ce7e0fa9900438b7e16736  wire_test.c
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-wire-cpu-fbd025b4cefc478ab319cbf7a609966d && clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -Wstrict-prototypes -pedantic -g -O1 vgpu_surface_wire.c wire_test.c -o wire-test
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-wire-cpu-fbd025b4cefc478ab319cbf7a609966d && ./wire-test
+PASS: 502 CPU checks; exact wire, strict rejection, unchanged outputs
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-wire-cpu-fbd025b4cefc478ab319cbf7a609966d && clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -Wstrict-prototypes -pedantic -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer vgpu_surface_wire.c wire_test.c -o wire-sanitized
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-wire-cpu-fbd025b4cefc478ab319cbf7a609966d && ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./wire-sanitized
+PASS: 502 CPU checks; exact wire, strict rejection, unchanged outputs
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-wire-cpu-fbd025b4cefc478ab319cbf7a609966d && clang++ -x c++ -std=c++11 -Wall -Wextra -Werror -Wconversion -Wshadow -pedantic -O1 -c vgpu_surface_wire.c -o wire-cxx.o
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-wire-cpu-fbd025b4cefc478ab319cbf7a609966d && clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -Wstrict-prototypes -pedantic -g -O1 -c wire_test.c -o test-c.o
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-wire-cpu-fbd025b4cefc478ab319cbf7a609966d && clang++ wire-cxx.o test-c.o -o wire-cxx-test && ./wire-cxx-test
+PASS: 502 CPU checks; exact wire, strict rejection, unchanged outputs
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-wire-cpu-fbd025b4cefc478ab319cbf7a609966d && clang -std=c11 -Wall -Wextra -Werror -Wconversion -Wshadow -Wstrict-prototypes -pedantic -g -O1 -ffreestanding -fno-builtin -fno-stack-protector -c vgpu_surface_wire.c -o wire-freestanding.o
+EXIT 0
+COMMAND cd /var/tmp/vgpu-surface-wire-cpu-fbd025b4cefc478ab319cbf7a609966d && nm -u wire-freestanding.o
+EXIT 0
+ALL CPU RUNS PASSED; no undefined symbols in freestanding core

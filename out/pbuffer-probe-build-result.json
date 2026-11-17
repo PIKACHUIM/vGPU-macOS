@@ -1,0 +1,19 @@
+{
+  "status": 0,
+  "remote": "/var/tmp/vgpu-public-triangle-20261117T041415414380Z",
+  "source_sha256": {
+    "build_public_triangle_probe.py": "fe74fd4622e20fc39c43f7b02c7325982daa906143e9b89fde2f3bfd4a7a6097",
+    "gl_triangle_cgl_probe.c": "dbec7068d76fad8279d4b7865df9672793783ca097b26d828672b66f0608e09b"
+  },
+  "binary_sha256": {
+    "gl_triangle_cgl_probe": "14242ea6d790edeaec1cb579fa9511d2a085c3daf5dbd3c26d2ffa1f992bdf69",
+    "triangle_oracle": "6e669dc7c841851217f63b0c2242dc567d60faef769a46c142527643319d71cd",
+    "triangle_oracle_sanitized": "e6b12046548b21bc44c5c42757e203fcf3ffc3ced814a2c3666c8e6f6ae80f61"
+  },
+  "workspace_changed": [],
+  "cpu_oracle": "PASS normal and ASan+UBSan",
+  "public_acceptance": "NOT_RUN",
+  "cgl_executed": false,
+  "gpu_executed": false,
+  "evidence_note": "Summary of captured build stdout, not a full raw log. No public CGL binary executed."
+}

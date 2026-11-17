@@ -6675,3 +6675,11 @@ ASan/UBSan只覆盖探针，bundle插桩未作声明，detect_leaks=0。未安�
 GLEngine在0x7FFB0638EBFB–EC0F把G+0xb570的两个uint32作为size2传给GLD。返回1进入普通成功路径，返回2触发配置更新；保持单缓冲配置不变且导入真实完成时可返回1并输出真实尺寸。A+0x29控制默认FRONT_LEFT/BACK_LEFT初始化，H+0x3c08为read、H+0x3c0c起8项uint16为draw选择。B+0x4a0/4a8为空时需解析context局部默认drawable；命名FBO保持独立。实现不得把所有FRONT/BACK/NONE映射到color0，也不得越界改写engine数据。
 
 mode0x00100024的depth4到原生BGRA字节序仍缺端到端证据；现有BGRA backing可作为自研内部格式设计，但不能声称mode4与0xa全部等价。公开PBuffer三阶段探针已构建并通过CPU oracle，尚未运行CGL/GL；surface、默认目标与恢复runner接通前不增加生产PF能力。
+
+### 86.20 PBuffer探针与恢复runner准备
+
+新增--pbuffer-choose-only/--pbuffer-context-only/--pbuffer-clear-read，保留自有renderer/accelerated/noRecovery/legacy/单缓冲限制。clear-read使用256×256、GL_TEXTURE_2D/GL_RGBA/maxLevel0、face0/level0，核对实际附加对象及renderer；默认framebuffer0的FRONT执行两种非对称RGBA全图和pack/padding比较，不占额外双FBO。按current解绑、drawable解绑、context、PBuffer、PF顺序清理，失败不会报PASS。
+
+独立审查未发现可确认代码缺陷；补跑隔离SDK/CPU并核对源码不变，产物摘要见out/pbuffer-probe-build-result.json，远端/var/tmp/vgpu-public-triangle-20261117T041415414380Z。该JSON是捕获输出的摘要，不冒充完整原始日志。公开CGL未执行。恢复runner支持三个新阶段，远端与本地均要求唯一且匹配请求阶段的PUBLIC_CGL_* PASS行及实际argv，避免CPU oracle或其他阶段exit0误报。17项本地故障/阶段测试通过；真实替换恢复没有在本轮执行。
+
+共享内核初稿完成双槽连接级lease与task retain/release，CPU/SDK构建通过，但独立审查发现缺少每次externalMethod实际current_task核验，端口转交可沿用旧身份。此问题修复及回归进行中，初稿未安装。幂等的连接级import不能由多个独立image各自release，用户态拟采用每次显式导入独立连接，避免引用提前撤销。

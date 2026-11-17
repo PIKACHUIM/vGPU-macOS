@@ -17,7 +17,17 @@ import uuid
 BINARY_SHA = "2b6706eba22815dd3c4b359ad30f9c87728d3435ae6295ffd7f1bf64d9322247"
 PLIST_SHA = "148f813929040c7ad06f9d7b9f2da0217d36fe0fd307fee1a4cc6e3279a5f737"
 TARGET = "/Library/GPUBundles/VGPUDriverDiagnostic.bundle/Contents/MacOS/VGPUDriverDiagnostic"
-STAGES = ("choose-only", "context-only", "clear-read", "gpu", "reject-color")
+STAGE_RESULTS = {
+    "choose-only": "PUBLIC_CGL_CHOOSE PASS mode=no-draw",
+    "context-only": "PUBLIC_CGL_CONTEXT PASS mode=no-draw",
+    "clear-read": "PUBLIC_CGL_CLEAR_READ PASS mode=no-draw",
+    "gpu": "PUBLIC_CGL_TRIANGLE PASS mode=restricted-red",
+    "reject-color": "PUBLIC_CGL_TRIANGLE PASS mode=restricted-reject-color",
+    "pbuffer-choose-only": "PUBLIC_CGL_PBUFFER_CHOOSE PASS mode=no-draw",
+    "pbuffer-context-only": "PUBLIC_CGL_PBUFFER_CONTEXT PASS mode=no-draw",
+    "pbuffer-clear-read": "PUBLIC_CGL_PBUFFER_CLEAR_READ PASS mode=no-draw",
+}
+STAGES = tuple(STAGE_RESULTS)
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 # 此程序由远端系统 Python 执行；所有外部程序均使用参数数组，禁止 shell 插值。
@@ -277,6 +287,10 @@ try:
         probe("trust_replaced", [str(work / "trust_probe"), "VGPUDriverDiagnostic"])
         # trust 成功后才允许公开 CGL probe 执行。
         probe("public", [str(work / "probe"), "--" + cfg["stage"]])
+        summaries = [line for line in (work / "public.stdout").read_bytes().splitlines()
+                     if line.startswith(b"PUBLIC_CGL_")]
+        require(summaries == [cfg["expected_public_result"].encode()],
+                "公开探测阶段结果不匹配: " + cfg["stage"])
         state["experiment_ok"] = True
         save()
     elif phase == "restore":
@@ -395,6 +409,7 @@ def make_request(args):
         "candidate", "candidate_sha256", "probe", "probe_sha256",
         "trust_probe", "trust_probe_sha256", "stage")}
     result.update(target=TARGET, binary_sha256=BINARY_SHA, plist_sha256=PLIST_SHA,
+                  expected_public_result=STAGE_RESULTS[args.stage],
                   token=token, marker="PUBLIC_CGL_RESULT_" + token + "=")
     return result
 
@@ -429,7 +444,13 @@ def build_script(request):
 def verified_result(record, request, exit_code):
     probes = record.get("probes", {})
     hashes = record.get("hashes", {})
-    return (exit_code == 0 and record.get("status") == "COMPLETED"
+    public_output = base64.b64decode(probes.get("public", {}).get("stdout_base64", ""),
+                                    validate=True)
+    summaries = [line for line in public_output.splitlines() if line.startswith(b"PUBLIC_CGL_")]
+    return (exit_code == 0
+            and summaries == [STAGE_RESULTS[request["stage"]].encode()]
+            and probes.get("public", {}).get("argv", [])[-1:] == ["--" + request["stage"]]
+            and record.get("status") == "COMPLETED"
             and record.get("restore_verified") is True
             and record.get("experiment_ok") is True
             and record.get("backup_verified") is True
